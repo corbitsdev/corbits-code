@@ -3,10 +3,9 @@
 // before approval volume could be measured at all.
 //
 // Reports: total asks, split by mode (auto vs interactive) and outcome, a
-// per-rule breakdown, settle-duration and display-delay percentiles (the
+// per-rule breakdown, and settle-duration and display-delay percentiles (the
 // display delay is the CL-5664 signal — a queued gate arming its timeout
-// before the operator could see it), and a mega-chain count (segments >=
-// MEGA_CHAIN_SEGMENT_THRESHOLD).
+// before the operator could see it).
 //
 // Prints only aggregate counts and timings, never a tool subject or command
 // text — the log itself never records either, so there is nothing to leak
@@ -19,7 +18,6 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { APPROVAL_LOG_FILE, type ApprovalRecord } from "../src/permission/approval-log.js";
-import { MEGA_CHAIN_SEGMENT_THRESHOLD } from "../src/permission/classify.js";
 
 // lstat, and skip symlinks: session dirs carry a `latest` symlink to a real
 // session, and following it double-counts every record in that session.
@@ -56,7 +54,6 @@ interface Bucket {
   byMode: Map<string, number>;
   durations: number[];
   displayDelays: number[];
-  megaChains: number;
 }
 
 function emptyBucket(): Bucket {
@@ -66,7 +63,6 @@ function emptyBucket(): Bucket {
     byMode: new Map(),
     durations: [],
     displayDelays: [],
-    megaChains: 0,
   };
 }
 
@@ -111,7 +107,6 @@ for (const file of files) {
     bucket.byMode.set(record.mode, (bucket.byMode.get(record.mode) ?? 0) + 1);
     if (typeof record.durationMs === "number") bucket.durations.push(record.durationMs);
     if (typeof record.displayDelayMs === "number") bucket.displayDelays.push(record.displayDelayMs);
-    if ((record.segments ?? 0) >= MEGA_CHAIN_SEGMENT_THRESHOLD) bucket.megaChains++;
 
     // Duplicate-rate proxy: how often the same rule fires more than once per
     // session file (a session repeatedly asking for something it was already
@@ -133,7 +128,7 @@ if (records === 0) {
 
 const rows = [...buckets.entries()].sort((a, b) => b[1].count - a[1].count);
 console.log(
-  "\ntool                        n  auto/interactive  duration p50/p90/max  displayDelay p50/p90/max  megaChains",
+  "\ntool                        n  auto/interactive  duration p50/p90/max  displayDelay p50/p90/max",
 );
 for (const [key, bucket] of rows) {
   const durations = [...bucket.durations].sort((a, b) => a - b);
@@ -149,7 +144,7 @@ for (const [key, bucket] of rows) {
   const autoCount = bucket.byMode.get("auto") ?? 0;
   const interactiveCount = bucket.byMode.get("interactive") ?? 0;
   console.log(
-    `${key.padEnd(26)} ${String(bucket.count).padStart(3)}  ${String(autoCount).padStart(4)}/${String(interactiveCount).padEnd(11)} ${durDist.padEnd(24)} ${delayDist.padEnd(24)} ${bucket.megaChains}`,
+    `${key.padEnd(26)} ${String(bucket.count).padStart(3)}  ${String(autoCount).padStart(4)}/${String(interactiveCount).padEnd(11)} ${durDist.padEnd(24)} ${delayDist}`,
   );
 }
 

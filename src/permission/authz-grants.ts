@@ -67,9 +67,9 @@ export function cwdMatchesGrant(
 // The single place that decides whether a grant's tool/providerModel/cwd
 // scope covers a request, independent of whether the grant's pattern matches
 // the request's subject. Every live call site that needs to know "does this
-// grant cover this request's scope" — evaluateApprovals, isRequestCoveredByGrant,
-// hasExactFullCommandGrant — delegates here so a scoping-dimension change
-// never has to be made in more than one place.
+// grant cover this request's scope" — evaluateApprovals, isRequestCoveredByGrant —
+// delegates here so a scoping-dimension change never has to be made in more
+// than one place.
 export function grantScopeMatches(
   approval: Approval,
   tool: string,

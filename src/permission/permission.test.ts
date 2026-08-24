@@ -461,22 +461,18 @@ describe("buildRequests", () => {
     expect(reqs[0]?.notice).toBeUndefined();
   });
 
-  test("a 5-segment chain (threshold) offers no scopes and shows the mega-chain notice", () => {
+  test("a 5-segment chain keeps the exact-command scope and no notice", () => {
     const cmd = ["a", "b", "c", "d", "e"].join(" && ");
     const reqs = buildRequests(shellCall(cmd));
-    expect(reqs[0]?.scopes).toEqual([]);
-    expect(reqs[0]?.notice).toBe(
-      "Chains of 5+ steps are approved once only — split into shorter commands for reusable approvals.",
-    );
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([cmd]);
+    expect(reqs[0]?.notice).toBeUndefined();
   });
 
-  test("a 6-segment chain (threshold+1) also offers no scopes", () => {
-    const cmd = ["a", "b", "c", "d", "e", "f"].join(" && ");
+  test("an 8-segment chain also keeps the exact-command scope and no notice", () => {
+    const cmd = ["a", "b", "c", "d", "e", "f", "g", "h"].join(" && ");
     const reqs = buildRequests(shellCall(cmd));
-    expect(reqs[0]?.scopes).toEqual([]);
-    expect(reqs[0]?.notice).toBe(
-      "Chains of 5+ steps are approved once only — split into shorter commands for reusable approvals.",
-    );
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([cmd]);
+    expect(reqs[0]?.notice).toBeUndefined();
   });
 
   test("full-line shell comments never become approval subjects", () => {
@@ -2077,24 +2073,29 @@ describe("createPermissionGate", () => {
     expect(seen).toEqual([full]);
   });
 
-  // buildRequests surfaces the full chain once; multi-segment scopes are exact-only
-  // so a prefix grant cannot later cover a different dangerous chain.
+  // buildRequests surfaces the full chain once; multi-segment scopes are the
+  // full-chain persist payload (minted per-segment) so a prefix grant cannot
+  // later cover a different dangerous chain.
   test("buildRequests surfaces a chained command as one full-block request with exact scopes", () => {
     const full = "echo ok && cat > /etc/x";
     const reqs = buildRequests(shellCall(full));
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.subject).toBe(full);
     expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([full]);
+    expect(reqs[0]?.scopes.map((s) => s.label)).toEqual([
+      "Always allow each command in this chain",
+    ]);
     // No per-segment prefix scopes that would cross-contaminate.
     expect(reqs[0]?.scopes.some((s) => s.pattern === "echo *")).toBe(false);
     expect(reqs[0]?.scopes.some((s) => s.pattern === "cat *")).toBe(false);
   });
 
-  // Persisting the exact multi-segment scope must cover the same full block on
-  // a later call without re-prompting, and must not cover a different chain.
-  test("persisting an exact multi-segment scope reuses on the same chain only", async () => {
+  // Persisting the exact multi-segment scope decomposes into one grant per
+  // real segment, so approving `a && b` later covers `b` on its own — a chain
+  // containing a previously-granted segment only re-prompts for the new part.
+  test("persisting an exact multi-segment scope mints one grant per segment", async () => {
     const full = "npm i && curl x";
-    const other = "npm i && curl y";
+    const later = "curl x && npm run build";
     let asked = 0;
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes[0];
@@ -2119,46 +2120,109 @@ describe("createPermissionGate", () => {
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
-    expect(persisted).toEqual([{ tool: "run_shell", pattern: full, cwd: process.cwd() }]);
-    // Same full block is covered by the exact grant.
+    expect(persisted).toEqual([
+      { tool: "run_shell", pattern: "npm i", cwd: process.cwd() },
+      { tool: "run_shell", pattern: "curl x", cwd: process.cwd() },
+    ]);
+    // Same full block is covered — both segments already granted.
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
-    // A different chain still needs its own decision.
-    expect((await gate.evaluate(shellCall(other))).allowed).toBe(true);
+    // A chain reusing `curl x` in a different order/company only needs a
+    // fresh decision for the ungranted segment (`npm run build`), not the
+    // whole new chain — the point of granting per segment.
+    expect((await gate.evaluate(shellCall(later))).allowed).toBe(true);
     expect(asked).toBe(2);
   });
 
-  // A mega-chain (>= MEGA_CHAIN_SEGMENT_THRESHOLD segments) never mints a
-  // grant, even if a persist scope somehow arrives back from requestApproval
-  // (defense in depth alongside buildRequests offering no scopes at all).
-  test("a mega-chain never mints a grant and re-prompts every time", async () => {
-    const full = "a && b && c && d && e";
+  // All-granted chains behave identically regardless of length: once every
+  // segment has its own grant, a long chain auto-resolves exactly like a
+  // short one — there is no length-based special case left in minting.
+  test("all-granted chains of length 1, 2, and 8 behave identically", async () => {
+    const letters = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const approvals: Approval[] = letters.map((l) => ({ tool: "run_shell", pattern: l }));
     let asked = 0;
-    const persisted: Approval[] = [];
+    const gate = createPermissionGate({
+      approvals,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("a"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("a && b"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall(letters.join(" && ")))).allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  // Approving `a && b` grants both segments individually; a later chain that
+  // reuses only `b` prompts for just the new segment, never the whole chain.
+  test("approving a && b then running b && c prompts only for c", async () => {
+    let asked = 0;
+    const seenSubjects: string[] = [];
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async (req) => {
         asked++;
+        seenSubjects.push(req.subject);
+        const exact = req.scopes.find((s) => s.id === "exact");
         return {
           allow: true,
-          persist: {
-            id: "exact",
-            label: "Always allow this exact command",
-            pattern: req.subject,
-            grant: "project",
-          },
+          ...(exact !== undefined ? { persist: { ...exact, grant: "session" as const } } : {}),
         };
       },
-      persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
     });
-    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("a && b"))).allowed).toBe(true);
     expect(asked).toBe(1);
-    expect(persisted).toEqual([]);
-    // No grant was minted, so the same chain prompts again.
-    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("b && c"))).allowed).toBe(true);
     expect(asked).toBe(2);
+    expect(seenSubjects[1]).toBe("b && c");
+  });
+
+  // Verdicts are order-independent: the same segment set granted from one
+  // ordering auto-resolves the same set in a different order.
+  test("the same segment set in a different order gives the same verdict", async () => {
+    const approvals: Approval[] = [
+      { tool: "run_shell", pattern: "a" },
+      { tool: "run_shell", pattern: "b" },
+      { tool: "run_shell", pattern: "c" },
+    ];
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("a && b && c"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("c && a && b"))).allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  // A wrapper that hides an ungranted segment inside `bash -c "..."` still
+  // prompts — expandShellSubjects peels the wrapper so the grant can't be
+  // laundered through it.
+  test("a wrapper hiding an ungranted segment still prompts", async () => {
+    const approvals: Approval[] = [{ tool: "run_shell", pattern: "granted" }];
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall('bash -c "granted && ungranted"'));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
   });
 
   // The gate must own its approval state, not mutate the caller's array.

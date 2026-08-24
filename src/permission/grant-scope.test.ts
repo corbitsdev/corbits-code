@@ -3,6 +3,8 @@ import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, PermissionRequest } from "./types.js";
 import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
 import { createPermissionGate, isRequestCoveredByGrant } from "./gate.js";
+import { createPermissionRequestQueue } from "./queue.js";
+import { buildRequests } from "./classify.js";
 
 // evaluateApprovals and isRequestCoveredByGrant each decide, independently,
 // whether a grant's tool/providerModel/cwd scope covers a request. Both are
@@ -81,13 +83,12 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
   }
 });
 
-// hasExactFullCommandGrant (gate.ts) is the third live call site grantScopeMatches
-// unifies, but it is not exported — it only surfaces through the exact-full-command
-// replay path inside evaluate(). This drives that path directly with grants that
-// grantScopeMatches would refuse (wrong cwd, wrong providerModel) to confirm the
-// replay never fires when the shared predicate says no, matching the coverage the
-// other two call sites get above.
-describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
+// Grant minting decomposes a multi-segment chain scope into one grant per
+// real segment (see mintGrant in gate.ts). A grant whose pattern is the full
+// chain string is legacy shape: evaluate() and isRequestCoveredByGrant both
+// match per segment only, so that shape never replays. Per-segment grants are
+// the live path (see permission.test.ts).
+describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   const full = "npm i && curl x";
   const shellCall = (command: string): ToolCall => ({
     id: "c",
@@ -98,7 +99,7 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
   test("does not replay a grant scoped to a different cwd", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: full, cwd: "/other-project" }],
+      approvals: [{ tool: "run_shell", pattern: "npm i", cwd: "/other-project" }],
       requestApproval: async () => {
         asked++;
         return { allow: true };
@@ -107,15 +108,13 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
       skipPermissions: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
-    // grantScopeMatches would refuse this grant (cwd mismatch), so the
-    // exact-full-command shortcut must not fire — the operator is still asked.
     expect(asked).toBeGreaterThan(0);
   });
 
   test("does not replay a grant scoped to a different provider model", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: full, providerModel: "openai:gpt-5" }],
+      approvals: [{ tool: "run_shell", pattern: "npm i", providerModel: "openai:gpt-5" }],
       providerName: "anthropic",
       model: "opus",
       requestApproval: async () => {
@@ -129,7 +128,40 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
     expect(asked).toBeGreaterThan(0);
   });
 
-  test("replays a grant whose scope grantScopeMatches accepts", async () => {
+  test("replays per-segment grants whose scope grantScopeMatches accepts", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [
+        { tool: "run_shell", pattern: "npm i" },
+        { tool: "run_shell", pattern: "curl x" },
+      ],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+});
+
+// Explicit rejection of the pre-CL-5752 whole-string chain grant shape: both
+// evaluate() and isRequestCoveredByGrant match per segment only, so a stored
+// pattern equal to the full chain never short-circuits. Dual paths stay
+// aligned — neither honors legacy while the other rejects it.
+describe("legacy whole-string chain grants are explicitly rejected", () => {
+  const full = "npm i && curl x";
+  const shellCall = (command: string): ToolCall => ({
+    id: "c",
+    name: "run_shell",
+    arguments: { command },
+  });
+  const workspace: GrantWorkspace = { resolvedCwd: "/proj", roots: ["/proj"] };
+  const noopRestricted = () => false;
+
+  test("evaluate() re-prompts for a legacy full-chain pattern", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: full }],
@@ -141,6 +173,137 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
       skipPermissions: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
-    expect(asked).toBe(0);
+    expect(asked).toBe(1);
+  });
+
+  test("isRequestCoveredByGrant refuses a legacy full-chain pattern", () => {
+    const request: PermissionRequest = {
+      tool: "run_shell",
+      action: "Run",
+      subject: full,
+      scopes: [],
+      cwd: "/proj",
+    };
+    expect(
+      isRequestCoveredByGrant(
+        request,
+        { tool: "run_shell", pattern: full },
+        undefined,
+        noopRestricted,
+        workspace,
+      ),
+    ).toBe(false);
+  });
+
+  test("a single per-segment grant alone does not cover the full chain", () => {
+    const request: PermissionRequest = {
+      tool: "run_shell",
+      action: "Run",
+      subject: full,
+      scopes: [],
+      cwd: "/proj",
+    };
+    expect(
+      isRequestCoveredByGrant(
+        request,
+        { tool: "run_shell", pattern: "npm i" },
+        undefined,
+        noopRestricted,
+        workspace,
+      ),
+    ).toBe(false);
+  });
+});
+
+// After the operator approves `a && b`, mintGrant emits one grant per segment
+// and onGrant's covers predicate sees the live approvals list — so a queued
+// identical chain drains once both segments are present, without a second
+// prompt.
+describe("queue reconcile drains an identical chain after per-segment mint", () => {
+  const full = "npm i && curl x";
+  const shellCall = (command: string): ToolCall => ({
+    id: "c",
+    name: "run_shell",
+    arguments: { command },
+  });
+
+  test("queued identical chain settles after approving the same chain", async () => {
+    const queue = createPermissionRequestQueue();
+    const outcomes: { allow: boolean }[] = [];
+    queue.enqueue(
+      {
+        tool: "run_shell",
+        action: "Run",
+        subject: full,
+        scopes: [],
+        cwd: process.cwd(),
+      },
+      (o) => outcomes.push({ allow: o.allow }),
+    );
+
+    const built = buildRequests(shellCall(full))[0]?.scopes[0];
+    expect(built?.pattern).toBe(full);
+    if (built === undefined) throw new Error("expected chain scope");
+
+    let grantEvents = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({
+        allow: true,
+        persist: { ...built, grant: "session" as const },
+      }),
+      onGrant: (_approval, covers) => {
+        grantEvents++;
+        queue.reconcile(covers);
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    // Two per-segment grants minted → two onGrant fires; the second drains.
+    expect(grantEvents).toBe(2);
+    expect(outcomes).toEqual([{ allow: true }]);
+    expect(queue.size()).toBe(0);
+  });
+
+  test("first per-segment mint alone does not drain a multi-segment queue entry", async () => {
+    const queue = createPermissionRequestQueue();
+    const outcomes: { allow: boolean }[] = [];
+    queue.enqueue(
+      {
+        tool: "run_shell",
+        action: "Run",
+        subject: full,
+        scopes: [],
+        cwd: process.cwd(),
+      },
+      (o) => outcomes.push({ allow: o.allow }),
+    );
+
+    // Seed only the first segment via a one-segment persist, then assert the
+    // queued full chain stays put — draining on a partial grant would let an
+    // unapproved tail through.
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({
+        allow: true,
+        persist: {
+          id: "exact",
+          label: "Always allow this exact command",
+          pattern: "npm i",
+          grant: "session" as const,
+        },
+      }),
+      onGrant: (_approval, covers) => {
+        queue.reconcile(covers);
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    expect((await gate.evaluate(shellCall("npm i"))).allowed).toBe(true);
+    expect(outcomes).toEqual([]);
+    expect(queue.size()).toBe(1);
   });
 });
