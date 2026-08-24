@@ -33,6 +33,5 @@ Read and search the codebase to ground the design; you have no product-mutation 
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
-  nudge: { maxTurns: 40 },
   modelRole: "test",
 };

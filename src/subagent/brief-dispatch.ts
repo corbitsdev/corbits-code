@@ -1,9 +1,9 @@
 /**
- * Parent-side re-dispatch caps for task briefs (CL-4343 + CL-5203).
+ * Parent-side re-dispatch bookkeeping for task briefs (CL-4343 + CL-5203).
  *
  * This module tracks how often the *parent* re-spawns the same brief so
- * turn-budget salvage flips from "raise maxTurns" to "stop" after enough
- * same-brief dispatches without a successful complete.
+ * salvage outcomes can be classified per-fingerprint (successful completes
+ * reset the counter).
  *
  * Session-scoped: one ledger per createTaskTool instance (parent chat tool).
  */
@@ -29,13 +29,6 @@ export interface BriefDispatchRecord {
 }
 
 /**
- * After this many total dispatches of the same brief without a successful
- * complete (original + 2 re-dispatches), turn-budget salvage no longer invites
- * another re-dispatch. Successful completes reset the counter.
- */
-export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
-
-/**
  * Classify a completed dispatch as a salvage kind the parent ledger cares
  * about, from the structured stop reason the run reported directly — never
  * by matching the report body's prose. `wasCancelled` (observed independently,
@@ -53,8 +46,8 @@ export function classifyBriefSalvage(input: {
 /**
  * Stable fingerprint for a task brief. Covers the typed spawn contract fields
  * that define the job (prompt + agent + intent + success_criteria + do_not).
- * Description, context, goals, report_focus, maxTurns, and tier are intentionally
- * omitted so cosmetic label / budget tweaks cannot bypass the cap.
+ * Description, context, goals, report_focus, and tier are intentionally
+ * omitted so cosmetic label tweaks cannot bypass the cap.
  */
 export function fingerprintTaskBrief(input: TaskBriefFingerprintInput): string {
   const parts = [
@@ -85,7 +78,7 @@ export interface BriefDispatchLedger {
   recordOutcome: (fingerprint: string, salvage: BriefSalvageKind | null) => void;
   /**
    * Undo a prior admit when the run never produced a salvage or success body
-   * (throw / auth fail). Prevents burning turn-budget retry budget on crashes.
+   * (throw / auth fail). Prevents burning re-dispatch bookkeeping on crashes.
    */
   release: (fingerprint: string) => void;
 }
@@ -125,12 +118,4 @@ export function createBriefDispatchLedger(): BriefDispatchLedger {
       byFingerprint.set(fingerprint, { dispatchCount: existing.dispatchCount - 1 });
     },
   };
-}
-
-/**
- * Whether turn-budget parent hint should recommend stopping rather than
- * re-dispatching with a higher maxTurns.
- */
-export function shouldStopTurnBudgetRedispatch(dispatchCount: number): boolean {
-  return dispatchCount >= TURN_BUDGET_STOP_AFTER_DISPATCHES;
 }

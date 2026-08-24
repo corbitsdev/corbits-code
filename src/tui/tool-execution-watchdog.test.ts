@@ -41,8 +41,8 @@ describe("tool execution watchdog", () => {
   });
 
   test("task is exempt from the settings watchdog", () => {
-    // Sub-agents carry their own bounds (maxTurns, no-progress, thrash,
-    // opt-in deadline); the generic per-tool budget must not abort them.
+    // A sub-agent run ends on the model's own finish signal, an opt-in
+    // deadline, or an operator; the generic per-tool budget must not abort it.
     const call = { id: "1", name: "task", arguments: {} };
     expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
     expect(

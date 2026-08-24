@@ -30,7 +30,7 @@
  * "unknown".
  *
  * Argument shape intentionally mirrors `task()`'s (description/prompt/
- * context/goals/intent/success_criteria/do_not/report_focus/maxTurns) so a
+ * context/goals/intent/success_criteria/do_not/report_focus) so a
  * caller can swap one for the other. Scope is deliberately narrower than
  * `task()` for this first cut: only closed-director dispatch (`agent=` a
  * director id, or `intent=`) is supported — no custom AgentProfile lookup,
@@ -56,7 +56,6 @@ import {
   formatDirectorSystemPrompt,
 } from "../agent/directors/identity.js";
 import type { Settings } from "../config/settings.js";
-import { resolveSubAgentMaxTurns, validateTaskMaxTurns } from "../config/settings.js";
 import { resolveEffortForRole } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
@@ -177,13 +176,12 @@ const SpawnAgentArgs = type({
   "success_criteria?": "string[]",
   "do_not?": "string[]",
   "report_focus?": "string",
-  "maxTurns?": "number",
 });
 
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: "spawn_agent",
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus/maxTurns); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to block on whichever ones you need next. Prefer task() when you only need one worker and want its result before doing anything else — spawn_agent+wait_agents earns its keep when you want to start more than one worker without stalling on the first.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to block on whichever ones you need next. Prefer task() when you only need one worker and want its result before doing anything else — spawn_agent+wait_agents earns its keep when you want to start more than one worker without stalling on the first.",
   inputSchema: {
     type: "object",
     properties: {
@@ -214,10 +212,6 @@ export const spawnAgentToolDefinition: ToolDefinition = {
       agent: {
         type: "string",
         description: "Optional director id (e.g. from search_agents). Alternative to intent=.",
-      },
-      maxTurns: {
-        type: "number",
-        description: "Optional inference-turn budget for this worker only.",
       },
     },
     required: ["description", "prompt"],
@@ -293,7 +287,6 @@ export function resolveDirectorDispatch(
       systemPromptRole: string;
       capabilities: ReturnType<typeof packageToCapabilities>;
       roleDefault: ReturnType<typeof defaultEffortForDirector>;
-      profileMaxTurns: number | undefined;
     }
   | { ok: false; error: string } {
   if (agentId !== undefined && agentId.length > 0) {
@@ -312,7 +305,6 @@ export function resolveDirectorDispatch(
       systemPromptRole: formatDirectorSystemPrompt(pkg),
       capabilities: packageToCapabilities(pkg),
       roleDefault: defaultEffortForDirector(pkg),
-      profileMaxTurns: pkg.nudge?.maxTurns,
     };
   }
   if (intent !== undefined) {
@@ -325,7 +317,6 @@ export function resolveDirectorDispatch(
       systemPromptRole: formatDirectorSystemPrompt(pkg),
       capabilities: packageToCapabilities(pkg),
       roleDefault: defaultEffortForDirector(pkg),
-      profileMaxTurns: pkg.nudge?.maxTurns,
     };
   }
   return {
@@ -355,7 +346,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         success_criteria: rawSuccessCriteria,
         do_not: rawDoNot,
         report_focus: rawReportFocus,
-        maxTurns: rawMaxTurns,
       } = parsed;
       const description = rawDesc.trim();
       const prompt = rawPrompt.trim();
@@ -376,20 +366,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const resolved = resolveDirectorDispatch(agentId, intent);
       if (!resolved.ok) return fleetResult(call.id, resolved.error);
 
-      let taskMaxTurns: number | undefined;
-      if (rawMaxTurns !== undefined) {
-        const verdict = validateTaskMaxTurns(rawMaxTurns);
-        if (!verdict.ok) return fleetResult(call.id, `Error: ${verdict.message}`);
-        taskMaxTurns = verdict.value;
-      }
       const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
-      const resolvedMaxTurns = resolveSubAgentMaxTurns({
-        ...(settings !== undefined ? { settings } : {}),
-        ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
-        ...(resolved.profileMaxTurns !== undefined
-          ? { profileMaxTurns: resolved.profileMaxTurns }
-          : {}),
-      });
 
       let provider: SubAgentProvider = resolveDep(deps.provider);
       const effort = resolveEffortForRole({
@@ -469,7 +446,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
         systemPromptRole: resolved.systemPromptRole,
         directorId: resolved.directorId,
-        maxTurns: resolvedMaxTurns,
         // CL-6943: keep the session open after a clean completion, and hand
         // the store a bounded close for close_agent to call later.
         persist: true,

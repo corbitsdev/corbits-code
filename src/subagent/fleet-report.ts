@@ -149,8 +149,8 @@ export function observeFleet(
 
     if (before.status !== lane.status) {
       if (lane.status === "done") {
-        // A forced stop (repetition / stall / salvage caps) lands as "done"
-        // with a stopReason — that is attention, not a success line.
+        // A forced stop (stall abort, etc) lands as "done" with a
+        // stopReason — that is attention, not a success line.
         if (lane.stopReason !== undefined) {
           changes.push({
             kind: "failed",

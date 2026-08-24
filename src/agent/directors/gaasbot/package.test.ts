@@ -40,8 +40,4 @@ describe("gaasbotPackage", () => {
     expect(gaasbotPackage.outOfLane).toContain("blocking merges");
     expect(gaasbotPackage.outOfLane).toContain("shipping product code as implementer");
   });
-
-  test("nudge maxTurns is 35", () => {
-    expect(gaasbotPackage.nudge?.maxTurns).toBe(35);
-  });
 });

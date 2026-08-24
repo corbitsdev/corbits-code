@@ -119,8 +119,6 @@ export interface Settings {
   // "llm" (default) generates a structured handoff summary via LLM call.
   // "pruning" uses fast deterministic pruning with no LLM call.
   compactionMode?: "llm" | "pruning";
-  // Default inference-turn budget for leaf sub-agents (not the parent session limit).
-  subagentMaxTurns?: number;
   // Deprecated (CL-5814): orchestrator is the only product path. Legacy values
   // may still appear in on-disk settings and are ignored at resolve time; new
   // writes should omit this field. Kept on the type so old files still load.
@@ -285,47 +283,6 @@ export function shellEnvFromSettings(
   return local?.env;
 }
 
-/** Floor-only sanitization: ≥1 integer. No upper hard cap. */
-export function clampSubAgentMaxTurns(value: number): number {
-  if (!Number.isFinite(value)) return Infinity;
-  return Math.max(1, Math.floor(value));
-}
-
-/** No explicit subagentMaxTurns means unbounded; operators opt in to a ceiling. */
-export function resolveDefaultSubAgentMaxTurns(settings?: Settings | null): number {
-  if (settings?.subagentMaxTurns === undefined) {
-    return Infinity;
-  }
-  return clampSubAgentMaxTurns(settings.subagentMaxTurns);
-}
-
-export type TaskMaxTurnsValidation = { ok: true; value: number } | { ok: false; message: string };
-
-export function validateTaskMaxTurns(value: number): TaskMaxTurnsValidation {
-  if (!Number.isFinite(value) || !Number.isInteger(value)) {
-    return { ok: false, message: "maxTurns must be a positive integer." };
-  }
-  if (value < 1) {
-    return { ok: false, message: "maxTurns must be at least 1." };
-  }
-  return { ok: true, value };
-}
-
-export function resolveSubAgentMaxTurns(input: {
-  settings?: Settings | null;
-  profileMaxTurns?: number;
-  /** Must already pass validateTaskMaxTurns when set. */
-  taskMaxTurns?: number;
-}): number {
-  if (input.taskMaxTurns !== undefined) {
-    return input.taskMaxTurns;
-  }
-  if (input.profileMaxTurns !== undefined) {
-    return clampSubAgentMaxTurns(input.profileMaxTurns);
-  }
-  return resolveDefaultSubAgentMaxTurns(input.settings);
-}
-
 export interface PluginConfig {
   enabled?: boolean;
   // One-time consent for a tool plugin (kind "tool"). Its tools add in-process
@@ -465,7 +422,6 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "lastChangelogVersion?": "string",
   "compactionMode?": "'llm' | 'pruning'",
-  "subagentMaxTurns?": "number",
   // Legacy disk values still load; product resolve ignores them (CL-5814).
   "sessionMode?": "'single' | 'orchestrator'",
 
@@ -524,12 +480,6 @@ export function isSettings(value: unknown): value is Settings {
   if (!SettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
-  if (s.subagentMaxTurns !== undefined) {
-    const n = s.subagentMaxTurns;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
-      return false;
-    }
-  }
   // Legacy "single" | "orchestrator" still load; product resolve ignores them.
   if (
     s.sessionMode !== undefined &&
@@ -653,7 +603,6 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "onboarded",
   "lastChangelogVersion",
   "compactionMode",
-  "subagentMaxTurns",
   "sessionMode",
   "agentModelFallback",
   "shell",
@@ -765,10 +714,6 @@ export async function loadSettings(path: string): Promise<Settings | null> {
         : undefined,
     compactionMode:
       s.compactionMode === "llm" || s.compactionMode === "pruning" ? s.compactionMode : undefined,
-    subagentMaxTurns:
-      s.subagentMaxTurns !== undefined
-        ? clampSubAgentMaxTurns(s.subagentMaxTurns as number)
-        : undefined,
     // CL-5814: drop legacy "single"; only keep explicit orchestrator if present.
     sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
     agentModelFallback:

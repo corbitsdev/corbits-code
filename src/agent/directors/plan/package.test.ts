@@ -41,8 +41,4 @@ describe("planPackage", () => {
     expect(planPackage.outOfLane).toContain("architecture gate sign-off as Greybeard");
     expect(planPackage.outOfLane).toContain("running the fleet");
   });
-
-  test("nudge maxTurns is 40", () => {
-    expect(planPackage.nudge?.maxTurns).toBe(40);
-  });
 });

@@ -79,9 +79,9 @@ export interface SubAgentSession {
   report?: string;
   error?: string;
   /**
-   * Machine-readable termination reason for a forced stop (repetition guard,
-   * stall abort, salvage caps, operator cancel) — the report's `Stopped:`
-   * line, or `cancelled — <reason>` on cancel. Absent on clean completes.
+   * Machine-readable termination reason for a forced stop (stall abort,
+   * operator cancel) — the report's `Stopped:` line, or `cancelled — <reason>`
+   * on cancel. Absent on clean completes.
    */
   stopReason?: string;
   // Session id of the orchestrator that dispatched this worker, when this is
@@ -678,7 +678,7 @@ export function createSubAgentSessionStore(
         clearToolCalls(session);
         session.report = report;
         // A forced-stop salvage arrives via complete(); its Stopped: line is
-        // the terminal reason (repetition / stall / salvage caps).
+        // the terminal reason (stall abort, etc).
         const stopped = stopReasonFromReport(report);
         if (stopped !== null) session.stopReason = stopped;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });

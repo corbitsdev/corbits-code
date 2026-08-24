@@ -34,11 +34,6 @@ describe("explorePackage", () => {
     expect(explorePackage.systemPrompt).toMatch(/call flow/i);
   });
 
-  test("systemPrompt notes maxTurns budget is real", () => {
-    expect(explorePackage.systemPrompt).toMatch(/maxTurns/i);
-    expect(explorePackage.systemPrompt).toMatch(/wrap up before thrash/i);
-  });
-
   test("spawn.maySpawn is false", () => {
     expect(explorePackage.spawn.maySpawn).toBe(false);
   });

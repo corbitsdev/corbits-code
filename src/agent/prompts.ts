@@ -152,7 +152,7 @@ export function buildGuidelines(
           "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
           "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
-          "- Pass `maxTurns` on `task` when a job needs a bounded inference budget (unset is unbounded). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
+          "- If a worker comes back without finishing, change the brief rather than repeating it: narrow the scope, name the files, or state the done-when more sharply.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
@@ -214,7 +214,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
-  task: "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
+  task: "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
   search_agents:
     "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",

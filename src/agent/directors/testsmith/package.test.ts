@@ -33,10 +33,6 @@ describe("testsmithPackage", () => {
     expect(testsmithPackage.modelRole).toBe("test");
   });
 
-  test("nudge.maxTurns is 40", () => {
-    expect(testsmithPackage.nudge?.maxTurns).toBe(40);
-  });
-
   test("primaryIntent is design-only and not primary verifier", () => {
     expect(testsmithPackage.primaryIntent).toMatch(/design/i);
     expect(testsmithPackage.primaryIntent).toMatch(/not.*verifier|do not run as primary verifier/i);
