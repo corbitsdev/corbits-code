@@ -197,7 +197,14 @@ export interface SubAgentRunController {
   deadlineHit: () => boolean;
   /** Abort the run from inside, distinct from parent cancel and deadline. */
   abort: (reason: Error) => void;
-  dispose: () => void;
+  // CL-7001: normally tears down the timer and the parent-abort forwarding
+  // listener. Pass keepParentListener:true for a run that is persisting
+  // (retained, clean completion) — otherwise a later parent abort (operator
+  // cancel/close reaching this run's own params.signal) would stop
+  // propagating into runController.signal, and closeOnAbort — which is
+  // registered on runController.signal, not the parent's — would never fire
+  // for the still-open session.
+  dispose: (opts?: { keepParentListener?: boolean }) => void;
 }
 
 /**
@@ -238,9 +245,11 @@ export function createSubAgentRunController(
     abort: (reason: Error): void => {
       if (!controller.signal.aborted) controller.abort(reason);
     },
-    dispose: (): void => {
+    dispose: (opts?: { keepParentListener?: boolean }): void => {
       if (timer !== undefined) clearTimeout(timer);
-      parentSignal?.removeEventListener("abort", onParentAbort);
+      if (opts?.keepParentListener !== true) {
+        parentSignal?.removeEventListener("abort", onParentAbort);
+      }
     },
   };
 }
@@ -812,6 +821,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           teardown,
           new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
         ]);
+        // CL-7001: the run's finally block kept the parent-abort forwarding
+        // listener alive for a persisted session (see runController.dispose's
+        // doc); now that this session is actually closing, tear it down for
+        // real so the listener does not outlive the session.
+        runController.dispose();
       };
       params.onAgentReady(boundedClose);
     }
@@ -867,6 +881,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       return {
         report: appendActivitySummary(report, toolNamesUsed),
         ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
+        // CL-7001: only this path skips teardown below when persist is set —
+        // tell the caller so a salvage below is never mistaken for a still-
+        // live, resumable agent.
+        ...(params.persist === true ? { agentRetained: true } : {}),
       };
     } catch (err) {
       if (isSubAgentCancelError(err, runController.signal)) {
@@ -913,12 +931,17 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     }
   } finally {
     if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
-    runController.dispose();
+    const persisting = params.persist === true && turnSucceeded;
+    // CL-7001: a persisting run must keep the parent-signal forwarding alive
+    // (see createSubAgentRunController's dispose doc) — boundedClose (the
+    // close_agent handle) fully disposes the runController itself once the
+    // session actually tears down.
+    runController.dispose({ keepParentListener: persisting });
     // CL-6943: a persisted, cleanly-completed session skips teardown here —
     // it stays open until close_agent (or a later failed/aborted run) tears
     // it down. Everything else (no persist, a thrown error, an
     // aborted/salvaged run) disposes exactly as before.
-    if (!(params.persist === true && turnSucceeded)) {
+    if (!persisting) {
       await disposeSubAgentSession({
         signal: runController.signal,
         ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
