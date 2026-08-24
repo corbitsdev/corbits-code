@@ -83,6 +83,21 @@ describe("createToolIndex", () => {
     );
   });
 
+  test("orchestrator mode advertises the six fleet verbs", () => {
+    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    for (const name of [
+      "spawn_agent",
+      "wait_agents",
+      "close_agent",
+      "resume_agent",
+      "interrupt_agent",
+      "followup_task",
+    ] as const) {
+      expect(CORE_TOOL_NAMES).toContain(name);
+      expect(advertised).toContain(name);
+    }
+  });
+
   test("manage_tasks is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
   });
@@ -219,6 +234,16 @@ describe("advertisedTools", () => {
     const prefix = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
     expect(prefix).toContain("task");
     expect(prefix).toContain("search_agents");
+    for (const name of [
+      "spawn_agent",
+      "wait_agents",
+      "close_agent",
+      "resume_agent",
+      "interrupt_agent",
+      "followup_task",
+    ] as const) {
+      expect(prefix).toContain(name);
+    }
     // advertisedTools only emits tools present in the registry; multi-agent
     // tools appear on the wire when createAgentToolset registers them.
     const names = advertisedTools(registry, [], prefix).map((d) => d.name);
