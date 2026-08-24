@@ -35,13 +35,13 @@ Load alongside `style` and `philosophy` when writing or reviewing TS.
 
 Language-general naming lives in `style`. TS-specific suffixes:
 
-| Pattern | Use | Example |
-| ------- | --- | ------- |
-| `PascalCase` | Types, interfaces | `RequestConfig` |
-| `*Args` / `*Opts` | Function arguments | `CreateHandlerOpts` |
-| `*Response` | API / handler results | `SettleResponse` |
-| `create*` | Factories | `createClient` |
-| `is*` | Type predicates / booleans | `isValidationError` |
+| Pattern           | Use                        | Example             |
+| ----------------- | -------------------------- | ------------------- |
+| `PascalCase`      | Types, interfaces          | `RequestConfig`     |
+| `*Args` / `*Opts` | Function arguments         | `CreateHandlerOpts` |
+| `*Response`       | API / handler results      | `SettleResponse`    |
+| `create*`         | Factories                  | `createClient`      |
+| `is*`             | Type predicates / booleans | `isValidationError` |
 
 Acronyms keep their natural case in types and values (`JSONSchema`, `getURL`, `parseHTTPHeaders`). `ID` is an abbreviation → `userId`, `getId()`.
 
@@ -157,7 +157,9 @@ Named exports only. Prefer `create*` factories returning objects with methods ov
 ```typescript
 export function createMiddleware(args: CreateMiddlewareArgs) {
   return {
-    handle: async (req: Request) => { /* ... */ },
+    handle: async (req: Request) => {
+      /* ... */
+    },
   };
 }
 ```
