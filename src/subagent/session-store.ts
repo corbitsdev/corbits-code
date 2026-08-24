@@ -5,6 +5,7 @@
 // this store is the dedicated child record the enter-session UI reads.
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
 import { stopReasonFromReport } from "./report.js";
 import { toolCallPreview } from "./tool-preview.js";
 
@@ -130,7 +131,12 @@ export interface SubAgentSessionStore {
   listForStrip(): readonly SubAgentSession[];
   start(input: StartSessionInput): SubAgentSession;
   appendEvent(id: string, event: ReactorEmittedEvent): void;
-  complete(id: string, report: string): void;
+  // `agentRetained` (CL-7001) must mirror run.ts's own turnSucceeded gate —
+  // true only when the caller actually skipped teardown for this turn. A
+  // deadline/cancel salvage resolves the same promise agent-fleet routes
+  // here but always disposes its agent first, so omitting/false-ing this
+  // keeps a disposed session from ever reporting as resumable.
+  complete(id: string, report: string, opts?: { agentRetained?: boolean }): void;
   fail(id: string, error: string): void;
   // Register the live abort handle for a running session so cancel() can stop
   // the child reactor (agent.close), not only flip status.
@@ -363,10 +369,31 @@ export function createSubAgentSessionStore(
     }
   };
 
+  // CL-7001: releases any resources this store still holds for `id` — the
+  // registered close handle (invoked best-effort, fire-and-forget, so a
+  // wedged descendant cannot stall the caller that triggered eviction) and
+  // the cancel handle. Called whenever a session record is dropped, so a
+  // retained-but-idle session's real agent is never simply forgotten about.
+  const releaseHandles = (id: string): void => {
+    const close = closeHandles.get(id);
+    if (close !== undefined) {
+      closeHandles.delete(id);
+      void close(DEFAULT_CLOSE_DEADLINE_MS).catch(() => {});
+    }
+    cancelHandles.delete(id);
+  };
+
+  // CL-7001: `maxCompleted` is the one bound this store owns for every
+  // finished session, retained or not — a retained-but-idle ("completed")
+  // session used to be exempt here with no separate cap or TTL, which is
+  // exactly why every spawn_agent worker leaked by default. A session that
+  // was resumed and is actively running again (lifecycleStatus "running")
+  // is still excluded: it has a live caller, not an idle leak.
   const pruneCompleted = (): void => {
     if (maxCompleted <= 0) {
       for (const [id, s] of sessions) {
-        if (s.status !== "running") {
+        if (s.status !== "running" && s.lifecycleStatus !== "running") {
+          releaseHandles(id);
           sessions.delete(id);
           forgetRevision(id);
         }
@@ -374,28 +401,50 @@ export function createSubAgentSessionStore(
       return;
     }
     const finished = [...sessions.values()]
-      .filter(
-        (s) =>
-          s.status !== "running" &&
-          // CL-6943: a retained session that is still open ("completed", or
-          // "running" again after resume_agent) is reusable and must not be
-          // evicted by this display cap out from under it — only a shutdown
-          // (or never-retained) finished session counts toward the limit.
-          !(
-            s.retained === true &&
-            (s.lifecycleStatus === "completed" || s.lifecycleStatus === "running")
-          ),
-      )
+      .filter((s) => s.status !== "running" && s.lifecycleStatus !== "running")
       .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
     const excess = finished.length - maxCompleted;
     if (excess <= 0) return;
     for (let i = 0; i < excess; i++) {
       const drop = finished[i];
       if (drop !== undefined) {
+        releaseHandles(drop.id);
         sessions.delete(drop.id);
         forgetRevision(drop.id);
       }
     }
+  };
+
+  // CL-7001: resolves once `id` either gets a close handle registered, goes
+  // shutdown, disappears, or `deadlineMs` elapses (whichever first) — the
+  // wait closeOne uses for a close_agent call that raced agent setup.
+  const waitForCloseHandle = (
+    id: string,
+    deadlineMs: number,
+  ): Promise<((deadlineMs?: number) => Promise<void>) | undefined> => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const listener = (): void => check();
+      const finish = (value: ((deadlineMs?: number) => Promise<void>) | undefined): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        listeners.delete(listener);
+        resolve(value);
+      };
+      const check = (): void => {
+        const session = sessions.get(id);
+        if (session === undefined || session.lifecycleStatus === "shutdown") {
+          finish(undefined);
+          return;
+        }
+        const close = closeHandles.get(id);
+        if (close !== undefined) finish(close);
+      };
+      listeners.add(listener);
+      const timer = setTimeout(() => finish(closeHandles.get(id)), deadlineMs);
+      check();
+    });
   };
 
   const mutate = (id: string, fn: (session: SubAgentSession) => void): void => {
@@ -600,18 +649,31 @@ export function createSubAgentSessionStore(
       });
     },
 
-    complete(id: string, report: string): void {
+    complete(id: string, report: string, opts?: { agentRetained?: boolean }): void {
+      // CL-7001: run.ts always disposes on a salvage return (deadline/cancel)
+      // even though it resolves through this same success path — only trust
+      // "still open, resumable" when the caller says the agent genuinely
+      // survived this turn.
+      // Defaults true: complete() historically meant "clean completion," and
+      // task-tool.ts / tests call it that way with no opts at all. Only
+      // agent-fleet's spawn_agent path ever has a salvage to report, and it
+      // always passes this flag explicitly (see its call site).
+      const agentRetained = opts?.agentRetained ?? true;
       mutate(id, (session) => {
         // Cancel wins races: a late complete after operator cancel must not
         // resurrect the session as done.
         if (session.status !== "running") return;
         session.status = "done";
         // CL-6943: retained sessions stay "completed" (open, reusable) here —
-        // only close_agent (closeOne) moves them to "shutdown". A session
-        // that never opted into retention has no live agent behind it by the
-        // time this fires either way, so the distinction only matters for
-        // whether pruneCompleted's cap may evict the record.
+        // only close_agent (closeOne) moves them to "shutdown".
         session.lifecycleStatus = "completed";
+        // CL-7001: a disposed salvage (deadline/cancel) resolves through
+        // this same path but run.ts has already torn its agent down — clear
+        // `retained` so resumeOne's `retained === true` gate can never see
+        // it as open, without touching the lifecycleStatus invariant every
+        // other completion (including a never-retained one) already relies
+        // on.
+        if (!agentRetained) session.retained = false;
         session.finishedAt = now();
         clearToolCalls(session);
         session.report = report;
@@ -620,7 +682,10 @@ export function createSubAgentSessionStore(
         const stopped = stopReasonFromReport(report);
         if (stopped !== null) session.stopReason = stopped;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        // A disposed salvage has nothing left for its close handle to do —
+        // release it now rather than leaving a stale reference around.
         cancelHandles.delete(id);
+        if (!agentRetained) closeHandles.delete(id);
         pruneCompleted();
       });
     },
@@ -632,6 +697,11 @@ export function createSubAgentSessionStore(
         // A thrown run always tears down its agent in run.ts's finally
         // (persist only skips teardown on a clean success) — so there is
         // nothing left to resume here, and retained no longer applies.
+        // CL-7001: a deadline/cancel salvage does NOT throw — it returns a
+        // report through the same success path a clean completion uses, so
+        // it never reaches this function. complete() carries the equivalent
+        // "agent was actually disposed" check for that case via its
+        // agentRetained flag; this function only ever needed to cover throws.
         session.lifecycleStatus = "shutdown";
         session.retained = false;
         session.finishedAt = now();
@@ -662,23 +732,45 @@ export function createSubAgentSessionStore(
     registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void {
       if (!sessions.has(id)) return;
       closeHandles.set(id, close);
+      // CL-7001: wake anything blocked in closeOne's waitForCloseHandle below —
+      // a close_agent call that arrived during the agent-setup window (before
+      // this registration) is waiting on exactly this notification instead of
+      // reporting false success over an unreleasable session.
+      notify();
     },
 
     async closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus> {
       const session = sessions.get(id);
       if (session === undefined) return "not_found";
       if (session.lifecycleStatus === "shutdown") return "shutdown";
-      const close = closeHandles.get(id);
-      if (close !== undefined) {
-        closeHandles.delete(id);
-        // Bounded here too, defense-in-depth against a caller-registered
-        // close that does not honor its own deadline argument — a wedged
-        // descendant must not hang the whole close_agent call.
-        await Promise.race([
-          close(deadlineMs).catch(() => {}),
-          new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
-        ]);
+      let close = closeHandles.get(id);
+      if (close === undefined) {
+        // CL-7001: close_agent landed in the setup window — the session
+        // exists but createAgentWithLiveToolDispatch hasn't finished and
+        // registerClose hasn't fired yet. Wait for it (bounded) instead of
+        // returning "shutdown" immediately: that used to report false
+        // success while leaving the eventual agent unreleasable forever
+        // (the early return above short-circuits every retry once
+        // lifecycleStatus flips).
+        close = await waitForCloseHandle(id, deadlineMs);
+        const stillHere = sessions.get(id);
+        if (stillHere === undefined) return "not_found";
+        if (stillHere.lifecycleStatus === "shutdown") return "shutdown";
+        if (close === undefined) {
+          // Never became closeable within the deadline: report the honest
+          // in-progress status rather than a false "shutdown" — the caller
+          // can retry, and this session is still findable to retry against.
+          return stillHere.lifecycleStatus;
+        }
       }
+      closeHandles.delete(id);
+      // Bounded here too, defense-in-depth against a caller-registered
+      // close that does not honor its own deadline argument — a wedged
+      // descendant must not hang the whole close_agent call.
+      await Promise.race([
+        close(deadlineMs).catch(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
+      ]);
       mutate(id, (s) => {
         s.lifecycleStatus = "shutdown";
         s.retained = false;
@@ -715,6 +807,20 @@ export function createSubAgentSessionStore(
       for (const session of running) {
         if (cancelSession(session.id, reason)) cancelled.push(session.id);
       }
+      // CL-7001: a retained session is "done", not "running", so the loop
+      // above always skipped it — both /clear and session-close route
+      // through cancelAll, so a retained worker's LSP sidecars, reactor, and
+      // heldLocks entry outlived the parent turn indefinitely. Release every
+      // still-open retained session here too, regardless of `status`.
+      for (const session of sessions.values()) {
+        if (session.retained === true && session.lifecycleStatus !== "shutdown") {
+          releaseHandles(session.id);
+          mutate(session.id, (s) => {
+            s.lifecycleStatus = "shutdown";
+            s.retained = false;
+          });
+        }
+      }
       return cancelled;
     },
 
@@ -726,8 +832,10 @@ export function createSubAgentSessionStore(
     },
 
     clear(): void {
-      // Drop handles without invoking them — callers that need teardown should
-      // cancelAll first (parent stop / /clear).
+      // CL-7001: invoke every registered close (best-effort, fire-and-forget)
+      // before dropping the maps — this used to drop closeHandles without
+      // calling them, leaking every retained session's agent permanently.
+      for (const id of closeHandles.keys()) releaseHandles(id);
       cancelHandles.clear();
       closeHandles.clear();
       sessions.clear();

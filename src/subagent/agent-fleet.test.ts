@@ -196,12 +196,14 @@ describe("spawn_agent + wait_agents", () => {
     // DEFAULT_MAX_COMPLETED on SubAgentSessionStore is 20 finished sessions;
     // spawn (and complete) enough workers to blow well past it before any of
     // them is collected, proving fleetRecords does not depend on the store's
-    // cap either. CL-6943: a spawn_agent session is now retained (exempt
-    // from the cap) until close_agent runs, so — unlike the pre-CL-6943
-    // version of this test — the store also keeps every one of them; that
-    // is covered by session-store.test.ts's own cap tests.
+    // cap. CL-7001: a retained session is bounded by this same cap too now
+    // (it used to be exempt with no separate cap or TTL, which is exactly
+    // why every spawn_agent worker leaked by default) — so unlike the
+    // pre-CL-7001 version of this test, the store itself may have already
+    // evicted (and released) the earliest ones; wait_agents/fleetRecords is
+    // the durable source of truth this test actually cares about.
     const COUNT = 25;
-    const deps = makeDeps(async () => ({ report: "irrelevant" }));
+    const deps = makeDeps(async () => ({ report: "irrelevant", agentRetained: true }));
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
 
@@ -218,8 +220,10 @@ describe("spawn_agent + wait_agents", () => {
     // Let every spawn's run() resolve and complete() land before collecting.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Retained sessions are exempt from the display cap.
-    expect(deps.sessions.get(ids[0]!)).toBeDefined();
+    // The store's own bound may have already evicted (and released) the
+    // earliest session — fleetRecords below is what wait_agents actually
+    // depends on, and it is never subject to this cap.
+    expect(deps.sessions.get(ids[0]!)).toBeUndefined();
 
     // Every single one is retrievable through wait_agents too.
     const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
