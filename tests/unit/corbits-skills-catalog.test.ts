@@ -106,6 +106,22 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("typescript skill guides TS quality without fake enforcement", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/typescript/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain("import type");
+  expect(skill).toContain("arktype");
+  expect(skill).toContain("unknown");
+  expect(skill).toContain("create*");
+  expect(skill).toContain("bun:test");
+  expect(skill).toContain("Guidance for TypeScript output quality");
+  expect(skill).toContain("When project conventions disagree");
+  expect(skill).not.toContain('import t from "tap"');
+  expect(skill).not.toContain("new Cache");
+  expect(skill).not.toMatch(/^## Quick Reference$/m);
+  expect(skill).not.toMatch(/^### Don't$/m);
+});
+
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
