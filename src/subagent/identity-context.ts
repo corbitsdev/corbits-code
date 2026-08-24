@@ -9,11 +9,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface SubAgentIdentity {
   description: string;
   cwd: string;
-  /**
-   * When set, write/edit/delete subjects must match (authz path lock).
-   * Omitted = no director path allowlist.
-   */
-  writePaths?: readonly string[];
 }
 
 const subAgentIdentityAls = new AsyncLocalStorage<SubAgentIdentity>();

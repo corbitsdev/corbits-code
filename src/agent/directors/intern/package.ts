@@ -22,7 +22,6 @@ export const internPackage: DirectorPackage = {
   tools: { allow: INTERN_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 20 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "implement",
   systemPrompt: `You are InternDirector, a specialist in Corbits Code.
 

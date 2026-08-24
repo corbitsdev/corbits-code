@@ -21,6 +21,7 @@ import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
+import type { SpillBlobWriter } from "../plugins/result-truncation-plugin.js";
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
@@ -50,6 +51,7 @@ import {
   type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
+import { createCodexReadRawFile } from "./codex-read-raw-file.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 const AskOperatorArgs = type({
@@ -101,6 +103,15 @@ export interface AgentToolsetArgs {
   // Session blob store for tool-output:// reads; resolved when tools run so agent
   // rebuilds do not require recreating the posix toolset.
   getBlobReader?: () => BlobReader | undefined;
+  // Session blob-store writer oversized tool results spill their full,
+  // untruncated content into (see result-truncation-plugin.ts) — the same
+  // context store getBlobReader reads from, keyed distinctly so the reactor's
+  // own downstream size-cap transform never overwrites the spill. Resolved
+  // lazily like getBlobReader so a mid-process session rotation spills into
+  // the new session's store. Omitted only where there is no session store to
+  // write into (tests). Persists with the rest of the session's committed
+  // history — no separate cleanup.
+  getBlobWriter?: () => SpillBlobWriter | undefined;
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
   // Whether a workflow is currently running. advance_workflow rides the wire
@@ -190,6 +201,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     shellTimeout,
     toolWatchdog,
     getBlobReader,
+    getBlobWriter,
     sessionMode = "orchestrator",
     shellEnv,
     toolAvailability = { languageServerAvailable: true },
@@ -212,6 +224,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ...(sessionBlobReader !== undefined
         ? { readFileGuard: { blobReader: sessionBlobReader } }
         : {}),
+      ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
       ...(shellEnv !== undefined ? { shellEnv } : {}),
     }),
   });
@@ -384,7 +397,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // Codex apply_patch mounts when isCodex; primary strips it so Corbits DIY
   // stays on write_file/edit_file/delete_file. Leaves keep it via BUILD/DOCS allowlists.
   baseTools.push(
-    ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool, runManageTasks }),
+    ...createCodexToolProxies({
+      isCodex: args.isCodex === true,
+      runTool,
+      readRawFile: createCodexReadRawFile(cwd, permissionGate),
+      runManageTasks,
+    }),
   );
 
   const primaryTools = baseTools.filter((tool) => tool.definition.name !== "apply_patch");
@@ -435,7 +453,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         }
         connectedClients.push(result.client);
         permissionGate.registerMcpClient(result.client);
-        const mcpTools = mcpClientToAgentTools(result.client, permissionGate);
+        const mcpTools = mcpClientToAgentTools(result.client, permissionGate, getBlobWriter);
         inheritedMcpTools.push(...mcpTools);
         dynamicRunner.addTools(mcpTools);
         callbacks.onStatus({

@@ -46,6 +46,7 @@ import {
   type CodexRunManageTasks,
   type CodexRunTool,
 } from "../agent/codex-tool-proxies.js";
+import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
 
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
@@ -72,9 +73,12 @@ import {
   INITIAL_CONTENTLESS_GROWTH_STATE,
   trackContentlessGrowth,
   type ContentlessGrowthState,
+  DEFAULT_CONTENTLESS_GROWTH_CONFIG,
+  DEFAULT_REPETITION_CONFIG,
   DEFAULT_TEXT_FOLDED_REPETITION_CONFIG,
   DEFAULT_THINKING_REPETITION_CONFIG,
   REPETITION_CHECK_INTERVAL_CHARS,
+  type RepetitionConfig,
   type RepetitionHit,
 } from "./repetition.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
@@ -243,9 +247,28 @@ export function createSubAgentRunController(
   };
 }
 
-/** Stopped-line detail for a repetition abort: the looped window plus repeat count. */
-export function repetitionStopDetail(hit: RepetitionHit): string {
-  return `window ${JSON.stringify(hit.window.slice(0, 80))} × ${hit.repeats}`;
+/**
+ * Stopped-line / log detail for a repetition abort. Reports the looped
+ * window's length and repeat count against the detector's threshold, never
+ * the window text itself (CL-6775) — the looped text is model output, and
+ * the parent-facing report carries a capped sample separately via `partial`.
+ */
+export function repetitionStopDetail(hit: RepetitionHit, config: RepetitionConfig | null): string {
+  const threshold = config?.repeatThreshold;
+  return `period ${hit.window.length}ch × ${hit.repeats}${threshold !== undefined ? ` (threshold ${threshold})` : ""}`;
+}
+
+/** Stopped-line / log detail for a contentless/zero-width growth abort (CL-6775). */
+export function contentlessGrowthDetail(
+  measured: ContentlessGrowthState | null,
+  stream: string | null,
+): string {
+  if (measured === null) return "contentless/zero-width flood";
+  return (
+    `contentless/zero-width flood: ${stream ?? "stream"} ` +
+    `${measured.rawChars}raw/${measured.visibleChars}visible ` +
+    `(min ${DEFAULT_CONTENTLESS_GROWTH_CONFIG.minVisibleChars}visible per ${DEFAULT_CONTENTLESS_GROWTH_CONFIG.rawWindowChars}raw)`
+  );
 }
 
 /** String form of an abort signal's reason (cancel detail), or undefined. */
@@ -373,6 +396,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       ...createCodexToolProxies({
         isCodex: isCodexProviderName(params.provider.providerName),
         runTool,
+        readRawFile: createCodexReadRawFile(params.cwd, permissionGate),
         runManageTasks,
         allowDelete: allowDeleteFromCapabilities(params.capabilities),
         allowShell: allowShellFromCapabilities(params.capabilities),
@@ -521,14 +545,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
     // Every tool call this sub-agent makes runs under its own identity in ALS
-    // (description + cwd + optional writePaths), so the permission gate can
-    // attribute approvals and enforce director path locks (see identity-context.ts).
+    // (description + cwd), so the permission gate can attribute approvals to
+    // the agent that raised them (see identity-context.ts).
     const subAgentIdentity = {
       description: params.description,
       cwd: params.cwd,
-      ...(params.writePaths !== undefined && params.writePaths.length > 0
-        ? { writePaths: params.writePaths }
-        : {}),
     };
     const toolsFactory = defineTool({
       id: `${ID_PREFIX}/subagent-tools`,
@@ -637,9 +658,24 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     // Holder object rather than a let: the value is written inside the stream
     // sink closure, and flow analysis would otherwise narrow a let to null at
     // the later catch-site reads.
-    const repetition: { hit: RepetitionHit | null; contentless: boolean } = {
+    // `detector` names which of the three checks fired (CL-6775): raw-text
+    // periodicity, digit-folded thinking, or the contentless/zero-width growth
+    // guard — recorded so the intervention log can attribute aborts to a
+    // specific detector, not just "repetition" in general.
+    const repetition: {
+      hit: RepetitionHit | null;
+      contentless: boolean;
+      detector: "raw-text-periodicity" | "digit-folded-thinking" | "contentless-growth" | null;
+      config: RepetitionConfig | null;
+      contentlessMeasured: ContentlessGrowthState | null;
+      contentlessStream: string | null;
+    } = {
       hit: null,
       contentless: false,
+      detector: null,
+      config: null,
+      contentlessMeasured: null,
+      contentlessStream: null,
     };
     let charsSinceRepetitionCheck = 0;
     let charsSinceThinkingRepetitionCheck = 0;
@@ -657,6 +693,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       const next = trackContentlessGrowth(state, token);
       if (next.hit) {
         repetition.contentless = true;
+        repetition.detector = "contentless-growth";
+        repetition.contentlessMeasured = next.measured;
+        repetition.contentlessStream = stream;
         runController.abort(
           new Error(
             `sub-agent ${stream} output grew with only invisible/contentless characters (zero-width flood)`,
@@ -686,13 +725,17 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           // Two passes: digit-preserving for phrase loops, then the capped
           // folded pass for counter/timestamp/fence/emoji floods that are
           // never byte-periodic or fall under the plain window floor.
+          const rawHit = detectRepetition(cycleRecorder.text());
           const hit =
-            detectRepetition(cycleRecorder.text()) ??
+            rawHit ??
             detectRepetition(cycleRecorder.text(), DEFAULT_TEXT_FOLDED_REPETITION_CONFIG, {
               normalizeDigits: true,
             });
           if (hit !== null) {
             repetition.hit = hit;
+            repetition.detector = "raw-text-periodicity";
+            repetition.config =
+              rawHit !== null ? DEFAULT_REPETITION_CONFIG : DEFAULT_TEXT_FOLDED_REPETITION_CONFIG;
             runController.abort(
               new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
             );
@@ -720,6 +763,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           );
           if (hit !== null) {
             repetition.hit = hit;
+            repetition.detector = "digit-folded-thinking";
+            repetition.config = DEFAULT_THINKING_REPETITION_CONFIG;
             runController.abort(
               new Error(`sub-agent thinking output repeated the same window ${hit.repeats} times`),
             );
@@ -841,23 +886,43 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
                 : tail;
           const detail =
             repetition.hit !== null
-              ? repetitionStopDetail(repetition.hit)
+              ? repetitionStopDetail(repetition.hit, repetition.config)
               : repetition.contentless
-                ? "contentless/zero-width flood"
+                ? contentlessGrowthDetail(
+                    repetition.contentlessMeasured,
+                    repetition.contentlessStream,
+                  )
                 : reason === "deadline" && resolvedDeadlineMs !== undefined
                   ? `${resolvedDeadlineMs}ms elapsed`
                   : abortReasonText(runController.signal);
           interventions({
-            id: reason,
+            // CL-6775: which detector fired is folded into the id (rather than
+            // a new field) so scripts/intervention-forensics.ts buckets each
+            // detector separately without any change to its aggregation logic.
+            id:
+              reason === "repetition" && repetition.detector !== null
+                ? `repetition-${repetition.detector}`
+                : reason,
             class: "stop",
             ...(repetition.hit !== null
               ? {
                   measurement: {
                     metric: "repeats",
                     value: repetition.hit.repeats,
+                    ...(repetition.config !== null
+                      ? { threshold: repetition.config.repeatThreshold }
+                      : {}),
                   },
                 }
-              : {}),
+              : repetition.contentless
+                ? {
+                    measurement: {
+                      metric: "visibleChars",
+                      value: repetition.contentlessMeasured?.visibleChars ?? 0,
+                      threshold: DEFAULT_CONTENTLESS_GROWTH_CONFIG.minVisibleChars,
+                    },
+                  }
+                : {}),
             state: { totalToolCalls: toolNamesUsed.length },
             ...(detail !== undefined ? { detail } : {}),
           });

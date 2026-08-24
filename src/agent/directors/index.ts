@@ -4,7 +4,6 @@ export {
   type DirectorPackage,
   type ModelRole,
   type NudgePolicy,
-  type ReportContract,
   type ResolveDirectorInput,
   type ResolveDirectorResult,
   type SpawnRights,

@@ -100,11 +100,6 @@ export type RunSubAgentParams = {
   systemPromptRole?: string;
   /** Resolved closed-director id (e.g. "critique") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
   directorId?: string;
-  /**
-   * Director authz write-path allowlist. Passed into sub-agent identity so the
-   * permission gate can deny out-of-lane writes (not prompt policy).
-   */
-  writePaths?: readonly string[];
   // When true, the assembled system prompt grants this sub-agent permission
   // to call `task` to spawn further agents (orchestrator exception to the
   // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.

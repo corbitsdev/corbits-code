@@ -1,16 +1,10 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import * as nodeOs from "node:os";
-
-// Bun mutates the imported namespace object in place when a module is
-// mocked, so `nodeOs` itself is not safe to hold onto across a mock.module
-// call -- capture a shallow copy now, before anything mocks node:os, so the
-// snapshot below still reads "real" after the mock/restore round-trip.
-const realNodeOs = { ...nodeOs };
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
 import { resetPricingMetadataRefreshForTests } from "../../src/cost/pricing-metadata.js";
+import { withMockedModuleDuring } from "../helpers/mock-module.js";
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
@@ -202,13 +196,14 @@ test("loadSettings cannot silently drop a known optional key", async () => {
 // settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see
 // "OAuth profiles live in home-level auth stores" in src/config/index.ts).
-// A caller that wants that merge to happen (the eval runner's per-case
-// probe, same as any interactive run) must pass neither --config nor a
-// globalSettingsPath override — either one narrows resolution to a
-// controlled provider set and skips OAuth entirely. This proves loadConfig
-// picks an OAuth-ish catalog provider that exists in no settings file at
-// all, using a synthetic profile written straight to the home-level auth
-// store loadConfig actually reads.
+// --config only overrides where provider *definitions* come from (CL-6973);
+// it must still merge in the OAuth catalog, or every codex/xai OAuth run
+// through --config reaches the provider unauthenticated. Only the
+// programmatic `globalSettingsPath` test override (never exposed as a CLI
+// flag) opts out, for full test isolation. This proves loadConfig picks an
+// OAuth-ish catalog provider that exists in no settings file at all, using a
+// synthetic profile written straight to the home-level auth store loadConfig
+// actually reads.
 test("loadConfig resolves an OAuth-profile provider absent from any settings file", async () => {
   const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-home-"));
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-cwd-"));
@@ -237,22 +232,88 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
     // parameter — so the only way to point it at a synthetic auth store
     // without touching the real one is to stub node:os for the duration of
     // this call.
-    mock.module("node:os", () => ({ ...realNodeOs, homedir: () => fakeHome }));
-    try {
-      const { impl } = offlineFetch();
-      const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
-        { pricing: { fetchImpl: impl } },
-      );
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(
+          ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
+          { pricing: { fetchImpl: impl } },
+        );
 
-      expect(config.configured).toBe(true);
-      if (config.configured) {
-        expect(config.providerName).toBe("xai/synthetic");
-        expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
-      }
-    } finally {
-      mock.module("node:os", () => realNodeOs);
-    }
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("xai/synthetic");
+          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+        }
+      },
+    );
+  } finally {
+    await rm(fakeHome, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+// CL-6973: --config <path> passes a settings-file override for provider
+// *definitions*, but credentials for OAuth-profile providers (codex/<name>,
+// xai/<name>) live in separate home-level auth stores that --config never
+// touches. Before this fix, an explicit --config unconditionally suppressed
+// the OAuth catalog merge, so any codex/xai run through --config resolved to
+// an unauthenticated provider (HTTP 426/404 on the first turn). This proves
+// --config composes with auth: the OAuth profile still resolves even though
+// a --config file is also given, and the file's own settings still apply.
+test("--config composes with OAuth profile auth instead of suppressing it", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-compose-home-"));
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-compose-cwd-"));
+  try {
+    await mkdir(join(fakeHome, ".corbits"), { recursive: true });
+    await writeFile(
+      join(fakeHome, ".corbits", "xai-auth.json"),
+      JSON.stringify({
+        profiles: {
+          synthetic: {
+            name: "synthetic",
+            tokens: {
+              access: "test-access-token",
+              refresh: "test-refresh",
+              expiresAt: Date.now() + 3_600_000,
+            },
+            createdAt: Date.now(),
+          },
+        },
+      }),
+    );
+    const configPath = join(cwd, "settings-override.json");
+    await writeFile(configPath, JSON.stringify({ providers: {} }));
+
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(
+          [
+            "exec",
+            "--cwd",
+            cwd,
+            "--config",
+            configPath,
+            "--provider",
+            "xai/synthetic",
+            "do something",
+          ],
+          { pricing: { fetchImpl: impl } },
+        );
+
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("xai/synthetic");
+          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+          expect(config.globalSettingsPath).toBe(configPath);
+        }
+      },
+    );
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });

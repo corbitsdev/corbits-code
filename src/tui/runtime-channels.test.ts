@@ -193,6 +193,31 @@ describe("permission.grant channel", () => {
   });
 });
 
+describe("compaction channel", () => {
+  test("a successful fold flashes before → after and holds no transcript row", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("compaction", { turnsBefore: 42, turnsAfter: 8 });
+      const painted = await frame();
+      expect(painted).toContain("context compacted · 42 → 8 turns");
+      expect(host.shell.streamLog).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a bad payload paints nothing", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("compaction", { turnsBefore: 42 });
+      expect(await frame()).not.toContain("context compacted");
+      expect(host.shell.streamLog).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe("agents chrome (live strip above the prompt)", () => {
   test("setChrome with running agents paints the agents zone", async () => {
     const { host, frame, cleanup } = await mountHeadless({
@@ -266,7 +291,7 @@ describe("every emitted runtime channel has a subscriber", () => {
   emitted.delete("subagent.progress");
 
   test("the runner still emits the channels this suite knows about", () => {
-    for (const channel of ["hook", "mcp.status", "permission.grant"]) {
+    for (const channel of ["hook", "mcp.status", "permission.grant", "compaction"]) {
       expect([...emitted]).toContain(channel);
     }
   });

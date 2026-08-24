@@ -626,12 +626,15 @@ export async function loadConfig(
   dangerouslySkipPermissions =
     dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
 
-  // OAuth profiles live in home-level auth stores, not in settings files. They
-  // are merged in only for the real default settings path: an explicit --config
-  // or test override selects a controlled provider set that should not pull in
-  // home credentials. Profiles surface as "provider/<name>" so selection and the
-  // picker treat them like any other provider.
-  const useOAuthProfiles = configPath === undefined && options.globalSettingsPath === undefined;
+  // OAuth profiles live in home-level auth stores (~/.corbits/codex-auth.json,
+  // xai-auth.json), entirely separate from settings.json. --config only
+  // overrides where provider *definitions* come from, so it must still merge
+  // in OAuth profiles or every codex/xai OAuth run through --config reaches
+  // the provider unauthenticated (CL-6973: HTTP 426/404 before a single
+  // turn). Only the programmatic `globalSettingsPath` test override — never
+  // exposed as a CLI flag — opts out, for tests that want a fully controlled
+  // provider set with no home-directory reads at all.
+  const useOAuthProfiles = options.globalSettingsPath === undefined;
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] = useOAuthProfiles
     ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
     : [[], []];

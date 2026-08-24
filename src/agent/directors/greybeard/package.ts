@@ -17,7 +17,6 @@ export const greybeardPackage: DirectorPackage = {
     allowlist: ["intern", "explore", "critique"],
   },
   nudge: { maxTurns: 50 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "review",
   systemPrompt: `You are GreybeardDirector, a specialist in Corbits Code.
 

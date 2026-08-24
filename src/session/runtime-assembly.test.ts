@@ -285,4 +285,38 @@ describe("createSessionPruningCompactor", () => {
     await llm.apply(turns as never, { state: {} as never, trigger: "test" });
     expect(captured).toBe(ctx);
   });
+
+  test("onFolded fires only when turns were actually folded", async () => {
+    const folds: { turnsBefore: number; turnsAfter: number }[] = [];
+    const summarize = async () => "summary";
+    const folding = createSessionPruningCompactor({
+      compactionMode: "llm",
+      summarize,
+      onFolded: (info) => folds.push(info),
+    });
+    const now = Date.now();
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `t${i}` }],
+      timestamp: now,
+    }));
+    await folding.apply(many as never, { state: {} as never, trigger: "test" });
+    expect(folds).toHaveLength(1);
+    expect(folds[0]?.turnsBefore).toBe(8);
+    expect(folds[0]?.turnsAfter).toBeLessThan(8);
+
+    const silent: { turnsBefore: number; turnsAfter: number }[] = [];
+    const noop = createSessionPruningCompactor({
+      compactionMode: "llm",
+      summarize,
+      onFolded: (info) => silent.push(info),
+    });
+    const few = Array.from({ length: 3 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `t${i}` }],
+      timestamp: now,
+    }));
+    await noop.apply(few as never, { state: {} as never, trigger: "test" });
+    expect(silent).toEqual([]);
+  });
 });
