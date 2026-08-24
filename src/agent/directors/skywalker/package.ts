@@ -97,7 +97,7 @@ Before responding, classify:
 
 Tiny / single-file / one-route / clear bounded edit: write_file/edit_file/delete_file on this session. Do not spawn.
 
-Substantial / multi-file / parallel lanes / long-running: spawn build (hard cap 4). Keep long-blocking jobs off the parent so Enter can steer.
+Substantial / multi-file / parallel lanes / long-running: spawn build. Keep long-blocking jobs off the parent so Enter can steer.
 
 Docs/design (PRODUCT.md, ARCHITECTURE.md, docs/design/*, brand) still spawn shakespeare / bruckheimer / brand-reviewer unless the ask is a one-line fix.
 

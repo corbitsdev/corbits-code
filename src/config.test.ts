@@ -768,12 +768,11 @@ describe("loadConfig", () => {
       await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
         join(cwd, ".corbits", "profile.json"),
-        JSON.stringify({ model: "profile-model", maxTurns: 25, systemPromptExtensions: ["ext1"] }),
+        JSON.stringify({ model: "profile-model", systemPromptExtensions: ["ext1"] }),
       );
       const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
       assertConfigured(config);
       expect(config.model).toBe("profile-model");
-      expect(config.maxTurns).toBe(25);
       expect(config.systemPromptExtensions).toEqual(["ext1"]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
