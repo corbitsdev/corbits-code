@@ -412,6 +412,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         description,
         agentId: resolved.directorId,
         brief,
+        // CL-6943: a spawn_agent worker's session survives a clean
+        // completion instead of being torn down — close_agent (or
+        // resume_agent, transitively) governs it from here on.
+        retained: true,
       });
       deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
@@ -460,6 +464,13 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         systemPromptRole: resolved.systemPromptRole,
         directorId: resolved.directorId,
         maxTurns: resolvedMaxTurns,
+        // CL-6943: keep the session open after a clean completion, and hand
+        // the store a bounded close for close_agent to call later.
+        persist: true,
+        onAgentReady: (close) => {
+          deps.sessions.registerClose(session.id, close);
+          deps.sessions.markRunning(session.id);
+        },
       };
 
       // Fire and forget: this handler must return before the worker finishes.

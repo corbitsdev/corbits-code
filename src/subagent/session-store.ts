@@ -10,6 +10,17 @@ import { toolCallPreview } from "./tool-preview.js";
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
+/**
+ * CL-6943: lifecycle status surfaced to the parent for the reusable-session
+ * verbs (close_agent / resume_agent), independent of `SubAgentSessionStatus`
+ * above (which is the older TUI-transcript status and is left alone here).
+ * `interrupted` is not produced by anything in this lane — `cancel()` sets
+ * it today (the pre-existing operator-cancel path), and the interrupt_agent
+ * lane lands later reusing the same value, not a new one.
+ */
+export type AgentLifecycleStatus =
+  "pending_init" | "running" | "interrupted" | "completed" | "shutdown" | "not_found";
+
 // Compact transcript entries suitable for TUI render without depending on the
 // TUI ContentBlock type (keeps subagent free of a reverse dependency on tui/).
 export type SubAgentTranscriptEntry =
@@ -76,6 +87,14 @@ export interface SubAgentSession {
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
   // directly from the primary session's task tool.
   parentSessionId?: string;
+  // CL-6943: lifecycle status for the reusable-session verbs. Defaults to
+  // "pending_init" until the run wires up markRunning(); see the type doc.
+  lifecycleStatus: AgentLifecycleStatus;
+  // True when this session's agent is meant to survive a clean completion
+  // (spawn_agent opts in). Only a retained session in lifecycleStatus
+  // "completed" is exempt from pruneCompleted's cap — once close_agent runs,
+  // this flips back to false and the cap applies normally.
+  retained?: boolean;
 }
 
 export interface StartSessionInput {
@@ -88,6 +107,8 @@ export interface StartSessionInput {
   // Set when this session is a nested dispatch spawned by an orchestrator
   // sub-agent, so the strip can render it indented under its parent.
   parentSessionId?: string;
+  // CL-6943: opt in to end-of-turn retention (spawn_agent sets this).
+  retained?: boolean;
 }
 
 export interface SubAgentSessionStoreOptions {
@@ -119,6 +140,25 @@ export interface SubAgentSessionStore {
   cancel(id: string, reason?: string): boolean;
   // Cancel every running session. Returns the ids that transitioned.
   cancelAll(reason?: string): string[];
+  // CL-6943: flips a "pending_init" session to "running" once its agent
+  // object actually exists. No-op on an unknown id or one already past init.
+  markRunning(id: string): void;
+  // Registers the bounded close function close_agent will call later. Only
+  // one is kept per id (a later call replaces an earlier one, matching
+  // start()'s replace-on-reuse behavior for cancelHandles).
+  registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void;
+  // Runs the registered close for one session (bounded by deadlineMs) and
+  // marks it "shutdown" — terminal, and no longer exempt from pruneCompleted.
+  // Idempotent: closing an already-shutdown session is a no-op. Resolves
+  // "not_found" for an unknown id without throwing (callers need the status,
+  // not an exception, to report per-target results across a descendant walk).
+  closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus>;
+  // Transitions a retained, still-open ("completed") session back to
+  // "running" for further input. Fails closed on anything else — a
+  // "shutdown" session is gone for good (close_agent is permanent), an
+  // "interrupted" one already tore its agent down, and "running"/
+  // "pending_init"/"not_found" have nothing to resume.
+  resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus };
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -244,6 +284,10 @@ export function createSubAgentSessionStore(
   const sessions = new Map<string, SubAgentSession>();
   // Live abort hooks keyed by session id. Cleared on terminal transition.
   const cancelHandles = new Map<string, () => void>();
+  // CL-6943: bounded close functions keyed by session id, for close_agent.
+  // Distinct from cancelHandles (a synchronous abort() signal) because
+  // closing must be awaitable and bounded by a deadline.
+  const closeHandles = new Map<string, (deadlineMs?: number) => Promise<void>>();
   const listeners = new Set<() => void>();
 
   // Per-session revision counters, bumped on every mutation. Notify fires on
@@ -278,6 +322,7 @@ export function createSubAgentSessionStore(
 
   const markCancelled = (session: SubAgentSession, reason: string): void => {
     session.status = "cancelled";
+    session.lifecycleStatus = "interrupted";
     session.finishedAt = now();
     session.lastActivityAt = now();
     clearToolCalls(session);
@@ -288,6 +333,7 @@ export function createSubAgentSessionStore(
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
     });
     cancelHandles.delete(session.id);
+    closeHandles.delete(session.id);
     bumpRevision(session.id);
     pruneCompleted();
   };
@@ -328,7 +374,18 @@ export function createSubAgentSessionStore(
       return;
     }
     const finished = [...sessions.values()]
-      .filter((s) => s.status !== "running")
+      .filter(
+        (s) =>
+          s.status !== "running" &&
+          // CL-6943: a retained session that is still open ("completed", or
+          // "running" again after resume_agent) is reusable and must not be
+          // evicted by this display cap out from under it — only a shutdown
+          // (or never-retained) finished session counts toward the limit.
+          !(
+            s.retained === true &&
+            (s.lifecycleStatus === "completed" || s.lifecycleStatus === "running")
+          ),
+      )
       .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
     const excess = finished.length - maxCompleted;
     if (excess <= 0) return;
@@ -374,6 +431,7 @@ export function createSubAgentSessionStore(
       // Replacing an existing id (e.g. parent reuses a callId) keeps the strip
       // from growing duplicates when a tool call is retried.
       cancelHandles.delete(id);
+      closeHandles.delete(id);
       forgetRevision(id);
       const session: SubAgentSession = {
         id,
@@ -389,6 +447,8 @@ export function createSubAgentSessionStore(
         entries: [],
         startedAt: now(),
         lastActivityAt: now(),
+        lifecycleStatus: "pending_init",
+        ...(input.retained === true ? { retained: true } : {}),
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
@@ -546,6 +606,12 @@ export function createSubAgentSessionStore(
         // resurrect the session as done.
         if (session.status !== "running") return;
         session.status = "done";
+        // CL-6943: retained sessions stay "completed" (open, reusable) here —
+        // only close_agent (closeOne) moves them to "shutdown". A session
+        // that never opted into retention has no live agent behind it by the
+        // time this fires either way, so the distinction only matters for
+        // whether pruneCompleted's cap may evict the record.
+        session.lifecycleStatus = "completed";
         session.finishedAt = now();
         clearToolCalls(session);
         session.report = report;
@@ -563,6 +629,11 @@ export function createSubAgentSessionStore(
       mutate(id, (session) => {
         if (session.status !== "running") return;
         session.status = "failed";
+        // A thrown run always tears down its agent in run.ts's finally
+        // (persist only skips teardown on a clean success) — so there is
+        // nothing left to resume here, and retained no longer applies.
+        session.lifecycleStatus = "shutdown";
+        session.retained = false;
         session.finishedAt = now();
         clearToolCalls(session);
         session.error = error;
@@ -571,6 +642,7 @@ export function createSubAgentSessionStore(
           content: capText(`Error: ${error}`, maxEntryChars),
         });
         cancelHandles.delete(id);
+        closeHandles.delete(id);
         pruneCompleted();
       });
     },
@@ -579,6 +651,58 @@ export function createSubAgentSessionStore(
       const session = sessions.get(id);
       if (session === undefined || session.status !== "running") return;
       cancelHandles.set(id, abort);
+    },
+
+    markRunning(id: string): void {
+      mutate(id, (session) => {
+        if (session.lifecycleStatus === "pending_init") session.lifecycleStatus = "running";
+      });
+    },
+
+    registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void {
+      if (!sessions.has(id)) return;
+      closeHandles.set(id, close);
+    },
+
+    async closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus> {
+      const session = sessions.get(id);
+      if (session === undefined) return "not_found";
+      if (session.lifecycleStatus === "shutdown") return "shutdown";
+      const close = closeHandles.get(id);
+      if (close !== undefined) {
+        closeHandles.delete(id);
+        // Bounded here too, defense-in-depth against a caller-registered
+        // close that does not honor its own deadline argument — a wedged
+        // descendant must not hang the whole close_agent call.
+        await Promise.race([
+          close(deadlineMs).catch(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
+        ]);
+      }
+      mutate(id, (s) => {
+        s.lifecycleStatus = "shutdown";
+        s.retained = false;
+        if (s.status === "running") {
+          s.status = "cancelled";
+          s.finishedAt = s.finishedAt ?? now();
+          s.error = s.error ?? "Closed by close_agent";
+        }
+      });
+      cancelHandles.delete(id);
+      pruneCompleted();
+      return "shutdown";
+    },
+
+    resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
+      const session = sessions.get(id);
+      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session.lifecycleStatus !== "completed" || session.retained !== true) {
+        return { ok: false, status: session.lifecycleStatus };
+      }
+      mutate(id, (s) => {
+        s.lifecycleStatus = "running";
+      });
+      return { ok: true };
     },
 
     cancel(id: string, reason = DEFAULT_CANCEL_REASON): boolean {
@@ -605,6 +729,7 @@ export function createSubAgentSessionStore(
       // Drop handles without invoking them — callers that need teardown should
       // cancelAll first (parent stop / /clear).
       cancelHandles.clear();
+      closeHandles.clear();
       sessions.clear();
       revisions.clear();
       snapshotCache.clear();
@@ -628,6 +753,8 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     entries: session.entries.map(cloneEntry),
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt,
+    lifecycleStatus: session.lifecycleStatus,
+    ...(session.retained !== undefined ? { retained: session.retained } : {}),
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),
     ...(session.error !== undefined ? { error: session.error } : {}),

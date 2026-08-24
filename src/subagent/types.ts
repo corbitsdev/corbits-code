@@ -148,6 +148,24 @@ export type RunSubAgentParams = {
   tier?: SubagentTier;
   /** DirectorPackage.reportContract.outputType, when the resolved leaf declares one. */
   reportType?: OutputType;
+  /**
+   * CL-6943: when true, a clean successful completion skips the normal
+   * end-of-turn teardown (agent.close() / posixTools.dispose()) so the
+   * session stays open and reusable. A failure or an aborted/cancelled run
+   * still tears down as before — only a clean success is retained. A caller
+   * that opts in must eventually close the session (close_agent) or it
+   * leaks its posix tools / workdir lock.
+   */
+  persist?: boolean;
+  /**
+   * Fired once the underlying agent object exists (before the prompt is
+   * sent), with a bounded close function the caller can register for later
+   * (close_agent). Always fired regardless of `persist`, so a caller can
+   * close a still-running session too, not only a retained one. The deadline
+   * argument bounds how long teardown may take; a wedged close is abandoned
+   * (not awaited further) once it elapses rather than hanging the caller.
+   */
+  onAgentReady?: (close: (deadlineMs?: number) => Promise<void>) => void;
 } & SubAgentSandboxDeps;
 
 /** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why (CL-6946 part 2) — classify outcomes from `stopReason`, never by parsing `report`. */
