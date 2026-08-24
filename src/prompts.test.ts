@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { createChatDirector, submitOutputDefinition } from "./agent/director.js";
 import { manageTasksDefinition } from "./agent/tasks.js";
 import { CHAT_PROMPT_QUALITY_MARKERS } from "./agent/prompt-contract.js";
+import { hasReportEnvelope } from "./subagent/report.js";
 import {
   buildActiveContext,
   buildAvailableTools,
@@ -277,6 +278,19 @@ test("sub-agent report contract treats Success criteria as completion gate", () 
   expect(contract).toContain("stop calling tools");
   expect(contract).toContain("Do not");
   expect(contract).toContain("Intent / Do not");
+});
+
+// Pins the only real report-envelope mechanism (buildSubAgentReportContract's
+// prompt text and hasReportEnvelope's completeness check) to stay in sync,
+// since director packages no longer declare their own requiredSections
+// (CL-6969: that field was inert and enforced nothing).
+test("sub-agent report contract's headings satisfy hasReportEnvelope", () => {
+  const contract = buildSubAgentReportContract();
+  const headingsOnly = contract
+    .split("\n")
+    .filter((line) => line.startsWith("## "))
+    .join("\n");
+  expect(hasReportEnvelope(headingsOnly)).toBe(true);
 });
 
 test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
