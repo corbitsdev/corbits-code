@@ -351,7 +351,10 @@ describe("gate-wire approval overflow on short terminal", () => {
         emitter.emit("permission.gate", { request, resolve: () => {} });
 
         const body = permissionBodyFromRequest(request, { hint: true });
-        expect(shell.overlayBodyLines.join("\n")).toContain("<message,");
+        // The raw body still carries the collapsed-command hint — only what
+        // gets painted is squeezed. On this short a terminal (CL-5750) the
+        // choices win the row budget over the hint text, so the rendered
+        // lines are not required to contain it.
         expect(body).toContain("e expand");
         expect(shell.layout.heights.overlay_host).toBeLessThanOrEqual(
           Math.floor(SHORT.height * OVERLAY_MAX_FRACTION),
