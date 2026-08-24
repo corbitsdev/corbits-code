@@ -972,5 +972,9 @@ describe("createTaskTool profile resolution", () => {
     await callHandler(tool, { description: "task", prompt: "do it", agent: "karen" });
 
     expect(received?.orchestrator).toBe(true);
+    // Fail-closed (CL-6941): no profile field opts a profile-sourced
+    // orchestrator into fleet verbs, so the tier stays unresolved and
+    // runSubAgent treats it as "leaf" — denied task/search_agents.
+    expect(received?.orchestratorTier).toBeUndefined();
   });
 });

@@ -51,7 +51,6 @@ const AgentProfileSchema = type({
   "systemPromptRole?": "string",
   "systemPromptPath?": "string",
   "orchestrator?": "boolean",
-  "fleetTier?": "'orchestrator' | 'nested-orchestrator' | 'leaf'",
   "maxTurns?": "number",
 });
 
