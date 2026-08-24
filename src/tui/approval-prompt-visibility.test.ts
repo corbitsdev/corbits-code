@@ -11,7 +11,7 @@ import { openPermissionsOverlay, makePermissionItems } from "./overlays.js";
 
 const WIDTH = 80;
 // Deliberately spans from far below the documented 24-row baseline down to
-// the shortest terminals the shell claims to support, plus a comfortable one.
+// 10 rows, the shortest terminal this fix guarantees, plus a comfortable one.
 const HEIGHTS = [10, 12, 15, 24, 40] as const;
 
 const APPROVAL_BODY = [

@@ -3372,8 +3372,8 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
 
 /**
  * Shrink the decision body's context budget so its own chrome never crowds
- * out the one thing that must survive any terminal height: at least one
- * choice row, with the prompt box still seated at its floor below it. A
+ * out the one thing this fix guarantees down to a 10-row terminal: at least
+ * one choice row, with the prompt box still seated at its floor below it. A
  * generous, fixed context budget reads fine on a tall terminal, but on a
  * short one it can consume the entire overlay host, leaving no room to paint
  * a single option — the operator is then asked to decide between choices
@@ -3381,6 +3381,12 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
  * on the shortest terminals, is the deliberate trade: the header (which tool,
  * which question) and the choices are the two things an approval cannot
  * render without; the surrounding detail can give way first.
+ *
+ * Below 10 rows this budget alone cannot save the frame: the resolver's own
+ * collapse fallback (`resolveGeometry` in geometry/resolve.ts) can still hand
+ * the overlay host fewer rows than its render minimum once every other zone
+ * is already at floor, which is a pre-existing gap in the resolver, not
+ * something this budget controls.
  */
 function decisionContextBudget(
   shell: AppShell,
@@ -3409,7 +3415,15 @@ function applyOverlayBodyText(
 ): void {
   const width = overlayRowWidth(shell);
   const bag = internals.get(shell);
-  if (bag) bag.overlayRawBodyText = text;
+  // Scoped to decision overlays: a palette stacked over an open approval
+  // calls this too, with its own (usually empty) body text. Caching that
+  // would overwrite the approval's cached raw text with the palette's, and
+  // popping the palette restores the approval's `overlayBodyLines` but not
+  // this cache (`PriorOverlaySnapshot` never carried it) — so a resize right
+  // after would re-shape the approval's body from the palette's stale empty
+  // string instead of its own, blanking it. The palette itself never reads
+  // this cache (not a decision overlay), so it never needs to be cached.
+  if (bag && isDecisionOverlay(shell.overlayKind)) bag.overlayRawBodyText = text;
   if (text.length === 0) {
     shell.overlayBodyLines = [];
     shell.overlayBodyFgs = [];
