@@ -22,6 +22,7 @@ async function withController(
     c: WorkflowController,
     director: { coordinator: WorkflowCoordinator | undefined },
     cwd: string,
+    home: string,
   ) => void | Promise<void>,
 ): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), "wf-controller-"));
@@ -38,9 +39,10 @@ async function withController(
         director.coordinator = c;
       },
     }),
+    home,
   });
   try {
-    await fn(controller, director, cwd);
+    await fn(controller, director, cwd, home);
   } finally {
     await flushWorkflowStateWrites(cwd, "session-1", home);
     await rm(cwd, { recursive: true, force: true });
@@ -127,13 +129,13 @@ test("history() entry after workflow completion contains the workflow name and s
 });
 
 test("resume() restores an on-disk workflow snapshot for the session", async () => {
-  await withController([], async (controller, director, cwd) => {
+  await withController([], async (controller, director, cwd, home) => {
     const workflow = findWorkflow("review");
     expect(workflow).toBeDefined();
     const runtime = new WorkflowRuntime(new Map());
     runtime.start(workflow!);
     runtime.advance();
-    await saveWorkflowState(cwd, "session-1", runtime.state());
+    await saveWorkflowState(cwd, "session-1", runtime.state(), home);
 
     await controller.resume();
     expect(controller.isActive()).toBe(true);
