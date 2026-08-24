@@ -15,9 +15,8 @@
  * `rotateYank` hand back the text to splice in; shell.ts performs the splice
  * against the InputRenderable directly.
  *
- * Mirrors the semantics of src/tui/kill-ring.ts (the Ink reference) without
- * importing from it — the two prompt implementations are independent trees
- * during the OpenTUI cutover.
+ * Sole kill ring implementation (the former Ink-era src/tui/kill-ring.ts
+ * copy was retired once the OpenTUI cutover made it dead code).
  */
 
 export const KILL_RING_MAX = 10;

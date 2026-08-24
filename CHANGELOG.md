@@ -26,6 +26,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   reports directly, not by re-parsing the parent-facing report's prose.
   Removes the `isXxxSubAgentReport` classifier family and per-reason parent
   hint functions in favor of a single structured switch.
+### Internal
+
+- Removed the dead Ink-era kill ring copy (`src/tui/kill-ring.ts`); the OpenTUI
+  prompt kill ring (`src/tui/prompt-kill-ring.ts`) is the sole implementation.
+- Extracted the shared timeout-race helper (`src/util/budget-race.ts`) used by
+  the shell-guard search budget and the tool-execution watchdog, replacing two
+  independent copies of the same `AbortController` + `setTimeout` race.
+- `runtime-bridge.ts` now re-exports `mapReactorLike` from `stream-event-map.ts`
+  instead of wrapping it in an identical local function.
 
 ## [0.2.108] - 2026-08-24
 
