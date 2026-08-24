@@ -71,8 +71,8 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
  *
  * The task tool is exempt: it runs an entire sub-agent that carries its own
- * bounds (maxTurns, no-progress, thrash, opt-in deadline), so the generic
- * per-tool budget would abort healthy long-running workers mid-run.
+ * bounds (maxTurns, opt-in deadline), so the generic per-tool budget would
+ * abort healthy long-running workers mid-run.
  *
  * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
  * resolveMcpToolTimeoutMs) even when no Settings are configured, because an

@@ -15,6 +15,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- `spawn_agent` now threads the resolved director package's `nudge.maxTurns`
+  budget the same way `task()` does, closing a parity gap where a director
+  dispatched via `spawn_agent` resolved to an unbounded turn budget instead of
+  its configured finite one. Removed the false "hard cap 4 workers" claim from
+  director prompt text (no such cap exists anywhere in the fleet code). The
+  unused `maxTurns` field on project/named profile files
+  (`.corbits/profile.json`, `~/.corbits/profiles/<name>.json`) has been
+  removed since nothing read it — a silently-ignored knob is worse than no
+  knob.
+
 - `evaluateSubAgentStop` now always requires the final assistant text; the
   omitted-text branch that unconditionally completed a tool-less turn is
   removed, so every call path gets the `incomplete-report` nudge and salvage

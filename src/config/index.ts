@@ -323,7 +323,6 @@ export interface Config {
   providers: ProviderCatalogEntry[];
   profile?: string;
   systemPromptExtensions?: string[];
-  maxTurns?: number;
   // Per-call inactivity timeout in ms (default 120_000 in the harness). Tune
   // higher for reasoning models with long silent-thinking stretches.
   inactivityTimeoutMs?: number;
@@ -768,7 +767,6 @@ export async function loadConfig(
     ...(profile.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
-    ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
     ...(profile.inactivityTimeoutMs !== undefined
       ? { inactivityTimeoutMs: profile.inactivityTimeoutMs }
       : {}),
