@@ -45,12 +45,24 @@ const inCmd = (body: string): RegExp => new RegExp(`${CMD}${body}`);
 // span; every other character (letters, digits, `-`) passes through
 // dequoted. Heredoc bodies are left alone: the file-mutation heredoc pattern
 // keys on the bare `<<` operator, which is always outside any quoting.
+//
+// A backslash before a quote character escapes it: `\"` is a literal `"`
+// that never opens or closes a quoted span (real bash semantics outside
+// single quotes), so `echo hi \"> file"` is a bare, unquoted redirect, not
+// text inside a quote. Skip the escaped character without touching quote
+// state so its following operator is still seen as live.
 const QUOTE_NEUTRALIZED_OPERATORS = new Set(["<", ">", "|", "&", ";", "`"]);
 
 const dequoteForMatching = (command: string): string => {
   let out = "";
   let quote: '"' | "'" | null = null;
-  for (const ch of command) {
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i] as string;
+    if (ch === "\\" && quote !== "'" && i + 1 < command.length) {
+      out += command[i + 1];
+      i++;
+      continue;
+    }
     if (quote !== null) {
       if (ch === quote) {
         quote = null;

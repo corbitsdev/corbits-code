@@ -736,6 +736,23 @@ describe("CL-6703 — quoted redirect targets still deny file-mutation", () => {
   test("a quoted '>' inside non-redirect text does not false-positive", () => {
     expect(autoShellRuleForCall(shellCall(`git commit -m 'fix > bug'`))).toBeUndefined();
   });
+
+  test("a backslash-escaped quote before a redirect still denies", () => {
+    // `\"` is a literal quote character in real bash, not a quote-open — the
+    // shell is never inside a quoted string here, so the `>` that follows is
+    // a genuine, unquoted redirect.
+    expect(autoShellRuleForCall(shellCall('echo hi \\"> file"'))?.name).toBe("file-mutation");
+  });
+
+  test("a backslash-escaped quote ahead of a dangerous flag still denies", () => {
+    // The escaped quote sits before an extra leading space, so it never
+    // touches the `\s-c` junction later in the string; a naive quote-pairing
+    // scanner (ignoring the backslash) would consume that junction as part
+    // of a fake quoted span and hide the -c flag entirely.
+    expect(autoShellRuleForCall(shellCall('python3 \\" -c print(1)"'))?.name).toBe(
+      "file-mutation",
+    );
+  });
 });
 
 describe("CL-6702 — bash clobber redirects match file-mutation", () => {
