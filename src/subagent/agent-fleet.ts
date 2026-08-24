@@ -449,8 +449,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // CL-6943: keep the session open after a clean completion, and hand
         // the store a bounded close for close_agent to call later.
         persist: true,
-        onAgentReady: (close) => {
+        onAgentReady: ({ close, interrupt, followup }) => {
           deps.sessions.registerClose(session.id, close);
+          deps.sessions.registerInterrupt(session.id, interrupt);
+          deps.sessions.registerFollowup(session.id, followup);
           deps.sessions.markRunning(session.id);
         },
       };
@@ -466,6 +468,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         .run(params)
         .then((result) => {
           if (childCtl.signal.aborted) return;
+          // CL-6997: interrupt_agent already flipped this session to
+          // "interrupted" synchronously (session-store.interruptOne) — do
+          // not let the settling promise's normal bookkeeping overwrite
+          // that with a "completed" status.
+          if (result.interrupted === true) return;
           deps.fleetRecords.resolve(session.id, result.report);
           // CL-7001: result.agentRetained is only true on run.ts's clean-
           // completion path when persist actually skipped teardown — a

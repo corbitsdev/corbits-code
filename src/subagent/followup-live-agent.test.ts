@@ -1,0 +1,160 @@
+/**
+ * CL-6997 regression guard: lifecycle-tools.test.ts proves interrupt_agent /
+ * followup_task behave correctly against *fake registered closures* at the
+ * tool/store layer — it never exercises run.ts's real wiring, where
+ * `followup` calls `agent!.send()` on the same live agent object created by
+ * `createAgentWithLiveToolDispatch`. A future refactor could make
+ * `followup_task` rebuild the agent instead of reusing it (exactly the
+ * regression this feature exists to prevent — a rebuilt agent means the
+ * worker re-reads the codebase from scratch) without failing any existing
+ * test.
+ *
+ * This test drives the real `runSubAgent` (run.ts) end to end with the one
+ * real dependency that would require live inference credentials —
+ * `createAgentWithLiveToolDispatch` — replaced by a stub `Agent`. Everything
+ * else (tool assembly, environment gathering, the dispatch brief, the
+ * onAgentReady wiring, the interrupt/followup closures themselves) is the
+ * genuine run.ts code path.
+ */
+import { describe, expect, test } from "bun:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { createPermissionGate } from "../permission/gate.js";
+import type { RunSubAgentParams } from "./types.js";
+
+const testPermissionGate = createPermissionGate({
+  approvals: [],
+  interactive: false,
+  skipPermissions: true,
+});
+
+async function tmpCwd(): Promise<string> {
+  return mkdtemp(join(tmpdir(), "cl6997-live-agent-"));
+}
+
+/** Minimal stand-in for the vendored `Agent` (dist/agent.d.ts), instrumented
+ * to prove reuse: `sendLog` accumulates every message across BOTH the
+ * original send and the later followup send, and rejects like the real
+ * `Agent.send`'s documented `signal` option when its signal fires. */
+function createStubAgent() {
+  const sendLog: string[] = [];
+  return {
+    sendLog,
+    async send(content: string, opts?: { signal?: AbortSignal }) {
+      sendLog.push(content);
+      return await new Promise((resolve, reject) => {
+        if (opts?.signal?.aborted === true) {
+          reject(opts.signal.reason instanceof Error ? opts.signal.reason : new Error("aborted"));
+          return;
+        }
+        const timer = setTimeout(
+          () =>
+            resolve({
+              reply: `reply #${sendLog.length}`,
+              turn: { role: "assistant", content: [] },
+            }),
+          20,
+        );
+        opts?.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(
+              opts.signal!.reason instanceof Error ? opts.signal!.reason : new Error("aborted"),
+            );
+          },
+          { once: true },
+        );
+      });
+    },
+    stream: () => (async function* () {})(),
+    deliver: () => {},
+    close: async () => {},
+    setSource: () => {},
+    setSources: () => {},
+    history: async () => [],
+    checkpoints: async () => [],
+    readAt: async () => [],
+    blobReader: {},
+  };
+}
+
+describe("interrupt_agent / followup_task reuse the same live agent (CL-6997)", () => {
+  test("followup after interrupt sends into the SAME agent instance — not a rebuilt one", async () => {
+    const cwd = await tmpCwd();
+    let constructions = 0;
+    let capturedAgent: ReturnType<typeof createStubAgent> | undefined;
+
+    const outcome = await withMockedModuleDuring(
+      import.meta.resolve("../agent/live-tool-dispatch.js"),
+      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+        ...real,
+        createAgentWithLiveToolDispatch: async () => {
+          constructions++;
+          const stub = createStubAgent();
+          capturedAgent = stub;
+          return stub as unknown as Awaited<
+            ReturnType<typeof real.createAgentWithLiveToolDispatch>
+          >;
+        },
+      }),
+      async () => {
+        const { runSubAgent } = await import("./run.js");
+
+        let handles:
+          | {
+              close: (ms?: number) => Promise<void>;
+              interrupt: () => void;
+              followup: (message: string) => Promise<string>;
+            }
+          | undefined;
+
+        const params: RunSubAgentParams = {
+          cwd,
+          workdirBase: join(cwd, ".ctx"),
+          permissionGate: testPermissionGate,
+          provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+          description: "live-agent reuse probe",
+          prompt: "explore the codebase for the bug",
+          persist: true,
+          onAgentReady: (h) => {
+            handles = h;
+          },
+        };
+
+        const runPromise = runSubAgent(params);
+
+        // onAgentReady fires before agent.send() is awaited; poll briefly
+        // rather than assume a fixed number of ticks.
+        for (let i = 0; i < 500 && handles === undefined; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        if (handles === undefined) throw new Error("onAgentReady never fired");
+
+        handles.interrupt();
+        const interruptedResult = await runPromise;
+
+        const reply = await handles.followup("do X instead, not what the original prompt said");
+        return { interruptedResult, reply };
+      },
+    );
+
+    expect(outcome.interruptedResult.interrupted).toBe(true);
+    // Exactly one agent was ever constructed across the interrupted turn and
+    // the followup — a rebuild would show up here as constructions === 2.
+    expect(constructions).toBe(1);
+    expect(capturedAgent).toBeDefined();
+
+    // The load-bearing assertion: the SAME agent's message log holds both
+    // the original turn's prompt and the followup message, proving the
+    // followup was sent into the same live object rather than a fresh one
+    // with empty history.
+    expect(capturedAgent!.sendLog.length).toBe(2);
+    expect(capturedAgent!.sendLog[0]).toContain("explore the codebase for the bug");
+    expect(capturedAgent!.sendLog[1]).toBe("do X instead, not what the original prompt said");
+    expect(outcome.reply).toBe("reply #2");
+  });
+});

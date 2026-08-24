@@ -157,13 +157,33 @@ export type RunSubAgentParams = {
   persist?: boolean;
   /**
    * Fired once the underlying agent object exists (before the prompt is
-   * sent), with a bounded close function the caller can register for later
-   * (close_agent). Always fired regardless of `persist`, so a caller can
-   * close a still-running session too, not only a retained one. The deadline
-   * argument bounds how long teardown may take; a wedged close is abandoned
-   * (not awaited further) once it elapses rather than hanging the caller.
+   * sent), with handles the caller can register for later use against this
+   * session:
+   *
+   *  - `close`: bounded teardown for close_agent (unchanged from CL-6943).
+   *  - `interrupt`: stops the in-flight `agent.send()` by firing a signal
+   *    scoped to that call only (CL-6997) — distinct from `close`'s
+   *    AbortController, so firing it never touches agent.close() or the
+   *    workdir lock. The reactor cycle itself keeps running in the
+   *    background (same documented behavior as `Agent.send`'s own
+   *    `signal` option); this only stops the caller from waiting on it.
+   *  - `followup`: sends a new message into the same live agent (same
+   *    history, same context store) once the current turn is no longer
+   *    active — this is the resume mechanism `resume_agent`/`followup_task`
+   *    build on, reusing `agent.send`'s own FIFO send-queue ordering rather
+   *    than a second continuation scheme.
+   *
+   * Always fired regardless of `persist`, so a caller can act on a
+   * still-running session too, not only a retained one. The deadline
+   * argument to `close` bounds how long teardown may take; a wedged close is
+   * abandoned (not awaited further) once it elapses rather than hanging the
+   * caller.
    */
-  onAgentReady?: (close: (deadlineMs?: number) => Promise<void>) => void;
+  onAgentReady?: (handles: {
+    close: (deadlineMs?: number) => Promise<void>;
+    interrupt: () => void;
+    followup: (message: string) => Promise<string>;
+  }) => void;
 } & SubAgentSandboxDeps;
 
 /** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why (CL-6946 part 2) — classify outcomes from `stopReason`, never by parsing `report`. */
@@ -179,4 +199,11 @@ export interface RunSubAgentResult {
    * keep a disposed salvage from ever looking resumable.
    */
   agentRetained?: boolean;
+  /**
+   * CL-6997: true only when this run ended because interrupt_agent fired
+   * (not a plain cancel/deadline) — the caller must not run its normal
+   * complete()/fail() bookkeeping over this result, since interrupt_agent
+   * already transitioned the session to "interrupted" synchronously.
+   */
+  interrupted?: boolean;
 }
