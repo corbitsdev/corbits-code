@@ -118,7 +118,7 @@ import {
   isSubAgentCancelError,
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
-import { createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, SubAgentProvider } from "./types.js";
 import type { TaskIntent } from "./report.js";
@@ -556,8 +556,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       ];
       // spawn_agent/wait_agents (CL-6942) need a session store as their
       // mailbox; reuse the orchestrator's if it has one, else give this
-      // install its own rather than inventing separate bookkeeping.
+      // install its own. fleetRecords is a small never-capped map for
+      // terminal results the session store's display cap would otherwise
+      // evict before wait_agents collects them (see agent-fleet.ts).
       const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
+      const fleetRecords = createFleetRecords();
       const fleetDeps = {
         permissionGate: nd.permissionGate,
         ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
@@ -571,6 +574,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         run: runSubAgent,
         telemetry: liveTelemetry,
         sessions: fleetSessions,
+        fleetRecords,
         ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
@@ -579,7 +583,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       tools = [
         ...tools,
         createSpawnAgentTool(fleetDeps),
-        createWaitAgentsTool({ sessions: fleetSessions }),
+        createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
       ];
     }
 

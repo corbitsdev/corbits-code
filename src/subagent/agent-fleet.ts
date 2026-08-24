@@ -8,18 +8,36 @@
  * ones it cares about (wait_agents), instead of one task() call per worker
  * serializing the wait.
  *
- * State lives entirely in the existing SubAgentSessionStore (status/report/
- * error, keyed by session id) — no parallel bookkeeping map. wait_agents'
- * blocking is driven by the store's `subscribe` mailbox raced against a
- * timeout timer; it never polls.
+ * Running state and the mailbox (`subscribe`) are the existing
+ * SubAgentSessionStore's — wait_agents' blocking is driven by that
+ * `subscribe` raced against a timeout timer, never polling. But the store's
+ * finished-session retention is a TUI display cap (`maxCompleted`, default
+ * 20): `complete()`/`fail()` evict the oldest finished session — report and
+ * all — once more than that many have finished. task() never hit this
+ * because it awaits its own single result before the tool call returns; here
+ * a caller can spawn far more workers than the cap in one turn and only
+ * `wait_agents` them later, so an evicted report would otherwise vanish
+ * silently. `fleetRecords` below is a small, deliberately-separate map
+ * (agent id -> terminal status/report/error) that is never capped and is
+ * only ever cleared when `wait_agents` actually delivers that result to a
+ * caller — it exists precisely because the store's cap cannot be trusted for
+ * this use.
  *
  * Argument shape intentionally mirrors `task()`'s (description/prompt/
  * context/goals/intent/success_criteria/do_not/report_focus/maxTurns) so a
  * caller can swap one for the other. Scope is deliberately narrower than
  * `task()` for this first cut: only closed-director dispatch (`agent=` a
  * director id, or `intent=`) is supported — no custom AgentProfile lookup,
- * no worktree isolation, no nested orchestration, no re-dispatch ledger.
- * Those are `task()`-only for now; nothing here stops adding them later.
+ * no nested orchestration, no re-dispatch ledger. Those remain `task()`-only
+ * for now; nothing here stops adding them later.
+ *
+ * Worktree isolation: task() supports it, spawn_agent does not (yet). Since
+ * spawn_agent's whole point is running several workers at once, two workers
+ * sharing one cwd with write intent would silently corrupt each other's
+ * edits. Rather than duplicate task()'s worktree machinery here, spawn_agent
+ * refuses a second concurrent implement-intent (director "build") spawn
+ * against the same cwd with an actionable error — explore/plan/review
+ * workers, which do not write, are unaffected and may run concurrently.
  */
 
 import { tool } from "@intx/agent";
@@ -43,10 +61,60 @@ import { resolveSubAgentMaxTurns, validateTaskMaxTurns } from "../config/setting
 import { resolveEffortForRole } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
-import type { SubAgentSessionStore, SubAgentSessionStatus } from "./session-store.js";
+import type { SubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, SubAgentProvider, SubAgentSandboxDeps } from "./types.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
+
+/** Terminal (or running) record for one spawned agent, keyed by agent id. */
+interface FleetRecord {
+  status: "running" | "done" | "failed";
+  report?: string;
+  error?: string;
+}
+
+/**
+ * Never-capped terminal-result store, cleared only once a result is
+ * delivered to a wait_agents caller. See the module doc comment for why the
+ * session store's own retention cannot be reused here.
+ */
+class FleetRecords {
+  private readonly records = new Map<string, FleetRecord>();
+
+  register(id: string): void {
+    this.records.set(id, { status: "running" });
+  }
+
+  resolve(id: string, report: string): void {
+    this.records.set(id, { status: "done", report });
+  }
+
+  reject(id: string, error: string): void {
+    this.records.set(id, { status: "failed", error });
+  }
+
+  /** Read without consuming — used for the terminal-yet check. */
+  peek(id: string): FleetRecord | undefined {
+    return this.records.get(id);
+  }
+
+  /** Read and, if terminal, remove — a delivered result is not kept around. */
+  take(id: string): FleetRecord | undefined {
+    const record = this.records.get(id);
+    if (record !== undefined && record.status !== "running") {
+      this.records.delete(id);
+    }
+    return record;
+  }
+}
+
+// One registry per orchestrator install (shared by its spawn_agent and
+// wait_agents tool instances), not a module singleton — created in
+// createSpawnAgentTool and threaded to createWaitAgentsTool by the caller.
+export type FleetRecordsHandle = FleetRecords;
+export function createFleetRecords(): FleetRecordsHandle {
+  return new FleetRecords();
+}
 
 const SpawnAgentArgs = type({
   description: "string",
@@ -146,6 +214,7 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   provider: SubAgentProvider | (() => SubAgentProvider);
   run: (params: RunSubAgentParams) => Promise<string>;
   sessions: SubAgentSessionStore;
+  fleetRecords: FleetRecordsHandle;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -212,8 +281,22 @@ function resolveDirectorDispatch(
   };
 }
 
+/**
+ * Director ids that write. Only "build" (the implement-intent director)
+ * needs cwd exclusivity today; explore/plan/review/critique-style directors
+ * do not write and may run concurrently against the same cwd.
+ */
+function isWriteRiskDirector(directorId: string): boolean {
+  return directorId === "build";
+}
+
 export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
+  // cwd -> agent ids of running write-risk (implement) workers against it.
+  // deps.cwd is fixed for the lifetime of this tool instance (one per
+  // orchestrator install), so this only ever guards concurrent spawns from
+  // the same orchestrator turn, which is exactly the case with no isolation.
+  const writeLanes = new Map<string, Set<string>>();
   return tool({
     definition: spawnAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -252,6 +335,20 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
       const resolved = resolveDirectorDispatch(agentId, intent);
       if (!resolved.ok) return fleetResult(call.id, resolved.error);
+
+      const isWriteRisk = isWriteRiskDirector(resolved.directorId);
+      if (isWriteRisk) {
+        const lane = writeLanes.get(deps.cwd);
+        if (lane !== undefined && lane.size > 0) {
+          return fleetResult(
+            call.id,
+            `Error: spawn_agent refused — an implement-intent worker (${[...lane].join(", ")}) is ` +
+              `already running against ${deps.cwd} and spawn_agent has no worktree isolation yet, so a ` +
+              `second one would risk corrupting the first one's edits. Wait for it via wait_agents first, ` +
+              `or use task(useWorktree: true) for isolated concurrent implementation work.`,
+          );
+        }
+      }
 
       let taskMaxTurns: number | undefined;
       if (rawMaxTurns !== undefined) {
@@ -293,6 +390,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         agentId: resolved.directorId,
         brief,
       });
+      deps.fleetRecords.register(session.id);
+      if (isWriteRisk) {
+        let lane = writeLanes.get(deps.cwd);
+        if (lane === undefined) {
+          lane = new Set();
+          writeLanes.set(deps.cwd, lane);
+        }
+        lane.add(session.id);
+      }
       const agentName = classifyAgentName(resolved.directorId);
       telemetry.capture("subagent_start", { agent_name: agentName });
       const startedAt = Date.now();
@@ -338,16 +444,28 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       };
 
       // Fire and forget: this handler must return before the worker finishes.
-      // The worker's outcome lands in deps.sessions, which wait_agents reads.
+      // fleetRecords (never capped) is the durable source of truth wait_agents
+      // reads from; deps.sessions.complete/fail is still called for the TUI's
+      // benefit, but only after fleetRecords already has the result, and
+      // fleetRecords is written before it so the synchronous subscribe
+      // notification fired by complete()/fail() always sees the up-to-date
+      // record.
+      const releaseWriteLane = (): void => {
+        if (isWriteRisk) writeLanes.get(deps.cwd)?.delete(session.id);
+      };
       deps
         .run(params)
         .then((result) => {
+          releaseWriteLane();
           if (childCtl.signal.aborted) return;
+          deps.fleetRecords.resolve(session.id, result);
           deps.sessions.complete(session.id, result);
         })
         .catch((err) => {
+          releaseWriteLane();
           if (childCtl.signal.aborted) return;
           const message = err instanceof Error ? err.message : String(err);
+          deps.fleetRecords.reject(session.id, message);
           deps.sessions.fail(session.id, message);
         })
         .finally(() => {
@@ -365,28 +483,29 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
 interface WaitAgentsDeps {
   sessions: SubAgentSessionStore;
-}
-
-function isTerminal(status: SubAgentSessionStatus): boolean {
-  return status !== "running";
+  fleetRecords: FleetRecordsHandle;
 }
 
 /**
- * Blocks until any of `targets` is terminal, or `timeoutMs` elapses.
- * Driven by the session store's mailbox (`subscribe`), raced against a
- * timer — never polls. Returns without side effects on timeout: the
- * targets are not touched, so a caller can wait again immediately.
+ * Blocks until any of `targets` is terminal in `fleetRecords`, or `timeoutMs`
+ * elapses. Driven by the session store's mailbox (`subscribe`) — complete()/
+ * fail() always write fleetRecords before notifying, so a synchronous
+ * subscriber sees the up-to-date record — raced against a timer; never
+ * polls. Returns without side effects on timeout: nothing is touched, so a
+ * caller can wait again immediately.
  */
 async function waitForAnyTerminal(
   sessions: SubAgentSessionStore,
+  fleetRecords: FleetRecordsHandle,
   targets: readonly string[],
   timeoutMs: number,
 ): Promise<boolean> {
-  const alreadyTerminal = targets.some((id) => {
-    const s = sessions.get(id);
-    return s !== undefined && isTerminal(s.status);
-  });
-  if (alreadyTerminal) return false;
+  const anyTerminal = (): boolean =>
+    targets.some((id) => {
+      const record = fleetRecords.peek(id);
+      return record !== undefined && record.status !== "running";
+    });
+  if (anyTerminal()) return false;
 
   return await new Promise<boolean>((resolve) => {
     let settled = false;
@@ -399,14 +518,7 @@ async function waitForAnyTerminal(
     };
     const timer = setTimeout(() => finish(true), timeoutMs);
     const unsubscribe = sessions.subscribe(() => {
-      if (
-        targets.some((id) => {
-          const s = sessions.get(id);
-          return s !== undefined && isTerminal(s.status);
-        })
-      ) {
-        finish(false);
-      }
+      if (anyTerminal()) finish(false);
     });
   });
 }
@@ -434,18 +546,24 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         return fleetResult(call.id, JSON.stringify({ results: [], timed_out: false }));
       }
 
-      const timedOut = await waitForAnyTerminal(deps.sessions, targets, timeoutMs);
+      const timedOut = await waitForAnyTerminal(deps.sessions, deps.fleetRecords, targets, timeoutMs);
 
+      // Terminal records are consumed (removed) once delivered here; a
+      // running record is only peeked, so it stays waitable.
       const results = targets.map((id) => {
-        const session = deps.sessions.get(id);
-        if (session === undefined) {
+        const record = deps.fleetRecords.peek(id);
+        if (record === undefined) {
           return { agent_id: id, status: "unknown" as const };
         }
+        if (record.status === "running") {
+          return { agent_id: id, status: "running" as const };
+        }
+        const taken = deps.fleetRecords.take(id) ?? record;
         return {
           agent_id: id,
-          status: session.status,
-          ...(session.report !== undefined ? { report: session.report } : {}),
-          ...(session.error !== undefined ? { error: session.error } : {}),
+          status: taken.status,
+          ...(taken.report !== undefined ? { report: taken.report } : {}),
+          ...(taken.error !== undefined ? { error: taken.error } : {}),
         };
       });
 
