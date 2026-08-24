@@ -16,9 +16,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Agent
 
 - Tier 3 leaf workers can now report via `submit_result`, a typed channel alongside
-  the markdown envelope: a director package may declare a JSON Schema on
-  `DirectorPackage.reportContract.outputSchema`, and an invalid submission returns
-  a correction (capped at 3 rounds) instead of failing the run.
+  the markdown envelope that validates against a director-declared JSON Schema
+  and returns a correction (capped at 3 rounds) on an invalid submission.
 - **Fleet authority tiers are now runtime-enforced, not documented in a prompt.**
   Every director package carries a required `tier` (`orchestrator` /
   `nested-orchestrator` / `leaf`): skywalker gets full fleet control, greybeard

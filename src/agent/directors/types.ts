@@ -68,7 +68,7 @@ export interface NudgePolicy {
  * Omit entirely to keep a director on the markdown-only path.
  */
 export interface ReportContract {
-  /** JSON Schema (draft-07 subset, see subagent/json-schema-lite.ts) for submit_result's payload. */
+  /** JSON Schema for submit_result's payload, validated with ajv (see subagent/submit-result.ts). */
   readonly outputSchema?: Record<string, unknown>;
 }
 

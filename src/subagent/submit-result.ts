@@ -4,7 +4,11 @@
  * owns the per-turn `SubmitResultState` (one instance per runSubAgent call).
  */
 
-import { validateJsonSchema, type JsonSchema } from "./json-schema-lite.js";
+import Ajv, { type Schema } from "ajv";
+
+const ajv = new Ajv({ allErrors: true, strict: false });
+
+export type JsonSchema = Schema;
 
 export const SUBMIT_RESULT_MAX_CORRECTIONS = 3;
 
@@ -49,14 +53,15 @@ export function evaluateSubmitResult(input: SubmitResultInput): {
     };
   }
   if (input.schema !== undefined) {
-    const errors = validateJsonSchema(input.schema, input.result);
-    if (errors.length > 0) {
+    const validate = ajv.compile(input.schema);
+    const valid = validate(input.result);
+    if (!valid) {
       input.state.corrections += 1;
       return {
         ok: false,
         message: [
           `Invalid submission (${input.state.corrections}/${cap} corrections used):`,
-          ...errors.map((e) => `- ${e}`),
+          ajv.errorsText(validate.errors, { separator: "\n", dataVar: "result" }),
           "Fix and call submit_result again with the same turn_token.",
         ].join("\n"),
       };
