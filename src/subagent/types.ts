@@ -16,6 +16,7 @@ import type { PermissionGate } from "../permission/gate.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import type { TaskIntent } from "./report.js";
+import type { SubagentTier } from "../agent/directors/types.js";
 
 export interface SubAgentProvider {
   providerName: string;
@@ -106,6 +107,15 @@ export type RunSubAgentParams = {
   // Requires nestedDispatch so the task tool can actually be installed —
   // advertising permission without the tool is a hard break.
   orchestrator?: boolean;
+  /**
+   * Fleet authority tier (CL-6941) for this dispatch, resolved by the caller
+   * (task-tool.ts) from either the closed DirectorPackage.tier or an explicit
+   * AgentProfile.tier opt-in. Required whenever orchestrator is true:
+   * runSubAgent fails closed (denies task/search_agents) when orchestrator is
+   * true and this is undefined or "leaf" — an unrecognized or unresolved tier
+   * must never mount a fleet verb. See src/subagent/authority.ts.
+   */
+  orchestratorTier?: SubagentTier;
   // Present only when orchestrator is true. Installs task + search_agents so
   // the orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;

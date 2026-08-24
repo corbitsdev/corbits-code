@@ -18,6 +18,7 @@ export const greybeardPackage: DirectorPackage = {
   },
   nudge: { maxTurns: 50 },
   modelRole: "review",
+  tier: "nested-orchestrator",
   systemPrompt: `You are GreybeardDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: architecture review. Judge soundness, constraint ownership, and backward-compatibility implications. Do not fix or ship product code.

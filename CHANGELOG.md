@@ -13,6 +13,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Agent
+
+- **Fleet authority tiers are now runtime-enforced, not documented in a prompt.**
+  Every director package carries a required `tier` (`orchestrator` /
+  `nested-orchestrator` / `leaf`): skywalker gets full fleet control, greybeard
+  (and any package with `spawn.maySpawn`) is scoped to its own subtree, and every
+  other director gets no fleet verbs at all. The gate lives in code
+  (`src/subagent/authority.ts`, wired into `runSubAgent`'s tool-mount point) and
+  fails closed: a caller whose tier cannot be resolved — including a
+  project-local or plugin agent profile with `orchestrator: true` that has not
+  explicitly opted in via `fleetTier: "nested-orchestrator"` — is denied
+  `task`/`search_agents` rather than silently trusted. This is the foundation
+  the next fleet-control verbs (spawn/list/steer a live agent) land against;
+  the subtree-scoping rule for those is written and tested but not yet wired to
+  a live call site. `task()` is unchanged and still the only spawn verb.
+
 ## [0.2.107] - 2026-08-24
 
 ### Agent
