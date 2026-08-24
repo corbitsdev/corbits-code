@@ -39,6 +39,13 @@ import {
   type SubAgentProvider,
   type SubAgentSessionStore,
 } from "../subagent/index.js";
+import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "../subagent/agent-fleet.js";
+import {
+  createCloseAgentTool,
+  createResumeAgentTool,
+  createInterruptAgentTool,
+  createFollowupTaskTool,
+} from "../subagent/lifecycle-tools.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
@@ -263,6 +270,84 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   // Align the advertised run_shell timeout with shell-guard (no built-in default;
   // advertise settings.shell.timeoutMs when set).
+  // Orchestrator tools (task / search / trace / fleet) are assembled once so the
+  // fleet verbs can reuse the same sessions store the task tool already holds —
+  // never a private mailbox allocated only for spawn_agent/wait_agents.
+  const orchestratorTools: AgentTool[] = [];
+  if (subAgentsEnabled && args.subAgent !== undefined) {
+    const sa = args.subAgent;
+    orchestratorTools.push(
+      createTaskTool({
+        cwd,
+        getWorkdirBase: sa.getWorkdirBase,
+        provider: sa.provider,
+        permissionGate,
+        inheritMcpTools: () => inheritedMcpTools,
+        run: runSubAgent,
+        ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+        ...(shellEnv !== undefined ? { shellEnv } : {}),
+        ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
+        ...(sa.onEvent !== undefined ? { onEvent: sa.onEvent } : {}),
+        ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),
+        ...(sa.sessions !== undefined ? { sessions: sa.sessions } : {}),
+        ...(sa.settings !== undefined ? { settings: sa.settings } : {}),
+        ...(sa.catalog !== undefined ? { catalog: sa.catalog } : {}),
+        ...(sa.profiles !== undefined ? { profiles: sa.profiles } : {}),
+        ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
+        ...(sa.useWorktree !== undefined ? { useWorktree: sa.useWorktree } : {}),
+        ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+      }),
+    );
+    if (sa.profiles !== undefined) {
+      orchestratorTools.push(
+        createSearchAgentsTool(() => {
+          const profiles = sa.profiles;
+          return typeof profiles === "function" ? profiles() : (profiles ?? []);
+        }),
+      );
+    }
+    // Tier 1: the primary session is always an orchestrator and may
+    // target any worker (assertCanTargetAgent's rule), so no authority
+    // context is passed here — omitting it is treated as unrestricted,
+    // matching Tier 1's actual authority.
+    orchestratorTools.push(createReadAgentTraceTool(sa.getWorkdirBase));
+
+    // Mirror nested runSubAgent's orchestrator fleet mount (run.ts), but
+    // reuse the existing TUI/exec session store — do not allocate a private
+    // store only for these verbs. spawnAllowlist stays unwired on primary.
+    if (sa.sessions !== undefined) {
+      const fleetSessions = sa.sessions;
+      const fleetRecords = createFleetRecords();
+      const fleetDeps = {
+        permissionGate,
+        inheritMcpTools: () => inheritedMcpTools,
+        ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+        ...(shellEnv !== undefined ? { shellEnv } : {}),
+        ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
+        cwd,
+        getWorkdirBase: sa.getWorkdirBase,
+        provider: sa.provider,
+        ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
+        run: runSubAgent,
+        sessions: fleetSessions,
+        fleetRecords,
+        ...(sa.onEvent !== undefined ? { onEvent: sa.onEvent } : {}),
+        ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),
+        ...(sa.settings !== undefined ? { settings: sa.settings } : {}),
+        ...(sa.catalog !== undefined ? { catalog: sa.catalog } : {}),
+        ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+      };
+      orchestratorTools.push(
+        createSpawnAgentTool(fleetDeps),
+        createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
+        createCloseAgentTool({ sessions: fleetSessions }),
+        createResumeAgentTool({ sessions: fleetSessions }),
+        createInterruptAgentTool({ sessions: fleetSessions }),
+        createFollowupTaskTool({ sessions: fleetSessions }),
+      );
+    }
+  }
+
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => ({
       ...tool,
@@ -276,47 +361,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     createUseSkillTool(cwd, skillDirs, args.telemetry),
     createWebFetchTool(),
     createWebSearchTool(),
-    ...(subAgentsEnabled && args.subAgent !== undefined
-      ? [
-          createTaskTool({
-            cwd,
-            getWorkdirBase: args.subAgent.getWorkdirBase,
-            provider: args.subAgent.provider,
-            permissionGate,
-            inheritMcpTools: () => inheritedMcpTools,
-            run: runSubAgent,
-            ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-            ...(shellEnv !== undefined ? { shellEnv } : {}),
-            ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
-            ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
-            ...(args.subAgent.onProgress !== undefined
-              ? { onProgress: args.subAgent.onProgress }
-              : {}),
-            ...(args.subAgent.sessions !== undefined ? { sessions: args.subAgent.sessions } : {}),
-            ...(args.subAgent.settings !== undefined ? { settings: args.subAgent.settings } : {}),
-            ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
-            ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
-            ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
-            ...(args.subAgent.useWorktree !== undefined
-              ? { useWorktree: args.subAgent.useWorktree }
-              : {}),
-            ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
-          }),
-          ...(args.subAgent.profiles !== undefined
-            ? [
-                createSearchAgentsTool(() => {
-                  const profiles = args.subAgent!.profiles;
-                  return typeof profiles === "function" ? profiles() : (profiles ?? []);
-                }),
-              ]
-            : []),
-          // Tier 1: the primary session is always an orchestrator and may
-          // target any worker (assertCanTargetAgent's rule), so no authority
-          // context is passed here — omitting it is treated as unrestricted,
-          // matching Tier 1's actual authority.
-          createReadAgentTraceTool(args.subAgent.getWorkdirBase),
-        ]
-      : []),
+    ...orchestratorTools,
     stringTool({
       definition: manageTasksDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
