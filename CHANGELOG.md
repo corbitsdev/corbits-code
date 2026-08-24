@@ -11,6 +11,18 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Agent
+
+- Removed the `never-edited`, `never-acted`, `no-ship`, and `no-progress` leaf
+  salvage classes and the sticky hard-block that refused an identical
+  re-dispatch after any of them fired. A worker sharing a directory can issue
+  real edits that a concurrent writer absorbs, leaving no net diff — that is
+  not a failure, and no salvage class now treats it as one. `turn-budget`,
+  `deadline`, `stalled`, `cancelled`, `incomplete-report`, and `repetition`
+  are unaffected.
+
 ## [0.2.108] - 2026-08-24
 
 ### Agent

@@ -31,7 +31,7 @@ import {
 } from "../subagent/stop-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 import { isOperatorOriginated } from "./message-provenance.js";
-import { classifyBriefSalvage, isHardBlockSalvage } from "../subagent/brief-dispatch.js";
+import { classifyBriefSalvage } from "../subagent/brief-dispatch.js";
 import { PRIMARY_SALVAGE_NUDGE } from "./look-tour.js";
 
 // Fired when turnsSinceUserMessage reaches TURNS_SINCE_USER_MESSAGE_BACKSTOP.
@@ -935,7 +935,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.pendingTaskCallIds.delete(event.result.callId);
       const body = typeof event.result.content === "string" ? event.result.content : "";
       const salvage = classifyBriefSalvage(body);
-      if (salvage !== null && isHardBlockSalvage(salvage) && !this.salvageNudgeFired) {
+      if (salvage === "repetition" && !this.salvageNudgeFired) {
         this.salvageNudgeFired = true;
         this.pendingSalvageNudge = PRIMARY_SALVAGE_NUDGE;
       }

@@ -461,19 +461,20 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     expect(reply.content).not.toContain("narrated instead of writing a report envelope");
   });
 
-  test("zero-tool first turn still salvages never-acted", async () => {
+  test("zero-tool first turn without an envelope gets the incomplete-report nudge, not a hard stop (CL-6994)", async () => {
+    // A run that never called a tool is no longer a distinct failure — it is
+    // just a tool-less turn, judged the same way any other one is: nudged
+    // once for a missing envelope rather than immediately salvaged.
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();
 
     const result = actions(
       await director.decide(inferenceDoneText("I'll write the red tests next"), state, caps),
     );
-    expect(result.some((action) => action.type === "infer")).toBe(false);
-    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-never-acted" });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
-    expect(reply.content).toContain("without using any tools");
-    expect(reply.content).not.toContain("narrated instead of writing a report envelope");
+    expect(result.some((action) => action.type === "infer")).toBe(true);
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
   });
 });

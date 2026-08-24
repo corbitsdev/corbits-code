@@ -45,11 +45,8 @@ export {
   type TaskIntent,
 } from "./report.js";
 export {
-  DEFAULT_SUBAGENT_REPEAT_LIMIT,
   SUBAGENT_DEADLINE_MARGIN_MS,
   appendDeadlineParentHint,
-  appendNeverActedParentHint,
-  appendNoProgressParentHint,
   appendRepetitionParentHint,
   appendSubAgentParentHints,
   appendTurnBudgetParentHint,
@@ -57,23 +54,17 @@ export {
   fingerprintToolCalls,
   forcedStopReport,
   isDeadlineSubAgentReport,
-  isNeverActedSubAgentReport,
-  isNeverEditedSubAgentReport,
-  isNoProgressSubAgentReport,
   isRepetitionSubAgentReport,
   isTurnBudgetSubAgentReport,
-  nextToolCallStreak,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
-  subAgentNoProgress,
   subAgentTurnLimitExceeded,
   TURN_BUDGET_STOP_PARENT_HINT,
   type SubAgentCatchOutcome,
   type SubAgentParentHintOptions,
   type SubAgentStopReason,
-  type ToolCallStreak,
 } from "./stop-policy.js";
 
 export {
@@ -81,12 +72,10 @@ export {
   classifyBriefSalvage,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
-  isHardBlockSalvage,
   shouldStopTurnBudgetRedispatch,
   type BriefDispatchLedger,
   type BriefDispatchRecord,
   type BriefSalvageKind,
-  type HardBlockSalvage,
   type TaskBriefFingerprintInput,
 } from "./brief-dispatch.js";
 

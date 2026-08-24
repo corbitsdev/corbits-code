@@ -96,7 +96,6 @@ import {
   subAgentToolName,
 } from "./report.js";
 import {
-  DEFAULT_SUBAGENT_REPEAT_LIMIT,
   forcedStopReport,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
@@ -636,10 +635,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           }),
           requestContinuation,
           maxTurns,
-          DEFAULT_SUBAGENT_REPEAT_LIMIT,
           modelFamilyPolicy.subAgentStallTimeoutMs,
           Date.now,
-          params.intent === "implement",
           shouldRequireEvidence(params),
         );
         director.observeInterventions((event) => {

@@ -840,13 +840,13 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 
-  test("after a hard-block salvage, Skywalker is nudged once and unique reads do not pause", async () => {
+  test("after a repetition salvage, Skywalker is nudged once and unique reads do not pause", async () => {
     const director = createChatDirector("system", [], {
       onTasksChange: () => {},
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
-    const salvage = forcedStopReport("no-ship", "mapped the tree, never edited");
+    const salvage = forcedStopReport("repetition", "looped mid-stream");
     await director.decide(
       {
         type: "inference.done",
@@ -1071,7 +1071,7 @@ describe("ChatDirector tool-only loop protection", () => {
         await director.decide(taskTurn(id), mockState, capabilities);
         const result = actionsArray(
           await director.decide(
-            taskDoneEvent(id, { content: forcedStopReport("no-progress", "x") }),
+            taskDoneEvent(id, { content: forcedStopReport("turn-budget", "x") }),
             mockState,
             capabilities,
           ),

@@ -153,7 +153,7 @@ export function buildGuidelines(
           "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
           "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, no hard upper cap). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
-          "- After thrash / no-progress / repetition / never-acted salvage, do not re-dispatch an identical brief (prompt/agent/intent/success_criteria/do_not) — it is refused. Change the brief to force a re-run; maxTurns alone does not unlock it.",
+          "- After a repetition salvage, re-dispatching an identical brief (prompt/agent/intent/success_criteria/do_not) unchanged will likely loop again — change the brief before retrying.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),

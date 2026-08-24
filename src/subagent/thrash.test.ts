@@ -126,18 +126,12 @@ describe("thrash pure module", () => {
     expect(state.totalToolCalls).toBe(1);
   });
 
-  test("run_shell file work counts as read and edit evidence (CL-6937)", () => {
+  test("run_shell file reads count as read evidence (CL-6937)", () => {
     const shell = (command: string): ThrashToolCallBlock => ({
       type: "tool_call",
       name: "run_shell",
       arguments: { command },
     });
-    const edited = applyAll([shell("sed -i '' 's/a/b/' src/a.ts")]);
-    expect(edited.editedPaths.has("src/a.ts")).toBe(true);
-
-    const heredoc = applyAll([shell("cat <<'EOF' > src/gen.ts\nx\nEOF")]);
-    expect(heredoc.editedPaths.has("src/gen.ts")).toBe(true);
-
     const readOnly = applyAll([shell("head -n 40 src/a.ts")]);
     expect(readOnly.readCounts.get("src/a.ts")).toBe(1);
     expect(readOnly.editedPaths.size).toBe(0);

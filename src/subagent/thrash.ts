@@ -7,11 +7,13 @@
  * evidence that they repeat, and a raw re-read count cannot tell four reads
  * spread across real progress from four reads in a loop (CL-6936).
  *
- * The state this module accumulates is consumed by evaluateSubAgentStop's
- * requireEdit / requireEvidence checks, not by a stop of its own. Reads and
- * writes performed through run_shell count as evidence there (CL-6937) — the
- * prompt prohibits shell file work, but a prompt violation deserves a
- * correction, not a verdict that the work never happened.
+ * readCounts feeds evaluateSubAgentStop's requireEvidence check (the
+ * CritiqueDirector gate). Reads performed through run_shell count as evidence
+ * there too (CL-6937) — the prompt prohibits shell file work, but a prompt
+ * violation deserves a correction, not a verdict that the work never
+ * happened. editedPaths is recorded purely for intervention-log diagnostics
+ * (CL-6994 deleted the never-edited stop that used to consume it — no
+ * salvage class is gated on it).
  */
 
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
@@ -131,8 +133,8 @@ export function nextThrashState(
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
     } else if (name === SHELL_TOOL) {
-      // Shell file work is evidence too, or a worker that edits with sed -i
-      // salvages as never-edited and is then refused re-dispatch (CL-6937).
+      // Shell file reads are evidence too, or a worker that reads with cat/rg
+      // falsely fails the CritiqueDirector requireEvidence gate (CL-6937).
       const command = args.command;
       if (typeof command === "string" && command.length > 0) {
         const evidence = classifyShellFileEvidence(command);
@@ -141,10 +143,6 @@ export function nextThrashState(
           for (const key of evidence.reads) {
             readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
           }
-        }
-        if (evidence.writes.length > 0) {
-          if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
-          for (const key of evidence.writes) editedPaths.add(key);
         }
       }
     } else if (isProductMutationTool(name)) {
