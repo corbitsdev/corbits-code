@@ -26,7 +26,7 @@ const SKILL_DIRS = [
   "plan",
 ] as const;
 
-const SPAWN_RECIPE_SKILLS = ["implement", "scribe", "review", "dispatch", "plan"] as const;
+const SPAWN_RECIPE_SKILLS = ["implement", "scribe", "review", "plan"] as const;
 
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
@@ -110,6 +110,20 @@ test("spawn-recipe skills contain task(agent=", async () => {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
     expect(skill).toContain("task(agent=");
   }
+});
+
+test("dispatch skill prefers spawn_agent/wait_agents and references git-worktrees", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/dispatch/SKILL.md")).text();
+  expect(skill).toContain("spawn_agent");
+  expect(skill).toContain("wait_agents");
+  expect(skill).toContain('use_skill("git-worktrees")');
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain("task.agent director id");
+  expect(skill).toContain("returned `agent_id`");
+  expect(skill).not.toContain('agent="<id from manifest>"');
+  expect(skill).not.toContain("4 live workers");
+  expect(skill).not.toContain("max-parallel");
+  expect(skill).not.toContain("git worktree add");
 });
 
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
