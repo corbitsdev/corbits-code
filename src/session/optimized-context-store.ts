@@ -80,18 +80,34 @@ function sanitizeCallId(callId: string): string {
  * `fileName` when provided so diagnostics point at the on-disk file, not a bare
  * Bun JSON token.
  *
- * Mid-file lines that fail `JSON.parse` (garbage, glued truncated fragments, or
- * interleaved junk) are warned and skipped so resume can continue past them
- * (CL-7052). Arktype schema failures stay strict on the reactor path — only
- * `skipMalformed` (display-only `loadRecentTurns`) soft-skips those.
+ * `skipMalformed` drops (or partially recovers) a bad line anywhere in the
+ * segment and keeps surrounding history. Used by display-only reads
+ * (`loadRecentTurns`) and by the reactor's own `load()` recovery path so a
+ * mid-file garbage/interleaved record does not kill resume (CL-7052). Earlier
+ * CL-5935 kept reactor load strict; killing the session on one bad line was
+ * worse than a hole in history.
  *
- * `skipMalformed` is for display-only reads (see loadRecentTurns): a bad line
- * anywhere in any segment drops that line and keeps the surrounding history,
- * because a blank transcript is a worse answer than a transcript with a hole in
- * it. The reactor's own load() must never use it — there, history *is* the live
- * conversation state and silently dropping a schema-invalid turn would corrupt
- * it (CL-5935).
+ * When a crash left a truncated stub glued to the next append (no newline),
+ * the line fails as a whole; `recoverTurnFromGluedLine` still salvages a
+ * trailing complete turn from that line when one is present.
  */
+function recoverTurnFromGluedLine(line: string): ConversationTurn | null {
+  // Walk every `{` start: a truncated prefix glued onto a complete record
+  // parses only from the start of that complete record to end-of-line.
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== "{") continue;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line.slice(i));
+    } catch {
+      continue;
+    }
+    const result = ConversationTurnSchema(raw);
+    if (!(result instanceof type.errors)) return result;
+  }
+  return null;
+}
+
 function parseSegmentTurns(
   text: string,
   tolerateTornTail: boolean,
@@ -111,106 +127,36 @@ function parseSegmentTurns(
     const line = lines[i]!;
     if (line.length === 0) continue;
     const isLast = i === lines.length - 1;
-    const lineNo = i + 1;
-
-    let candidates: unknown[];
-    let fromSalvage = false;
+    let raw: unknown;
     try {
-      candidates = [JSON.parse(line)];
-    } catch {
-      candidates = salvageGluedJsonObjects(line);
-      fromSalvage = true;
-      if (candidates.length === 0) {
-        if (tolerateTornTail && isLast) {
-          log.warn?.(`skipping torn trailing JSON at ${fileName} line ${lineNo}`);
-          break;
-        }
-        log.warn?.(`skipping malformed JSON at ${fileName} line ${lineNo}`);
-        continue;
-      }
-      log.warn?.(
-        `salvaged ${candidates.length} JSON object(s) from glued/malformed line at ${fileName} line ${lineNo}`,
-      );
-    }
-
-    for (const raw of candidates) {
-      const result = ConversationTurnSchema(raw);
-      if (result instanceof type.errors) {
-        // Whole-line JSON that fails the turn schema stays strict on the reactor
-        // path. Salvaged fragments from a glued/garbage line are skipped — they
-        // are not intentional turn records.
-        if (skipMalformed || fromSalvage) {
-          log.warn?.(`skipping unexpected structure at ${fileName} line ${lineNo}`);
+      raw = JSON.parse(line);
+    } catch (cause) {
+      if (skipMalformed) {
+        const recovered = recoverTurnFromGluedLine(line);
+        if (recovered !== null) {
+          log.warn?.(`recovered trailing turn from glued/malformed JSON at ${fileName} line ${i + 1}`);
+          turns.push(recovered);
           continue;
         }
-        throw new Error(
-          `${fileName} has unexpected structure at line ${lineNo}: ${result.summary}`,
-        );
+        // Torn final line: drop it rather than warning as mid-file garbage.
+        if (tolerateTornTail && isLast) break;
+        log.warn?.(`skipping malformed JSON at ${fileName} line ${i + 1}`);
+        continue;
       }
-      turns.push(result);
+      if (tolerateTornTail && isLast) break;
+      throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, { cause });
     }
+    const result = ConversationTurnSchema(raw);
+    if (result instanceof type.errors) {
+      if (skipMalformed) {
+        log.warn?.(`skipping unexpected structure at ${fileName} line ${i + 1}`);
+        continue;
+      }
+      throw new Error(`${fileName} has unexpected structure at line ${i + 1}: ${result.summary}`);
+    }
+    turns.push(result);
   }
   return turns;
-}
-
-/**
- * Recover zero or more top-level `{...}` values glued on one physical line
- * (e.g. a truncated manage_tasks write followed immediately by the next turn
- * with no newline). Starts at every `{` so a truncated head that never closes
- * does not swallow a later complete object. Incomplete spans and fragments that
- * `JSON.parse` rejects are dropped.
- */
-function salvageGluedJsonObjects(line: string): unknown[] {
-  const objects: unknown[] = [];
-  let searchFrom = 0;
-  while (searchFrom < line.length) {
-    const start = line.indexOf("{", searchFrom);
-    if (start < 0) break;
-
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-    let end = -1;
-    for (let i = start; i < line.length; i++) {
-      const c = line[i]!;
-      if (inString) {
-        if (escape) {
-          escape = false;
-          continue;
-        }
-        if (c === "\\") {
-          escape = true;
-          continue;
-        }
-        if (c === '"') inString = false;
-        continue;
-      }
-      if (c === '"') {
-        inString = true;
-        continue;
-      }
-      if (c === "{") depth++;
-      else if (c === "}") {
-        depth--;
-        if (depth === 0) {
-          end = i + 1;
-          break;
-        }
-      }
-    }
-    if (end < 0) {
-      // Unclosed from this `{` — try the next candidate start (truncated glue head).
-      searchFrom = start + 1;
-      continue;
-    }
-    try {
-      objects.push(JSON.parse(line.slice(start, end)));
-      searchFrom = end;
-    } catch {
-      searchFrom = start + 1;
-    }
-  }
-  return objects;
 }
 
 const EMPTY_TOKEN_USAGE = {
@@ -337,7 +283,8 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
     // Only the active (last) segment can be mid-write; sealed ones are complete.
     // Display-only: skip lines that will not parse rather than losing the whole
     // transcript to one bad line, and name the segment in any error that does
-    // escape (CL-5935).
+    // escape (CL-5935). Reactor load uses the same skip path for mid-file
+    // garbage so resume does not die (CL-7052).
     const turns = parseSegmentTurns(text, i === segments.length - 1, name, true);
     collectedNewestFirst.push(turns);
     total += turns.length;
@@ -475,6 +422,7 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
         text,
         index === extraTexts.length - 1,
         segmentFileName(TURNS_FILE, index + 1),
+        true,
       ),
     );
     const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
@@ -498,10 +446,10 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     // optional convenience — callers that only need a recent tail (e.g. TUI
     // resume hydration) should use `loadRecentTurns` instead.
     //
-    // When the base isogit store hard-fails (e.g. null-padded turns.jsonl from
-    // a stale truncate), recover usable turns via resilient segment parse and
-    // re-read metadata via the base schema (soft-empty only if that fails too)
-    // so resume does not die on a bare Bun JSON token or wipe pending ops.
+    // When the base isogit store hard-fails (e.g. null-padded or mid-file
+    // garbage turns.jsonl), recover usable turns via resilient segment parse
+    // and re-read metadata via the base schema (soft-empty only if that fails
+    // too) so resume does not die on a bare Bun JSON token or wipe pending ops.
     async load(signal) {
       try {
         const baseResult = await base.load(signal);
@@ -516,10 +464,12 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
         let baseTurns: ConversationTurn[];
         try {
           // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
+          // skipMalformed: mid-file garbage/interleaved records must not kill resume
+          // (CL-7052); null-pad stripping and torn-tail drop still apply.
           const basePath = path.join(dir, TURNS_FILE);
           if (await pathExists(basePath)) {
             const text = await fs.promises.readFile(basePath, "utf-8");
-            baseTurns = parseSegmentTurns(text, true, TURNS_FILE);
+            baseTurns = parseSegmentTurns(text, true, TURNS_FILE, true);
           } else {
             baseTurns = [];
           }
