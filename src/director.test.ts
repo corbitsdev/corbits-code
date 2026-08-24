@@ -460,23 +460,23 @@ describe("chatDirector compaction", () => {
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
   });
 
-  test("retries recoverable inference failures within a bounded budget", async () => {
+  // CL-6910: `timeout`/`retryable` are owned entirely by the harness's own
+  // retry policy, which already retries and exhausts them before an
+  // `inference.error` of one of those categories ever reaches the director.
+  // The director re-issuing another `infer()` here used to multiply with
+  // the harness's own attempts (up to 9 identical full-context sends per
+  // turn); it now falls through to the base director's terminal
+  // checkpoint + reply instead of recovering.
+  test("does not re-issue inference for a timeout already exhausted by the harness", async () => {
     const director = chatDirectorWithContinuation();
     const timeout = {
       type: "inference.error",
       error: { category: "timeout", message: "request timed out" },
     } as unknown as ReactorInboundEvent;
 
-    for (let i = 0; i < 2; i++) {
-      const actions = actionsArray(await director.decide(timeout, longState, mockCapabilities));
-      expect(actions.some((action) => action.type === "infer")).toBe(true);
-    }
-
-    const exhausted = actionsArray(await director.decide(timeout, longState, mockCapabilities));
-    expect(exhausted).toEqual([
-      { type: "checkpoint", message: "inference-recovery-exhausted" },
-      { type: "reply", content: "The request could not recover. Send a message to resume." },
-    ]);
+    const actions = actionsArray(await director.decide(timeout, longState, mockCapabilities));
+    expect(actions.some((action) => action.type === "infer")).toBe(false);
+    expect(actions.some((action) => action.type === "reply")).toBe(true);
   });
 
   test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
