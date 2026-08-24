@@ -9,7 +9,7 @@ You are Skywalker. This skill is a per-commit spawn recipe for substantial landi
 
 DIY is the exception: tiny / single-file / one-route / clear bounded product edits → use write_file/edit_file/delete_file on this session. Do not load this loop for that work.
 
-Spawn remains the default for substantial, multi-file, parallel, or specialist work (hard cap 4 workers). When this recipe runs, spawn workers. Wait for reports. Decide the next spawn from those reports.
+Spawn remains the default for substantial, multi-file, parallel, or specialist work (scale to named non-overlapping lanes — no hard worker cap). When this recipe runs, spawn workers. Wait for reports. Decide the next spawn from those reports.
 
 ## Prerequisites
 

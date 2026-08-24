@@ -11,7 +11,7 @@ You are Skywalker. This skill is loadable with `use_skill("dispatch")`. Follow t
 
 Orchestrate parallel director runs across a dependency graph. Fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done.
 
-Hard cap: **at most 4 workers at once** unless the operator explicitly asks for a wider fan-out. Track progress with `manage_tasks`.
+Default batch size: **4 live workers** (recipe default — not a hard runtime cap). Widen when lanes are named and non-overlapping, or when the operator asks. Track progress with `manage_tasks`.
 
 Closed directors used here: `explorer`, `intern`, `builder`, `counsel`, `critic`. Optional consults: `greybeard`, `tester`. Never a catch-all worker. DAG node agents are `explorer`, `intern`, and `builder` only.
 
@@ -105,7 +105,7 @@ The directory name is the task `id`. After a worker runs, the task directory is 
 ```yaml
 goal: "Short description of the overall goal"
 status: pending # pending | in-progress | completed | failed
-max-parallel: 4 # hard cap unless the operator asks for more
+max-parallel: 4 # recipe default batch size (not a hard runtime cap)
 created: YYYY-MM-DD
 
 verify:
@@ -170,7 +170,7 @@ Present the DAG (ids, agents, deps, critique flags, verify commands, commit stra
 ## Phase 4: Execute the DAG
 
 1. **Ready set:** `pending` tasks whose `depends-on` are all `completed`.
-2. **Batch:** take a safe parallel subset, **at most 4 live workers** (including in-flight critique). Same-file writers and shared mutable state (build artifacts, test DBs) must not share a batch — serialize with `depends-on`.
+2. **Batch:** take a safe parallel subset; default batch size is **4 live workers** (including in-flight critique) — widen when lanes are named and non-overlapping. Same-file writers and shared mutable state (build artifacts, test DBs) must not share a batch — serialize with `depends-on`.
 3. **Spawn** each task with `task(agent="<id from manifest>")`. Inject upstream reports (not a rewritten `plan.md`) into the brief. Split ownership by path/package when two builder workers run together.
 4. **Fan in:** trust the worker report (and `output.yaml` when builder wrote one). Missing report or `status: failed` → mark `failed`. Do not re-fan-out an identical brief; change `success_criteria` / `do_not` or tell the operator.
 5. **Level commit:** after a level's product tasks self-report complete, intern commits per the strategy (per-task default). Workers must not have committed.
@@ -213,4 +213,4 @@ Re-resolve input to the existing `dispatch/<name>/`. Re-validate the remaining D
 - `use_skill("dispatch")` loads this recipe. It is a command.
 - Agents: `explorer`, `intern`, `builder` only for DAG nodes. Critique via `task(agent="critic")`. Plan via `task(agent="counsel")` when a spec needs an eng plan first.
 - Progress: `manage_tasks`.
-- At most 4 workers at once unless the operator asks for more.
+- Default batch size 4 live workers (recipe default, not a hard runtime cap); widen for named non-overlapping lanes or when the operator asks.
