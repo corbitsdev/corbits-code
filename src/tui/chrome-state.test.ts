@@ -117,7 +117,7 @@ describe("formatChromeZones", () => {
     expect(out.task).toBeNull();
     expect(out.agents).toEqual([
       {
-        label: "observe: explore — map callers of openListOverlay",
+        label: "observe: explorer — map callers of openListOverlay",
         tail: "",
         stalled: false,
         kind: "lane",
@@ -580,7 +580,7 @@ describe("chromeFromSession", () => {
     });
     expect(formatChromeZones(state, NOW).agents).toEqual([
       {
-        label: "observe: explore — watch",
+        label: "observe: explorer — watch",
         tail: "",
         stalled: false,
         kind: "lane",

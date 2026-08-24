@@ -130,7 +130,7 @@ describe("diff transcript rows", () => {
 
     // Structural: summary set, not raw args; detail expands with real newlines.
     expect(row.summary).toBe("map callers of leaveObserve");
-    expect(row.verb).toBe("Explore");
+    expect(row.verb).toBe("Explorer");
     expect(row.text).toBe(args); // clipboard still has raw; paint must not use it
     expect(row.summary).not.toContain("success_criteria");
     expect(row.summary).not.toContain("maxTurns");

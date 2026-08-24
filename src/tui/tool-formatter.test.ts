@@ -316,7 +316,7 @@ describe("describeToolCall for task tool", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
     const args = JSON.stringify({ agent: "explorer", prompt, intent: "explore" });
     const result = describeToolCall("task", args);
-    expect(result.display).toBe("Explore");
+    expect(result.display).toBe("Explorer");
     // ARG_VALUE_MAX = 48 with ellipsis when truncated
     expect(result.summary.length).toBeLessThanOrEqual(48);
     expect(result.full).toBe(prompt);
@@ -419,7 +419,7 @@ describe("task activity transcript lines", () => {
 
   test("mergedToolCollapsedPreview curates task call+result into one line", () => {
     const line = mergedToolCollapsedPreview("task", JSON.stringify(fullBrief), reportBody, false);
-    expect(line).toBe("Explore map callers of leaveObserve — Found 3 call sites in app.tsx");
+    expect(line).toBe("Explorer map callers of leaveObserve — Found 3 call sites in app.tsx");
     expect(line).not.toContain("prompt");
     expect(line).not.toContain("maxTurns");
     expect(line).not.toContain("## Summary");
