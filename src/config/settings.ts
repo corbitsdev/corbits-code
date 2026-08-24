@@ -285,17 +285,16 @@ export function shellEnvFromSettings(
   return local?.env;
 }
 
-export const DEFAULT_SUBAGENT_MAX_TURNS = 30;
-
 /** Floor-only sanitization: ≥1 integer. No upper hard cap. */
 export function clampSubAgentMaxTurns(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_SUBAGENT_MAX_TURNS;
+  if (!Number.isFinite(value)) return Infinity;
   return Math.max(1, Math.floor(value));
 }
 
+/** No explicit subagentMaxTurns means unbounded; operators opt in to a ceiling. */
 export function resolveDefaultSubAgentMaxTurns(settings?: Settings | null): number {
   if (settings?.subagentMaxTurns === undefined) {
-    return DEFAULT_SUBAGENT_MAX_TURNS;
+    return Infinity;
   }
   return clampSubAgentMaxTurns(settings.subagentMaxTurns);
 }

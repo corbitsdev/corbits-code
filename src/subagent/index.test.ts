@@ -10,7 +10,6 @@ import {
   createSubAgentRunController,
   createSubAgentSessionStore,
   createSubAgentSpawnRegistryPlugin,
-  DEFAULT_SUBAGENT_MAX_TURNS,
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   disposeSubAgentSession,
   evaluateSubAgentStop,
@@ -148,14 +147,12 @@ describe("sub-agent teardown", () => {
 });
 
 describe("sub-agent stop helpers", () => {
-  test("default turn budget is tight enough to bound runaway cost", () => {
-    expect(DEFAULT_SUBAGENT_MAX_TURNS).toBe(30);
-    expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(
-      true,
-    );
-    expect(
-      subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS - 1, DEFAULT_SUBAGENT_MAX_TURNS),
-    ).toBe(false);
+  const TEST_MAX_TURNS = 30;
+
+  test("explicit turn budget hard-stops at the limit; unbounded (Infinity) never does", () => {
+    expect(subAgentTurnLimitExceeded(TEST_MAX_TURNS, TEST_MAX_TURNS)).toBe(true);
+    expect(subAgentTurnLimitExceeded(TEST_MAX_TURNS - 1, TEST_MAX_TURNS)).toBe(false);
+    expect(subAgentTurnLimitExceeded(1_000_000, Infinity)).toBe(false);
   });
 
   test("no-progress trips at the default repeat limit", () => {
@@ -174,7 +171,7 @@ describe("sub-agent stop helpers", () => {
           hasToolCalls: true,
           everHadToolCalls: true,
           turnsCompleted: consecutive,
-          maxTurns: DEFAULT_SUBAGENT_MAX_TURNS,
+          maxTurns: TEST_MAX_TURNS,
           consecutiveIdentical: consecutive,
           repeatLimit: DEFAULT_SUBAGENT_REPEAT_LIMIT,
         }),
@@ -189,7 +186,7 @@ describe("sub-agent stop helpers", () => {
         hasToolCalls: true,
         everHadToolCalls: true,
         turnsCompleted: 6,
-        maxTurns: DEFAULT_SUBAGENT_MAX_TURNS,
+        maxTurns: TEST_MAX_TURNS,
         consecutiveIdentical: 6,
         repeatLimit: DEFAULT_SUBAGENT_REPEAT_LIMIT,
       }),
@@ -1415,7 +1412,7 @@ describe("createTaskTool", () => {
 
     expect(result).toContain("done");
     expect(captured).toBeDefined();
-    expect(captured?.maxTurns).toBe(30);
+    expect(captured?.maxTurns).toBe(Infinity);
   });
 
   test("uses settings subagentMaxTurns when task and profile omit maxTurns", async () => {

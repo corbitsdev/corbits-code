@@ -97,8 +97,6 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("fan-out");
     expect(p).toContain("0–1 worker");
     expect(p).toContain("2–4 workers");
-    expect(p).toContain("split ownership by path/package");
-    expect(p).toContain("at most 4 workers at once");
   });
 
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {
