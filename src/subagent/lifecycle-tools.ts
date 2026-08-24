@@ -136,9 +136,10 @@ export function createResumeAgentTool(deps: LifecycleToolDeps): AgentTool {
       const target = parsed.target.trim();
       const outcome = deps.sessions.resumeOne(target);
       if (!outcome.ok) {
+        const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
         return lifecycleResult(
           call.id,
-          `Error: cannot resume "${target}" (status: ${outcome.status}).`,
+          `Error: cannot resume "${target}" (status: ${outcome.status}).${hint}`,
         );
       }
       return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: "running" }));
@@ -235,9 +236,10 @@ export function createFollowupTaskTool(deps: LifecycleToolDeps): AgentTool {
       }
       const outcome = await deps.sessions.followupOne(target, message);
       if (!outcome.ok) {
+        const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
         return lifecycleResult(
           call.id,
-          `Error: cannot send followup to "${target}" (status: ${outcome.status}).`,
+          `Error: cannot send followup to "${target}" (status: ${outcome.status}).${hint}`,
         );
       }
       return lifecycleResult(

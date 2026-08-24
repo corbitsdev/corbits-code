@@ -196,12 +196,17 @@ describe("spawn_agent + wait_agents", () => {
     // DEFAULT_MAX_COMPLETED on SubAgentSessionStore is 20 finished sessions;
     // spawn (and complete) enough workers to blow well past it before any of
     // them is collected, proving fleetRecords does not depend on the store's
-    // cap. CL-7001: a retained session is bounded by this same cap too now
-    // (it used to be exempt with no separate cap or TTL, which is exactly
-    // why every spawn_agent worker leaked by default) — so unlike the
-    // pre-CL-7001 version of this test, the store itself may have already
-    // evicted (and released) the earliest ones; wait_agents/fleetRecords is
-    // the durable source of truth this test actually cares about.
+    // cap.
+    //
+    // CL-7007: this test previously asserted (as CL-7001's fix left it) that
+    // the store itself had already evicted and released the earliest
+    // session, because a retained session shared the 20-item display cap
+    // with every other finished session — exactly the shipped defect this
+    // ticket fixes (resume_agent/followup_task failed with a bare
+    // "not_found" past 20 spawned workers, blaming the caller for nothing).
+    // Open retained sessions now have their own cap (`maxRetained`, default
+    // 50), so 25 of them all stay resumable; fleetRecords/wait_agents is
+    // still asserted below as the durable source of truth regardless.
     const COUNT = 25;
     const deps = makeDeps(async () => ({ report: "irrelevant", agentRetained: true }));
     const spawn = createSpawnAgentTool(deps);
@@ -220,10 +225,9 @@ describe("spawn_agent + wait_agents", () => {
     // Let every spawn's run() resolve and complete() land before collecting.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // The store's own bound may have already evicted (and released) the
-    // earliest session — fleetRecords below is what wait_agents actually
-    // depends on, and it is never subject to this cap.
-    expect(deps.sessions.get(ids[0]!)).toBeUndefined();
+    // 25 open retained sessions is under the default maxRetained (50), so
+    // the earliest is still present and resumable — not evicted.
+    expect(deps.sessions.get(ids[0]!)).toBeDefined();
 
     // Every single one is retrievable through wait_agents too.
     const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
