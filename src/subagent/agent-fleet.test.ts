@@ -4,6 +4,7 @@ import {
   createFleetRecords,
   createSpawnAgentTool,
   createWaitAgentsTool,
+  MAX_FLEET_RECORDS,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -228,10 +229,11 @@ describe("spawn_agent + wait_agents", () => {
   });
 });
 
-describe("spawn_agent write-lane isolation", () => {
-  test("refuses a second concurrent implement-intent spawn against the same cwd", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise, { cwd: "/repo" });
+describe("spawn_agent same-cwd concurrency", () => {
+  test("two concurrent implement-intent spawn_agent calls against the same cwd both start", async () => {
+    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    let callIndex = 0;
+    const deps = makeDeps(async () => gates[callIndex++]!.promise, { cwd: "/repo" });
     const spawn = createSpawnAgentTool(deps);
 
     const first = await callTool(spawn, {
@@ -239,56 +241,77 @@ describe("spawn_agent write-lane isolation", () => {
       prompt: "implement thing one",
       intent: "implement",
     });
-    expect(first.status).toBe("running");
-
-    const second = await callToolRaw(spawn, {
+    const second = await callTool(spawn, {
       description: "build two",
       prompt: "implement thing two",
       intent: "implement",
     });
-    expect(second.isError).toBe(true);
-    expect(second.content).toContain("Error:");
-    expect(second.content).toContain(first.agent_id as string);
-
-    gate.resolve({ report: "done" });
-  });
-
-  test("does not refuse a second concurrent explore-intent spawn against the same cwd", async () => {
-    const deps = makeDeps(async () => ({ report: "explored" }), { cwd: "/repo" });
-    const spawn = createSpawnAgentTool(deps);
-
-    const first = await callTool(spawn, {
-      description: "explore one",
-      prompt: "look around",
-      intent: "explore",
-    });
-    const second = await callTool(spawn, {
-      description: "explore two",
-      prompt: "look around more",
-      intent: "explore",
-    });
 
     expect(first.status).toBe("running");
     expect(second.status).toBe("running");
-  });
 
-  test("releases the write lane once the implement worker finishes, allowing another", async () => {
-    const deps = makeDeps(async () => ({ report: "built" }), { cwd: "/repo" });
+    gates[0]!.resolve({ report: "one done" });
+    gates[1]!.resolve({ report: "two done" });
+  });
+});
+
+describe("fleetRecords retention cap", () => {
+  test("many spawned-and-completed workers whose reports are never collected leave memory bounded", async () => {
+    const COUNT = MAX_FLEET_RECORDS + 50;
+    const deps = makeDeps(async () => ({ report: "x".repeat(1000) }));
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
 
-    const first = await callTool(spawn, {
-      description: "build one",
-      prompt: "implement thing one",
-      intent: "implement",
-    });
-    await callTool(wait, { targets: [first.agent_id as string], timeout_ms: 5000 });
+    const ids: string[] = [];
+    for (let i = 0; i < COUNT; i++) {
+      const spawned = await callTool(spawn, {
+        description: `job-${i}`,
+        prompt: `p-${i}`,
+        intent: "explore",
+      });
+      ids.push(spawned.agent_id as string);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const second = await callTool(spawn, {
-      description: "build two",
-      prompt: "implement thing two",
-      intent: "implement",
-    });
-    expect(second.status).toBe("running");
+    const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
+    const results = waited.results as { status: string; report?: string }[];
+    const withReport = results.filter((r) => r.report !== undefined).length;
+
+    // Payloads are capped: well under COUNT full reports survive uncollected.
+    expect(withReport).toBeLessThanOrEqual(MAX_FLEET_RECORDS);
+    expect(withReport).toBeLessThan(COUNT);
+  });
+
+  test("an evicted-but-uncollected agent resolves to its terminal status plus a read_agent_trace pointer", async () => {
+    const COUNT = MAX_FLEET_RECORDS + 50;
+    const deps = makeDeps(async () => ({ report: "x".repeat(1000) }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const ids: string[] = [];
+    for (let i = 0; i < COUNT; i++) {
+      const spawned = await callTool(spawn, {
+        description: `job-${i}`,
+        prompt: `p-${i}`,
+        intent: "explore",
+      });
+      ids.push(spawned.agent_id as string);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // The earliest spawned agent's payload should have been tombstoned —
+    // never collected, so it was evicted once the cap was exceeded.
+    const waited = await callTool(wait, { targets: [ids[0]!], timeout_ms: 5000 });
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+      hint?: string;
+    }[];
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).not.toBe("unknown");
+    expect(["done", "failed"]).toContain(results[0]!.status);
+    expect(results[0]!.report).toBeUndefined();
+    expect(results[0]!.hint).toContain("read_agent_trace");
   });
 });
