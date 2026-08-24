@@ -290,11 +290,15 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
 // interrupts mid-inference, which is exactly when those paths are under
 // stress), the lock is never released — and because the agent is already
 // marked closed internally, retrying close() is a silent no-op that can
-// never release it either. Every rebuild site must treat that as fatal for
-// the current rebuild instead of calling buildAgent() again: a second
-// createAgent() for the same workdir is then guaranteed to throw
-// AgentContextLockError for a lock nothing will ever free, which is the
-// "agent already open" crash.
+// never release it either. Every rebuild site that reuses the *same* workdir
+// (interrupt, reloadIfIdle) must treat that as fatal for the current rebuild
+// instead of calling buildAgent() again: a second createAgent() for the same
+// workdir is then guaranteed to throw AgentContextLockError for a lock
+// nothing will ever free, which is the "agent already open" crash. Session
+// rotation (newSession) is the one rebuild site that does NOT route through
+// this helper: it always points buildAgent() at a freshly minted workdir
+// before rebuilding, so a leaked lock on the old workdir can never be
+// re-acquired there — see the comment at its close() call for why.
 export async function closeAgentForRebuild(agent: Agent, context: string): Promise<boolean> {
   try {
     await agent.close();
@@ -1901,6 +1905,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           // settles, and a dead cycle's partial must land in the session that
           // produced it, not the fresh one.
           await cycleRecorder.dispose("rotation");
+          // Deliberately not routed through closeAgentForRebuild/
+          // agentRebuildFailure (unlike interrupt and reloadIfIdle, CL-5753):
+          // rotation mints a fresh sessionId/workdir below before calling
+          // buildAgent(), so even a close() that leaks the old workdir's lock
+          // (see closeAgentForRebuild's doc comment) can never cause a second
+          // acquisition on that same workdir — buildAgent() always targets
+          // the new, unlocked directory. The old lock still leaks for the
+          // rest of the process, but nothing ever tries to re-acquire it, so
+          // there is no crash to guard against here.
           await currentAgent.close().catch((err: unknown) => {
             tuiLogger.debug("agent.close during session-rotation teardown failed: {error}", {
               error: err instanceof Error ? err.message : String(err),
