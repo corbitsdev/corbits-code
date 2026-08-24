@@ -66,12 +66,10 @@ export {
   classifyBriefSalvage,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
-  isHardBlockSalvage,
   shouldStopTurnBudgetRedispatch,
   type BriefDispatchLedger,
   type BriefDispatchRecord,
   type BriefSalvageKind,
-  type HardBlockSalvage,
   type TaskBriefFingerprintInput,
 } from "./brief-dispatch.js";
 

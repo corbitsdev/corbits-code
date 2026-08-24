@@ -26,6 +26,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   reports directly, not by re-parsing the parent-facing report's prose.
   Removes the `isXxxSubAgentReport` classifier family and per-reason parent
   hint functions in favor of a single structured switch.
+- Removed the `never-edited`, `never-acted`, and `no-ship` sub-agent salvage
+  classes and the sticky hard-block that refused an identical re-dispatch
+  after one fired. `task` re-dispatch is never refused now; turn-budget
+  salvage still throttles repeated same-brief retries. Also removed the
+  now-dead shell-write half of the shell-evidence detector (read detection
+  for `requireEvidence` is unchanged) and the shell-write contribution to
+  `editedPaths` diagnostics.
+
 ### Internal
 
 - Removed the dead Ink-era kill ring copy (`src/tui/kill-ring.ts`); the OpenTUI
