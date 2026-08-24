@@ -13,9 +13,53 @@ describe("explorePackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(explorePackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-    expect(explorePackage.systemPrompt).toContain(
-      "naming the right director: build, plan, critique, greybeard, intern",
-    );
+    expect(explorePackage.systemPrompt).toMatch(/map and read/i);
+  });
+
+  test("systemPrompt identity is Explorer / ExplorerDirector (not job-title language)", () => {
+    const p = explorePackage.systemPrompt;
+    expect(p).toMatch(/ExplorerDirector \(Explorer\)/);
+    expect(p).toMatch(/explore lane only/i);
+    expect(p).not.toMatch(/ExploreDirector(?! \(Explorer\))/);
+    expect(p).not.toMatch(/explore director/i);
+  });
+
+  test("systemPrompt teaches success_criteria-driven mapping", () => {
+    const p = explorePackage.systemPrompt;
+    expect(p).toContain("Map against the brief");
+    expect(p).toContain("success_criteria");
+    expect(p).toMatch(/scannable map/i);
+    expect(p).toMatch(/Paths read/i);
+    expect(p).toContain("Blockers");
+  });
+
+  test("systemPrompt is explore lane only (map/read; no implement / spawn / fleet discovery)", () => {
+    const p = explorePackage.systemPrompt;
+    expect(p).toMatch(/Do not spawn specialists/i);
+    expect(p).toMatch(/not Builder/i);
+    expect(p).toMatch(/not Critic/i);
+    expect(p).toMatch(/not an orchestrator/i);
+    expect(p).toMatch(/Blinders on/i);
+    expect(p).toMatch(/fleet/i);
+    expect(p).toMatch(/report Blockers/i);
+  });
+
+  test("systemPrompt has no tool-schema restatement or fake caps", () => {
+    const p = explorePackage.systemPrompt;
+    expect(p).not.toMatch(/parameters?:/i);
+    expect(p).not.toMatch(/fan-out/i);
+    expect(p).not.toMatch(/at most \d+/i);
+    expect(p).not.toMatch(/turn budget/i);
+    expect(p).not.toMatch(/scheduler/i);
+    expect(p).not.toMatch(/grep\/search_files\/lsp/i);
+    expect(p).not.toMatch(/Shell find/i);
+  });
+
+  test("systemPrompt has DONE GATE for success_criteria", () => {
+    const prompt = explorePackage.systemPrompt;
+    expect(prompt).toContain("DONE GATE");
+    expect(prompt).toContain("success_criteria");
+    expect(prompt).toMatch(/[Ss]top when/);
   });
 
   test("systemPrompt has finish bias against re-reading the same paths", () => {
