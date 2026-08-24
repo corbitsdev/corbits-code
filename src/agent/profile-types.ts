@@ -68,18 +68,6 @@ export interface AgentProfile {
   // coordinators (e.g. a planning agent that fans work out to specialists);
   // leaf-task agents should leave this unset.
   orchestrator?: boolean;
-  // Fleet authority tier (CL-6941) for a profile-sourced orchestrator. Only
-  // meaningful alongside orchestrator: true. Named `fleetTier`, not `tier` —
-  // `tier` is already an established profile field for model speed selection
-  // ("fast" | "standard" | "clever", resolved via task(tier=...)); reusing
-  // the name silently broke schema validation for profiles that set it. A
-  // profile is outside the closed director set, so it is NOT trusted with
-  // fleet verbs by default even when orchestrator: true is set — this must
-  // be declared explicitly as "nested-orchestrator" to opt in.
-  // Runtime-enforced at the tool-mount point (src/subagent/run.ts /
-  // src/subagent/authority.ts): an orchestrator=true profile with no
-  // fleetTier (or fleetTier: "leaf") is denied task/search_agents, fail-closed.
-  fleetTier?: "orchestrator" | "nested-orchestrator" | "leaf";
   // Optional inference-turn budget when this profile is dispatched via task(agent=...).
   // Floor-sanitized (≥1) at dispatch time; task(maxTurns) overrides when set.
   maxTurns?: number;
