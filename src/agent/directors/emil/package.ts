@@ -18,6 +18,7 @@ export const emilPackage: DirectorPackage = {
   // Critique only — write tools not mounted.
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "review",
   systemPrompt: `You are EmilDirector, a specialist in Corbits Code.

@@ -21,6 +21,7 @@ export const internPackage: DirectorPackage = {
   optionalSkills: [],
   tools: { allow: INTERN_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 20 },
   modelRole: "implement",
   systemPrompt: `You are InternDirector, a specialist in Corbits Code.
