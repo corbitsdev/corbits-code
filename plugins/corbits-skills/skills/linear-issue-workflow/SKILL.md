@@ -100,7 +100,7 @@ After fixing a stop condition, re-run the in-session checks. Repeat until the ou
 
 ### Subagent review (deeper read)
 
-Dispatch the `critique` subagent for the file-by-file behavioral read, architectural review, and commit-message coherence check. Running these in a subagent keeps the deeper output out of the main context and gives independent eyes on patterns.
+Dispatch the `critic` subagent for the file-by-file behavioral read, architectural review, and commit-message coherence check. Running these in a subagent keeps the deeper output out of the main context and gives independent eyes on patterns.
 
 Brief the subagent with:
 
@@ -231,7 +231,7 @@ Waiver rulings for this branch:
 - `file:line` — authorized on <present-tense grounds>
 ```
 
-**Multi-persona rule.** If Phase 5 (or an explicit user request) ran additional lenses (`critique`, `greybeard`, OSS/quality), each lens with substance posts its own labeled review. Primary owns `--approve` / `--request-changes`. Secondary lenses use `--comment` only. Do not invent personas that did not run. Body shape and hard bans live in `review` → **Post the Review on GitHub** (no AI filler, no journey narration, no "LGTM" alone).
+**Multi-persona rule.** If Phase 5 (or an explicit user request) ran additional lenses (`critic`, `greybeard`, OSS/quality), each lens with substance posts its own labeled review. Primary owns `--approve` / `--request-changes`. Secondary lenses use `--comment` only. Do not invent personas that did not run. Body shape and hard bans live in `review` → **Post the Review on GitHub** (no AI filler, no journey narration, no "LGTM" alone).
 
 Do not paste Phase 5 iteration history, fix SHAs, or "for context" preambles. The merged result is what ships.
 

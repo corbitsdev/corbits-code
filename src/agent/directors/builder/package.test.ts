@@ -58,9 +58,9 @@ describe("builderPackage", () => {
     expect(p).toMatch(/not Explorer/i);
     expect(p).toMatch(/not an orchestrator/i);
     expect(p).toMatch(/@greybeard/i);
-    expect(p).toMatch(/@critique/i);
+    expect(p).toMatch(/@critic/i);
     expect(p).toMatch(/report Blockers for the parent/i);
-    expect(p).not.toMatch(/Spawn the @critique/i);
+    expect(p).not.toMatch(/Spawn the @critic/i);
     expect(p).not.toMatch(/Use the @greybeard subagent/i);
   });
 
