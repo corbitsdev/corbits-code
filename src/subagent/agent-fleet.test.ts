@@ -922,3 +922,86 @@ describe("list_agents", () => {
     gate.resolve({ report: "done" });
   });
 });
+
+describe("spawn_agent parity with task", () => {
+  test("uses the parent tool call id as the session id", async () => {
+    const deps = makeDeps(async () => ({ report: "done" }));
+    const spawn = createSpawnAgentTool(deps);
+    if (spawn.kind !== "full") throw new Error("expected full tool");
+    const result = await spawn.handler(
+      {
+        id: "call-fixed-id",
+        name: "spawn_agent",
+        arguments: { description: "job", prompt: "do it", intent: "explore" },
+      },
+      new AbortController().signal,
+    );
+    const content = typeof result.content === "string" ? result.content : "";
+    expect(JSON.parse(content).agent_id).toBe("call-fixed-id");
+    expect(deps.sessions.get("call-fixed-id")).toBeDefined();
+  });
+
+  test("refuses skywalker as a spawned worker", async () => {
+    const deps = makeDeps(async () => ({ report: "no" }));
+    const spawn = createSpawnAgentTool(deps);
+    const raw = await callToolRaw(spawn, {
+      description: "nope",
+      prompt: "do it",
+      agent: "skywalker",
+    });
+    expect(raw.isError).toBe(true);
+    expect(raw.content).toContain("skywalker is the primary session identity");
+  });
+
+  test("rejects a child outside this director allowlist", async () => {
+    const deps = makeDeps(async () => ({ report: "no" }));
+    deps.spawnAllowlist = ["intern", "explorer", "critic"];
+    const spawn = createSpawnAgentTool(deps);
+    const raw = await callToolRaw(spawn, {
+      description: "build",
+      prompt: "ship it",
+      agent: "builder",
+    });
+    expect(raw.isError).toBe(true);
+    expect(raw.content).toContain("allowlist");
+    expect(raw.content).toContain("builder");
+  });
+
+  test("a maySpawn director is launched as an orchestrator with nestedDispatch", async () => {
+    const captured: RunSubAgentParams[] = [];
+    const deps = makeDeps(async (params) => {
+      captured.push(params);
+      return { report: "ok" };
+    });
+    const spawn = createSpawnAgentTool(deps);
+    await callTool(spawn, {
+      description: "arch",
+      prompt: "judge this",
+      agent: "greybeard",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.orchestrator).toBe(true);
+    expect(captured[0]!.orchestratorTier).toBe("nested-orchestrator");
+    expect(captured[0]!.nestedDispatch).toBeDefined();
+    expect(captured[0]!.nestedDispatch?.spawnAllowlist).toEqual(["intern", "explorer", "critic"]);
+  });
+
+  test("allowOrchestrator false strips nested spawn even for maySpawn directors", async () => {
+    const captured: RunSubAgentParams[] = [];
+    const deps = makeDeps(async (params) => {
+      captured.push(params);
+      return { report: "ok" };
+    });
+    deps.allowOrchestrator = false;
+    const spawn = createSpawnAgentTool(deps);
+    await callTool(spawn, {
+      description: "arch",
+      prompt: "judge this",
+      agent: "greybeard",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(captured[0]!.orchestrator).toBeUndefined();
+    expect(captured[0]!.nestedDispatch).toBeUndefined();
+  });
+});
