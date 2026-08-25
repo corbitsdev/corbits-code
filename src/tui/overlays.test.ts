@@ -192,6 +192,7 @@ describe("operator question overlay", () => {
         try {
           openOperatorOverlay(shell);
           expect(shell.overlayKind).toBe("operator");
+          expect(shell.layout.overlayMode).toBe("full_shell");
           expect(shell.overlayBodyLines.length).toBeGreaterThan(0);
           expect(shell.overlayItems.length).toBeGreaterThan(3);
           expect(focusOwner(shell.focus)).toBe("overlay");
@@ -221,6 +222,68 @@ describe("operator question overlay", () => {
       },
       { width: 80, height: 24 },
     );
+  });
+
+  test("full_shell decisionContext budget shows more body rows than inset", async () => {
+    // Same long body under both modes: inset stays capped at DECISION_CONTEXT_ROWS
+    // (8), while full_shell raises the cap with terminal height so a long ask
+    // stays readable (CL-7067). Mode-only asserts are not enough — pin the
+    // budget branch that actually shapes overlayBodyLines.
+    const longBody = [
+      "Should we proceed with the destructive reset of the working tree?",
+      ...Array.from({ length: 24 }, (_, i) => `Context line ${i + 1}.`),
+    ].join("\n");
+    const choices = [
+      "Cancel — keep working tree",
+      "Allow this once",
+      "Allow for this session",
+    ] as const;
+    const size = { width: 80, height: 40 } as const;
+
+    async function bodyLineCount(mode: "inset" | "full_shell"): Promise<{
+      readonly lines: number;
+      readonly body: readonly string[];
+      readonly frame: string;
+    }> {
+      return withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: size.width, rows: size.height },
+          wireKeys: false,
+          run: "idle",
+        });
+        try {
+          openListOverlay(shell, {
+            kind: "operator",
+            title: "",
+            body: longBody,
+            items: [...choices],
+            overlayMode: mode,
+            frameId: `overlay-operator-${mode}`,
+          });
+          expect(shell.layout.overlayMode).toBe(mode);
+          await h.renderOnce();
+          await h.renderOnce();
+          return {
+            lines: shell.overlayBodyLines.length,
+            body: shell.overlayBodyLines,
+            frame: h.captureCharFrame(),
+          };
+        } finally {
+          shell.dispose();
+        }
+      }, size);
+    }
+
+    const inset = await bodyLineCount("inset");
+    const full = await bodyLineCount("full_shell");
+    expect(full.lines).toBeGreaterThan(inset.lines);
+    // Short, non-wrapping context lines map 1:1 to the budget. Inset caps at
+    // eight context rows (then dither + tail); full_shell's raised cap keeps a
+    // mid-body line the inset path drops.
+    expect(full.body.some((line) => line.includes("Context line 12."))).toBe(true);
+    expect(inset.body.some((line) => line.includes("Context line 12."))).toBe(false);
+    expect(full.frame).toContain("Context line 12.");
+    expect(inset.frame).not.toContain("Context line 12.");
   });
 });
 
