@@ -521,6 +521,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         );
       }
       const nd = params.nestedDispatch;
+      const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
+      const fleetRecords = createFleetRecords();
       tools = [
         ...tools,
         createTaskTool({
@@ -542,7 +544,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           telemetry: liveTelemetry,
           ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
           ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
-          ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),
+          sessions: fleetSessions,
+          fleetRecords,
           ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
           ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
           ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
@@ -569,16 +572,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createReadAgentTraceTool(nd.getWorkdirBase, {
           actorId: params.id,
           tier,
-          getNodes: () => nd.sessions?.list() ?? [],
+          getNodes: () => fleetSessions.list(),
         }),
       ];
-      // spawn_agent/wait_agents need a session store as their mailbox;
-      // reuse the orchestrator's if it has one, else give this install its
-      // own. fleetRecords holds terminal results the session store's
-      // display cap would otherwise evict before wait_agents collects them
-      // (see agent-fleet.ts).
-      const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
-      const fleetRecords = createFleetRecords();
       const lifecycleAuthority = {
         actorId: params.id,
         tier,
