@@ -6024,8 +6024,10 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   const onEnter = (): void => {
     if (disposed || shell.overlayList) return;
     if (internals.get(shell)?.inputSuspended === true) return;
-    // Mid-run Enter soft-steers (deliver at next tool.boundary). Alt+Enter
-    // is follow-up (quiet wait until idle). Idle sends ignore "kind".
+    // Mid-run Enter soft-steers (deliver at next tool.boundary); the bridge
+    // upgrades it to an immediate new turn while the parent is idle with a
+    // live fleet (idle-with-fleet, CL-7057). Alt+Enter is follow-up (quiet
+    // wait until idle). Idle sends ignore "kind".
     submitPrompt(shell, "steer");
   };
 

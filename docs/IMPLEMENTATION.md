@@ -187,10 +187,10 @@ Unmatched shell auto-allows, including contained non-force `git worktree add`/`r
 
 `ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true, drain timing is **parent-idle** vs **session-idle**:
 
-- **Enter** soft-steers — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent `run_shell` or awaiting `task()` is parent-busy and holds steers.
+- **Enter** soft-steers while the parent is busy — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent `run_shell` or awaiting `task()` is parent-busy and holds steers.
 - **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only on **session-idle** — parent-idle **and** no live fleet lanes (`run` goes idle). Session-idle Alt+Enter is a no-op. **Ctrl+C** stops the run.
 
-A live fleet with a blocked parent is neither parent-idle nor session-idle. Idle-with-fleet (parent idle after dispatch so Enter is a turn while workers run) is not shipped.
+Idle-with-fleet is shipped: after a non-blocking `spawn_agent` dispatch the parent turn can settle while workers keep running. The runner emits a `fleet` event carrying the live-lane count; the bridge holds the run busy on that count, so mid-hold Enter upgrades to a new primary turn (sent immediately) instead of queueing a steer, follow-ups keep waiting for true session-idle, and any steer left pending at the hold's engagement delivers immediately — the parent it was steering has already stopped.
 
 `src/tui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
@@ -382,7 +382,7 @@ the directors guard on; the full set of reactor and stream event types is
 treat that as canonical rather than this section or any other doc's partial
 list.
 
-Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. Mid-run gestures: Enter soft-steers (drain at the next **parent** `tool.boundary` — the parent tool finishing, not a child; parent-busy holds steers), Alt+Enter queues a follow-up (drain on **session-idle**: parent-idle and no live fleet lanes), Ctrl+C stops. Idle-with-fleet is not shipped.
+Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. Mid-run gestures: Enter soft-steers (drain at the next **parent** `tool.boundary` — the parent tool finishing, not a child; parent-busy holds steers), Alt+Enter queues a follow-up (drain on **session-idle**: parent-idle and no live fleet lanes), Ctrl+C stops. Idle-with-fleet is shipped: with live fleet lanes the bridge holds the run busy after the parent turn settles (`fleet` events carry the live count), mid-hold Enter upgrades to an immediate new turn, and the last lane terminalizing releases the hold and drains follow-ups.
 
 ### Lifecycle Hooks
 

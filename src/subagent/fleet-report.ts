@@ -108,6 +108,15 @@ function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
   return agentProgress(lane, nowMs, stallMs)?.stalled === true;
 }
 
+/**
+ * Lanes still running — the count the idle-with-fleet hold reads (CL-7057).
+ * One definition lives here so the bridge feed and any other liveness reader
+ * cannot drift from what the strip and digest call a running lane.
+ */
+export function liveFleetCount(lanes: readonly FleetLane[]): number {
+  return lanes.filter((lane) => lane.status === "running").length;
+}
+
 type Change =
   | { readonly kind: "dispatched"; readonly line: string }
   | { readonly kind: "done"; readonly line: string }

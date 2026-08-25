@@ -149,6 +149,7 @@ import {
   fleetDigest,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
+  liveFleetCount,
   observeFleet,
   taskToolDefinition,
 } from "../subagent/index.js";
@@ -2598,7 +2599,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       for (const update of observation.updates) surfaceSystemNotice(host.shell, update);
     };
     let fleetSettle: ReturnType<typeof setTimeout> | null = null;
+    // Live-lane count feeds the bridge's idle-with-fleet hold (CL-7057): the
+    // run stays busy after the parent turn settles until the last lane
+    // terminalizes. Store notifications fire per child event, not per status
+    // flip, so emit only when the count itself moves.
+    let lastLiveFleet = 0;
     const unsubscribeFleetReport = subAgentSessions.subscribe(() => {
+      const liveFleet = liveFleetCount(subAgentSessions.list());
+      if (liveFleet !== lastLiveFleet) {
+        lastLiveFleet = liveFleet;
+        emitter.emit("event", { type: "fleet", running: liveFleet });
+      }
       if (fleetSettle !== null) return;
       fleetSettle = setTimeout(() => {
         fleetSettle = null;
