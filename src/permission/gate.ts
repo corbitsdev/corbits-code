@@ -384,12 +384,18 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // outside the original chain); the CHANGELOG Security note documents the
     // tradeoff. onGrant's covers predicate consults the live approvals list so
     // a queued identical chain drains only once every segment has been minted.
-    const patterns =
+    const normalizedPattern =
       tool === "run_shell"
-        ? splitChainedCommand(stripCommentLines(outcome.persist.pattern).trim())
-            .filter((segment) => !isShellCommentOnly(segment))
-            .map((segment) => segment.trim())
-        : [outcome.persist.pattern];
+        ? stripCommentLines(outcome.persist.pattern).trim()
+        : outcome.persist.pattern;
+    const shellSegments =
+      tool === "run_shell"
+        ? splitChainedCommand(normalizedPattern).filter((segment) => !isShellCommentOnly(segment))
+        : [];
+    const patterns =
+      tool === "run_shell" && shellSegments.length > 1
+        ? shellSegments.map((segment) => escapeGlobLiteral(segment.trim()))
+        : [normalizedPattern];
     for (const pattern of patterns) {
       const approval: Approval =
         grant === "provider-model" && activeProviderModel !== undefined

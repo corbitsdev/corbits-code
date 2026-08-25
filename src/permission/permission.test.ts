@@ -112,6 +112,16 @@ describe("splitChainedCommand", () => {
     expect(splitChainedCommand(`grep 'x;y' file`)).toEqual([`grep 'x;y' file`]);
   });
 
+  test("does not split at separators after escaped double quotes", () => {
+    expect(splitChainedCommand(`printf "safe \\" && touch PWNED && \\""`)).toEqual([
+      `printf "safe \\" && touch PWNED && \\""`,
+    ]);
+  });
+
+  test("ignores inline comments before looking for chain separators", () => {
+    expect(splitChainedCommand("echo ok # && touch PWNED")).toEqual(["echo ok"]);
+  });
+
   test("drops empty segments", () => {
     expect(splitChainedCommand("  ;  ; ls ")).toEqual(["ls"]);
   });
@@ -2093,6 +2103,77 @@ describe("createPermissionGate", () => {
   // Persisting the exact multi-segment scope decomposes into one grant per
   // real segment, so approving `a && b` later covers `b` on its own — a chain
   // containing a previously-granted segment only re-prompts for the new part.
+  test("persisting a segment containing a glob stores an exact escaped grant", async () => {
+    const full = "echo prep && bash -c 'echo *'";
+    const persisted: Approval[] = [];
+    const built = buildRequests(shellCall(full))[0]?.scopes[0];
+    if (built === undefined) throw new Error("expected exact multi-segment scope");
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(persisted).toEqual([
+      { tool: "run_shell", pattern: "echo prep", cwd: process.cwd() },
+      { tool: "run_shell", pattern: "bash -c 'echo \\*'", cwd: process.cwd() },
+    ]);
+    const bashGrant = persisted[1];
+    if (bashGrant === undefined) throw new Error("expected bash segment grant");
+    expect(matchesPattern("bash -c 'echo *'", bashGrant.pattern)).toBe(true);
+    expect(matchesPattern("bash -c 'touch PWNED'", bashGrant.pattern)).toBe(false);
+
+    let asked = 0;
+    const replay = createPermissionGate({
+      approvals: persisted,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await replay.evaluate(shellCall("bash -c 'touch PWNED'"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("escaped quotes do not mint grants for unexecuted text", async () => {
+    const full = `printf "safe \\" && touch PWNED && \\""`;
+    const persisted: Approval[] = [];
+    const built = buildRequests(shellCall(full))[0]?.scopes.find((scope) => scope.id === "exact");
+    if (built === undefined) throw new Error("expected exact command scope");
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(persisted.map((a) => a.pattern)).not.toContain("touch PWNED");
+  });
+
+  test("inline comments do not mint grants for commented shell text", async () => {
+    const full = "echo ok # && touch PWNED";
+    const persisted: Approval[] = [];
+    const built = buildRequests(shellCall(full))[0]?.scopes.find((scope) => scope.id === "exact");
+    if (built === undefined) throw new Error("expected exact command scope");
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(persisted.map((a) => a.pattern)).not.toContain("touch PWNED");
+  });
+
   test("persisting an exact multi-segment scope mints one grant per segment", async () => {
     const full = "npm i && curl x";
     const later = "curl x && npm run build";
@@ -2496,15 +2577,10 @@ describe("preApprove", () => {
     expect(isSingleShellCommand("# just a comment")).toBe(false);
   });
 
-  test("isSingleShellCommand treats a leading-comment-then-chain as its trailing real segment", () => {
-    // splitChainedCommand splits on "&&" before recognizing that "#" extends
-    // a comment to end of line, so "# a && b" splits into ["# a", "b"] even
-    // though a real shell treats the whole line as one comment (nothing
-    // after "#" ever runs). Filtering the comment-only "# a" segment leaves
-    // exactly one real segment, "b", so this is scored as a single command —
-    // matching shellApprovalScopes' existing behavior, not a regression
-    // introduced here.
-    expect(isSingleShellCommand("# a && b")).toBe(true);
+  test("isSingleShellCommand treats a leading-comment-then-chain as comment-only", () => {
+    // Shell comments extend to end-of-line; text after `#` must not become a
+    // phantom segment that can drive approvals or grant reuse.
+    expect(isSingleShellCommand("# a && b")).toBe(false);
   });
 });
 
