@@ -23,7 +23,13 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { BlobReader, InboundMessage, ToolDefinition } from "@intx/types/runtime";
+import type {
+  BlobReader,
+  InboundMessage,
+  ToolCall,
+  ToolDefinition,
+  ToolResult,
+} from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
@@ -321,6 +327,25 @@ const submitResultDefinition: ToolDefinition = {
   },
 };
 
+interface CodexProxyToolRunner {
+  run(call: ToolCall, signal: AbortSignal): Promise<ToolResult>;
+}
+
+export function createCodexProxyRunTool(posixTools: CodexProxyToolRunner): CodexRunTool {
+  let invocation = 0;
+  return async (name, args) => {
+    invocation += 1;
+    const result = await posixTools.run(
+      { id: `codex-proxy-${invocation}`, name, arguments: args },
+      new AbortController().signal,
+    );
+    return {
+      content: typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+      ...(result.isError === true ? { isError: true } : {}),
+    };
+  };
+}
+
 // Spin up an isolated, autonomous agent loop, hand it one task, and return
 // its final report. `params.cwd` is either the dispatcher's own cwd (shared
 // mode) or a worktree snapshotted from the dispatcher's last commit
@@ -411,17 +436,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     // filter, so implement/docs allowlists can keep it when Codex. allowDelete
     // follows whether delete_file is in the leaf capability include list (docs
     // omits it; implement includes it).
-    const runTool: CodexRunTool = async (name, args) => {
-      const result = await posixTools.run(
-        { id: "codex-proxy", name, arguments: args },
-        new AbortController().signal,
-      );
-      return {
-        content:
-          typeof result.content === "string" ? result.content : JSON.stringify(result.content),
-        ...(result.isError === true ? { isError: true } : {}),
-      };
-    };
+    const runTool = createCodexProxyRunTool(posixTools);
     // manage_tasks is not a posix tool — task state here is owned by the
     // director observing manage_tasks tool_calls in the model's own output,
     // not by this handler's return value (see applyManageTasksToolCall in
