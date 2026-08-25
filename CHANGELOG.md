@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-25
+
 ### Agent
 
 - Closed directors are named entities (`skywalker`, `builder`, `explorer`, `counsel`,
