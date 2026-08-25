@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   EMPTY_THRASH_STATE,
   nextThrashState,
+  salvagePathsFromThrash,
   type ThrashState,
   type ThrashToolCallBlock,
 } from "./thrash.js";
@@ -105,5 +106,17 @@ describe("thrash pure module", () => {
   test("greps count toward read evidence keyed by pattern and path", () => {
     const state = applyAll([grep("needle"), grep("needle")]);
     expect(state.readCounts.get("grep::needle::src")).toBe(2);
+  });
+
+  test("salvagePathsFromThrash lists edited first, then read paths, capped", () => {
+    const state = applyAll([
+      read("src/read.ts"),
+      edit("src/edit.ts"),
+      read("src/read.ts", { offset: 0, limit: 20 }),
+      grep("needle"),
+    ]);
+    expect(salvagePathsFromThrash(state)).toEqual(["src/edit.ts", "src/read.ts", "src"]);
+    expect(salvagePathsFromThrash(state, 0)).toEqual([]);
+    expect(salvagePathsFromThrash(EMPTY_THRASH_STATE)).toEqual([]);
   });
 });

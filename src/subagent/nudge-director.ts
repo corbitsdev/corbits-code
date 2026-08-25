@@ -15,7 +15,12 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { EMPTY_THRASH_STATE, nextThrashState, type ThrashState } from "./thrash.js";
+import {
+  EMPTY_THRASH_STATE,
+  nextThrashState,
+  salvagePathsFromThrash,
+  type ThrashState,
+} from "./thrash.js";
 import { NOOP_INTERVENTION_SINK, type InterventionSink } from "./intervention-log.js";
 import {
   evaluateSubAgentStop,
@@ -86,8 +91,9 @@ export class SubAgentDirector extends DefaultDirector {
   // already completed.
   private lastConsumedNudgeText: string | null = null;
   // Soft incomplete-report wrap-up is one-shot per run; a second tool-less
-  // narration without the envelope salvages as incomplete-report.
-  private incompleteReportNudgeFired = false;
+  // narration without the envelope salvages as incomplete-report
+  // (MAX_TOOLLESS_NARRATION_CYCLES = 2).
+  private toolLessNarrationCycles = 0;
 
   // Stall management: a leaf that goes quiet (e.g. parked on a long-running
   // background command with nothing else to do) produces no inbound events
@@ -213,7 +219,7 @@ export class SubAgentDirector extends DefaultDirector {
         thrashState: this.thrashState,
         requireEvidence: this.requireEvidence,
         lastAssistantText: this.lastAssistantText,
-        incompleteReportNudgeFired: this.incompleteReportNudgeFired,
+        toolLessNarrationCycles: this.toolLessNarrationCycles + 1,
       });
 
       if (stop === "complete") {
@@ -229,7 +235,7 @@ export class SubAgentDirector extends DefaultDirector {
       if (stop === "incomplete-report") {
         // Tool-less turn after tools, no report envelope. Must not fall through
         // to super.decide — DefaultDirector completes any tool-less turn.
-        this.incompleteReportNudgeFired = true;
+        this.toolLessNarrationCycles += 1;
         this.interventions({
           id: "incomplete-report",
           class: "nudge",
@@ -242,6 +248,7 @@ export class SubAgentDirector extends DefaultDirector {
         ];
       }
       if (stop === "incomplete-report-stop") {
+        this.toolLessNarrationCycles += 1;
         this.interventions({
           id: "incomplete-report-stop",
           class: "stop",
@@ -251,7 +258,11 @@ export class SubAgentDirector extends DefaultDirector {
         this.onForcedStop("incomplete-report");
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-incomplete-report"),
-          capabilities.reply(forcedStopReport("incomplete-report", this.lastAssistantText)),
+          capabilities.reply(
+            forcedStopReport("incomplete-report", this.lastAssistantText, {
+              paths: salvagePathsFromThrash(this.thrashState),
+            }),
+          ),
         ];
         this.compaction.noteIdleTurn(event, terminal);
         const compacted = this.compaction.interceptActions(event, terminal, capabilities);
@@ -330,11 +341,10 @@ export class SubAgentDirector extends DefaultDirector {
     const terminal: ReactorAction[] = [
       capabilities.checkpoint("subagent-stalled"),
       capabilities.reply(
-        forcedStopReport(
-          "stalled",
-          this.lastAssistantText,
-          `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
-        ),
+        forcedStopReport("stalled", this.lastAssistantText, {
+          detail: `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
+          paths: salvagePathsFromThrash(this.thrashState),
+        }),
       ),
     ];
     return terminal;

@@ -5,7 +5,9 @@
  * prohibits shell file work, but a prompt violation deserves a correction,
  * not a verdict that the work never happened. `editedPaths` (from typed write
  * tools only) is diagnostics for interventions.jsonl; no stop decision
- * depends on it.
+ * depends on it. Cancel/incomplete salvage also lists these paths via
+ * salvagePathsFromThrash so the parent keeps file evidence when the leaf
+ * is force-stopped.
  */
 
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
@@ -24,6 +26,9 @@ export const EMPTY_THRASH_STATE: ThrashState = {
   editedPaths: new Set(),
   totalToolCalls: 0,
 };
+
+/** Cap on Paths lines rendered into a forced-stop salvage report. */
+export const SALVAGE_PATHS_CAP = 40;
 
 /** Content block shape compatible with fingerprintToolCalls / inference turns. */
 export interface ThrashToolCallBlock {
@@ -140,4 +145,52 @@ export function nextThrashState(
     editedPaths: editedPaths ?? prev.editedPaths,
     totalToolCalls,
   };
+}
+
+/**
+ * Recover a filesystem path from a thrash readCounts key. Chunked reads
+ * (`path::offset:limit`) collapse to `path`; search keys contribute their
+ * scoped path segment when present; bare `shell:program` keys are skipped.
+ */
+function pathFromReadKey(key: string): string | null {
+  if (key.startsWith("shell:")) return null;
+  if (key.startsWith("grep::") || key.startsWith("search_files::")) {
+    const parts = key.split("::");
+    const scoped = parts[2];
+    return scoped !== undefined && scoped.length > 0 ? scoped : null;
+  }
+  const chunkSep = key.indexOf("::");
+  if (chunkSep === -1) return key.length > 0 ? key : null;
+  const path = key.slice(0, chunkSep);
+  return path.length > 0 ? path : null;
+}
+
+/**
+ * Edited then read paths for a forced-stop Paths section. Deduped, edited
+ * first, capped so a thrashing leaf cannot flood the parent report.
+ */
+export function salvagePathsFromThrash(
+  state: ThrashState,
+  cap: number = SALVAGE_PATHS_CAP,
+): string[] {
+  const limit = Math.max(0, Math.floor(cap));
+  if (limit === 0) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (path: string): void => {
+    if (out.length >= limit) return;
+    if (seen.has(path)) return;
+    seen.add(path);
+    out.push(path);
+  };
+  for (const edited of state.editedPaths) {
+    if (edited.length > 0) push(edited);
+    if (out.length >= limit) return out;
+  }
+  for (const key of state.readCounts.keys()) {
+    const path = pathFromReadKey(key);
+    if (path !== null) push(path);
+    if (out.length >= limit) return out;
+  }
+  return out;
 }
