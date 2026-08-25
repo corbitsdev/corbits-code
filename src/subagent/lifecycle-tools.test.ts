@@ -5,6 +5,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createFollowupTaskTool,
+  createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createFleetRecords } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -14,7 +15,8 @@ async function callTool(
     | ReturnType<typeof createCloseAgentTool>
     | ReturnType<typeof createResumeAgentTool>
     | ReturnType<typeof createInterruptAgentTool>
-    | ReturnType<typeof createFollowupTaskTool>,
+    | ReturnType<typeof createFollowupTaskTool>
+    | ReturnType<typeof createSendInputTool>,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
@@ -266,5 +268,300 @@ describe("interrupt_agent / followup_task", () => {
     );
     // Not retained, so followup_task must reject even though it is "completed".
     expect(followupErr.isError).toBe(true);
+  });
+});
+
+describe("send_input", () => {
+  test("soft-delivers without flipping lifecycle or awaiting a reply", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    const delivered: string[] = [];
+    sessions.registerDeliver(worker.id, (message) => {
+      delivered.push(message);
+    });
+
+    const sendInput = createSendInputTool({ sessions });
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "stop and inspect line 4",
+    });
+
+    expect(result).toEqual({ agent_id: worker.id, status: "running" });
+    expect(delivered).toEqual(["stop and inspect line 4"]);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("interrupt:true queues followup without awaiting and refuses when followup is missing", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    let interrupted = false;
+    let followupStarted = false;
+    sessions.registerInterrupt(worker.id, () => {
+      interrupted = true;
+    });
+    sessions.registerFollowup(worker.id, async (message) => {
+      followupStarted = true;
+      expect(message).toBe("patch only the test");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return "queued turn finished";
+    });
+    sessions.registerDeliver(worker.id, () => {
+      throw new Error("interrupt:true should not soft-deliver");
+    });
+
+    const sendInput = createSendInputTool({ sessions });
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "patch only the test",
+      interrupt: true,
+    });
+    expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
+    expect(interrupted).toBe(true);
+    expect(followupStarted).toBe(true);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("interrupted");
+
+    const missing = sessions.start({
+      description: "no-followup",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(missing.id);
+    sessions.registerInterrupt(missing.id, () => {});
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const denied = await sendInput.handler(
+      {
+        id: "missing-followup",
+        name: "send_input",
+        arguments: { target: missing.id, message: "steer", interrupt: true },
+      },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(sessions.get(missing.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("enforces nested orchestrator descendant authority", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({
+      id: "nested",
+      description: "nested",
+      agentId: "a",
+      brief: "b",
+    });
+    const child = sessions.start({
+      id: "child",
+      description: "child",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "sibling",
+      agentId: "a",
+      brief: "b",
+    });
+    for (const session of [nested, child, sibling]) {
+      sessions.markRunning(session.id);
+      sessions.registerDeliver(session.id, () => {});
+    }
+    const sendInput = createSendInputTool({
+      sessions,
+      authority: {
+        actorId: nested.id,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+    });
+
+    const ok = await callTool(sendInput, { target: child.id, message: "continue" });
+    expect(ok.status).toBe("running");
+
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const denied = await sendInput.handler(
+      { id: "denied", name: "send_input", arguments: { target: sibling.id, message: "continue" } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+  });
+
+  test("fails closed when nested authority has no actorId", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      id: "worker",
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerDeliver(worker.id, () => {});
+    const sendInput = createSendInputTool({
+      sessions,
+      authority: {
+        actorId: undefined,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+    });
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const denied = await sendInput.handler(
+      { id: "no-actor", name: "send_input", arguments: { target: worker.id, message: "x" } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(String(denied.content)).toContain("no resolvable session");
+  });
+});
+
+describe("nested lifecycle authority", () => {
+  function nestAuthority(sessions: ReturnType<typeof createSubAgentSessionStore>, actorId: string) {
+    return {
+      actorId,
+      tier: "nested-orchestrator" as const,
+      getNodes: () => sessions.list(),
+    };
+  }
+
+  test("interrupt_agent denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+    });
+    const sibling = sessions.start({ id: "sibling", description: "s", agentId: "a", brief: "b" });
+    for (const s of [child, sibling]) {
+      sessions.markRunning(s.id);
+      sessions.registerInterrupt(s.id, () => {});
+    }
+    const interrupt = createInterruptAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(interrupt, { target: child.id })).status).toBe("interrupted");
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    const denied = await interrupt.handler(
+      { id: "d", name: "interrupt_agent", arguments: { target: sibling.id } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+  });
+
+  test("close_agent denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+    });
+    const sibling = sessions.start({ id: "sibling", description: "s", agentId: "a", brief: "b" });
+    for (const s of [child, sibling]) sessions.registerClose(s.id, async () => {});
+    const close = createCloseAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(close, { target: child.id })).status).toBe("shutdown");
+    if (close.kind !== "full") throw new Error("expected full tool");
+    const denied = await close.handler(
+      { id: "d", name: "close_agent", arguments: { target: sibling.id } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(sessions.get(sibling.id)?.lifecycleStatus).not.toBe("shutdown");
+  });
+
+  test("followup_task denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+      retained: true,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "s",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    for (const s of [child, sibling]) {
+      sessions.complete(s.id, "done");
+      sessions.registerFollowup(s.id, async () => "reply");
+    }
+    const followup = createFollowupTaskTool({
+      sessions,
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(followup, { target: child.id, message: "more" })).status).toBe(
+      "completed",
+    );
+    if (followup.kind !== "full") throw new Error("expected full tool");
+    const denied = await followup.handler(
+      {
+        id: "d",
+        name: "followup_task",
+        arguments: { target: sibling.id, message: "more" },
+      },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+  });
+
+  test("resume_agent denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+      retained: true,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "s",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.complete(child.id, "done");
+    sessions.complete(sibling.id, "done");
+    const resume = createResumeAgentTool({
+      sessions,
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(resume, { target: child.id })).status).toBe("running");
+    if (resume.kind !== "full") throw new Error("expected full tool");
+    const denied = await resume.handler(
+      { id: "d", name: "resume_agent", arguments: { target: sibling.id } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
   });
 });

@@ -157,6 +157,20 @@ class FleetRecords {
     this.notify();
   }
 
+  /**
+   * send_input interrupt:true queued a followup that has now finished.
+   * Upgrade an uncollected interrupted record to done. No-op if wait_agents
+   * already collected the interrupt, so a later reply cannot resurrect it.
+   */
+  completeAfterInterrupt(id: string, report: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined || existing.collected === true) return;
+    if (existing.status !== "interrupted") return;
+    this.records.set(id, { status: "done", report });
+    this.enforceCap();
+    this.notify();
+  }
+
   ids(): string[] {
     return [...this.records.keys()];
   }
@@ -522,10 +536,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // Keep the session open after a clean completion, and hand the
         // store a bounded close for close_agent to call later.
         persist: true,
-        onAgentReady: ({ close, interrupt, followup }) => {
+        onAgentReady: ({ close, interrupt, followup, deliver }) => {
           deps.sessions.registerClose(session.id, close);
           deps.sessions.registerInterrupt(session.id, interrupt);
           deps.sessions.registerFollowup(session.id, followup);
+          deps.sessions.registerDeliver(session.id, deliver);
           deps.sessions.markRunning(session.id);
         },
       };
@@ -706,8 +721,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         }
         const session = deps.sessions.get(id);
         if (isSoftInterrupted(session)) {
-          // Terminalize + collect so an omitted-targets re-wait does not keep
-          // seeing this id as uncollected / re-deliver soft-interrupt.
+          // Match the mailbox to what we report (include salvage report when
+          // present), then collect so a later completeAfterInterrupt cannot
+          // resurrect this wait as "done".
           deps.fleetRecords.interrupt(id, session.report);
           const taken = deps.fleetRecords.take(id);
           return {

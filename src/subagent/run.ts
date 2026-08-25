@@ -118,6 +118,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createFollowupTaskTool,
+  createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult, SubAgentProvider } from "./types.js";
@@ -510,6 +511,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         "resume_agent",
         "interrupt_agent",
         "followup_task",
+        "send_input",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
@@ -577,6 +579,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       // (see agent-fleet.ts).
       const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
       const fleetRecords = createFleetRecords();
+      const lifecycleAuthority = {
+        actorId: params.id,
+        tier,
+        getNodes: () => fleetSessions.list(),
+      };
       const fleetDeps = {
         permissionGate: nd.permissionGate,
         ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
@@ -602,10 +609,23 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
-        createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createResumeAgentTool({ sessions: fleetSessions }),
-        createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createFollowupTaskTool({ sessions: fleetSessions }),
+        createCloseAgentTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
+        createResumeAgentTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
+        createInterruptAgentTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
+        createFollowupTaskTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
+        createSendInputTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
       ];
     }
 
@@ -903,7 +923,22 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
       };
-      params.onAgentReady({ close: boundedClose, interrupt, followup });
+      const deliver = (message: string): void => {
+        agent!.deliver({
+          ref: { uid: 1, mailbox: "INBOX" },
+          headers: {
+            from: "parent@local",
+            to: ["agent@local"],
+            date: new Date().toISOString(),
+            messageId: `<send-input-${crypto.randomUUID()}@local>`,
+            interchangeType: "conversation.message",
+          },
+          flags: [],
+          content: message,
+          signatureStatus: "missing",
+        });
+      };
+      params.onAgentReady({ close: boundedClose, interrupt, followup, deliver });
     }
 
     const fullPrompt = buildDispatchBrief({
