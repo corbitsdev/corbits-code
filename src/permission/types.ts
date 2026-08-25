@@ -54,8 +54,7 @@ export interface PermissionRequest {
   agentLabel?: string;
   // A single muted-line explanation shown to the operator when scopes were
   // withheld for a reason beyond the ordinary "no persistent option exists
-  // yet" case (e.g. a mega-chain that only offers accept-once). Plain literal
-  // text, never model-authored.
+  // yet" case. Plain literal text, never model-authored.
   notice?: string;
   // Set by the gate right before handing this request to requestApproval, so
   // whichever surface actually renders it (see gate-wire.ts's overlay host)

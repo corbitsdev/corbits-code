@@ -440,17 +440,6 @@ function stringArg(call: ToolCall, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-// A shell chain at or above this many top-level segments gets accept-once-only
-// approval: no scope is offered or minted, however broad or exact. A grant
-// this coarse would let one operator decision silently cover an unbounded,
-// ever-changing family of commands as the model keeps appending segments;
-// forcing a fresh decision every time keeps mega-chains reviewable instead of
-// rubber-stamped once and replayed forever. Below the threshold, the existing
-// exact-only multi-segment rule (and single-segment ladder) is unchanged.
-export const MEGA_CHAIN_SEGMENT_THRESHOLD = 5;
-
-export const MEGA_CHAIN_NOTICE = `Chains of ${MEGA_CHAIN_SEGMENT_THRESHOLD}+ steps are approved once only — split into shorter commands for reusable approvals.`;
-
 // The real (non-comment-only) chain segments of a shell command — the basis
 // both shellApprovalScopes and isSingleShellCommand use to answer "is this
 // one command or a chain."
@@ -469,19 +458,26 @@ export function isSingleShellCommand(command: string): boolean {
 }
 
 // Approval scopes for a shell command the operator may persist. Multi-segment
-// chains only offer the exact full string — a prefix like `npm *` would also
-// match `npm i && rm -rf /` on a later call (fail-closed). At or above
-// MEGA_CHAIN_SEGMENT_THRESHOLD, no scope is offered at all — see the constant.
+// chains only offer the full chain string as the persist payload — a prefix
+// like `npm *` would also match `npm i && rm -rf /` on a later call
+// (fail-closed). Minting decomposes that payload into one grant per real
+// segment (see mintGrant in gate.ts), so the label names the actual effect:
+// each step becomes its own reusable approval.
 function shellApprovalScopes(command: string): ApprovalScope[] {
   const segments = realShellSegments(command);
   if (segments.length === 0) return [];
-  if (segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD) return [];
   if (segments.length === 1) {
     const only = segments[0];
     if (only === undefined) return [];
     return deriveCommandScopes(only);
   }
-  return [{ id: "exact", label: "Always allow this exact command", pattern: command.trim() }];
+  return [
+    {
+      id: "exact",
+      label: "Always allow each command in this chain",
+      pattern: command.trim(),
+    },
+  ];
 }
 
 // Decompose an "ask"-tier tool call into the approval request(s) the operator
@@ -502,9 +498,6 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
         subject: command,
         arguments: { command },
         scopes: shellApprovalScopes(command),
-        ...(realSegments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD
-          ? { notice: MEGA_CHAIN_NOTICE }
-          : {}),
       },
     ];
   }

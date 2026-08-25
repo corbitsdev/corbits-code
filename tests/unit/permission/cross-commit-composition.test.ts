@@ -6,7 +6,7 @@ import {
   splitChainedCommand,
   tokenize,
 } from "../../../src/permission/command.js";
-import { buildRequests, MEGA_CHAIN_SEGMENT_THRESHOLD } from "../../../src/permission/classify.js";
+import { buildRequests } from "../../../src/permission/classify.js";
 import type { RequestApproval } from "../../../src/permission/types.js";
 
 const call = (command: string) => ({ id: "t", name: "run_shell", arguments: { command } });
@@ -40,19 +40,17 @@ describe("comment normalization x exact full-command grants", () => {
     expect(prompts).toBe(1); // no re-prompt: comment-insensitive replay
   });
 
-  test("comment lines do not count toward the mega-chain threshold", () => {
+  test("comment lines do not count toward the real segment count", () => {
     const comments = Array.from({ length: 10 }, (_, i) => `# c${i}`).join("\n");
     const cmd = `${comments}\ngit fetch origin && git rebase origin/main`;
     const [req] = buildRequests(call(cmd));
-    expect(req?.scopes.length).toBeGreaterThan(0); // not treated as mega-chain
+    expect(req?.scopes.length).toBeGreaterThan(0);
   });
 
-  test("a real chain hidden after comments still reaches the threshold", () => {
-    const cmd = Array.from({ length: MEGA_CHAIN_SEGMENT_THRESHOLD }, (_, i) => `cmd${i} run`).join(
-      " && ",
-    );
+  test("a long real chain hidden after comments still gets an exact-command scope", () => {
+    const cmd = Array.from({ length: 8 }, (_, i) => `cmd${i} run`).join(" && ");
     const [req] = buildRequests(call(cmd));
-    expect(req?.scopes.length).toBe(0); // mega-chain: accept-once only
+    expect(req?.scopes.length).toBe(1);
   });
 });
 
