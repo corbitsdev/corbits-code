@@ -2,11 +2,11 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Explorer leaf (CL-7020).
+ * Explorer leaf (CL-7020 / CL-7015 rename from explore).
  * Map/read against the brief — scannable findings only; never implement, review, or discover the fleet.
  */
-export const explorePackage: DirectorPackage = {
-  id: "explore",
+export const explorerPackage: DirectorPackage = {
+  id: "explorer",
   primaryIntent: "Map and read the codebase; no product edits",
   outOfLane: [
     "product write paths",

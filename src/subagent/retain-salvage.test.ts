@@ -4,7 +4,12 @@ import { createSubAgentSessionStore } from "./session-store.js";
 describe("retained session lifecycle", () => {
   test("a salvaged (deadline/cancel) run lands resumable even though run.ts disposed its agent", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({ description: "worker", agentId: "build", brief: "b", retained: true });
+    const s = store.start({
+      description: "worker",
+      agentId: "builder",
+      brief: "b",
+      retained: true,
+    });
     store.markRunning(s.id);
     // run.ts salvage path RETURNS a report (does not throw) with stopReason
     // "deadline", but leaves turnSucceeded=false so finally disposes the
@@ -21,7 +26,12 @@ describe("retained session lifecycle", () => {
 
   test("cancelAll does not close retained completed sessions", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({ description: "worker", agentId: "build", brief: "b", retained: true });
+    const s = store.start({
+      description: "worker",
+      agentId: "builder",
+      brief: "b",
+      retained: true,
+    });
     let closed = false;
     store.registerClose(s.id, async () => {
       closed = true;
@@ -44,7 +54,12 @@ describe("retained session lifecycle", () => {
   test("retained completed sessions are bounded by maxRetained, not the display cap", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 3, maxRetained: 3 });
     for (let i = 0; i < 50; i++) {
-      const s = store.start({ description: `w${i}`, agentId: "build", brief: "b", retained: true });
+      const s = store.start({
+        description: `w${i}`,
+        agentId: "builder",
+        brief: "b",
+        retained: true,
+      });
       store.registerClose(s.id, async () => {});
       store.complete(s.id, "done");
     }
@@ -54,7 +69,12 @@ describe("retained session lifecycle", () => {
 
   test("a genuinely retained clean completion IS resumable, and cancelAll releases it", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({ description: "worker", agentId: "build", brief: "b", retained: true });
+    const s = store.start({
+      description: "worker",
+      agentId: "builder",
+      brief: "b",
+      retained: true,
+    });
     store.markRunning(s.id);
     let closed = false;
     store.registerClose(s.id, async () => {
@@ -71,7 +91,12 @@ describe("retained session lifecycle", () => {
 
   test("clear() releases every retained session's close handle instead of dropping it silently", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({ description: "worker", agentId: "build", brief: "b", retained: true });
+    const s = store.start({
+      description: "worker",
+      agentId: "builder",
+      brief: "b",
+      retained: true,
+    });
     store.markRunning(s.id);
     let closed = false;
     store.registerClose(s.id, async () => {
@@ -84,7 +109,12 @@ describe("retained session lifecycle", () => {
 
   test("close_agent during the setup window waits for the handle instead of falsely reporting shutdown", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({ description: "worker", agentId: "build", brief: "b", retained: true });
+    const s = store.start({
+      description: "worker",
+      agentId: "builder",
+      brief: "b",
+      retained: true,
+    });
     // No registerClose yet — closeOne races the agent-setup window.
     const closePromise = store.closeOne(s.id, 200);
     let registeredClose = false;
@@ -100,7 +130,12 @@ describe("retained session lifecycle", () => {
 
   test("close_agent gives up honestly (not a false shutdown) if the handle never arrives in time", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({ description: "worker", agentId: "build", brief: "b", retained: true });
+    const s = store.start({
+      description: "worker",
+      agentId: "builder",
+      brief: "b",
+      retained: true,
+    });
     store.markRunning(s.id);
     const status = await store.closeOne(s.id, 30);
     expect(status).not.toBe("shutdown");

@@ -1,7 +1,7 @@
 ---
 name: linear-issue-workflow
 user-invocable: false
-description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn build for substantial landings.
+description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn builder for substantial landings.
 argument-hint: "<issue-id> [--reviewer <reviewer>]"
 ---
 
@@ -21,26 +21,18 @@ If the scope is unclear, `ask_operator` before proceeding. Do not guess.
 
 Read `branchName` from the issue (call `mcp__linear__get_issue` again if needed).
 
-Spawn `task(agent="intern")` with this sequenced `run_shell` list copied into the brief. Intern executes; Skywalker does not run the git.
+Load `use_skill("git-worktrees")`. Copy the create-from-origin/<default-branch> recipe into an intern brief (substitute `<branch-name>`). Spawn `task(agent="intern")`. Intern executes; Skywalker does not run the git.
 
-```bash
-git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'
-git fetch origin
-git worktree add ../worktree/<branch-name> -b <branch-name> origin/<default-branch>
-```
-
-Always base new branches on `origin/<default-branch>` (whatever the repository uses). After creating the worktree, intern `cd`s into it and installs local dependencies from developer documentation. Worktrees do not share `node_modules`.
-
-If intern fails, stop and `ask_operator`. If the operator rejects the issue before implementation, intern tears down the worktree (Phase 7 commands) rather than leaving it stranded.
+If intern fails, stop and `ask_operator`. If the operator rejects the issue before implementation, intern tears down the worktree via the git-worktrees teardown recipe rather than leaving it stranded.
 
 ## Phase 3: Plan, attach, mark In Progress
 
-1. Spawn `task(agent="explore")` if the codebase map is not already known. Brief it with the absolute worktree path (it must work there) and the issue: where changes go, existing patterns, related code.
+1. Spawn `task(agent="explorer")` if the codebase map is not already known. Brief it with the absolute worktree path (it must work there) and the issue: where changes go, existing patterns, related code.
 2. Follow the `/implement` loop's greybeard step (Phase 4) for the approach. Present the plan to the operator and `ask_operator` whether to proceed. Do not start implementation until approved.
-3. If the operator rejects the plan and the issue cannot be salvaged, intern tears down the worktree (Phase 7) rather than leaving it stranded.
+3. If the operator rejects the plan and the issue cannot be salvaged, intern tears down the worktree via the git-worktrees teardown recipe rather than leaving it stranded.
 4. Attach the plan to the Linear issue. **Do not post the plan as a comment** — comments are for discussion, not archives.
 
-   Spawn `task(agent="build")` with a mechanical brief to write the approved plan to the worktree's `tmp/plan-<ISSUE-ID>.md` (do not commit it). Intern captures byte size with `wc -c`. Primary then:
+   Spawn `task(agent="builder")` with a mechanical brief to write the approved plan to the worktree's `tmp/plan-<ISSUE-ID>.md` (do not commit it). Intern captures byte size with `wc -c`. Primary then:
 
    1. `mcp__linear__prepare_attachment_upload` with `issue`, `filename`, `contentType: "text/markdown"`, and `size`. Response contains `uploadRequest.url`, `uploadRequest.headers`, and `assetUrl`. The signed URL expires in 60 seconds.
    2. Intern PUTs the raw file bytes to `uploadRequest.url` via `run_shell`, every header from `uploadRequest.headers` verbatim (exact casing). Do not base64-encode. If PUT returns 403 because the URL expired, prepare a fresh URL and retry once.
@@ -55,9 +47,9 @@ If intern fails, stop and `ask_operator`. If the operator rejects the issue befo
 Do not implement on Skywalker. For each commit-sized unit, run `/implement`:
 
 1. `task(agent="greybeard")` on the approach before any code is written.
-2. `task(agent="build")` with a typed brief (`intent`, `success_criteria`, `do_not`, `report_focus`) and the absolute worktree path. Bug fixes start from a failing test. Features ship tests with the change.
+2. `task(agent="builder")` with a typed brief (`intent`, `success_criteria`, `do_not`, `report_focus`) and the absolute worktree path. Bug fixes start from a failing test. Features ship tests with the change.
 3. `task(agent="intern")` or `task(agent="tester")` for the project build/test gate.
-4. `task(agent="critique")` on the diff. Blocking findings → re-dispatch build (cap two re-fix rounds), then re-run the gate and critique.
+4. `task(agent="critic")` on the diff. Blocking findings → re-dispatch builder (cap two re-fix rounds), then re-run the gate and critic.
 
 Track units with `manage_tasks`. Copy style/philosophy into worker briefs (`use_skill` on the primary before spawning; workers do not mount `use_skill`).
 
@@ -67,7 +59,7 @@ If the issue description contains a task list (`- [ ]` items), tick boxes as bui
 
 ## Phase 5: Branch review
 
-After the last unit's critique is clean, spawn `task(agent="critique")` on the **whole** `origin/<default-branch>..HEAD` range in the worktree — not only the last commit. Brief:
+After the last unit's critique is clean, spawn `task(agent="critic")` on the **whole** `origin/<default-branch>..HEAD` range in the worktree — not only the last commit. Brief:
 
 - Absolute worktree path
 - Base branch from Phase 2
@@ -130,16 +122,7 @@ Phase 6 ends when the PR is open. Phase 7 runs **after the PR is merged** and **
 2. Re-read the issue with `mcp__linear__get_issue`. Flip checkboxes the merged PR actually completed on `main` via `mcp__linear__save_issue`. Never check a box on intent.
 3. `mcp__linear__save_comment` with PR URL, merge SHA, and CI-green confirmation. Short. Present-tense facts.
 4. If every outcome checkbox is checked, set state to `Done` with `mcp__linear__save_issue`. Otherwise leave In Progress.
-5. Only then intern cleans up:
-
-```bash
-cd <path-to-main-repo>
-git fetch origin
-git worktree remove ../worktree/<branch-name>
-git branch -d <branch-name>
-```
-
-If the worktree directory was already deleted: `git worktree prune`.
+5. Only then intern cleans up: load `use_skill("git-worktrees")` and copy the teardown recipe into an intern brief (substitute `<branch-name>` and `<path-to-main-repo>`).
 
 ## Linear MCP tool reference
 
@@ -154,7 +137,7 @@ If the worktree directory was already deleted: `git worktree prune`.
 
 ## Hard rules
 
-- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. Substantial issue landings: spawn build (this recipe).
-- Spawn with `task(agent="greybeard")`, `task(agent="build")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
+- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. Substantial issue landings: spawn builder (this recipe).
+- Spawn with `task(agent="greybeard")`, `task(agent="builder")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critic")`.
 - Clarifying questions use `ask_operator`.
 - Shell is `run_shell`, not a Bash tool.

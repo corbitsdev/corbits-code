@@ -269,7 +269,7 @@ function abortReasonText(signal: AbortSignal): string | undefined {
 }
 
 /**
- * Arm requireEvidence only for the critique director. Greybeard is also
+ * Arm requireEvidence only for the critic director. Greybeard is also
  * intent=review and may spawn-only then envelope; that is not a fake
  * review — do not pull it into the empty-readCounts gate.
  */
@@ -277,7 +277,7 @@ export function shouldRequireEvidence(input: {
   intent?: TaskIntent;
   directorId?: string;
 }): boolean {
-  return input.directorId === "critique";
+  return input.directorId === "critic";
 }
 
 const submitResultDefinition: ToolDefinition = {

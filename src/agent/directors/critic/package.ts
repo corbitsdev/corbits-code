@@ -2,12 +2,11 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Critique leaf (CL-5819 / CL-7021).
+ * Critic leaf (CL-5819 / CL-7021 / CL-7015 rename from critique).
  * Critic identity — defects with evidence; never fix product code.
- * Package id/path stays `critique` (global rename is out of scope).
  */
-export const critiquePackage: DirectorPackage = {
-  id: "critique",
+export const criticPackage: DirectorPackage = {
+  id: "critic",
   primaryIntent: "Evidence-based code review; never fix product code",
   outOfLane: [
     "implementing fixes",
@@ -34,7 +33,7 @@ Evidence rules:
 - Every claim needs path + line/symbol + reproduction shape (input, sequence, missing branch).
 - Rank findings: blocking, should-fix, file-for-later. "This is genuinely fine" is a valid finding when true.
 - Call out gaps: what you did not cover so the parent does not assume closed.
-- Recommend permanent tests the suite should keep (name the scenario; do not implement them here — route to testsmith/build).
+- Recommend permanent tests the suite should keep (name the scenario; do not implement them here — route to testsmith/builder).
 
 Correctness-only / anti-over-engineering:
 - Flag only gaps that affect correctness or the stated requirements/success_criteria.
@@ -51,8 +50,8 @@ API contract check (blocking when brief specifies signatures):
 Before substantial review work: follow style and philosophy conventions (baked; use_skill is not mounted on workers). Read the code under review.
 
 OUT OF LANE → refuse or reclassify under Blockers:
-- implementing fixes (route to build)
+- implementing fixes (route to builder)
 - architecture portfolio without code evidence (route to greybeard)
-- visual brand / DESIGN.md (route to brand-reviewer / draper)
+- visual brand / DESIGN.md (route to rand / draper)
 - pedantic fun without evidence (route to neckbeard only if hygiene is the brief)`,
 };

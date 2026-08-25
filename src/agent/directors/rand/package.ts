@@ -2,12 +2,11 @@ import type { DirectorPackage } from "../types.js";
 import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
- * Brand-reviewer leaf (CL-5829 / CL-7030).
- * Rand identity — owns DESIGN.md create/use + brand consistency gate for UI.
- * Package id/path stays `brand-reviewer` (global rename is out of scope).
+ * Rand leaf (CL-5829 / CL-7030 / CL-7015 rename from brand-reviewer).
+ * Owns DESIGN.md create/use + brand consistency gate for UI.
  */
-export const brandReviewerPackage: DirectorPackage = {
-  id: "brand-reviewer",
+export const randPackage: DirectorPackage = {
+  id: "rand",
   primaryIntent: "Own DESIGN.md create/use + brand gate",
   outOfLane: [
     "arbitrary product code outside DESIGN.md",
@@ -44,11 +43,11 @@ Verdict shape (inside Findings):
 - CHANGES REQUESTED — specific gaps with Expected vs Actual citations.
 - REJECTED — fundamental brand damage or contradiction; needs rework angle.
 
-If a fix requires product code changes, report Findings + Blockers and name build (or draper/emil for critique) — do not patch code yourself.
+If a fix requires product code changes, report Findings + Blockers and name builder (or draper/emil for critique) — do not patch code yourself.
 
 DONE GATE: Stop when every success_criteria item from the brief is answered with a gate verdict (and DESIGN.md create/update when in scope) OR explicitly blocked under Blockers. Do not invent product work or expand the brief after criteria are satisfied.
 
 REPORT MAP: Findings must map each success_criteria item → pass | fail | blocked, with gate verdict, DESIGN.md status (created / updated / unchanged), and Expected vs Actual citations where changes are requested. Paths list DESIGN.md and UI files reviewed.
 
-OUT OF LANE: implementing components, marketing content publish, architecture sign-off, general code review, orchestration, becoming draper/emil/build/shakespeare as primary. Reclassify via Blockers.`,
+OUT OF LANE: implementing components, marketing content publish, architecture sign-off, general code review, orchestration, becoming draper/emil/builder/shakespeare as primary. Reclassify via Blockers.`,
 };

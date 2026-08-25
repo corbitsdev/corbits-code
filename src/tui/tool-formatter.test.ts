@@ -314,9 +314,9 @@ describe("describeToolCall for task tool", () => {
 
   test("task without description falls back to the prompt subject", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
-    const args = JSON.stringify({ agent: "explore", prompt, intent: "explore" });
+    const args = JSON.stringify({ agent: "explorer", prompt, intent: "explore" });
     const result = describeToolCall("task", args);
-    expect(result.display).toBe("Explore");
+    expect(result.display).toBe("Explorer");
     // ARG_VALUE_MAX = 48 with ellipsis when truncated
     expect(result.summary.length).toBeLessThanOrEqual(48);
     expect(result.full).toBe(prompt);
@@ -326,7 +326,7 @@ describe("describeToolCall for task tool", () => {
 
   test("long description is abbreviated", () => {
     const long = "a".repeat(100);
-    const args = JSON.stringify({ agent: "critique", description: long, prompt: "..." });
+    const args = JSON.stringify({ agent: "critic", description: long, prompt: "..." });
     const result = describeToolCall("task", args);
     expect(result.summary.length).toBeLessThan(long.length + 20);
     expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
@@ -335,7 +335,7 @@ describe("describeToolCall for task tool", () => {
 
 describe("task activity transcript lines", () => {
   const fullBrief = {
-    agent: "explore",
+    agent: "explorer",
     description: "map callers of leaveObserve",
     prompt: "Find every call site...",
     intent: "explore",
@@ -376,7 +376,7 @@ describe("task activity transcript lines", () => {
     const prompt = "Find every call site of leaveObserve and report them with paths.";
     const s = summarizeToolArgs(
       "task",
-      JSON.stringify({ agent: "explore", prompt, intent: "explore", maxTurns: 40 }),
+      JSON.stringify({ agent: "explorer", prompt, intent: "explore", maxTurns: 40 }),
     );
     expect(s.summary.length).toBeLessThanOrEqual(48);
     expect(s.full).toBe(prompt);
@@ -419,7 +419,7 @@ describe("task activity transcript lines", () => {
 
   test("mergedToolCollapsedPreview curates task call+result into one line", () => {
     const line = mergedToolCollapsedPreview("task", JSON.stringify(fullBrief), reportBody, false);
-    expect(line).toBe("Explore map callers of leaveObserve — Found 3 call sites in app.tsx");
+    expect(line).toBe("Explorer map callers of leaveObserve — Found 3 call sites in app.tsx");
     expect(line).not.toContain("prompt");
     expect(line).not.toContain("maxTurns");
     expect(line).not.toContain("## Summary");

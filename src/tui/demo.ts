@@ -60,7 +60,7 @@ const DEMO_MENTION_ITEMS: readonly string[] = ["@src/tui/shell.ts", "@AGENTS.md"
 function demoObserveSession(): ObserveSession {
   return {
     sessionId: "child-1",
-    agentId: "explore",
+    agentId: "explorer",
     description: "map callers of openListOverlay",
     lines: [
       { role: "system", text: "— child session explore —" },

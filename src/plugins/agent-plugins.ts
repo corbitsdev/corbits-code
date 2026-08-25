@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentProfile } from "../agent/profiles.js";
 import { AgentProfileSchema } from "../agent/profiles.js";
+import { isDirectorId } from "../agent/directors/registry.js";
 import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import { isPluginModuleEnabled } from "./register.js";
@@ -38,6 +39,10 @@ function resolveAgentProfileWarningHandler(
 // explicit enabled+consented in settings even for repo plugins, because a
 // tool plugin runs in-process code rather than declaring configuration data.
 //
+// Closed DIRECTOR_IDS are reserved (CL-7015): a plugin profile whose id
+// collides with a shipped director is skipped with a warning — plugins cannot
+// override or alias the closed fleet.
+//
 // Warnings fire whenever a profile is rejected so JS-plugin authors get the
 // same feedback loop data-only plugin authors already enjoy. Pass `diagnostics`
 // (preferred) or `onWarning`; a bare callback is still accepted for tests.
@@ -66,6 +71,12 @@ export async function resolveAgentPluginProfiles(
         continue;
       }
       const profile = { ...(result as AgentProfile) };
+      if (isDirectorId(profile.id)) {
+        onWarning(
+          `plugin "${mod.manifest.id}" agent "${profile.id}" skipped: id is reserved for a closed director`,
+        );
+        continue;
+      }
       // Resolve systemPromptPath relative to the plugin directory. The file
       // content becomes systemPromptRole; an explicit systemPromptRole wins.
       if (

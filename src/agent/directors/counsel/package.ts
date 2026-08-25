@@ -2,11 +2,11 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Counsel leaf (CL-7022). Package id/path remains `plan` until the named-entity rename lands.
+ * Counsel leaf (CL-7022 / CL-7015 rename from plan).
  * Ordered eng change plans only — no ship, no architecture gate, no fleet.
  */
-export const planPackage: DirectorPackage = {
-  id: "plan",
+export const counselPackage: DirectorPackage = {
+  id: "counsel",
   primaryIntent: "Author ordered eng change plans; do not implement",
   outOfLane: [
     "shipping code",

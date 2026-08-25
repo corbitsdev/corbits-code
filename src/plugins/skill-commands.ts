@@ -11,9 +11,9 @@ import { splitFrontmatter } from "./frontmatter.js";
 // body (plus args) to the agent. Convention/internal skills opt out with
 // `user-invocable: false` in frontmatter and are not emitted as slash commands.
 // Untagged skills still become slash commands (marketplace BC).
-// `disable-model-invocation` does not affect slash emission. A skill authored
-// as `skills/<name>/SKILL.md` is still model-invoked via the `use_skill` tool;
-// `discoverSkills` is unchanged, so the model can still auto-invoke any skill.
+// `disable-model-invocation` does not affect slash emission — that flag only
+// skips the skill from `discoverSkills` lazy listing. Explicit `use_skill` /
+// `resolveSkillBody` still loads the body by name.
 
 const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -60,7 +60,8 @@ export async function loadSkillCommands(
       continue;
     }
     // Opt-out of the slash surface. Untagged skills still emit a command
-    // (marketplace BC); `disable-model-invocation` does not affect this.
+    // (marketplace BC); `disable-model-invocation` does not affect this —
+    // it only skips discoverSkills listing (see src/extensions/skills.ts).
     if (frontmatter["user-invocable"] === false) continue;
 
     const name =

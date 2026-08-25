@@ -21,6 +21,57 @@ describe("skill discovery", () => {
     const names = (await discoverSkills(fixtureCwd, pluginDirs)).map((s) => s.name);
     expect(new Set(names).size).toBe(names.length);
   });
+
+  test("skips disable-model-invocation:true from listing but still occupies seen", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skill-dmi-"));
+    const high = join(root, "high");
+    const low = join(root, "low");
+    try {
+      await mkdir(join(high, "skills", "bg-lib"), { recursive: true });
+      await mkdir(join(low, "skills", "bg-lib"), { recursive: true });
+      await writeFile(
+        join(high, "skills", "bg-lib", "SKILL.md"),
+        "---\nname: bg-lib\ndescription: high priority background\ndisable-model-invocation: true\n---\nHigh body.\n",
+        "utf8",
+      );
+      await writeFile(
+        join(low, "skills", "bg-lib", "SKILL.md"),
+        "---\nname: bg-lib\ndescription: leaked lower priority\n---\nLow body that must not list.\n",
+        "utf8",
+      );
+      const skills = await discoverSkills(root, [high, low]);
+      expect(skills.find((s) => s.name === "bg-lib")).toBeUndefined();
+      expect(skills.some((s) => s.description.includes("leaked"))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("lists a sibling skill when a peer has disable-model-invocation", async () => {
+    const plugin = await mkdtemp(join(tmpdir(), "skill-dmi-peer-"));
+    try {
+      await mkdir(join(plugin, "skills", "bg-lib"), { recursive: true });
+      await mkdir(join(plugin, "skills", "visible"), { recursive: true });
+      await writeFile(
+        join(plugin, "skills", "bg-lib", "SKILL.md"),
+        "---\nname: bg-lib\ndescription: background\ndisable-model-invocation: true\n---\nHidden.\n",
+        "utf8",
+      );
+      await writeFile(
+        join(plugin, "skills", "visible", "SKILL.md"),
+        "---\nname: visible\ndescription: still listed\n---\nVisible body.\n",
+        "utf8",
+      );
+      const skills = await discoverSkills(plugin, [plugin]);
+      expect(skills.find((s) => s.name === "bg-lib")).toBeUndefined();
+      expect(skills.find((s) => s.name === "visible")).toEqual({
+        name: "visible",
+        description: "still listed",
+      });
+    } finally {
+      await rm(plugin, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("skill resolution", () => {
@@ -37,6 +88,25 @@ describe("skill resolution", () => {
 
   test("returns undefined for an unknown skill", async () => {
     expect(await resolveSkillBody(fixtureCwd, "does-not-exist-xyz", pluginDirs)).toBeUndefined();
+  });
+
+  test("resolveSkillBody still loads disable-model-invocation skills by name", async () => {
+    const plugin = await mkdtemp(join(tmpdir(), "skill-dmi-resolve-"));
+    try {
+      await mkdir(join(plugin, "skills", "git-worktrees"), { recursive: true });
+      await writeFile(
+        join(plugin, "skills", "git-worktrees", "SKILL.md"),
+        "---\nname: git-worktrees\nuser-invocable: false\ndisable-model-invocation: true\ndescription: bg\n---\nCreate worktree recipe.\n",
+        "utf8",
+      );
+      expect(await discoverSkills(plugin, [plugin])).toEqual([]);
+      const body = await resolveSkillBody(plugin, "git-worktrees", [plugin]);
+      expect(body).toBeDefined();
+      expect(body).toContain("Create worktree recipe.");
+      expect(body!.startsWith("---")).toBe(false);
+    } finally {
+      await rm(plugin, { recursive: true, force: true });
+    }
   });
 });
 

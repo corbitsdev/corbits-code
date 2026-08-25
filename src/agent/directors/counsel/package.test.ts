@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { planPackage } from "./package.js";
+import { counselPackage } from "./package.js";
 
-describe("planPackage", () => {
-  test("id matches directory (keep plan path; identity is Counsel)", () => {
-    expect(planPackage.id).toBe("plan");
+describe("counselPackage", () => {
+  test("id matches directory", () => {
+    expect(counselPackage.id).toBe("counsel");
   });
 
   test("systemPrompt is real (not Placeholder)", () => {
-    expect(planPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(planPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+    expect(counselPackage.systemPrompt.length).toBeGreaterThan(0);
+    expect(counselPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
   });
 
   test("systemPrompt states PRIMARY INTENT", () => {
-    expect(planPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(counselPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
   });
 
   test("systemPrompt identity is Counsel / CounselDirector (not PlanDirector)", () => {
-    const p = planPackage.systemPrompt;
+    const p = counselPackage.systemPrompt;
     expect(p).toMatch(/CounselDirector \(Counsel\)/);
     expect(p).toMatch(/plan lane only/i);
     expect(p).not.toMatch(/PlanDirector/);
@@ -24,7 +24,7 @@ describe("planPackage", () => {
   });
 
   test("systemPrompt teaches ordered eng plans with no ship", () => {
-    const p = planPackage.systemPrompt;
+    const p = counselPackage.systemPrompt;
     expect(p).toMatch(/ordered engineering change plans/i);
     expect(p).toMatch(/agent-proof plan/i);
     expect(p).toMatch(/acceptance criteria/i);
@@ -35,7 +35,7 @@ describe("planPackage", () => {
   });
 
   test("systemPrompt is blinders-on plan lane (no orchestrate / ship / review-as-primary)", () => {
-    const p = planPackage.systemPrompt;
+    const p = counselPackage.systemPrompt;
     expect(p).toMatch(/Blinders on/i);
     expect(p).toMatch(/Do not spawn specialists/i);
     expect(p).toMatch(/not Builder/i);
@@ -46,7 +46,7 @@ describe("planPackage", () => {
   });
 
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
-    const p = planPackage.systemPrompt;
+    const p = counselPackage.systemPrompt;
     expect(p).not.toMatch(/parameters?:/i);
     expect(p).not.toMatch(/fan-out/i);
     expect(p).not.toMatch(/at most \d+/i);
@@ -55,7 +55,7 @@ describe("planPackage", () => {
   });
 
   test("systemPrompt has DONE GATE for plan completeness", () => {
-    const p = planPackage.systemPrompt;
+    const p = counselPackage.systemPrompt;
     expect(p).toContain("DONE GATE");
     expect(p).toContain("success_criteria");
     expect(p).toMatch(/[Ss]top when/);
@@ -63,11 +63,11 @@ describe("planPackage", () => {
   });
 
   test("spawn.maySpawn is false", () => {
-    expect(planPackage.spawn.maySpawn).toBe(false);
+    expect(counselPackage.spawn.maySpawn).toBe(false);
   });
 
   test("tools.allow is review surface with product writes", () => {
-    const allow = planPackage.tools?.allow ?? [];
+    const allow = counselPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
@@ -75,20 +75,20 @@ describe("planPackage", () => {
   });
 
   test("modelRole is plan", () => {
-    expect(planPackage.modelRole).toBe("plan");
+    expect(counselPackage.modelRole).toBe("plan");
   });
 
   test("optionalSkills order", () => {
-    expect(planPackage.optionalSkills).toEqual(["style", "philosophy", "interview"]);
+    expect(counselPackage.optionalSkills).toEqual(["style", "philosophy", "interview"]);
   });
 
   test("primaryIntent and outOfLane match counsel / plan lane", () => {
-    expect(planPackage.primaryIntent).toBe("Author ordered eng change plans; do not implement");
-    expect(planPackage.description).toMatch(/Counsel/i);
-    expect(planPackage.outOfLane).toContain("shipping code");
-    expect(planPackage.outOfLane).toContain("architecture gate sign-off as Greybeard");
-    expect(planPackage.outOfLane).toContain("running the fleet");
-    expect(planPackage.outOfLane).toContain("pure code review");
-    expect(planPackage.outOfLane).toContain("becoming Builder or Critic");
+    expect(counselPackage.primaryIntent).toBe("Author ordered eng change plans; do not implement");
+    expect(counselPackage.description).toMatch(/Counsel/i);
+    expect(counselPackage.outOfLane).toContain("shipping code");
+    expect(counselPackage.outOfLane).toContain("architecture gate sign-off as Greybeard");
+    expect(counselPackage.outOfLane).toContain("running the fleet");
+    expect(counselPackage.outOfLane).toContain("pure code review");
+    expect(counselPackage.outOfLane).toContain("becoming Builder or Critic");
   });
 });

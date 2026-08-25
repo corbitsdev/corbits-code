@@ -68,7 +68,7 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // worktree-isolation behavior as their orchestrator.
   useWorktree?: boolean;
   /**
-   * When set (e.g. greybeard → intern/explore/critique), nested `task` may only
+   * When set (e.g. greybeard → intern/explorer/critic), nested `task` may only
    * spawn these director/profile ids. Omitted = no allowlist filter (primary).
    */
   spawnAllowlist?: readonly string[];
@@ -110,7 +110,7 @@ export type RunSubAgentParams = {
   onProgress?: (info: { description: string; toolName: string }) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
-  /** Resolved closed-director id (e.g. "critique") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
+  /** Resolved closed-director id (e.g. "critic") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
   directorId?: string;
   // When true, the assembled system prompt grants this sub-agent permission
   // to call `task` to spawn further agents (orchestrator exception to the

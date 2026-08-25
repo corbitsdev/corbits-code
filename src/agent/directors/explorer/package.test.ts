@@ -1,23 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { explorePackage } from "./package.js";
+import { explorerPackage } from "./package.js";
 
-describe("explorePackage", () => {
+describe("explorerPackage", () => {
   test("id matches directory", () => {
-    expect(explorePackage.id).toBe("explore");
+    expect(explorerPackage.id).toBe("explorer");
   });
 
   test("systemPrompt is real, not a placeholder", () => {
-    expect(explorePackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(explorePackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+    expect(explorerPackage.systemPrompt.length).toBeGreaterThan(0);
+    expect(explorerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
   });
 
   test("systemPrompt states PRIMARY INTENT", () => {
-    expect(explorePackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-    expect(explorePackage.systemPrompt).toMatch(/map and read/i);
+    expect(explorerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(explorerPackage.systemPrompt).toMatch(/map and read/i);
   });
 
   test("systemPrompt identity is Explorer / ExplorerDirector (not job-title language)", () => {
-    const p = explorePackage.systemPrompt;
+    const p = explorerPackage.systemPrompt;
     expect(p).toMatch(/ExplorerDirector \(Explorer\)/);
     expect(p).toMatch(/explore lane only/i);
     expect(p).not.toMatch(/ExploreDirector(?! \(Explorer\))/);
@@ -25,7 +25,7 @@ describe("explorePackage", () => {
   });
 
   test("systemPrompt teaches success_criteria-driven mapping", () => {
-    const p = explorePackage.systemPrompt;
+    const p = explorerPackage.systemPrompt;
     expect(p).toContain("Map against the brief");
     expect(p).toContain("success_criteria");
     expect(p).toMatch(/scannable map/i);
@@ -34,7 +34,7 @@ describe("explorePackage", () => {
   });
 
   test("systemPrompt is explore lane only (map/read; no implement / spawn / fleet discovery)", () => {
-    const p = explorePackage.systemPrompt;
+    const p = explorerPackage.systemPrompt;
     expect(p).toMatch(/Do not spawn specialists/i);
     expect(p).toMatch(/not Builder/i);
     expect(p).toMatch(/not Critic/i);
@@ -45,7 +45,7 @@ describe("explorePackage", () => {
   });
 
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
-    const p = explorePackage.systemPrompt;
+    const p = explorerPackage.systemPrompt;
     expect(p).not.toMatch(/parameters?:/i);
     expect(p).not.toMatch(/fan-out/i);
     expect(p).not.toMatch(/at most \d+/i);
@@ -56,34 +56,34 @@ describe("explorePackage", () => {
   });
 
   test("systemPrompt has DONE GATE for success_criteria", () => {
-    const prompt = explorePackage.systemPrompt;
+    const prompt = explorerPackage.systemPrompt;
     expect(prompt).toContain("DONE GATE");
     expect(prompt).toContain("success_criteria");
     expect(prompt).toMatch(/[Ss]top when/);
   });
 
   test("systemPrompt has finish bias against re-reading the same paths", () => {
-    expect(explorePackage.systemPrompt).toMatch(/FINISH BIAS/i);
-    expect(explorePackage.systemPrompt).toMatch(/re-reading the same paths/i);
-    expect(explorePackage.systemPrompt).toMatch(
+    expect(explorerPackage.systemPrompt).toMatch(/FINISH BIAS/i);
+    expect(explorerPackage.systemPrompt).toMatch(/re-reading the same paths/i);
+    expect(explorerPackage.systemPrompt).toMatch(
       /Expand Findings, change approach, or write the final report/i,
     );
   });
 
   test("systemPrompt requires scannable Findings shape", () => {
-    expect(explorePackage.systemPrompt).toMatch(/FINDINGS SHAPE/i);
-    expect(explorePackage.systemPrompt).toMatch(/scannable map/i);
-    expect(explorePackage.systemPrompt).toMatch(/key paths/i);
-    expect(explorePackage.systemPrompt).toMatch(/symbols/i);
-    expect(explorePackage.systemPrompt).toMatch(/call flow/i);
+    expect(explorerPackage.systemPrompt).toMatch(/FINDINGS SHAPE/i);
+    expect(explorerPackage.systemPrompt).toMatch(/scannable map/i);
+    expect(explorerPackage.systemPrompt).toMatch(/key paths/i);
+    expect(explorerPackage.systemPrompt).toMatch(/symbols/i);
+    expect(explorerPackage.systemPrompt).toMatch(/call flow/i);
   });
 
   test("spawn.maySpawn is false", () => {
-    expect(explorePackage.spawn.maySpawn).toBe(false);
+    expect(explorerPackage.spawn.maySpawn).toBe(false);
   });
 
   test("tools.allow mounts product writes (lane: no product edits)", () => {
-    const allow = explorePackage.tools?.allow ?? [];
+    const allow = explorerPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("grep");
     expect(allow).toContain("write_file");
@@ -92,6 +92,6 @@ describe("explorePackage", () => {
   });
 
   test("modelRole is explore", () => {
-    expect(explorePackage.modelRole).toBe("explore");
+    expect(explorerPackage.modelRole).toBe("explore");
   });
 });
