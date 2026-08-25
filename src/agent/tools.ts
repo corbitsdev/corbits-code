@@ -126,6 +126,9 @@ export interface AgentToolsetArgs {
   // write into (tests). Persists with the rest of the session's committed
   // history — no separate cleanup.
   getBlobWriter?: () => SpillBlobWriter | undefined;
+  // Absolute session context dir (`…/context`) for the truncation notice's
+  // on-disk path. Re-read live like getBlobWriter across session rotation.
+  getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
   // Whether a workflow is currently running. advance_workflow rides the wire
@@ -216,6 +219,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     toolWatchdog,
     getBlobReader,
     getBlobWriter,
+    getContextDir,
     sessionMode = "orchestrator",
     shellEnv,
     toolAvailability = { languageServerAvailable: true },
@@ -239,6 +243,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         ? { readFileGuard: { blobReader: sessionBlobReader } }
         : {}),
       ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
+      ...(getContextDir !== undefined ? { getContextDir } : {}),
       ...(shellEnv !== undefined ? { shellEnv } : {}),
     }),
   });
@@ -514,7 +519,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         }
         connectedClients.push(result.client);
         permissionGate.registerMcpClient(result.client);
-        const mcpTools = mcpClientToAgentTools(result.client, permissionGate, getBlobWriter);
+        const mcpTools = mcpClientToAgentTools(result.client, permissionGate, {
+          ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
+          ...(getContextDir !== undefined ? { getContextDir } : {}),
+        });
         inheritedMcpTools.push(...mcpTools);
         dynamicRunner.addTools(mcpTools);
         callbacks.onStatus({

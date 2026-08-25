@@ -1271,6 +1271,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       toolWatchdog: liveToolWatchdog,
       getBlobReader: () => currentAgent.blobReader,
       getBlobWriter: () => currentStorage?.writeBlob,
+      getContextDir: () => workdir,
+
       isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
       onOperatorGate: (question, options) =>

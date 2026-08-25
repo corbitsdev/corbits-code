@@ -33,6 +33,8 @@ export interface CorePosixToolPluginsArgs {
   // Session blob-store writer oversized tool results spill their full content
   // into. See result-truncation-plugin.ts.
   getBlobWriter?: () => SpillBlobWriter | undefined;
+  // Absolute session context dir for the truncation notice's on-disk path.
+  getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell spawn environment.
   shellEnv?: Record<string, string>;
 }
@@ -67,6 +69,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     extraToolPlugins = [],
     readFileGuard = {},
     getBlobWriter,
+    getContextDir,
     shellEnv,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
@@ -75,8 +78,15 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
   // rebuilding the plugin stack. Secret-guard and authz still hard-deny
   // regardless.
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
+  const truncationOptions =
+    getBlobWriter !== undefined || getContextDir !== undefined
+      ? {
+          ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
+          ...(getContextDir !== undefined ? { getContextDir } : {}),
+        }
+      : {};
   return [
-    resultTruncationPlugin(getBlobWriter !== undefined ? { getBlobWriter } : {}),
+    resultTruncationPlugin(truncationOptions),
     toolResultSecretScrubPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd), { allowOutside }),
     deleteFilePlugin(cwd, { allowOutside }),
