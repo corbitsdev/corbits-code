@@ -18,12 +18,7 @@ export interface AgentProgressSession {
   readonly status: "running" | "done" | "failed" | "cancelled";
   /** Present when the strip knows lifecycle independently of TUI status. */
   readonly lifecycleStatus?:
-    | "pending_init"
-    | "running"
-    | "interrupted"
-    | "completed"
-    | "shutdown"
-    | "not_found";
+    "pending_init" | "running" | "interrupted" | "completed" | "shutdown" | "not_found";
   readonly currentToolName: string | null;
   /**
    * Bounded subject of the oldest outstanding call (command, path, pattern…),
@@ -156,9 +151,7 @@ export function agentProgress(
 
   if (session.lifecycleStatus === "interrupted") {
     const toolBit =
-      hasSubject && session.currentToolName !== null
-        ? ` · ${subject} still running`
-        : " · tools still running";
+      hasSubject && session.currentToolName !== null ? ` · ${subject} still running` : "";
     return {
       stat: `interrupted${toolBit}`,
       state,

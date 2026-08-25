@@ -49,6 +49,24 @@ describe("agentProgress", () => {
     expect(progress?.stalled).toBe(false);
   });
 
+  test("an interrupted session with no leftover tool shows plain interrupted", () => {
+    const progress = agentProgress(
+      {
+        ...base,
+        lifecycleStatus: "interrupted",
+        currentToolName: null,
+        currentToolPreview: null,
+        currentToolStartedAt: null,
+        lastActivityAt: 1_000,
+      },
+      91_000,
+    );
+    expect(progress?.stat).toBe("interrupted");
+    expect(progress?.stat).not.toContain("still running");
+    expect(progress?.working).toBe(false);
+    expect(progress?.stalled).toBe(false);
+  });
+
   test("a running session reports elapsed time and its current tool", () => {
     const progress = agentProgress({ ...base, lastActivityAt: 42_000 }, 42_000);
     expect(progress).toEqual({
