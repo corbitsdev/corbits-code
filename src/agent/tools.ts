@@ -344,9 +344,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       orchestratorTools.push(
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
-        createCloseAgentTool({ sessions: fleetSessions }),
+        createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
         createResumeAgentTool({ sessions: fleetSessions }),
-        createInterruptAgentTool({ sessions: fleetSessions }),
+        createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createFollowupTaskTool({ sessions: fleetSessions }),
       );
     }
