@@ -1,13 +1,16 @@
 ---
 name: dispatch
 user-invocable: false
+disable-model-invocation: true
 argument-hint: "[<name> | dispatch/<name>/ | dispatch/<name>/dispatch.yaml | <spec-file> ]"
-description: Multi-lane DAG orchestration via use_skill("dispatch"). Spawns explorer, intern, builder, counsel, and critic. Use for DAG product work; tiny edits outside the DAG may be DIY.
+description: On-disk DAG protocol (dispatch.yaml / plan.md / resume). Background library — load via use_skill("dispatch") when a dispatch/ tree already exists. Absent from slash and use_skill listing. Skywalker orchestrates natively without this skill.
 ---
 
 # Dispatch
 
-How to orchestrate parallel director runs across a dependency graph. Fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done.
+On-disk DAG protocol for an existing `dispatch/` tree. Skywalker orchestrates natively with spawn_agent / wait_agents / manage_tasks — do not load this skill for ordinary multi-lane work.
+
+How to run a `dispatch.yaml` graph: fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done. Fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done.
 
 DAG product tasks go through builder workers. Do not write `dispatch.yaml` or `plan.md` on the parent (intern cannot write; builder writes manifests). Tiny / single-file / one-route product edits outside this DAG may be DIY with write_file/edit_file/delete_file.
 

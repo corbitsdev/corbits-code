@@ -30,7 +30,6 @@ const SPAWN_RECIPE_SKILLS = ["implement", "dispatch"] as const;
 
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
-  "dispatch",
   "git-rebase",
   "linear-issue-workflow",
   "style",
@@ -40,7 +39,7 @@ const USE_SKILL_ONLY = [
 ] as const;
 
 /** Background libs: absent from slash and use_skill listing; explicit resolve only. */
-const BACKGROUND_ONLY = ["git-worktrees"] as const;
+const BACKGROUND_ONLY = ["git-worktrees", "dispatch"] as const;
 
 const SLASH_SKILLS = [
   "implement",

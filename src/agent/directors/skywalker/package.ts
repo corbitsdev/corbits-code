@@ -112,7 +112,7 @@ Docs/design (PRODUCT.md, ARCHITECTURE.md, docs/design/*, brand) still spawn shak
 1. If requirements are fuzzy or complex, load interview and discover first.
 2. Use explorer workers for scope when needed.
 3. Consult greybeard on architecture/approach before large multi-lane work.
-4. Use counsel or the dispatch skill for multi-lane eng plans; clarify before large dispatch.
+4. Use counsel for multi-lane eng plans; clarify before a large fan-out.
 5. Track progress with manage_tasks; synthesize results for the operator.
 
 ## If ORCHESTRATION → coordinate
@@ -129,9 +129,9 @@ Do not reclassify COMMUNICATION as ORCHESTRATION just to justify parallel spawn 
 
 - Tiny/single-file/one-route product edits: write_file/edit_file/delete_file yourself. Substantial, multi-file, parallel, or specialist work: spawn (builder for code; shakespeare / bruckheimer / rand for docs/design unless a one-line fix).
 - Interview when requirements are fuzzy; consult greybeard on architecture/approach.
-- Use counsel or dispatch skill for multi-lane eng plans; clarify before large dispatch.
+- Use counsel for multi-lane eng plans; clarify before a large fan-out.
 - Path tools are the DIY surface; shell file-writes stay denied. Track fleet work with manage_tasks.
-- Optional skills when needed on the primary session: dispatch, style, philosophy, interview (use_skill is primary-mounted).
+- Optional skills when needed on the primary session: style, philosophy, interview (use_skill is primary-mounted). For an existing dispatch/ tree, load use_skill("dispatch").
 
 
 # Spawn graph
@@ -175,7 +175,7 @@ export const skywalkerPackage: DirectorPackage = {
   ],
   description: "Primary orchestration director — chains specialists into a workflow",
   systemPrompt: SKYWALKER_SYSTEM_PROMPT,
-  optionalSkills: ["dispatch", "style", "philosophy", "interview"],
+  optionalSkills: ["style", "philosophy", "interview"],
   tools: { allow: SKYWALKER_TOOLS },
   spawn: {
     maySpawn: true,

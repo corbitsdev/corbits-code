@@ -17,6 +17,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - First-party skills are how-to playbooks (what to do, in what order, what done looks like),
   not director personas. Identity stays on director system prompts.
+- Dispatch is a background library for an existing `dispatch/` tree. Skywalker
+  orchestrates natively and no longer lists dispatch as an optional skill.
 
 ### Fixed
 
