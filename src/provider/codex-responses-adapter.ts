@@ -412,10 +412,18 @@ function usageFromResponse(response: Record<string, unknown>): TokenUsage | unde
   const num = (v: unknown): number => (typeof v === "number" ? v : 0);
   const inputDetails = u["input_tokens_details"] as Record<string, unknown> | undefined;
   const outputDetails = u["output_tokens_details"] as Record<string, unknown> | undefined;
+  // Responses-API `input_tokens` counts the full prompt and `cached_tokens`
+  // is a subset of it. Downstream consumers (context meter, compaction
+  // governor, faremeter) treat the TokenUsage fields as non-overlapping and
+  // sum them, so the cached subset must be split out of input here — emitting
+  // the wire counts verbatim double-counts every cached token and inflates
+  // context occupancy up to ~2x on high cache-hit sessions.
+  const totalInputTokens = num(u["input_tokens"]);
+  const cachedTokens = num(inputDetails?.["cached_tokens"]);
   return {
-    input: num(u["input_tokens"]),
+    input: Math.max(0, totalInputTokens - cachedTokens),
     output: num(u["output_tokens"]),
-    cacheRead: num(inputDetails?.["cached_tokens"]),
+    cacheRead: cachedTokens,
     // OpenAI does not charge for writing to the prompt cache, so the public
     // Responses API usually omits a write count; read it defensively under
     // `cache_creation_tokens` in case a gateway/proxy in front of this

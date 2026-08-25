@@ -123,7 +123,7 @@ describe("codex-sse fixtures (golden parse)", () => {
     expect(out[9]).toMatchObject({
       type: "inference.usage",
       data: {
-        usage: { input: 120, output: 40, cacheRead: 16, cacheWrite: 0, thinking: 12 },
+        usage: { input: 104, output: 40, cacheRead: 16, cacheWrite: 0, thinking: 12 },
         source: SOURCE,
       },
     });
