@@ -282,6 +282,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const orchestratorTools: AgentTool[] = [];
   if (subAgentsEnabled && args.subAgent !== undefined) {
     const sa = args.subAgent;
+    const fleetRecords = sa.sessions !== undefined ? createFleetRecords() : undefined;
     orchestratorTools.push(
       createTaskTool({
         cwd,
@@ -302,6 +303,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
         ...(sa.useWorktree !== undefined ? { useWorktree: sa.useWorktree } : {}),
         ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+        ...(fleetRecords !== undefined ? { fleetRecords } : {}),
       }),
     );
     if (sa.profiles !== undefined) {
@@ -321,9 +323,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     // Mirror nested runSubAgent's orchestrator fleet mount (run.ts), but
     // reuse the existing TUI/exec session store — do not allocate a private
     // store only for these verbs. spawnAllowlist stays unwired on primary.
-    if (sa.sessions !== undefined) {
+    if (sa.sessions !== undefined && fleetRecords !== undefined) {
       const fleetSessions = sa.sessions;
-      const fleetRecords = createFleetRecords();
       const fleetDeps = {
         permissionGate,
         inheritMcpTools: () => inheritedMcpTools,
