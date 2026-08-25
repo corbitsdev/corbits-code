@@ -213,3 +213,45 @@ describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
     expect(capturedParentSessionId).toBe("greybeard-session");
   });
 });
+
+describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
+  test("nested-orchestrator mounts list_agents", async () => {
+    const cwd = await tmpCwd();
+    let listAgentsMounts = 0;
+
+    await withMockedModuleDuring(
+      import.meta.resolve("./agent-fleet.js"),
+      (real: typeof import("./agent-fleet.js")) => ({
+        ...real,
+        createListAgentsTool: (deps: never) => {
+          listAgentsMounts++;
+          return real.createListAgentsTool(deps);
+        },
+      }),
+      async () => {
+        const { runSubAgent: run } = await import("./run.js");
+        try {
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx")),
+            id: "greybeard-session",
+            orchestrator: true,
+            orchestratorTier: "nested-orchestrator",
+            nestedDispatch: {
+              permissionGate: testPermissionGate,
+              getWorkdirBase: () => join(cwd, ".ctx"),
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
+            },
+          });
+        } catch {
+          // Inference/agent construction may fail; mount decisions run first.
+        }
+      },
+    );
+
+    expect(listAgentsMounts).toBe(1);
+  });
+});

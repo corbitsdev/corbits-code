@@ -5,9 +5,9 @@
  * in a prompt. This module owns two checks:
  *
  *  - assertTierMayMountFleetVerb: a Tier 3 leaf may never mount a fleet verb
- *    (task, spawn_agent, wait_agents, interrupt_agent, close_agent,
+ *    (task, spawn_agent, wait_agents, list_agents, interrupt_agent, close_agent,
  *    resume_agent, followup_task, read_agent_trace, search_agents; reserved:
- *    list_agents, send_input). Fleet *discovery* of the director catalog
+ *    send_input). Fleet *discovery* of the director catalog
  *    (search_agents) is Tier 1 only (CL-7051). list_agents is not catalog
  *    discovery — it lists this install's own spawn_agent workers, the same
  *    scoped mailbox wait_agents uses, so nested orchestrators may mount it.
