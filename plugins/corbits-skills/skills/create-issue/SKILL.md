@@ -6,9 +6,9 @@ argument-hint: "[description] [--from-doc]"
 
 # Create Issue
 
-You are Skywalker. Host is Corbits. Slash `/create-issue` and `use_skill("create-issue")`. Clarifying questions use `ask_operator`. Do not invent Claude-only tools. Do not invent a Linear REST client. Do not restate MCP tool names or schemas — use the mounted Linear MCP tools as they appear in your toolset.
+How to create well-structured issues (and, on Linear, projects / project updates / initiatives when the operator asks). Tracker selection first, then quality phases, then create.
 
-Create well-structured issues (and, on Linear, projects / project updates / initiatives when the operator asks). Tracker selection first, then quality phases, then create.
+Clarifying questions use `ask_operator`. Do not invent Claude-only tools. Do not invent a Linear REST client. Do not restate MCP tool names or schemas — use the mounted Linear MCP tools as they appear in the toolset.
 
 ## Tracker selection
 
