@@ -151,10 +151,6 @@ class FleetRecords {
     this.notify();
   }
 
-  ids(): string[] {
-    return [...this.records.keys()];
-  }
-
   /** Running plus terminal-but-not-yet-handed-to-a-waiter. */
   uncollectedIds(): string[] {
     return [...this.records.entries()]
