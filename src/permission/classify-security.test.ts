@@ -802,9 +802,24 @@ describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () 
   });
 
   test("a double-nested alternating-quote bash -c redirect still denies", () => {
+    expect(autoShellRuleForCall(shellCall(`bash -c "bash -c 'echo hi > out.txt'"`))?.name).toBe(
+      "file-mutation",
+    );
+  });
+
+  test("bash -O/-o option values before -c do not hide dependency installs", () => {
+    expect(autoShellRuleForCall(shellCall(`bash -O extglob -c 'npm install left-pad'`))?.name).toBe(
+      "dependency-install",
+    );
     expect(
-      autoShellRuleForCall(shellCall(`bash -c "bash -c 'echo hi > out.txt'"`))?.name,
-    ).toBe("file-mutation");
+      autoShellRuleForCall(shellCall(`bash -o pipefail -c 'npm install left-pad'`))?.name,
+    ).toBe("dependency-install");
+  });
+
+  test("bash -c positional argv execution does not auto-allow dependency installs", () => {
+    const cmd = `bash -c '$0 $1 $2' npm install left-pad`;
+    expect(isAutoAllowedShellCall(shellCall(cmd))).toBe(false);
+    expect(autoShellRuleForCall(shellCall(cmd))?.name).toBe("opaque-wrapper");
   });
 
   test("an escaped triple-nested bash -c redirect does not auto-allow", () => {
@@ -820,10 +835,10 @@ describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () 
 
   test("quote-broken deep nesting that degrades to a bare interpreter asks", () => {
     // Alternating quotes collide by depth 4 and peel used to land on bare `bash`.
-    const deep = `bash -c "bash -c 'bash -c \"bash -c 'echo hi > out.txt'\"'"`;
+    const deep = String.raw`bash -c "bash -c 'bash -c \"bash -c 'echo hi > out.txt'\"'"`;
     expect(isAutoAllowedShellCall(shellCall(deep))).toBe(false);
     const rule = autoShellRuleForCall(shellCall(deep));
     expect(rule).toBeDefined();
-    expect(rule!.effect === "ask" || rule!.effect === "deny").toBe(true);
+    expect(rule?.effect === "ask" || rule?.effect === "deny").toBe(true);
   });
 });

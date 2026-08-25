@@ -391,16 +391,25 @@ function isBackslashInterpreterToken(token: string): boolean {
   return base.startsWith("\\") && SHELL_INTERPRETERS.has(base.slice(1));
 }
 
+function shellPayloadReferencesPositional(payload: string): boolean {
+  return /\$(?:[0-9@*#]|\{(?:[0-9]+|[@*#])\})/.test(payload);
+}
+
 function nestedInterpreterPayloadOpaque(payload: string, rest: readonly string[]): boolean {
   if (isBackslashInterpreterToken(payload)) return true;
   const first = tokenize(payload)[0];
   if (first !== undefined && isBackslashInterpreterToken(first)) return true;
+  // The payload can execute trailing argv through $0/$1/... substitution, so
+  // the payload alone is not a faithful subject for dependency-install policy.
+  if (rest.length > 0 && shellPayloadReferencesPositional(payload)) return true;
   // Trailing tokens after the -c payload: allow only plain positionals.
   // `-c`, redirects, backslashes, or flags mean the quoted body was split and
   // the truncated payload must not be trusted on its own under auto.
   if (rest.length > 0 && !rest.every(isSafeShellPositional)) return true;
   return false;
 }
+
+const SHELL_SEPARATE_VALUE_FLAGS = new Set(["-O", "-o"]);
 
 function peelShellDashC(tokens: string[], start: number): PeelOutcome {
   let i = start;
@@ -423,6 +432,10 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
       // Glued `--command=` has no separate rest tokens; still reject `\bash`.
       if (nestedInterpreterPayloadOpaque(payload, [])) return { kind: "opaque" };
       return { kind: "inner", command: payload };
+    }
+    if (SHELL_SEPARATE_VALUE_FLAGS.has(t)) {
+      i += 2;
+      continue;
     }
     // Clustered short flags that include `c` (`-lc`, `-ic`, …): `c` takes the
     // next token as the command string, matching bash/sh/zsh.
