@@ -422,7 +422,3 @@ ast-grep handles the bulk structural transformation. Use manual edits for:
 - One-off fixups after a bulk rewrite (e.g., adjusting a special case that the pattern caught incorrectly)
 
 The ideal workflow for a large refactor: ast-grep for the mechanical bulk, manual edits for the exceptions, build verification to confirm everything holds together.
-
-## Acknowledgment
-
-After reviewing this skill, state: "I have reviewed the ast-grep skill."

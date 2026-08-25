@@ -1,27 +1,24 @@
 ---
 name: git-rebase
 user-invocable: false
-description: Reshape git history with rebase — edit-in-place, squash/fixup, drop, split, reword, or validate every replayed commit. Skywalker plans; intern executes sequenced non-interactive git via run_shell. Load whenever a commit that is not HEAD needs changing, or for branch-history cleanup before push.
+description: Reshape git history with rebase — edit-in-place, squash/fixup, drop, split, reword, or validate every replayed commit. Plan the surgery; intern executes sequenced non-interactive git via run_shell. Load whenever a commit that is not HEAD needs changing, or for branch-history cleanup before push.
 ---
 
 # git-rebase
 
-You are Skywalker. Host is Corbits Code. This skill is a spawn recipe. You do not run the rebase. You do not edit files or run git yourself.
-
-Use this skill when a branch's commit history needs rewriting — squashing fixups, dropping wrong-turn commits, splitting bundled changes, rewording messages — without interactive prompts.
+How to reshape a branch's commit history without interactive prompts — squashing fixups, dropping wrong-turn commits, splitting bundled changes, rewording messages. Do not run the rebase or edit files on the parent.
 
 `git rebase -i` is normally driven through an interactive editor. The techniques below drive every editor invocation programmatically so the rebase runs to completion without a human at the keyboard. Scripted rebases are reproducible, re-runnable, and self-documenting in a way that vim-driven ones never are.
 
-## Skywalker recipe
+## Recipe
 
 1. Read the techniques below. Identify the surgery (drop, squash, split, reword, edit-in-place, validate).
 2. If a step needs judgment (what to squash, which commits to drop, how to split, which message), `ask_operator` first. Do not guess.
 3. Copy the exact sequenced commands from this skill into an intern brief.
-4. Spawn `task(agent="intern")` with that sequenced command list. Intern executes via `run_shell` (there is no Bash tool). Intern drives every editor via `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` / `-c core.editor` inline in the git command — do not tell intern to `write_file` an editor script. Intern runs git and resolves mechanical conflicts as the brief specifies.
-
+4. Spawn `task(agent="intern")` with that sequenced command list. Intern executes via `run_shell`. Intern drives every editor via `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` / `-c core.editor` inline in the git command — do not tell intern to `write_file` an editor script. Intern runs git and resolves mechanical conflicts as the brief specifies.
 5. If intern hits a judgment call mid-rebase, `ask_operator` then re-dispatch intern with the decision.
 
-Skywalker synthesizes. Intern mutates git.
+Plan and synthesize. Intern mutates git.
 
 ## Techniques (copy into the intern brief)
 
@@ -549,12 +546,12 @@ need to `git add` and continue, but you don't re-do the resolution work.
 
 ## Workflow: a rebase session start to finish
 
-Intern executes this sequence via `run_shell`. Skywalker does not run git.
-If a step needs judgment, Skywalker `ask_operator`s first, then copies the
-decision into the intern brief.
+Intern executes this sequence via `run_shell`. Do not run git on the parent.
+If a step needs judgment, `ask_operator` first, then copy the decision into
+the intern brief.
 
 1. **Identify what needs fixing.** Intern reads `git log --oneline origin/main..HEAD`
-   and the diffs. Skywalker lists the surgery: drops, rewords, squashes,
+   and the diffs. List the surgery: drops, rewords, squashes,
    splits, in-place amends — `ask_operator` when which-commits is a judgment call.
 
 2. **Branch your way back.** Intern:
@@ -570,7 +567,7 @@ decision into the intern brief.
 4. **For each operation, intern:**
    - Runs the rebase with `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` inline (if scripting the todo). Do not `write_file` an editor script.
    - Supplies pre-canned commit messages via `-c core.editor` / `GIT_EDITOR` inline (if rewording), or `git commit --amend -m`.
-   - Resolves conflicts as they arise (mechanical). Judgment → intern stops; Skywalker `ask_operator`s.
+   - Resolves conflicts as they arise (mechanical). Judgment → intern stops; `ask_operator` then re-brief intern.
    - When the rebase finishes, runs `git diff backup-<branch-name>-pre-rebase HEAD`.
      If the intent was to change content, the diff is meaningful and intern reports
      it. If the intent was only to reshape history, the diff is empty.

@@ -8,7 +8,6 @@ const pluginRoot = join(import.meta.dirname, "../../plugins/corbits-skills");
 
 const SKILL_DIRS = [
   "implement",
-  "dispatch",
   "scribe",
   "review",
   "ast-grep",
@@ -26,11 +25,10 @@ const SKILL_DIRS = [
   "plan",
 ] as const;
 
-const SPAWN_RECIPE_SKILLS = ["implement", "scribe", "review", "dispatch", "plan"] as const;
+const SPAWN_RECIPE_SKILLS = ["implement"] as const;
 
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
-  "dispatch",
   "git-rebase",
   "linear-issue-workflow",
   "style",
@@ -88,8 +86,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 17 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(17);
+test("corbits-skills catalog lists 16 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(16);
   const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
@@ -128,11 +126,9 @@ test("typescript skill guides TS quality without fake enforcement", async () => 
   expect(skill).not.toMatch(/^### Don't$/m);
 });
 
-test("implement skill is a sequential Skywalker spawn recipe without a false 4-cap", async () => {
+test("implement skill is a per-commit workflow without a false 4-cap", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
-  expect(skill).toContain("You are Skywalker");
   expect(skill).toContain('task(agent="greybeard")');
-  expect(skill).toContain('task(agent="builder")');
   expect(skill).toContain('task(agent="critic")');
   expect(skill).toContain("Do not invent a worker-count or fan-out ceiling");
   expect(skill).toContain("Close the loop");
@@ -142,6 +138,17 @@ test("implement skill is a sequential Skywalker spawn recipe without a false 4-c
   expect(skill).not.toContain("4 workers");
   expect(skill).not.toContain("max-parallel");
   expect(skill).not.toContain("INTERN_TOOLS");
+});
+
+test("first-party skills are how-to playbooks, not director personas", async () => {
+  for (const name of SKILL_DIRS) {
+    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    expect(skill).not.toContain("You are Skywalker");
+    expect(skill).not.toMatch(/You are \w+Director/);
+    expect(skill).not.toContain("Host is Corbits");
+    expect(skill).not.toContain("## Acknowledgment");
+    expect(skill).not.toMatch(/I have reviewed the .+ skill/);
+  }
 });
 
 test("style skill is guidance, not ceremony or tool-contract restatement", async () => {
@@ -172,20 +179,28 @@ test("philosophy skill is guidance without fake enforcement", async () => {
   expect(skill).not.toContain("use_skill(");
 });
 
-test("review skill routes critic/neckbeard/greybeard via task or spawn_agent/wait_agents", async () => {
+test("review skill is a code-review playbook, not a director router", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
-  expect(skill).toContain("task(agent=");
-  expect(skill).toContain("spawn_agent");
-  expect(skill).toContain("wait_agents");
-  expect(skill).toContain("returned `agent_id`");
-  expect(skill).toContain("critic");
-  expect(skill).toContain("neckbeard");
-  expect(skill).toContain("greybeard");
-  expect(skill).toContain("Do not implement fixes");
+  expect(skill).toContain("git diff <base>...HEAD");
+  expect(skill).toContain("Cite the Check");
+  expect(skill).toContain("Signal Over Noise");
+  expect(skill).toContain("Pre-existing Code");
+  expect(skill).toContain("do not implement fixes");
   expect(skill).toContain("Findings only");
+  expect(skill).not.toContain("spawn_agent");
+  expect(skill).not.toContain("wait_agents");
   expect(skill).not.toContain('task(agent="critic")');
   expect(skill).not.toContain('task(agent="neckbeard")');
   expect(skill).not.toContain('task(agent="greybeard")');
+});
+
+test("pull-request-review checkouts a worktree then loads the review skill", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/pull-request-review/SKILL.md")).text();
+  expect(skill).toContain("git worktree add");
+  expect(skill).toContain("review` skill");
+  expect(skill).toContain("Do not implement fixes");
+  expect(skill).not.toContain("spawn_agent");
+  expect(skill).not.toContain('task(agent="critic")');
 });
 
 test("interview skill is an ask_operator utility with no false caps", async () => {

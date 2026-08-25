@@ -7,7 +7,7 @@ description: Create a git worktree from origin/<default-branch> and tear it down
 
 # git-worktrees
 
-Background recipe. Skywalker loads via `use_skill("git-worktrees")` and copies commands into an intern brief. Intern executes via `run_shell`. Skywalker does not run the git.
+How to create a worktree from origin/<default-branch> and tear it down. Load via `use_skill("git-worktrees")` and copy commands into an intern brief. Intern executes via `run_shell`. Do not run the git on the parent.
 
 ## Create from origin/<default-branch>
 
