@@ -192,6 +192,7 @@ describe("operator question overlay", () => {
         try {
           openOperatorOverlay(shell);
           expect(shell.overlayKind).toBe("operator");
+          expect(shell.layout.overlayMode).toBe("full_shell");
           expect(shell.overlayBodyLines.length).toBeGreaterThan(0);
           expect(shell.overlayItems.length).toBeGreaterThan(3);
           expect(focusOwner(shell.focus)).toBe("overlay");

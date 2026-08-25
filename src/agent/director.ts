@@ -114,7 +114,10 @@ const PathArgSchema = type({ path: "string" });
 export const askOperatorDefinition: ToolDefinition = {
   name: "ask_operator",
   description:
-    "Pause execution and ask the operator a clarifying question. Execution resumes when the operator selects an option. " +
+    "Pause execution and ask the operator a short clarifying question with short option labels. " +
+    "Put any long rationale, trade-offs, or context in a normal transcript reply first, then call this " +
+    "with only a brief question and brief option labels — the overlay is not a place for essays. " +
+    "Execution resumes when the operator selects an option. " +
     "If the question is really asking permission to run one specific shell command, pass that exact command as `command` " +
     "instead of just describing it in the option text — approval here then covers the matching run_shell call too, so the " +
     "operator is not asked to approve the same action twice.",
@@ -123,11 +126,12 @@ export const askOperatorDefinition: ToolDefinition = {
     properties: {
       question: {
         type: "string",
-        description: "The question to ask the operator",
+        description:
+          "Short question shown in the overlay (one or two lines). Put long rationale in a transcript reply first.",
       },
       options: {
         type: "array",
-        description: "List of options the operator can choose from",
+        description: "Short option labels the operator can choose from (keep each label brief)",
         items: { type: "string" },
         minItems: 1,
       },
