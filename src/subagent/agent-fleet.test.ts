@@ -924,6 +924,23 @@ describe("list_agents", () => {
 });
 
 describe("spawn_agent parity with task", () => {
+  test("uses the parent tool call id as the session id", async () => {
+    const deps = makeDeps(async () => ({ report: "done" }));
+    const spawn = createSpawnAgentTool(deps);
+    if (spawn.kind !== "full") throw new Error("expected full tool");
+    const result = await spawn.handler(
+      {
+        id: "call-fixed-id",
+        name: "spawn_agent",
+        arguments: { description: "job", prompt: "do it", intent: "explore" },
+      },
+      new AbortController().signal,
+    );
+    const content = typeof result.content === "string" ? result.content : "";
+    expect(JSON.parse(content).agent_id).toBe("call-fixed-id");
+    expect(deps.sessions.get("call-fixed-id")).toBeDefined();
+  });
+
   test("refuses skywalker as a spawned worker", async () => {
     const deps = makeDeps(async () => ({ report: "no" }));
     const spawn = createSpawnAgentTool(deps);

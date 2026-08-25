@@ -520,6 +520,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       });
 
       const session = deps.sessions.start({
+        id: call.id,
         description,
         agentId: resolved.directorId,
         brief,
