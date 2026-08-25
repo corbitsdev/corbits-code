@@ -609,7 +609,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
-        createCloseAgentTool({ sessions: fleetSessions, fleetRecords, authority: lifecycleAuthority }),
+        createCloseAgentTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
         createResumeAgentTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
         createInterruptAgentTool({
           sessions: fleetSessions,
