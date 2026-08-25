@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
+import type { ConversationTurn, LastCycleSource, TokenUsage } from "@intx/types/runtime";
 import { PRODUCT_NAME } from "../branding.js";
 import {
   createCodexResponsesAdapter,
@@ -7,6 +7,7 @@ import {
   signatureForModel,
   tagSignature,
 } from "./codex-responses-adapter.js";
+import { contextTokensFromUsage } from "./context-window.js";
 
 const source: LastCycleSource = {
   sourceId: "codex/test",
@@ -89,6 +90,94 @@ describe("createCodexResponsesAdapter", () => {
 });
 
 describe("createCodexResponsesAdapter usage parsing", () => {
+  // The Responses API reports `input_tokens` as the full prompt count with
+  // `cached_tokens` as a subset. Downstream consumers (context meter,
+  // compaction governor, faremeter) sum input + cacheRead + cacheWrite, so
+  // emitting the raw wire counts would double-count every cached token.
+  const completedUsage = (
+    adapter: ReturnType<typeof createCodexResponsesAdapter>,
+    sseData: string,
+  ): { usage: TokenUsage; source: LastCycleSource } => {
+    const event = adapter.parseResponse(sseData).find((e) => e.type === "inference.usage");
+    if (event === undefined) throw new Error("stream carried no inference.usage event");
+    return event.data as { usage: TokenUsage; source: LastCycleSource };
+  };
+
+  test("subtracts cached_tokens from input_tokens so usage fields do not overlap", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const sseData = JSON.stringify({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 1000,
+          input_tokens_details: { cached_tokens: 800 },
+          output_tokens: 50,
+          output_tokens_details: { reasoning_tokens: 5 },
+        },
+      },
+    });
+
+    expect(completedUsage(adapter, sseData)).toEqual({
+      usage: { input: 200, output: 50, cacheRead: 800, cacheWrite: 0, thinking: 5 },
+      source,
+    });
+  });
+
+  test("keeps the context occupancy sum equal to the wire prompt token count", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const sseData = JSON.stringify({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 1000,
+          input_tokens_details: { cached_tokens: 940 },
+          output_tokens: 50,
+        },
+      },
+    });
+
+    const { usage } = completedUsage(adapter, sseData);
+
+    expect(contextTokensFromUsage(usage)).toBe(1000);
+  });
+
+  test("reports input unchanged when the provider omits input_tokens_details", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const sseData = JSON.stringify({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+        },
+      },
+    });
+
+    expect(completedUsage(adapter, sseData)).toEqual({
+      usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source,
+    });
+  });
+
+  test("clamps input to zero when cached_tokens exceeds input_tokens", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const sseData = JSON.stringify({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 10,
+          input_tokens_details: { cached_tokens: 25 },
+          output_tokens: 50,
+        },
+      },
+    });
+
+    expect(completedUsage(adapter, sseData)).toEqual({
+      usage: { input: 0, output: 50, cacheRead: 25, cacheWrite: 0, thinking: 0 },
+      source,
+    });
+  });
+
   test("maps a nonzero cache_creation_tokens count through to cacheWrite", () => {
     const adapter = createCodexResponsesAdapter(source);
     const sseData = JSON.stringify({
@@ -103,34 +192,8 @@ describe("createCodexResponsesAdapter usage parsing", () => {
       },
     });
 
-    const events = adapter.parseResponse(sseData);
-    const usageEvent = events.find((e) => e.type === "inference.usage");
-
-    expect(usageEvent?.data).toEqual({
-      usage: { input: 100, output: 50, cacheRead: 20, cacheWrite: 15, thinking: 5 },
-      source,
-    });
-  });
-
-  test("defaults cacheWrite to 0 when the provider does not report a cache-creation count", () => {
-    const adapter = createCodexResponsesAdapter(source);
-    const sseData = JSON.stringify({
-      type: "response.completed",
-      response: {
-        usage: {
-          input_tokens: 100,
-          input_tokens_details: { cached_tokens: 20 },
-          output_tokens: 50,
-          output_tokens_details: { reasoning_tokens: 5 },
-        },
-      },
-    });
-
-    const events = adapter.parseResponse(sseData);
-    const usageEvent = events.find((e) => e.type === "inference.usage");
-
-    expect(usageEvent?.data).toEqual({
-      usage: { input: 100, output: 50, cacheRead: 20, cacheWrite: 0, thinking: 5 },
+    expect(completedUsage(adapter, sseData)).toEqual({
+      usage: { input: 80, output: 50, cacheRead: 20, cacheWrite: 15, thinking: 5 },
       source,
     });
   });
