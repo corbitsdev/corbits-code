@@ -15,6 +15,44 @@ describe("builderPackage", () => {
     expect(builderPackage.systemPrompt).toContain("PRIMARY INTENT");
   });
 
+  test("systemPrompt identity is Builder / BuilderDirector (not job-title language)", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).toMatch(/BuilderDirector \(Builder\)/);
+    expect(p).toMatch(/implement lane only/i);
+    expect(p).not.toMatch(/build director/i);
+  });
+
+  test("systemPrompt teaches success_criteria-driven shipping", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).toContain("Ship against the brief");
+    expect(p).toContain("success_criteria");
+    expect(p).toMatch(/minimum required files/i);
+    expect(p).toMatch(/focused checks/i);
+    expect(p).toMatch(/changed paths/i);
+    expect(p).toContain("Blockers");
+  });
+
+  test("systemPrompt is implement lane only (no orchestrate / spawn / review-as-primary)", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).toMatch(/Do not spawn specialists/i);
+    expect(p).toMatch(/not Critic/i);
+    expect(p).toMatch(/not Explorer/i);
+    expect(p).toMatch(/not an orchestrator/i);
+    expect(p).toMatch(/ambiguous/i);
+    expect(p).toMatch(/report Blockers/i);
+    expect(p).toMatch(/greybeard/i);
+    expect(p).toMatch(/counsel/i);
+  });
+
+  test("systemPrompt has no tool-schema restatement or fake caps", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).not.toMatch(/parameters?:/i);
+    expect(p).not.toMatch(/fan-out/i);
+    expect(p).not.toMatch(/at most \d+/i);
+    expect(p).not.toMatch(/turn budget/i);
+    expect(p).not.toMatch(/scheduler/i);
+  });
+
   test("spawn.maySpawn is false (leaf)", () => {
     expect(builderPackage.spawn.maySpawn).toBe(false);
   });
