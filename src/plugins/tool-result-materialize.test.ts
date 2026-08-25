@@ -62,11 +62,7 @@ describe("materializeToolResultRecord", () => {
 
 describe("toolOutputAbsolutePath", () => {
   test("mirrors store naming including :full → _full and .json extension", () => {
-    const abs = toolOutputAbsolutePath(
-      "/tmp/session/context",
-      "call-42:full",
-      "application/json",
-    );
+    const abs = toolOutputAbsolutePath("/tmp/session/context", "call-42:full", "application/json");
     expect(abs).toBe("/tmp/session/context/tool-output/call-42_full.json");
   });
 

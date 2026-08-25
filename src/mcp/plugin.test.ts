@@ -1,10 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { mcpClientToAgentTools } from "./plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
-import {
-  MAX_RESULT_CHARS,
-  spillBlobKey,
-} from "../plugins/result-truncation-plugin.js";
+import { MAX_RESULT_CHARS, spillBlobKey } from "../plugins/result-truncation-plugin.js";
 import { toolOutputAbsolutePath } from "../plugins/tool-result-materialize.js";
 import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
 import type { MCPClient } from "./client.js";
@@ -116,6 +113,38 @@ describe("mcpClientToAgentTools", () => {
     expect(result.content).toContain("output truncated");
   });
 
+  test("scrubs escaped secrets after oversized JSON pretty materialization", async () => {
+    const gate = skipGate();
+    const store = fakeBlobStore();
+    const escapedSecret = `sk-\\u006cive-${"b".repeat(24)}`;
+    const minified = `{"secret":"${escapedSecret}","pad":"${"x".repeat(MAX_RESULT_CHARS)}"}`;
+    expect(minified).not.toContain("sk-live-");
+
+    const client = fakeClient(minified);
+    const [tool] = mcpClientToAgentTools(client, gate, {
+      getBlobWriter: () => store.writeBlob,
+    });
+    if (tool?.kind !== "full") throw new Error("expected full tool");
+
+    const result = await tool.handler(
+      {
+        id: "c-mcp-json-secret",
+        name: "mcp__acme__fetch_secret",
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+
+    const spilled = new TextDecoder().decode(
+      store.blobs.get(spillBlobKey("c-mcp-json-secret"))!.bytes,
+    );
+    expect(result.content).toContain(CREDENTIAL_REDACTION);
+    expect(result.content).not.toContain("sk-live-");
+    expect(spilled).toContain(CREDENTIAL_REDACTION);
+    expect(spilled).not.toContain("sk-live-");
+    expect(spilled).not.toContain(escapedSecret);
+  });
+
   test("spills oversized plain text under :full and names contextDir path", async () => {
     const gate = skipGate();
     const store = fakeBlobStore();
@@ -138,8 +167,6 @@ describe("mcpClientToAgentTools", () => {
     expect(entry?.contentType).toBe("text/plain");
     expect(new TextDecoder().decode(entry!.bytes)).toBe(huge);
     expect(result.content).toContain(`tool-output:///${key}`);
-    expect(result.content).toContain(
-      toolOutputAbsolutePath(contextDir, key, "text/plain"),
-    );
+    expect(result.content).toContain(toolOutputAbsolutePath(contextDir, key, "text/plain"));
   });
 });

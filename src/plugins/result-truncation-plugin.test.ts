@@ -133,6 +133,27 @@ describe("truncateToolResultContent", () => {
       expect(truncated).not.toContain(pretty.slice(-40));
     });
 
+    test("oversized JSON with an escaped secret is scrubbed after pretty materialization", async () => {
+      const store = fakeBlobStore();
+      const escapedSecret = `sk-\\u006cive-${"a".repeat(24)}`;
+      const minified = `{"secret":"${escapedSecret}","pad":"${"x".repeat(MAX_RESULT_CHARS)}"}`;
+      expect(minified).not.toContain("sk-live-");
+
+      const truncated = await truncateToolResultContent(minified, MAX_RESULT_CHARS, {
+        callId: "call-json-secret",
+        writeBlob: store.writeBlob,
+      });
+
+      const spilled = new TextDecoder().decode(
+        store.blobs.get(spillBlobKey("call-json-secret"))!.bytes,
+      );
+      expect(truncated).toContain(CREDENTIAL_REDACTION);
+      expect(truncated).not.toContain("sk-live-");
+      expect(spilled).toContain(CREDENTIAL_REDACTION);
+      expect(spilled).not.toContain("sk-live-");
+      expect(spilled).not.toContain(escapedSecret);
+    });
+
     test("NDJSON over the gate is spilled unchanged as application/x-ndjson", async () => {
       const store = fakeBlobStore();
       const lines = Array.from({ length: 200 }, (_, i) =>
@@ -208,28 +229,24 @@ describe("truncateToolResultContent", () => {
       },
     );
 
-    test(
-      "a same-keyed reactor spill cannot clobber the :full blob (CL-6908)",
-      async () => {
-        const store = fakeBlobStore();
-        const original = "p".repeat(50_000);
-        await truncateToolResultContent(original, MAX_RESULT_CHARS, {
-          callId: "call-1",
-          writeBlob: store.writeBlob,
-        });
+    test("a same-keyed reactor spill cannot clobber the :full blob (CL-6908)", async () => {
+      const store = fakeBlobStore();
+      const original = "p".repeat(50_000);
+      await truncateToolResultContent(original, MAX_RESULT_CHARS, {
+        callId: "call-1",
+        writeBlob: store.writeBlob,
+      });
 
-        // Simulate a lossy same-id write the reactor would do on an over-cap result.
-        await store.writeBlob("call-1", new TextEncoder().encode("LOSSY"), "text/plain");
+      // Simulate a lossy same-id write the reactor would do on an over-cap result.
+      await store.writeBlob("call-1", new TextEncoder().encode("LOSSY"), "text/plain");
 
-        const blobReader = createBlobReader(store);
-        const recovered = new TextDecoder().decode(
-          await blobReader.read(`tool-output:///${spillBlobKey("call-1")}`),
-        );
-        expect(recovered).toBe(original);
-        expect(new TextDecoder().decode(store.blobs.get("call-1")!.bytes)).toBe("LOSSY");
-      },
-    );
-
+      const blobReader = createBlobReader(store);
+      const recovered = new TextDecoder().decode(
+        await blobReader.read(`tool-output:///${spillBlobKey("call-1")}`),
+      );
+      expect(recovered).toBe(original);
+      expect(new TextDecoder().decode(store.blobs.get("call-1")!.bytes)).toBe("LOSSY");
+    });
   });
 });
 

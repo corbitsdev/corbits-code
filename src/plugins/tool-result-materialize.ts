@@ -1,10 +1,7 @@
 import path from "node:path";
 
 /** MIME written with spilled tool-output blobs. */
-export type ToolResultContentType =
-  | "application/json"
-  | "application/x-ndjson"
-  | "text/plain";
+export type ToolResultContentType = "application/json" | "application/x-ndjson" | "text/plain";
 
 export interface MaterializedToolResult {
   text: string;
