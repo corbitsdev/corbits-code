@@ -11,6 +11,7 @@ export const CHAT_PROMPT_QUALITY_MARKERS = [
   "Scope and conventions:",
   "DIY tiny/single-file/one-route",
   "ask_operator only when permission blocks you",
+  "short question and short option labels only",
   "Touch only code required for the task",
   "load the style and philosophy skills",
   "grep or search_files",

@@ -134,6 +134,7 @@ export function buildGuidelines(
         ]
       : [
           "- Clear, bounded coding requests: proceed autonomously; use ask_operator only when permission blocks you or the request is genuinely ambiguous (missing repro, conflicting instructions, destructive choice).",
+          "- Before ask_operator: put long rationale in a normal transcript reply first, then call ask_operator with a short question and short option labels only.",
           "- Questions, reviews, and product/visual feedback: answer or diagnose first; do not edit until the user wants a change.",
           "- Preserve unrelated user edits; never revert changes you did not make unless asked.",
           "- Unexpected changes in files you did not touch: stop and ask_operator.",
@@ -219,7 +220,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
   submit_output: "signal the task is complete — the only way to finish",
-  ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  ask_operator:
+    "pause and ask the user when blocked or genuinely ambiguous; put long rationale in a transcript reply first, then call with a short question and short option labels only",
   present:
     "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
