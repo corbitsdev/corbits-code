@@ -339,6 +339,15 @@ export interface PermissionGate {
   unregisterMcpServer: (serverName: string) => void;
 }
 
+// True when splitChainedCommand can be trusted to yield only real segments for
+// grant minting. False for patterns that confuse the no-backslash-escape
+// splitter into phantom segments — those mint as one exact whole-pattern grant.
+function canSafelyMintPerSegment(pattern: string): boolean {
+  if (/\\["`]/.test(pattern)) return false;
+  if (pattern.includes("#")) return false;
+  return true;
+}
+
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, providerName, model, cwd } = options;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
@@ -384,6 +393,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // outside the original chain); the CHANGELOG Security note documents the
     // tradeoff. onGrant's covers predicate consults the live approvals list so
     // a queued identical chain drains only once every segment has been minted.
+    //
+    // splitChainedCommand / tokenize intentionally have no backslash-escape
+    // support (CL-6988 / #673 rely on that so misparsed wrappers stay opaque).
+    // When the pattern contains escapes or inline `#` comments, the naive
+    // splitter can invent phantom segments (`printf "…\" && evil"` → `evil`).
+    // Fall back to one exact grant for the whole normalized pattern instead of
+    // minting those phantoms.
     const normalizedPattern =
       tool === "run_shell"
         ? stripCommentLines(outcome.persist.pattern).trim()
@@ -392,10 +408,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       tool === "run_shell"
         ? splitChainedCommand(normalizedPattern).filter((segment) => !isShellCommentOnly(segment))
         : [];
-    const patterns =
-      tool === "run_shell" && shellSegments.length > 1
-        ? shellSegments.map((segment) => escapeGlobLiteral(segment.trim()))
-        : [normalizedPattern];
+    const mintPerSegment =
+      tool === "run_shell" &&
+      shellSegments.length > 1 &&
+      canSafelyMintPerSegment(normalizedPattern);
+    const patterns = mintPerSegment
+      ? shellSegments.map((segment) => escapeGlobLiteral(segment.trim()))
+      : [normalizedPattern];
     for (const pattern of patterns) {
       const approval: Approval =
         grant === "provider-model" && activeProviderModel !== undefined

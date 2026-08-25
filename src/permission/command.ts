@@ -49,10 +49,6 @@ export function splitChainedCommand(command: string): string[] {
 
     if (quote !== null) {
       current += ch;
-      if ((quote === '"' || quote === "`") && ch === "\\" && i + 1 < command.length) {
-        current += command[++i] as string;
-        continue;
-      }
       if (ch === quote) quote = null;
       continue;
     }
@@ -98,11 +94,6 @@ export function splitChainedCommand(command: string): string[] {
     }
     if (parenDepth > 0) {
       current += ch;
-      continue;
-    }
-
-    if (ch === "#" && startsShellComment(current)) {
-      while (i + 1 < command.length && command[i + 1] !== "\n") i++;
       continue;
     }
 
@@ -308,11 +299,6 @@ function endsWithDanglingRedirect(text: string): boolean {
   return DANGLING_REDIRECT.test(text.trimEnd());
 }
 
-function startsShellComment(currentSegment: string): boolean {
-  const previous = currentSegment.at(-1);
-  return previous === undefined || previous === " " || previous === "\t";
-}
-
 // The inner chain of a segment that is exactly one parenthesised group, or null
 // when the segment is not a bare group (trailing redirects like `(a && b) 2>&1`
 // keep the segment atomic). Quote-aware so a `)` inside quotes does not close
@@ -446,10 +432,6 @@ export function tokenize(command: string): string[] {
     }
 
     if (quote === '"') {
-      if (ch === "\\" && i + 1 < chars.length) {
-        current += chars[++i] as string;
-        continue;
-      }
       if (ch === '"') quote = null;
       else current += ch;
       continue;
