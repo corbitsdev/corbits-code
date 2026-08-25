@@ -33,13 +33,11 @@ describe("assertTierMayMountFleetVerb", () => {
 
   // CL-7051: fleet discovery is Skywalker (Tier 1) only — nested directors keep
   // task/spawn allowlists but must not discover the full fleet.
-  test("Tier 2 nested orchestrator cannot mount search_agents or list_agents", () => {
+  test("Tier 2 nested orchestrator cannot mount search_agents but may list its own fleet", () => {
     expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "search_agents")).toThrow(
       FleetAuthorityError,
     );
-    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "list_agents")).toThrow(
-      FleetAuthorityError,
-    );
+    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "list_agents")).not.toThrow();
   });
 
   test("Tier 1 orchestrator may mount search_agents and list_agents", () => {

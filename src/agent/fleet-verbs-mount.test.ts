@@ -13,6 +13,7 @@ import { createSubAgentSessionStore } from "../subagent/session-store.js";
 const FLEET_VERBS = [
   "spawn_agent",
   "wait_agents",
+  "list_agents",
   "close_agent",
   "resume_agent",
   "interrupt_agent",

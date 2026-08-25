@@ -107,7 +107,12 @@ import {
   DEFAULT_CLOSE_DEADLINE_MS,
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
-import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import {
+  createFleetRecords,
+  createSpawnAgentTool,
+  createWaitAgentsTool,
+  createListAgentsTool,
+} from "./agent-fleet.js";
 import {
   createCloseAgentTool,
   createResumeAgentTool,
@@ -500,6 +505,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         "read_agent_trace",
         "spawn_agent",
         "wait_agents",
+        "list_agents",
         "close_agent",
         "resume_agent",
         "interrupt_agent",
@@ -595,6 +601,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         ...tools,
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
+        createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
         createResumeAgentTool({ sessions: fleetSessions }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),

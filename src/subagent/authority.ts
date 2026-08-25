@@ -7,10 +7,10 @@
  *  - assertTierMayMountFleetVerb: a Tier 3 leaf may never mount a fleet verb
  *    (task, spawn_agent, wait_agents, interrupt_agent, close_agent,
  *    resume_agent, followup_task, read_agent_trace, search_agents; reserved:
- *    list_agents, send_input). Fleet *discovery* verbs (search_agents,
- *    list_agents) are further restricted to Tier 1 only (CL-7051) — nested
- *    orchestrators keep task/spawn allowlists but must not discover the
- *    full fleet.
+ *    list_agents, send_input). Fleet *discovery* of the director catalog
+ *    (search_agents) is Tier 1 only (CL-7051). list_agents is not catalog
+ *    discovery — it lists this install's own spawn_agent workers, the same
+ *    scoped mailbox wait_agents uses, so nested orchestrators may mount it.
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.
  *    Tier 1 (the primary orchestrator) may target anyone. Callers pass the
@@ -26,8 +26,7 @@ export type { SubagentTier } from "../agent/directors/types.js";
 /**
  * Every tool that grants control over other agents (spawn, list, steer,
  * observe). Tier 3 leaves may mount none of these — ever. Reserved names
- * (`list_agents`, `send_input`) stay in the set so a later mount site
- * inherits the gate instead of needing a second allowlist.
+ * `send_input` stays reserved so a later mount site inherits the gate.
  */
 export const FLEET_VERBS = new Set([
   "task",
@@ -47,7 +46,7 @@ export const FLEET_VERBS = new Set([
  * Fleet discovery — Tier 1 (skywalker) only. Nested orchestrators spawn from
  * a closed allowlist and must not index the full fleet (CL-7051).
  */
-export const ORCHESTRATOR_ONLY_FLEET_VERBS = new Set(["search_agents", "list_agents"]);
+export const ORCHESTRATOR_ONLY_FLEET_VERBS = new Set(["search_agents"]);
 
 export function isFleetVerb(toolName: string): boolean {
   return FLEET_VERBS.has(toolName);

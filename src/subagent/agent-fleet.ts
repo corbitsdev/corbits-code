@@ -157,6 +157,10 @@ class FleetRecords {
     this.notify();
   }
 
+  ids(): string[] {
+    return [...this.records.keys()];
+  }
+
   /** Running plus terminal-but-not-yet-handed-to-a-waiter. */
   uncollectedIds(): string[] {
     return [...this.records.entries()]
@@ -723,6 +727,43 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
       });
 
       return fleetResult(call.id, JSON.stringify({ results, timed_out: timedOut }));
+    },
+  });
+}
+
+export const listAgentsToolDefinition: ToolDefinition = {
+  name: "list_agents",
+  description:
+    "List the workers this session started with spawn_agent — the same fleet wait_agents " +
+    "collects. Does not list siblings or another orchestrator's workers. Each entry is id, " +
+    "director, description, wait status, lifecycle, and whether wait_agents already collected it.",
+  inputSchema: {
+    type: "object",
+    properties: {},
+  },
+};
+
+export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
+  return tool({
+    definition: listAgentsToolDefinition,
+    handler: async (call, _signal): Promise<ToolResult> => {
+      const agents = deps.fleetRecords.ids().map((id) => {
+        const record = deps.fleetRecords.peek(id);
+        const session = deps.sessions.get(id);
+        return {
+          agent_id: id,
+          status: record?.status ?? "unknown",
+          collected: record?.collected === true,
+          ...(session !== undefined
+            ? {
+                director: session.agentId,
+                description: session.description,
+                lifecycle: session.lifecycleStatus,
+              }
+            : {}),
+        };
+      });
+      return fleetResult(call.id, JSON.stringify({ agents }));
     },
   });
 }
