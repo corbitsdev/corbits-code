@@ -122,19 +122,8 @@ export interface SubAgentReport {
   findings: string;
   blockers: string;
   paths: string;
-  /**
-   * Machine-readable termination reason for a forced stop (e.g.
-   * `stalled — no output for 120s`). Rendered as a dedicated
-   * `Stopped:` line above the envelope; absent on successful completes.
-   */
+  /** Display-only `Stopped:` preamble for forcedStopReport; never parsed back. */
   stopped?: string;
-}
-
-const STOPPED_LINE_RE = /^Stopped:\s*(.+)$/m;
-
-/** Machine-readable stop reason from a report's `Stopped:` line, or null. */
-export function stopReasonFromReport(report: string): string | null {
-  return parseSubAgentReport(report).stopped ?? null;
 }
 
 export function parseSubAgentReport(reply: string): SubAgentReport {
@@ -142,11 +131,6 @@ export function parseSubAgentReport(reply: string): SubAgentReport {
   const sections: Record<string, string> = {};
   const headingRe = /^##\s+(Summary|Findings|Blockers|Paths)\s*$/gim;
   const matches = [...text.matchAll(headingRe)];
-  // Only the preamble (before the first heading) can carry the report's own
-  // Stopped: line — a nested forced-stop report quoted under Findings must
-  // not be read as this report's reason.
-  const preamble = matches.length > 0 ? text.slice(0, matches[0]?.index ?? 0) : "";
-  const stopped = STOPPED_LINE_RE.exec(preamble)?.[1]?.trim();
   if (matches.length === 0) {
     return {
       summary: text.length > 0 ? text : "Sub-agent finished without a textual result.",
@@ -167,7 +151,6 @@ export function parseSubAgentReport(reply: string): SubAgentReport {
     findings: sections.findings ?? "",
     blockers: sections.blockers ?? "",
     paths: sections.paths ?? "",
-    ...(stopped !== undefined && stopped.length > 0 ? { stopped } : {}),
   };
 }
 

@@ -1,16 +1,16 @@
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
-import { brandReviewerPackage } from "./brand-reviewer/index.js";
+import { randPackage } from "./rand/index.js";
 import { bruckheimerPackage } from "./bruckheimer/index.js";
-import { critiquePackage } from "./critique/index.js";
+import { criticPackage } from "./critic/index.js";
 import { draperPackage } from "./draper/index.js";
 import { emilPackage } from "./emil/index.js";
-import { explorePackage } from "./explore/index.js";
+import { explorerPackage } from "./explorer/index.js";
 import { gaasbotPackage } from "./gaasbot/index.js";
 import { greybeardPackage } from "./greybeard/index.js";
-import { buildDirectorPackage } from "./build/index.js";
+import { builderPackage } from "./builder/index.js";
 import { internPackage } from "./intern/index.js";
 import { neckbeardPackage } from "./neckbeard/index.js";
-import { planPackage } from "./plan/index.js";
+import { counselPackage } from "./counsel/index.js";
 import { shakespearePackage } from "./shakespeare/index.js";
 import { skywalkerPackage } from "./skywalker/index.js";
 import { testerPackage } from "./tester/index.js";
@@ -29,10 +29,10 @@ import {
 /** Intent → default director when `task(agent=…)` is omitted. No general director. */
 export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "general">, DirectorId>> =
   {
-    implement: "build",
-    explore: "explore",
-    plan: "plan",
-    review: "critique",
+    implement: "builder",
+    explore: "explorer",
+    plan: "counsel",
+    review: "critic",
   };
 
 /**
@@ -41,18 +41,18 @@ export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "gener
  */
 export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> = {
   skywalker: skywalkerPackage,
-  build: buildDirectorPackage,
-  explore: explorePackage,
-  plan: planPackage,
+  builder: builderPackage,
+  explorer: explorerPackage,
+  counsel: counselPackage,
   intern: internPackage,
-  critique: critiquePackage,
+  critic: criticPackage,
   greybeard: greybeardPackage,
   neckbeard: neckbeardPackage,
   bruckheimer: bruckheimerPackage,
   gaasbot: gaasbotPackage,
   draper: draperPackage,
   emil: emilPackage,
-  "brand-reviewer": brandReviewerPackage,
+  rand: randPackage,
   shakespeare: shakespearePackage,
   testsmith: testsmithPackage,
   tester: testerPackage,

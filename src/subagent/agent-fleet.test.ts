@@ -9,6 +9,7 @@ import {
 } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
 const testPermissionGate = createPermissionGate({
@@ -237,6 +238,53 @@ describe("spawn_agent + wait_agents", () => {
       expect(result.status).toBe("done");
       expect(result.report).toBe("irrelevant");
     }
+  });
+
+  // CL-6915: operator cancel aborts the child signal, but run() still returns a
+  // salvage body (partial findings). Dropping that body left fleetRecords
+  // "running" forever so wait_agents never saw the salvage.
+  test("cancelled spawn_agent still resolves wait_agents with salvage findings", async () => {
+    const deps = makeDeps(async (params) => {
+      await new Promise<void>((resolve) => {
+        if (params.signal?.aborted) {
+          resolve();
+          return;
+        }
+        params.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      await new Promise((r) => setTimeout(r, 10));
+      return {
+        report: forcedStopReport("cancelled", "Found path in gate.ts"),
+        stopReason: "cancelled",
+      };
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const spawned = await callTool(spawn, {
+      description: "cancel salvage",
+      prompt: "probe",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    expect(deps.sessions.cancel(id)).toBe(true);
+    expect(deps.sessions.get(id)?.status).toBe("cancelled");
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+    }[];
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toContain("## Summary");
+    expect(results[0]!.report).toContain("## Findings");
+    expect(results[0]!.report).toContain("gate.ts");
+    // Strip stays cancelled — salvage is for wait_agents, not a resurrection.
+    expect(deps.sessions.get(id)?.status).toBe("cancelled");
   });
 });
 

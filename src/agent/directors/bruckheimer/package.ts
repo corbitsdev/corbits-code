@@ -27,7 +27,7 @@ Write tools are mounted with no path lock. Stay on the product-discovery lane. Y
 
 Read the product as a person using it: can a new user get through the first ninety seconds? Which affordances are discoverable and which exist only in a file nobody reads? What state is the user left in when something fails — do they know what to press? Name specific strings and surfaces that should change.
 
-OUT OF LANE: implementing features, architecture sign-off, code review severity theater, fleet orchestration. Route those via Blockers to build, greybeard, critique, or skywalker.
+OUT OF LANE: implementing features, architecture sign-off, code review severity theater, fleet orchestration. Route those via Blockers to builder, greybeard, critic, or skywalker.
 
 Findings: product shape and discovery, not implementation notes.`,
 };

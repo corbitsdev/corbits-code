@@ -146,17 +146,38 @@ describe("createOptimizedContextStore load", () => {
     expect(loaded.connectorState).toBeNull();
   });
 
-  test("unrecoverable turns.jsonl names the file in the error", async () => {
+  test("skips mid-file garbage lines and resumes remaining turns", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
 
-    // Mid-file garbage that is not null padding and not a torn tail — unrecoverable.
+    // Mid-file garbage that is not null padding and not a torn tail (CL-7052).
     fs.writeFileSync(
       path.join(dir, TURNS_FILE),
       jsonl([turn("a")]) + "THIS IS NOT JSON\n" + jsonl([turn("b")]),
     );
 
-    await expect(store.load()).rejects.toThrow(/turns\.jsonl/);
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
+  });
+
+  test("skips a truncated mid-string glued to the next record", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    // Crash mid-write left a stub; the next append continued without a newline,
+    // so a truncated prefix is glued onto the following valid record (CL-7052).
+    const glued = '{"role":"user","content":[{"type":"te' + JSON.stringify(turn("b"));
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a")]) + glued + "\n" + jsonl([turn("c")]),
+    );
+
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
   });
 
   // Compacted head rewrites segment 0 while a prior multi-segment history's
@@ -388,7 +409,7 @@ describe("loadRecentTurns", () => {
     expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c"]);
   });
 
-  test("the reactor's load() stays strict on the same corrupt fixture and names the segment", async () => {
+  test("reactor load skips a non-tail malformed line the same way display does", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
     fs.writeFileSync(
@@ -396,22 +417,28 @@ describe("loadRecentTurns", () => {
       jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te\n' + jsonl([turn("b")]),
     );
 
-    await expect(store.load()).rejects.toThrow(TURNS_FILE);
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
 
-  test("reactor's load() stays strict and names an unrecoverable extra segment", async () => {
+  test("reactor load skips mid-file garbage in an extra segment", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
     const segmentName = segmentFileName(TURNS_FILE, 1);
 
     fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
-    // Mid-file garbage that is neither null padding nor a torn tail — unrecoverable.
+    // Mid-file garbage that is neither null padding nor a torn tail (CL-7052).
     fs.writeFileSync(
       path.join(dir, segmentName),
       jsonl([turn("b")]) + "THIS IS NOT JSON\n" + jsonl([turn("c")]),
     );
 
-    await expect(store.load()).rejects.toThrow(segmentName);
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
   });
 });
 

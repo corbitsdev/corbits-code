@@ -1,8 +1,8 @@
 import type { DirectorPackage } from "../types.js";
 import { BUILD_TOOLS } from "../tool-sets.js";
 
-export const buildDirectorPackage: DirectorPackage = {
-  id: "build",
+export const builderPackage: DirectorPackage = {
+  id: "builder",
   primaryIntent: "Ship product code with tests to satisfy the brief",
   outOfLane: [
     "architecture gates",
@@ -17,7 +17,7 @@ export const buildDirectorPackage: DirectorPackage = {
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "implement",
-  systemPrompt: `You are BuildDirector, a specialist in Corbits Code.
+  systemPrompt: `You are BuilderDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: implement the brief in product code. Edit, verify, report.
 You are not a reviewer, not an orchestrator, not a doc-only planner.

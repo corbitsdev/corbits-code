@@ -18,19 +18,19 @@ describe("neckbeardPackage", () => {
   test("systemPrompt names NeckbeardDirector and never-fix stance", () => {
     expect(neckbeardPackage.systemPrompt).toMatch(/NeckbeardDirector/);
     expect(neckbeardPackage.systemPrompt).toMatch(/never fix/i);
-    expect(neckbeardPackage.systemPrompt).toContain("build (to fix)");
+    expect(neckbeardPackage.systemPrompt).toContain("builder (to fix)");
   });
 
   test("spawn.maySpawn is false", () => {
     expect(neckbeardPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("denies product write tools", () => {
+  test("mounts product write tools", () => {
     const allow = neckbeardPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is review", () => {

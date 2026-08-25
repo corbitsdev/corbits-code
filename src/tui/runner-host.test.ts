@@ -42,7 +42,7 @@ function session(over: Partial<SubAgentSession>): SubAgentSession {
   return {
     id: "s1",
     description: "explore callers",
-    agentId: "explore",
+    agentId: "explorer",
     brief: "",
     status: "running",
     toolNames: [],
@@ -108,11 +108,11 @@ describe("observeSessionFromSubAgents", () => {
   test("prefers the newest running session", () => {
     const observed = observeSessionFromSubAgents([
       session({ id: "old", status: "running" }),
-      session({ id: "newest", status: "running", agentId: "build" }),
+      session({ id: "newest", status: "running", agentId: "builder" }),
       session({ id: "finished", status: "done" }),
     ]);
     expect(observed?.sessionId).toBe("newest");
-    expect(observed?.agentId).toBe("build");
+    expect(observed?.agentId).toBe("builder");
   });
 
   test("falls back to the most recent session when none run", () => {

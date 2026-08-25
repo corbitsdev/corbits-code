@@ -21,7 +21,12 @@ export {
   type FleetObservation,
   type FleetWatch,
 } from "./fleet-report.js";
-export { EMPTY_THRASH_STATE, nextThrashState, type ThrashState } from "./thrash.js";
+export {
+  EMPTY_THRASH_STATE,
+  nextThrashState,
+  salvagePathsFromThrash,
+  type ThrashState,
+} from "./thrash.js";
 export {
   appendActivitySummary,
   buildDispatchBrief,
@@ -29,7 +34,6 @@ export {
   formatSubAgentReport,
   hasReportEnvelope,
   parseSubAgentReport,
-  stopReasonFromReport,
   subAgentToolName,
   type DispatchBrief,
   type SubAgentReport,
@@ -37,17 +41,21 @@ export {
 } from "./report.js";
 export {
   SUBAGENT_DEADLINE_MARGIN_MS,
+  MAX_TOOLLESS_NARRATION_CYCLES,
   appendSubAgentParentHints,
   evaluateSubAgentStop,
+  evaluateToolLessNarrationSpiral,
   forcedStopReport,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
   type ForcedStopReason,
+  type ForcedStopReportOptions,
   type SubAgentCatchOutcome,
   type SubAgentParentHintOptions,
   type SubAgentStopReason,
+  type ToolLessNarrationSpiral,
 } from "./stop-policy.js";
 
 export {

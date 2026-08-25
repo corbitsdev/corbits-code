@@ -51,7 +51,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
   expect(facts).toContain("write_file/edit_file");
   expect(facts).toContain("tiny/single-file/one-route");
-  expect(facts).toContain("Spawn build");
+  expect(facts).toContain("Spawn builder");
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("no default timeout");
@@ -108,6 +108,8 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("do_not");
   expect(guidelines).toContain("report_focus");
   expect(guidelines).toContain("intent");
+  expect(guidelines).toContain("spawn_agent");
+  expect(guidelines).toContain("wait_agents");
 });
 
 test("primary guidelines advise against early-stop from compaction token fear", () => {

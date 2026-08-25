@@ -14,7 +14,7 @@ describe("bruckheimerPackage", () => {
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(bruckheimerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
     expect(bruckheimerPackage.systemPrompt).toContain(
-      "Route those via Blockers to build, greybeard, critique, or skywalker",
+      "Route those via Blockers to builder, greybeard, critic, or skywalker",
     );
   });
 
@@ -26,6 +26,7 @@ describe("bruckheimerPackage", () => {
     const allow = bruckheimerPackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is docs", () => {

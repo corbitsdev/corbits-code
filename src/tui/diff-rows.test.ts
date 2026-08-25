@@ -117,7 +117,7 @@ describe("diff transcript rows", () => {
 
   test("a task/dispatch call paints a sentence, never the full spawn JSON (CL-5762)", async () => {
     const brief = {
-      agent: "explore",
+      agent: "explorer",
       description: "map callers of leaveObserve",
       prompt: "Find every call site of leaveObserve.\nReport paths and line numbers.",
       intent: "explore",
@@ -130,7 +130,7 @@ describe("diff transcript rows", () => {
 
     // Structural: summary set, not raw args; detail expands with real newlines.
     expect(row.summary).toBe("map callers of leaveObserve");
-    expect(row.verb).toBe("Explore");
+    expect(row.verb).toBe("Explorer");
     expect(row.text).toBe(args); // clipboard still has raw; paint must not use it
     expect(row.summary).not.toContain("success_criteria");
     expect(row.summary).not.toContain("maxTurns");
@@ -159,7 +159,7 @@ describe("diff transcript rows", () => {
   test("a task without description still collapses — falls back to prompt, not raw JSON", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
     const args = JSON.stringify({
-      agent: "explore",
+      agent: "explorer",
       prompt,
       intent: "explore",
       success_criteria: ["list sites"],
