@@ -64,7 +64,7 @@ export function buildHarnessFacts(
           "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
         ]
       : [
-          "- Change files with write_file/edit_file and remove files with delete_file for tiny/single-file/one-route bounded edits. Spawn build for substantial/multi-file/parallel/specialist work. Docs/design still spawn shakespeare/bruckheimer/brand-reviewer except one-line fixes.",
+          "- Change files with write_file/edit_file and remove files with delete_file for tiny/single-file/one-route bounded edits. Spawn builder for substantial/multi-file/parallel/specialist work. Docs/design still spawn shakespeare/bruckheimer/rand except one-line fixes.",
           "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools. Path tools are the DIY surface.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
@@ -117,7 +117,7 @@ export function buildGuidelines(
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     subAgent
       ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
-      : "- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn build (or a docs director) for substantial/multi-file/parallel/specialist work.",
+      : "- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
@@ -167,7 +167,7 @@ export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): s
   const subAgent = opts.subAgent ?? false;
   const toolsOverShell = subAgent
     ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
-    : "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file for tiny/bounded DIY; spawn build/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
+    : "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file for tiny/bounded DIY; spawn builder/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
   return [
     "Prompt discipline:",
     "",

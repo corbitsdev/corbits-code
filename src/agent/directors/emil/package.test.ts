@@ -19,7 +19,7 @@ describe("emilPackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(emilPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-    expect(emilPackage.systemPrompt).toContain("build (fixes)");
+    expect(emilPackage.systemPrompt).toContain("route to builder");
   });
 
   test("systemPrompt is design-eng laws review, never-fix", () => {
@@ -31,8 +31,10 @@ describe("emilPackage", () => {
     expect(p).toMatch(/Animate with purpose/i);
     expect(p).toMatch(/Easing & speed/i);
     expect(p).toContain("route to draper");
-    expect(p).toContain("route to brand-reviewer");
-    expect(p).toContain("route to critique");
+    expect(p).toContain("route to rand");
+    expect(p).toContain("route to critic");
+    expect(p).not.toMatch(/brand-reviewer/);
+    expect(p).not.toMatch(/route to critique\b/);
   });
 
   test("systemPrompt has blinders-on / brief-scoped design-eng review", () => {
@@ -95,7 +97,7 @@ describe("emilPackage", () => {
     expect(emilPackage.outOfLane).toContain("applying product fixes");
     expect(emilPackage.outOfLane).toContain("suggesting full rewrites as implementer");
     expect(emilPackage.outOfLane).toContain("CBS visual token ownership (draper)");
-    expect(emilPackage.outOfLane).toContain("DESIGN.md ownership (brand-reviewer)");
-    expect(emilPackage.outOfLane).toContain("correctness-severity ownership (critique)");
+    expect(emilPackage.outOfLane).toContain("DESIGN.md ownership (rand)");
+    expect(emilPackage.outOfLane).toContain("correctness-severity ownership (critic)");
   });
 });

@@ -48,19 +48,19 @@ describe("director registry", () => {
   test("intent map defaults (no general)", () => {
     expect(resolveDirector({ intent: "implement" })).toMatchObject({
       ok: true,
-      package: { id: "build" },
+      package: { id: "builder" },
     });
     expect(resolveDirector({ intent: "explore" })).toMatchObject({
       ok: true,
-      package: { id: "explore" },
+      package: { id: "explorer" },
     });
     expect(resolveDirector({ intent: "plan" })).toMatchObject({
       ok: true,
-      package: { id: "plan" },
+      package: { id: "counsel" },
     });
     expect(resolveDirector({ intent: "review" })).toMatchObject({
       ok: true,
-      package: { id: "critique" },
+      package: { id: "critic" },
     });
     const general = resolveDirector({ intent: "general" });
     expect(general.ok).toBe(false);
@@ -79,7 +79,9 @@ describe("director registry", () => {
   });
 
   test("isDirectorId", () => {
-    expect(isDirectorId("critique")).toBe(true);
+    expect(isDirectorId("critic")).toBe(true);
+    expect(isDirectorId("critique")).toBe(false);
+    expect(isDirectorId("build")).toBe(false);
     expect(isDirectorId("nope")).toBe(false);
   });
 
@@ -90,17 +92,17 @@ describe("director registry", () => {
   });
 
   test("packageToProfile maps envelope and spawn", () => {
-    const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
-    expect(explore.id).toBe("explore");
-    expect(explore.systemPromptRole).toContain("agent id `explore`");
-    expect(explore.systemPromptRole).toContain(DIRECTOR_REGISTRY.explore.systemPrompt);
-    expect(explore.description).toContain("agent id: explore");
-    expect(explore.capabilities?.mode).toBe("allow");
-    expect(explore.capabilities?.tools).toContain("read_file");
-    expect(explore.capabilities?.tools).toContain("write_file");
-    expect(explore.capabilities?.tools).toContain("edit_file");
-    expect(explore.capabilities?.tools).toContain("delete_file");
-    expect(explore.orchestrator).toBe(false);
+    const explorer = packageToProfile(DIRECTOR_REGISTRY.explorer);
+    expect(explorer.id).toBe("explorer");
+    expect(explorer.systemPromptRole).toContain("agent id `explorer`");
+    expect(explorer.systemPromptRole).toContain(DIRECTOR_REGISTRY.explorer.systemPrompt);
+    expect(explorer.description).toContain("agent id: explorer");
+    expect(explorer.capabilities?.mode).toBe("allow");
+    expect(explorer.capabilities?.tools).toContain("read_file");
+    expect(explorer.capabilities?.tools).toContain("write_file");
+    expect(explorer.capabilities?.tools).toContain("edit_file");
+    expect(explorer.capabilities?.tools).toContain("delete_file");
+    expect(explorer.orchestrator).toBe(false);
 
     const grey = packageToProfile(DIRECTOR_REGISTRY.greybeard);
     expect(grey.orchestrator).toBe(true);
@@ -118,30 +120,30 @@ describe("director registry", () => {
   });
 
   // Phase 5 acceptance (CL-5818 / CL-5843): spawn matrix, review envelopes, primary stance.
-  test("greybeard spawn allowlist is intern/explore/critique only", () => {
+  test("greybeard spawn allowlist is intern/explorer/critic only", () => {
     const g = DIRECTOR_REGISTRY.greybeard;
     expect(g.spawn.maySpawn).toBe(true);
-    expect(g.spawn.allowlist?.slice().sort()).toEqual(["critique", "explore", "intern"]);
+    expect(g.spawn.allowlist?.slice().sort()).toEqual(["critic", "explorer", "intern"]);
     expect(packageToProfile(g).orchestrator).toBe(true);
   });
 
   test("closed directors mount product write tools", () => {
     for (const id of [
-      "critique",
+      "critic",
       "greybeard",
       "neckbeard",
       "draper",
       "emil",
-      "explore",
-      "plan",
+      "explorer",
+      "counsel",
       "testsmith",
       "tester",
       "gaasbot",
       "intern",
-      "build",
+      "builder",
       "shakespeare",
       "bruckheimer",
-      "brand-reviewer",
+      "rand",
       "skywalker",
     ] as const) {
       const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
@@ -151,8 +153,8 @@ describe("director registry", () => {
     }
   });
 
-  test("build mounts product writes + apply_patch; intern mounts writes without apply_patch; other leaves do not spawn", () => {
-    expect(DIRECTOR_REGISTRY.build.tools?.allow).toEqual(
+  test("builder mounts product writes + apply_patch; intern mounts writes without apply_patch; other leaves do not spawn", () => {
+    expect(DIRECTOR_REGISTRY.builder.tools?.allow).toEqual(
       expect.arrayContaining(["write_file", "edit_file", "delete_file", "apply_patch"]),
     );
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];

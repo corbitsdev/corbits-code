@@ -8,12 +8,12 @@ import { DIRECTOR_REGISTRY } from "./registry.js";
 
 describe("formatDirectorSystemPrompt", () => {
   test("prefixes agent id, model role, and optional skills", () => {
-    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.build);
-    expect(text.startsWith("Identity: agent id `build`")).toBe(true);
-    expect(text).toContain('task(agent="build")');
+    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
+    expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
+    expect(text).toContain('task(agent="builder")');
     expect(text).toContain("Model role: implement.");
     expect(text).toContain("style, philosophy, typescript");
-    expect(text).toContain(DIRECTOR_REGISTRY.build.systemPrompt);
+    expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
   test("intern reports no optional skills by default", () => {
@@ -25,7 +25,7 @@ describe("formatDirectorSystemPrompt", () => {
 describe("defaultEffortForDirector", () => {
   test("intern is low; implement is medium; greybeard is high", () => {
     expect(defaultEffortForDirector(DIRECTOR_REGISTRY.intern)).toBe("low");
-    expect(defaultEffortForDirector(DIRECTOR_REGISTRY.build)).toBe(
+    expect(defaultEffortForDirector(DIRECTOR_REGISTRY.builder)).toBe(
       MODEL_ROLE_DEFAULT_EFFORT.implement,
     );
     expect(defaultEffortForDirector(DIRECTOR_REGISTRY.greybeard)).toBe("high");

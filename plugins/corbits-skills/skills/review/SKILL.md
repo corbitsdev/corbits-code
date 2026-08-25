@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review a branch, PR, or path scope. Skywalker spawns critique (neckbeard for hygiene, greybeard for architecture); does not implement fixes.
+description: Review a branch, PR, or path scope. Skywalker spawns critic (neckbeard for hygiene, greybeard for architecture); does not implement fixes.
 argument-hint: "[paths | PR | diff | hygiene | architecture]"
 ---
 
@@ -12,11 +12,11 @@ Classify the lens, spawn the matching director(s), wait for reports, synthesize.
 
 ## Routing
 
-- **Default** (correctness, completeness, brief adherence, defects with evidence): `critique`
+- **Default** (correctness, completeness, brief adherence, defects with evidence): `critic`
 - **Hygiene-only** (nits, naming, lint, pedantry with receipts): `neckbeard`
 - **Architecture-only** (structure, boundaries, approach): `greybeard`
 
-If the operator did not say hygiene-only or architecture-only, spawn critique alone. Do not spawn all three unless they asked for a wider review.
+If the operator did not say hygiene-only or architecture-only, spawn critic alone. Do not spawn all three unless they asked for a wider review.
 
 ## Fleet
 

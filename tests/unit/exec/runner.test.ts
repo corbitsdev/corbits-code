@@ -55,13 +55,13 @@ describe("runExec", () => {
 });
 
 describe("resolveExecDirectorOverlay", () => {
-  test("build exec primary does not mount task", () => {
-    const overlay = resolveExecDirectorOverlay("build");
+  test("builder exec primary does not mount task", () => {
+    const overlay = resolveExecDirectorOverlay("builder");
     expect(overlay.mountTask).toBe(false);
     expect(overlay.advertisedAllow).toBeDefined();
     expect(overlay.advertisedAllow).not.toContain("task");
     expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
-    expect(overlay.systemPrompt).toContain("BuildDirector");
+    expect(overlay.systemPrompt).toContain("BuilderDirector");
   });
 
   test("skywalker default still can mount task", () => {

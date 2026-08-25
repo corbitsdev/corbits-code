@@ -224,7 +224,7 @@ describe("agents chrome (live strip above the prompt)", () => {
       chrome: {
         agents: [
           {
-            agentId: "explore",
+            agentId: "explorer",
             description: "map callers",
             status: "running",
             currentToolName: "grep",
@@ -238,7 +238,7 @@ describe("agents chrome (live strip above the prompt)", () => {
     try {
       const painted = await frame();
       expect(painted).toContain("map callers");
-      expect(painted).toContain("explore");
+      expect(painted).toContain("explorer");
       expect(host.shell.streamLog).toEqual([]);
     } finally {
       cleanup();
@@ -251,7 +251,7 @@ describe("agents chrome (live strip above the prompt)", () => {
       host.setChrome({
         agents: [
           {
-            agentId: "explore",
+            agentId: "explorer",
             description: "map callers",
             status: "running",
             currentToolName: "grep",
@@ -263,7 +263,7 @@ describe("agents chrome (live strip above the prompt)", () => {
       });
       const painted = await frame();
       expect(painted).toContain("map callers");
-      expect(painted).toContain("explore");
+      expect(painted).toContain("explorer");
     } finally {
       cleanup();
     }
