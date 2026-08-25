@@ -83,11 +83,12 @@ describe("createToolIndex", () => {
     );
   });
 
-  test("orchestrator mode advertises the six fleet verbs", () => {
+  test("orchestrator mode advertises the fleet verbs", () => {
     const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
     for (const name of [
       "spawn_agent",
       "wait_agents",
+      "list_agents",
       "close_agent",
       "resume_agent",
       "interrupt_agent",
@@ -237,6 +238,7 @@ describe("advertisedTools", () => {
     for (const name of [
       "spawn_agent",
       "wait_agents",
+      "list_agents",
       "close_agent",
       "resume_agent",
       "interrupt_agent",

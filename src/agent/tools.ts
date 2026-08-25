@@ -43,6 +43,7 @@ import {
   createFleetRecords,
   createSpawnAgentTool,
   createWaitAgentsTool,
+  createListAgentsTool,
 } from "../subagent/agent-fleet.js";
 import {
   createCloseAgentTool,
@@ -344,6 +345,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       orchestratorTools.push(
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
+        createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
         createResumeAgentTool({ sessions: fleetSessions }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),

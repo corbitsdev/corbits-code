@@ -1,5 +1,5 @@
 /**
- * Primary createAgentToolset mounts the six fleet verbs beside task /
+ * Primary createAgentToolset mounts the seven fleet verbs beside task /
  * search_agents / read_agent_trace when subAgent (with the shared TUI
  * sessions store) is wired. Leaves / no-subAgent toolsets stay without them.
  */
@@ -13,6 +13,7 @@ import { createSubAgentSessionStore } from "../subagent/session-store.js";
 const FLEET_VERBS = [
   "spawn_agent",
   "wait_agents",
+  "list_agents",
   "close_agent",
   "resume_agent",
   "interrupt_agent",
@@ -20,7 +21,7 @@ const FLEET_VERBS = [
 ] as const;
 
 describe("primary fleet verb mount", () => {
-  test("createAgentToolset registers the six fleet verbs when subAgent + sessions are set", async () => {
+  test("createAgentToolset registers the seven fleet verbs when subAgent + sessions are set", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
     const { createAgentToolset } = await import("./tools.js");
     const permissionGate = {
