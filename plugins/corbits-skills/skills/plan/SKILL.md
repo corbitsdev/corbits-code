@@ -1,17 +1,26 @@
 ---
 name: plan
-description: Author an agent-proof eng change plan via counsel. Use when the operator wants a plan, not code or tracker tickets.
+description: Author an agent-proof eng change plan. Does not implement. Does not file tracker issues.
 ---
 
 # Plan
 
 How to produce an engineering change plan. Does not implement. Does not file tracker issues.
 
-## Steps
+If the change target is too fuzzy to plan, `ask_operator` first.
 
-1. If the change target is too fuzzy to brief, `ask_operator` first.
-2. Spawn `task(agent="counsel")` with the operator args as the brief. Prefer a typed spawn: `intent="plan"`, `success_criteria`, `do_not`, `report_focus`.
-3. Counsel authors files, acceptance criteria, non-goals, risks, and ordered steps. It does not ship code.
-4. Return counsel's report. Greybeard is the architecture gate — not this skill.
+## What the plan must contain
 
-Not `/create-issue`. If the operator wants tickets, they use `/create-issue` after the plan.
+1. Files / paths to touch
+2. Acceptance criteria mapped from the ask
+3. Non-goals
+4. Risks and open questions
+5. Ordered steps a later `/implement` can execute without guessing
+
+When requirements are fuzzy, put open questions under Blockers instead of inventing scope.
+
+## What this is not
+
+- Not `/create-issue`. If the operator wants tickets, they use `/create-issue` after the plan.
+- Not an architecture gate. Greybeard reviews approach; this skill only authors the plan.
+- Not implementation. Do not ship the change.

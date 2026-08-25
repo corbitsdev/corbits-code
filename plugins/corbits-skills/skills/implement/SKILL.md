@@ -1,79 +1,78 @@
 ---
 name: implement
-description: Disciplined per-commit workflow. Sequential spawn loop — greybeard, builder, intern/tester, critic. Use for substantial commit-sized landings, not tiny bounded edits.
+description: Disciplined per-commit workflow with greybeard review, a build gate, and a critic loop. Use when each commit should be reviewed and verified before it lands.
 ---
 
 # Implement
 
-How to land substantial, commit-sized work. Tiny / single-file / one-route / clear bounded product edits: DIY — do not load this loop.
+How to produce reviewed, verified commits. Load when each commit should go through architectural review, build verification, and code critique before it lands.
 
-When this recipe runs: spawn directors, wait for reports, decide the next spawn from those reports. Sequential by design (one unit at a time). Do not invent a worker-count or fan-out ceiling. Track units with `manage_tasks`.
+This is a standalone skill, not part of dispatch. The caller defines what work to do and where the commit boundaries are. This skill defines _how_ each commit gets produced.
 
-Closed directors: `greybeard`, `builder`, `intern`, `tester`, `critic`. Never a catch-all worker.
+Tiny / single-file / one-route / clear bounded edits do not need this loop.
 
 ## Prerequisites
 
-Load `style` and `philosophy` via `use_skill` on the primary **before spawning**. Copy those conventions into every worker brief (workers do not mount `use_skill`).
+Load `style` and `philosophy` first. Follow their conventions throughout. Workers do not mount `use_skill` — copy those conventions into any worker brief.
 
 ## Tracking
 
 Track commit-sized units with `manage_tasks`. One item per unit that will become a commit.
 
-- Before starting: create an item for each unit from the caller's instructions.
-- When a unit begins: mark it in progress.
-- When critic is clean and the build gate passed: mark it done.
-- New work that surfaces → append a `manage_tasks` item and run the full loop.
+- Before starting: create an item for each unit from the caller's instructions
+- When a unit begins: mark it in progress
+- When critic is clean and the build gate passed: mark it done
+- New work that surfaces → append an item and run the full loop
 
-## Per-commit spawn loop
+## Per-commit workflow
 
-For each unit, run these steps in order. Do not skip. When this loop is running, do not DIY the unit — spawn builder.
+For each unit, run these steps in order. Do not skip.
 
-### 1. Review — greybeard
+### 1. Greybeard — approach
 
 `task(agent="greybeard")` on the approach before any code is written.
 
 Send: what will change and why, files expected, design decisions and trade-offs, uncertainties.
 
-Adjust the plan from the report, then spawn builder. Greybeard is for approach, not execution.
+If greybeard identifies problems, adjust before implementing. A different approach deserves a serious look. Disagreement needs a reason. Greybeard is for approach, not execution.
 
-### 2. Implement — builder
+### 2. Implement and test
 
-`task(agent="builder")` with a typed brief: `intent`, `success_criteria`, `do_not`, `report_focus`.
-
-- **Bug fixes:** start from a failing test — write the repro, confirm it fails, fix, confirm it passes. If the test does not fail first, the bug is not understood.
+- **Bug fixes:** write a failing repro first, confirm it fails, fix, confirm it passes. If the test does not fail first, the bug is not understood.
 - **Features:** tests ship with the change. Assert the new behavior, not merely that the process did not crash.
+
+Follow the repository's existing test conventions. If there are no tests, ask what framework to use before proceeding.
 
 Keep scope to this unit. Additional work becomes a later `manage_tasks` item.
 
-### 3. Build gate — intern or tester
+### 3. Build gate
 
-`task(agent="intern")` or `task(agent="tester")` for the project build/test gate (`make`, or the project's full pipeline: format, lint, build, test).
+Run the project's full pipeline (`make`, or format / lint / build / test). `task(agent="intern")` for a mechanical full pipeline, or `task(agent="tester")` for suite / repro evidence.
 
-- `intern` — mechanical full pipeline
-- `tester` — suite / repro
+Do not move forward with a broken build. Failures from this unit → fix and re-run. Pre-existing unrelated failures → Blockers and stop. Do not substitute a partial compile for the full gate.
 
-Do not move forward with a broken build. Failures from this unit → re-dispatch builder. Pre-existing unrelated failures → Blockers and stop. Do not substitute a partial compile for the full gate.
+### 4. Commit
 
-### 4. Critic
+Create the commit. Follow `style`. Tests land in the same commit as the implementation.
 
-`task(agent="critic")` on the diff. Include the intent agreed with greybeard so critic evaluates plan vs execution. Limit findings to this unit; pre-existing issues in touched files are out of scope unless they block the gate.
+### 5. Critic loop
 
-Blocking findings → re-dispatch builder with those findings in `success_criteria` / `do_not`, then re-run the gate and critic. Close the loop; if still blocked, report Blockers — do not loop forever.
+`task(agent="critic")` on `git show HEAD`. Include the intent agreed with greybeard so critic evaluates plan vs execution. Limit findings to this unit.
+
+Blocking findings → fix, re-run the gate, land the fix on the right commit (amend HEAD, or edit-in-place via `git-rebase` for an earlier commit), then re-run critic. Close the loop; if still blocked, report Blockers — do not loop forever.
 
 When critic is clean (or remaining findings are acknowledged judgment calls), mark the unit done and start the next.
 
 ## Non-negotiables
 
-- Tiny / single-file / one-route / clear bounded edits: DIY. This recipe is for substantial units — when running it, spawn builder; do not DIY the coding.
-- Spawn `greybeard` → `builder` → `intern`|`tester` → `critic` via `task(agent=…)`.
-- Track only with `manage_tasks`.
 - Do not shortcut the loop. Skipping greybeard "because this is simple" or critic "because the build passed" defeats the recipe.
 - Build must pass before treating a unit as done.
 - Do not invent a worker-count or fan-out ceiling.
+- Track only with `manage_tasks`.
 
 ## Report
 
-When the requested units are done (or blocked), synthesize for the operator:
+When the requested units are done (or blocked):
 
 ## Summary
 

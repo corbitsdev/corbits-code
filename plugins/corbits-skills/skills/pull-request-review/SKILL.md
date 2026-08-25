@@ -1,15 +1,13 @@
 ---
 name: pull-request-review
-description: Review a pull request by branch name or URL. Intern checks out a worktree if needed; critic (or neckbeard) reviews. Does not implement fixes.
+description: Review a pull request by branch name or URL, using a git worktree. Loads the review skill for the actual read. Does not implement fixes.
 ---
 
 # Pull Request Review
 
-How to review a pull request given a branch name or URL. Do not implement fixes as part of the review. Do not impersonate GitHub-Claude (or any other vendor) review comments.
+How to review a pull request given a branch name or URL. Do not implement fixes. Do not impersonate GitHub-Claude (or any other vendor) review comments.
 
 ## Input
-
-Accepts either:
 
 - A branch name (e.g. `feature/add-auth`)
 - A pull request URL from GitHub or GitLab (e.g. `https://github.com/owner/repo/pull/123`)
@@ -18,7 +16,7 @@ Accepts either:
 
 ### 1. Parse input
 
-If given a URL, intern extracts the branch via `run_shell`:
+If given a URL, extract the branch:
 
 ```bash
 # GitHub
@@ -28,70 +26,80 @@ gh pr view <url-or-number> --json headRefName --jq '.headRefName'
 glab mr view <number> --output json | jq -r '.source_branch'
 ```
 
-### 2. Worktree checkout if needed
-
-If the PR branch is not already the current checkout, spawn `task(agent="intern")` with this sequenced `run_shell` list copied into the brief. Intern executes; do not run the git on the parent.
+### 2. Repository root
 
 ```bash
 git rev-parse --show-toplevel
+```
+
+### 3. Fetch and verify the branch
+
+```bash
 git fetch origin <branch-name>
 git rev-parse --verify "origin/<branch-name>"
 ```
 
-If the branch does not exist, intern reports the error. Stop. Do not proceed with worktree creation or review.
+If the branch does not exist, report the error and stop. Do not create a worktree or review.
+
+### 4. Create worktree
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 WORKTREE_PATH="${REPO_ROOT}/../worktree/<branch-name>"
 mkdir -p "${REPO_ROOT}/../worktree"
 git worktree add "$WORKTREE_PATH" "origin/<branch-name>"
+```
+
+Path is `../worktree/<branch-name>` relative to the repository root.
+
+### 5. Checkout
+
+```bash
 cd "$WORKTREE_PATH"
 git checkout <branch-name>
 git branch --show-current
 ```
 
-Worktree path is `../worktree/<branch-name>` relative to the repository root.
+Confirm the branch name before continuing.
 
-Then intern follows documented setup in `README.md`, `CONTRIBUTING.md`, `docs/`, `DEVELOPMENT.md`, or `SETUP.md` — install deps, env, migrations, build — exactly as documented. Do not assume the setup process. If no setup docs exist, `ask_operator` before proceeding.
+### 6. Set up the repository
 
-Base branch:
+Follow documented setup exactly — `README.md`, `CONTRIBUTING.md`, `docs/`, `DEVELOPMENT.md`, or `SETUP.md`. Typical: install deps, env, migrations, build.
+
+Do not assume the setup process. If no setup docs exist, `ask_operator` before proceeding.
+
+### 7. Base branch
 
 ```bash
 gh pr view --json baseRefName --jq '.baseRefName'
 # or
 glab mr view --output json | jq -r '.target_branch'
-# branch-name only: origin/main or origin/master — ask rather than guessing if both exist
 ```
 
-If any of these commands fail, intern stops and reports. Do not retry workarounds. `ask_operator` how to proceed.
+Branch-name only: do not guess if both `main` and `master` exist — `ask_operator`.
 
-### 3. Review
+If any command fails, stop, report the error, and `ask_operator`. Do not retry workarounds.
 
-- **Default:** `task(agent="critic")` with the PR scope (branch, base, worktree path, PR URL/number).
-- **Hygiene-only** (operator said nits / naming / lint / pedantry): `task(agent="neckbeard")`.
+### 8. Review
 
-Brief the reviewer:
+Load and follow the `review` skill. That skill covers:
 
-- Paths, PR number/URL, or branch
-- Base for comparison (`git diff <base>...HEAD`); if the base is unclear, `ask_operator` rather than guessing `main`
-- Only this PR's diff is in scope — pre-existing issues outside the diff are out of lane
-- Do not implement fixes; findings only, with evidence (`path:line`)
-- Signal over noise (neckbeard is the exception when hygiene was requested)
-- Do not write GitHub review comment prose impersonating Claude or any vendor
+- Scope via `git diff <base>...HEAD`
+- Pre-existing code
+- Convention compliance
+- Test-coverage philosophy
+- Signal over noise
+- Cite the check
+- The review checklist
+- Posting on GitHub when a PR URL/number is known
 
-Prefer a typed brief: `intent="review"`, `success_criteria`, `do_not`, `report_focus`.
+### 9. Post on GitHub
 
-### 4. After the report
+When the review targets a GitHub PR, post the finished review on the PR before cleanup. A review that only lives in chat is not done. Follow **Post on GitHub** in the `review` skill.
 
-Synthesize critic/neckbeard Summary / Findings / Blockers / Paths for the operator. Do not land fixes.
-
-If a GitHub review must be posted, intern runs `gh pr review` as the operator's `gh` identity — never as a vendor bot. Primary owns `--approve` / `--request-changes` only when the operator asked to post; secondary lenses use `--comment` only.
-
-If the operator then wants repairs, that is a later `/implement` or `use_skill("dispatch")` — not this skill.
+Do not skip the post because chat already summarized the findings.
 
 ## Cleanup
-
-After the review, intern may remove the worktree:
 
 ```bash
 git worktree remove "$WORKTREE_PATH"
@@ -99,9 +107,6 @@ git worktree remove "$WORKTREE_PATH"
 
 Or leave it and tell the operator it remains for further investigation.
 
-## Hard rules
+## Error handling
 
-- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn builder for substantial fixes.
-- Do not run the worktree git on the parent; intern does, via `run_shell`.
-- Do not implement fixes as part of the review.
-- Do not impersonate GitHub-Claude review comments.
+If any command fails, stop and `ask_operator`. Common cases: missing remote branch, worktree/checkout/setup failure, `gh`/`glab` missing or unauthenticated. Present the error output.
