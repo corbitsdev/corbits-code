@@ -50,6 +50,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createFollowupTaskTool,
+  createSendInputTool,
 } from "../subagent/lifecycle-tools.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
@@ -350,6 +351,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         createResumeAgentTool({ sessions: fleetSessions }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createFollowupTaskTool({ sessions: fleetSessions }),
+        createSendInputTool({ sessions: fleetSessions, fleetRecords }),
       );
     }
   }

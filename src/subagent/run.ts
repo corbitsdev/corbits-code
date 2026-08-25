@@ -118,6 +118,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createFollowupTaskTool,
+  createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult, SubAgentProvider } from "./types.js";
@@ -510,6 +511,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         "resume_agent",
         "interrupt_agent",
         "followup_task",
+        "send_input",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
@@ -606,6 +608,15 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createResumeAgentTool({ sessions: fleetSessions }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createFollowupTaskTool({ sessions: fleetSessions }),
+        createSendInputTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: {
+            actorId: params.id,
+            tier,
+            getNodes: () => fleetSessions.list(),
+          },
+        }),
       ];
     }
 
@@ -903,7 +914,22 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
       };
-      params.onAgentReady({ close: boundedClose, interrupt, followup });
+      const deliver = (message: string): void => {
+        agent!.deliver({
+          ref: { uid: 1, mailbox: "INBOX" },
+          headers: {
+            from: "parent@local",
+            to: ["agent@local"],
+            date: new Date().toISOString(),
+            messageId: `<send-input-${crypto.randomUUID()}@local>`,
+            interchangeType: "conversation.message",
+          },
+          flags: [],
+          content: message,
+          signatureStatus: "missing",
+        });
+      };
+      params.onAgentReady({ close: boundedClose, interrupt, followup, deliver });
     }
 
     const fullPrompt = buildDispatchBrief({

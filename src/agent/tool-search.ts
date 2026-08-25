@@ -50,6 +50,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "resume_agent",
   "interrupt_agent",
   "followup_task",
+  "send_input",
 ];
 
 const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
@@ -62,6 +63,7 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
   "resume_agent",
   "interrupt_agent",
   "followup_task",
+  "send_input",
 ];
 
 // Session-start facts that gate a core tool's advertisement. Each must be

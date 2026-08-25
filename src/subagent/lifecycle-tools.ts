@@ -18,7 +18,17 @@ import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
 import type { FleetRecordsHandle } from "./agent-fleet.js";
-import type { AgentLifecycleStatus, SubAgentSessionStore } from "./session-store.js";
+import {
+  DEFAULT_MAX_ENTRY_CHARS,
+  type AgentLifecycleStatus,
+  type SubAgentSessionStore,
+} from "./session-store.js";
+import {
+  assertCanTargetAgent,
+  FleetAuthorityError,
+  type FleetNode,
+  type SubagentTier,
+} from "./authority.js";
 
 function lifecycleResult(callId: string, content: string): ToolResult {
   const isError = content.startsWith("Error:");
@@ -88,7 +98,7 @@ function descendantsClosingOrder(
 
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
-  /** Optional for resume/followup; close and interrupt require it (see CloseAgentToolDeps / InterruptAgentToolDeps). */
+  /** Optional for resume/followup/send_input; close and interrupt require it (see CloseAgentToolDeps / InterruptAgentToolDeps). */
   fleetRecords?: FleetRecordsHandle;
 }
 
@@ -101,6 +111,16 @@ export type CloseAgentToolDeps = LifecycleToolDeps & {
 export type InterruptAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetRecordsHandle;
 };
+
+export interface SendInputAuthority {
+  actorId: string | undefined;
+  tier: SubagentTier;
+  getNodes: () => readonly FleetNode[];
+}
+
+export interface SendInputToolDeps extends LifecycleToolDeps {
+  authority?: SendInputAuthority;
+}
 
 export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
   return tool({
@@ -269,6 +289,104 @@ export function createFollowupTaskTool(deps: LifecycleToolDeps): AgentTool {
         call.id,
         JSON.stringify({ agent_id: target, status: "completed", reply: outcome.reply }),
       );
+    },
+  });
+}
+
+const SendInputArgs = type({
+  target: "string",
+  message: "string",
+  "interrupt?": "boolean",
+});
+
+export const sendInputToolDefinition: ToolDefinition = {
+  name: "send_input",
+  description:
+    "Steer a running worker mid-turn. Soft (default): deliver `message` into the live session " +
+    "and return immediately without awaiting a reply and without completing wait_agents. " +
+    "With interrupt:true: stop the current turn (same wait-mailbox flip as interrupt_agent) " +
+    "then queue `message` as the next-turn followup without awaiting that reply. Fails on a " +
+    "session that is not currently running, or when the message is empty / oversize. Nested " +
+    "orchestrators may only target their own descendants.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target: { type: "string", description: "agent_id of the running session to steer." },
+      message: {
+        type: "string",
+        description: `Instruction to inject (non-empty, max ${DEFAULT_MAX_ENTRY_CHARS} characters).`,
+      },
+      interrupt: {
+        type: "boolean",
+        description:
+          "When true, interrupt the current turn then queue message as the next-turn followup. " +
+          "When false/omitted, soft-deliver into the running turn.",
+      },
+    },
+    required: ["target", "message"],
+  },
+};
+
+export function createSendInputTool(deps: SendInputToolDeps): AgentTool {
+  return tool({
+    definition: sendInputToolDefinition,
+    handler: async (call, _signal): Promise<ToolResult> => {
+      const parsed = SendInputArgs(call.arguments);
+      if (parsed instanceof type.errors) {
+        return lifecycleResult(call.id, `Error: send_input arguments invalid: ${parsed.summary}`);
+      }
+      const target = parsed.target.trim();
+      const message = parsed.message.trim();
+      if (message.length === 0) {
+        return lifecycleResult(call.id, "Error: send_input requires a non-empty message.");
+      }
+      if (message.length > DEFAULT_MAX_ENTRY_CHARS) {
+        return lifecycleResult(
+          call.id,
+          `Error: send_input message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
+            `(got ${message.length}).`,
+        );
+      }
+      if (deps.authority !== undefined) {
+        if (deps.authority.actorId === undefined) {
+          return lifecycleResult(
+            call.id,
+            "Error: send_input is unavailable for this worker (no resolvable session " +
+              "id to scope descendant access).",
+          );
+        }
+        try {
+          assertCanTargetAgent(
+            { id: deps.authority.actorId, tier: deps.authority.tier },
+            target,
+            deps.authority.getNodes(),
+          );
+        } catch (cause) {
+          if (cause instanceof FleetAuthorityError) {
+            return lifecycleResult(call.id, `Error: ${cause.message}`);
+          }
+          throw cause;
+        }
+      }
+      const interrupt = parsed.interrupt === true;
+      const outcome = deps.sessions.sendInputOne(target, message, {
+        ...(interrupt ? { interrupt: true } : {}),
+        ...(interrupt && deps.fleetRecords !== undefined
+          ? {
+              onFollowupReply: (reply: string) => {
+                deps.fleetRecords?.completeAfterInterrupt(target, reply);
+              },
+            }
+          : {}),
+      });
+      if (!outcome.ok) {
+        return lifecycleResult(
+          call.id,
+          `Error: cannot send_input to "${target}" (status: ${outcome.status}).`,
+        );
+      }
+      if (interrupt) deps.fleetRecords?.interrupt(target);
+      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
     },
   });
 }
