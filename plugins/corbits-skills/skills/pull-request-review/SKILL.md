@@ -1,107 +1,177 @@
 ---
 name: pull-request-review
-description: Review a pull request by branch name or URL. Intern checks out a worktree if needed; critic (or neckbeard) reviews. Skywalker does not implement fixes.
+description: Review a pull request by branch name or URL, using a git worktree
 ---
 
 # Pull Request Review
 
-You are Skywalker. Host is Corbits Code. This skill is a spawn recipe. Do not implement fixes as part of the review. Do not impersonate GitHub-Claude (or any other vendor) review comments.
+Use this skill to review a pull request given a branch name or URL. Do not implement fixes.
 
-## Input
+## Input Formats
 
-Accepts either:
+This skill accepts either:
 
-- A branch name (e.g. `feature/add-auth`)
-- A pull request URL from GitHub or GitLab (e.g. `https://github.com/owner/repo/pull/123`)
+- A branch name (e.g., `feature/add-auth`)
+- A pull request URL from GitHub or GitLab (e.g., `https://github.com/owner/repo/pull/123`)
 
-## Recipe
+## Workflow
 
-### 1. Parse input
+### Step 1: Parse Input
 
-If given a URL, intern extracts the branch via `run_shell` (there is no Bash tool):
+If given a URL, extract the pull request information:
 
 ```bash
-# GitHub
+# GitHub PR URL format: https://github.com/owner/repo/pull/123
+# GitLab MR URL format: https://gitlab.com/owner/repo/-/merge_requests/123
+
+# For GitHub, use gh CLI to get branch name
 gh pr view <url-or-number> --json headRefName --jq '.headRefName'
 
-# GitLab
+# For GitLab, use glab CLI or parse the MR page
 glab mr view <number> --output json | jq -r '.source_branch'
 ```
 
-### 2. Worktree checkout if needed
+### Step 2: Determine Repository Root
 
-If the PR branch is not already the current checkout, spawn `task(agent="intern")` with this sequenced `run_shell` list copied into the brief. Intern executes; Skywalker does not run the git.
+Find the root of the current git repository:
 
 ```bash
 git rev-parse --show-toplevel
-git fetch origin <branch-name>
-git rev-parse --verify "origin/<branch-name>"
 ```
 
-If the branch does not exist, intern reports the error. Stop. Do not proceed with worktree creation or review.
+### Step 3: Fetch and Verify the Branch
+
+Fetch the branch from the remote and verify it exists:
 
 ```bash
+# Fetch the specific branch
+git fetch origin <branch-name>
+
+# Verify the branch exists
+if ! git rev-parse --verify "origin/<branch-name>" >/dev/null 2>&1; then
+    echo "Error: Branch '<branch-name>' does not exist on the remote."
+    exit 1
+fi
+```
+
+If the branch does not exist, inform the user of the error and stop. Do not proceed with worktree creation or review.
+
+### Step 4: Create Worktree
+
+Create a worktree in a sibling directory under `worktree/`:
+
+```bash
+# From repository root
 REPO_ROOT=$(git rev-parse --show-toplevel)
 WORKTREE_PATH="${REPO_ROOT}/../worktree/<branch-name>"
+
+# Create the worktree directory if needed
 mkdir -p "${REPO_ROOT}/../worktree"
+
+# Add the worktree
 git worktree add "$WORKTREE_PATH" "origin/<branch-name>"
+```
+
+The worktree path follows the pattern `../worktree/<branch-name>` relative to the repository root.
+
+### Step 5: Change to Worktree and Checkout Branch
+
+Change the working directory to the new worktree and ensure the branch is checked out:
+
+```bash
 cd "$WORKTREE_PATH"
+
+# Checkout the branch
 git checkout <branch-name>
+
+# Verify you are on the correct branch
 git branch --show-current
 ```
 
-Worktree path is `../worktree/<branch-name>` relative to the repository root.
+Confirm the output matches the expected branch name before proceeding.
 
-Then intern follows documented setup in `README.md`, `CONTRIBUTING.md`, `docs/`, `DEVELOPMENT.md`, or `SETUP.md` — install deps, env, migrations, build — exactly as documented. Do not assume the setup process. If no setup docs exist, `ask_operator` before proceeding.
+### Step 6: Set Up the Repository
 
-Base branch:
+Before reviewing, the repository must be properly set up. Look for developer documentation that describes how to install dependencies and prepare the codebase:
+
+1. Search for setup instructions in these common locations:
+   - `README.md`
+   - `CONTRIBUTING.md`
+   - `docs/` directory
+   - `DEVELOPMENT.md`
+   - `SETUP.md`
+
+2. Follow the documented setup steps exactly. Common setup tasks include:
+   - Installing dependencies (`npm install`, `yarn`, `pip install`, `bundle install`, etc.)
+   - Setting up environment variables
+   - Running database migrations
+   - Building assets or compiling code
+
+3. Do not assume the setup process. Every repository has its own conventions and requirements.
+
+4. If no setup documentation exists, `ask_operator` how to set up the repository before proceeding.
+
+### Step 7: Determine Base Branch
+
+Identify the base branch for comparison:
 
 ```bash
+# For GitHub PRs
 gh pr view --json baseRefName --jq '.baseRefName'
-# or
+
+# For GitLab MRs
 glab mr view --output json | jq -r '.target_branch'
-# branch-name only: origin/main or origin/master — ask rather than guessing if both exist
+
+# If working from branch name only, assume main or master
+git branch -r | grep -E 'origin/(main|master)$' | head -1 | sed 's/.*origin\///'
 ```
 
-If any of these commands fail, intern stops and reports. Do not retry workarounds. `ask_operator` how to proceed.
+### Step 8: Load the review skill
 
-### 3. Review
+Load and follow the `review` skill to perform the actual review. The `review` skill provides guidance on:
 
-- **Default:** `task(agent="critic")` with the PR scope (branch, base, worktree path, PR URL/number).
-- **Hygiene-only** (operator said nits / naming / lint / pedantry): `task(agent="neckbeard")`.
+- Scope determination using git diff
+- Handling pre-existing code
+- Convention compliance
+- Test coverage philosophy
+- Signal over noise (avoiding unactionable findings)
+- Review checklist
+- **Post the Review on GitHub** (required when a PR URL/number is known)
 
-Brief the reviewer:
+### Step 9: Post the Review on GitHub
 
-- Paths, PR number/URL, or branch
-- Base for comparison (`git diff <base>...HEAD`); if the base is unclear, `ask_operator` rather than guessing `main`
-- Only this PR's diff is in scope — pre-existing issues outside the diff are out of lane
-- Do not implement fixes; findings only, with evidence (`path:line`)
-- Signal over noise (neckbeard is the exception when hygiene was requested)
-- Do not write GitHub review comment prose impersonating Claude or any vendor
+When the review targets a GitHub PR (URL, number, or branch with an open PR), **post the finished review on the PR** before cleanup. A review that only lives in chat is not done.
 
-Prefer a typed brief: `intent="review"`, `success_criteria`, `do_not`, `report_focus`.
+Follow **Post the Review on GitHub** in the `review` skill:
 
-### 4. After the report
+1. Map the verdict to a `gh pr review` action:
+   - Approve → `--approve`
+   - Comment → `--comment`
+   - Request changes → `--request-changes`
+2. Body: clean multi-line shape — lens label, one present-tense line on what the branch does, findings with `path:line`, no AI filler. Hard bans live in that skill section.
+3. If additional personas ran (`critique`, `greybeard`, OSS/quality), each lens with substance posts its own labeled review. Primary owns the merge action; secondary lenses use `--comment` only.
+4. Paste the posted review URL(s) into the user-facing summary.
 
-Synthesize critic/neckbeard Summary / Findings / Blockers / Paths for the operator. Do not land fixes.
-
-If a GitHub review must be posted, intern runs `gh pr review` as the operator's `gh` identity — never as a Claude (or other vendor) bot. Primary owns `--approve` / `--request-changes` only when the operator asked to post; secondary lenses use `--comment` only.
-
-If the operator then wants repairs, that is a later `/implement` or `use_skill("dispatch")` — not this skill.
+Do not skip the post because the chat already summarized the findings.
 
 ## Cleanup
 
-After the review, intern may remove the worktree:
+After the review is complete, the worktree can be removed:
 
 ```bash
 git worktree remove "$WORKTREE_PATH"
 ```
 
-Or leave it and tell the operator it remains for further investigation.
+Inform the user that the worktree remains available for further investigation and can be removed manually when no longer needed.
 
-## Hard rules
+## Error Handling
 
-- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn builder for substantial fixes.
-- Skywalker MUST NOT run the worktree git; intern does, via `run_shell`.
-- Do not implement fixes as part of the review.
-- Do not impersonate GitHub-Claude review comments.
+If any command fails during the workflow, do not retry or attempt workarounds. Stop immediately and `ask_operator` how to proceed. Common failure scenarios include:
+
+- Branch does not exist remotely
+- Worktree creation fails
+- Checkout fails
+- Setup commands fail
+- CLI tools (gh, glab) are not available or not authenticated
+
+Present the error output to the user and ask how they would like to proceed.

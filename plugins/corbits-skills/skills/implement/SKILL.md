@@ -1,84 +1,176 @@
 ---
 name: implement
-description: Disciplined per-commit workflow. Skywalker spawn recipe — greybeard, builder, intern/tester, critic.
+description: Disciplined per-commit workflow with Greybeard review, build gates, and Critique loops
 ---
 
 # Implement
 
-You are Skywalker. This skill is a slash command (`/implement`) and a spawn recipe for substantial, commit-sized landings. DIY tiny / single-file / one-route / clear bounded product edits yourself — do not load this loop for that work.
-
-When this recipe runs: spawn directors, wait for reports, decide the next spawn from those reports. The loop is sequential by design (one unit at a time). Do not invent a worker-count or fan-out ceiling. Track units with `manage_tasks`.
-
-Closed directors used here: `greybeard`, `builder`, `intern`, `tester`, `critic`. Never a catch-all worker.
+A disciplined implementation workflow that produces reviewed, verified commits. Load this skill when you want each commit to go through architectural review, build verification, and code critique before it lands.
 
 ## Prerequisites
 
-Load `style` and `philosophy` via `use_skill` on the primary **before spawning**. Copy those conventions into every worker brief (workers do not mount `use_skill`).
+Before using this workflow, load the `style` and `philosophy` skills. Follow their conventions throughout.
 
-## Tracking
+## When to Use
 
-Track commit-sized units with `manage_tasks`. One item per unit that will become a commit.
+This is a standalone skill, loaded on request. Use it when you want a single agent to work through a series of commits with review discipline.
 
-- Before starting: create an item for each unit from the caller's instructions.
-- When a unit begins: mark it in progress.
-- When critic is clean and the build gate passed: mark it done.
-- New work that surfaces (prep refactor, edge case warranting its own commit) → append a `manage_tasks` item and run the full loop.
+The caller defines what work to do and where the commit boundaries are. This skill defines _how_ each commit gets produced.
 
-## Per-commit spawn loop
+## Tracking Progress
 
-For each unit, run these steps in order. Do not skip. When this loop is running, do not DIY the unit — spawn builder.
+Track progress with `manage_tasks`. One item per commit-sized unit.
 
-### 1. Review — greybeard
+### Initial Planning
 
-`task(agent="greybeard")` on the approach before any code is written.
+Before starting implementation, create a `manage_tasks` item for each commit-sized unit of work from the caller's instructions:
 
-Send: what will change and why, files expected, design decisions and trade-offs, uncertainties.
+- **subject**: Clear imperative description of the unit of work
+- **description**: Enough context that you could pick it up cold
+- **activeForm**: Present continuous form for the spinner (e.g., "Refactoring HTTP client retry logic")
 
-Adjust the plan from the report, then spawn builder. Greybeard is for approach, not execution.
+### During the Per-Commit Workflow
 
-### 2. Implement — builder
+When you begin a unit of work, mark its `manage_tasks` item in progress. As you move through the workflow steps, update the task's `activeForm` to reflect which step you're in:
 
-`task(agent="builder")` with a typed brief: `intent`, `success_criteria`, `do_not`, `report_focus`.
+- **Step 1**: "Reviewing approach with Greybeard: {subject}"
+- **Step 2**: "Implementing: {subject}"
+- **Step 3**: "Running build gate: {subject}"
+- **Step 4**: "Committing: {subject}"
+- **Step 5**: "Running critic loop: {subject}"
 
-- **Bug fixes:** start from a failing test — write the repro, confirm it fails, fix, confirm it passes. If the test does not fail first, the bug is not understood.
-- **Features:** tests ship with the change. Assert the new behavior, not merely that the process did not crash.
+When the commit lands and Critique is clean, mark the task `completed`.
 
-Keep scope to this unit. Additional work becomes a later `manage_tasks` item.
+### Discovered Work
 
-### 3. Build gate — intern or tester
+If new work surfaces during implementation (Greybeard suggests a preparatory refactor, Critique reveals a missing edge case that warrants its own commit), append a `manage_tasks` item and work it through the full per-commit workflow.
 
-`task(agent="intern")` or `task(agent="tester")` for the project build/test gate (`make`, or the project's full pipeline: format, lint, build, test).
+## Workflow Per Commit
 
-- `intern` — mechanical full pipeline
-- `tester` — suite / repro
+For each logical unit of work that results in a commit, follow these steps in order. Do not skip steps.
 
-Do not move forward with a broken build. Failures from this unit → re-dispatch builder. Pre-existing unrelated failures → Blockers and stop. Do not substitute a partial compile for the full gate.
+### Step 1: Greybeard Review
 
-### 4. Critic
+Mark the task `in_progress` and set `activeForm` to "Reviewing approach with Greybeard: {subject}".
 
-`task(agent="critic")` on the diff. Include the intent agreed with greybeard so critic evaluates plan vs execution. Limit findings to this unit; pre-existing issues in touched files are out of scope unless they block the gate.
+Before writing any code, describe your implementation approach to Greybeard and ask for feedback.
 
-Blocking findings → re-dispatch builder with those findings in `success_criteria` / `do_not`, then re-run the gate and critic. Close the loop; if still blocked, report Blockers — do not loop forever.
+**What to send Greybeard:**
 
-When critic is clean (or remaining findings are acknowledged judgment calls), mark the unit done and start the next.
+- What you're about to change and why
+- Which files you expect to touch
+- Any design decisions or trade-offs you're considering
+- Anything you're uncertain about
 
-## Non-negotiables
+**How to handle feedback:**
 
-- Tiny / single-file / one-route / clear bounded edits: DIY. This recipe is for substantial units — when running it, spawn builder; do not DIY the coding.
-- Spawn `greybeard` → `builder` → `intern`|`tester` → `critic` via `task(agent=…)`.
-- Track only with `manage_tasks`.
-- Do not shortcut the loop. Skipping greybeard "because this is simple" or critic "because the build passed" defeats the recipe.
-- Build must pass before treating a unit as done.
-- No invented worker-count or fan-out ceiling.
+- If Greybeard identifies problems with your approach, adjust before proceeding
+- If Greybeard suggests a fundamentally different approach, consider it seriously
+- You don't need to agree with every suggestion, but you need a reason to disagree
+- Once you're aligned on approach, move to Step 2
 
-## Report
+Use `task(agent="greybeard")` for this step.
 
-When the requested units are done (or blocked), synthesize for the operator:
+### Step 2: Implement and Test
 
-## Summary
+Update `activeForm` to "Implementing: {subject}".
 
-## Findings
+The order of operations depends on whether you're fixing a bug or building a feature. In both cases, follow the repository's existing test conventions — look at how existing tests are structured, where they live, what framework they use, and match that style. If the repository has no existing tests, ask the caller what test framework and conventions to use before proceeding.
 
-## Blockers
+**For bug fixes (test-first):**
 
-## Paths
+1. Write a test that reproduces the bug.
+2. Run the test and verify it **fails**. If it doesn't fail, you don't understand the bug well enough to fix it. Go back and refine the test until it demonstrates the broken behavior.
+3. Implement the fix, following the approach reviewed in Step 1.
+4. Run the test again and verify it **passes**. If it doesn't pass, your fix is incomplete.
+
+**For new features:**
+
+1. Implement the feature, following the approach reviewed in Step 1.
+2. Write a test that exercises the new functionality and asserts on the expected behavior. The test should verify that the code works as designed and implemented, not just that it doesn't crash.
+3. Run the test and verify it **passes**.
+
+Keep the test focused on the behavior introduced by this commit. Don't test unrelated functionality. The test is part of the deliverable, not an afterthought.
+
+Keep the scope tight to what was discussed. If you discover additional work is needed, finish the current commit's scope first and note the additional work for a future commit.
+
+### Step 3: Build Gate
+
+Update `activeForm` to "Running build gate: {subject}".
+
+Run `make` (or the project's equivalent full pipeline: format, lint, build, test).
+
+- If the build passes, move to Step 4
+- If the build fails due to your changes, fix the failures and re-run until it passes
+- If the build fails due to pre-existing issues unrelated to your changes, report the failure to the caller and let them decide how to proceed
+- Do not move forward with a broken build
+- Do not substitute partial builds (e.g., running only the compiler) for the full pipeline
+
+### Step 4: Commit
+
+Update `activeForm` to "Committing: {subject}".
+
+Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same commit as the implementation — they are one logical unit of work.
+
+### Step 5: Critic loop
+
+Update `activeForm` to "Running critic loop: {subject}".
+
+Ask critic to review the committed change.
+
+**How to run:**
+
+1. Spawn `task(agent="critic")` and ask it to review the output of `git show HEAD`. Include the intent from Step 1 (what the change is meant to accomplish and the approach agreed with Greybeard) so Critique can evaluate whether the implementation matches the plan, not just surface-level quality. Tell critic to limit its findings to the scope of the current commit -- pre-existing issues in touched files are out of scope.
+2. Read its findings
+3. For each issue marked VERIFIED or HIGH confidence: fix it
+4. Re-run the build gate (Step 3) to verify fixes
+5. Land the fixes on the right commit. If the target is HEAD, `git commit --amend`. Otherwise use `git rebase -i` with `edit` on the target commit:
+
+   ```
+   git rebase -i <base-branch>
+   # In the editor, change "pick <sha> ..." to "edit <sha> ..."
+   # ... make the fix at the stop ...
+   git add <files>
+   git commit --amend --no-edit
+   git rebase --continue
+   ```
+
+   If the situation calls for more elaborate history surgery, search your available skills for one whose description covers git rebase or branch-history cleanup, and load it. Re-run the build gate after the rebase completes.
+
+6. Ask critic to review `git show HEAD` again. Re-include the original intent from Step 1 and tell it what you fixed since the last pass so it can focus on verifying the fixes and checking for new issues rather than re-reviewing the entire change from scratch.
+7. Repeat until Critique comes back clean or all remaining findings are acknowledged and intentional
+
+**When to stop looping:**
+
+- critic reports no issues
+- Remaining findings are judgment calls you've consciously decided against, not oversights
+- The build passes after the last round of fixes
+
+### Step 6: Next
+
+Mark the current `manage_tasks` item done. Move to the next unit of work and return to Step 1.
+
+## Guidelines
+
+**Close the loop.** Ship → verify → fix → re-verify.
+
+**Do not invent a worker-count or fan-out ceiling.**
+
+**Don't shortcut the loop.** The value is in the discipline. Skipping Greybeard "because this change is simple" or skipping Critique "because the build passes" defeats the purpose.
+
+**Keep commits focused, but do not drop findings.** When critic surfaces something outside the current commit's scope, every finding must be assigned one of four dispositions: (a) fix in the current commit, (b) commit it separately on this branch, (c) file a new issue with concrete acceptance criteria, or (d) accept it as-is. "Out of scope" is not a disposition. "Note it for later" is not a disposition unless you also say which of (a)–(d) "later" means.
+
+**Disposition (d) always requires operator approval** — neither you nor greybeard can drop a finding on your own. For (c), the issue must be filed in this session, with its ID or URL in the status update; a promise to file it later is dropping the work. Consult the operator before choosing (c) or (d).
+
+**Build must pass before every commit, amend, and rebase stop.** Never commit code that doesn't compile or pass tests. Fix build failures first, then commit, amend, or continue the rebase.
+
+**Greybeard is for approach, critic is for execution.** Greybeard reviews your plan before you write code. critic reviews your code after you write it. Don't conflate the two.
+
+## When Shipping a PR
+
+This skill produces commits. When the work is tracked in Linear and ends in a pull request, hand off to `linear-issue-workflow` for Phase 6–7. Non-negotiable bar (also encoded in `review` and `pull-request-review`):
+
+1. **Post a real GitHub PR review** with `gh pr review` after the PR exists — not a one-line self-review issue comment.
+2. **Multi-persona when used:** if critic / greybeard / OSS-quality lenses ran with substance, each posts its own labeled review. Primary owns approve/request-changes; secondary lenses comment only.
+3. **No AI slop in review bodies:** lens · verdict, one present-tense line on what the branch does, `path:line` findings. No filler, journey narration, or "LGTM" alone.
+4. **Linear checkboxes and Done are post-merge + green CI only.** Flip boxes only when `main` actually has the outcome. Never partial-Done on open PR.

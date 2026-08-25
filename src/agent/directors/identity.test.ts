@@ -80,7 +80,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).not.toContain("use_skill is not mounted on workers");
     expect(text).not.toMatch(/guidance is baked/i);
     expect(text).toContain("use_skill is primary-mounted");
-    expect(text).toContain("dispatch, style, philosophy, interview");
+    expect(text).toContain("style, philosophy, interview");
   });
 
   test("counsel does not bake interview ask_operator guidance (CL-6803)", () => {
