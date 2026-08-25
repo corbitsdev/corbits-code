@@ -5,12 +5,12 @@
  * in a prompt. This module owns two checks:
  *
  *  - assertTierMayMountFleetVerb: a Tier 3 leaf may never mount a fleet verb
- *    (today: task, search_agents, read_agent_trace; the spawn_agent/
- *    wait_agents/list_agents/send_input/interrupt_agent/close_agent/
- *    resume_agent/followup_task verbs land in later child issues against
- *    this same gate). Fleet *discovery* verbs (search_agents, list_agents)
- *    are further restricted to Tier 1 only (CL-7051) — nested orchestrators
- *    keep task/spawn allowlists but must not discover the full fleet.
+ *    (task, spawn_agent, wait_agents, interrupt_agent, close_agent,
+ *    resume_agent, followup_task, read_agent_trace, search_agents; reserved:
+ *    list_agents, send_input). Fleet *discovery* verbs (search_agents,
+ *    list_agents) are further restricted to Tier 1 only (CL-7051) — nested
+ *    orchestrators keep task/spawn allowlists but must not discover the
+ *    full fleet.
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.
  *    Tier 1 (the primary orchestrator) may target anyone. Callers pass the
@@ -25,9 +25,9 @@ export type { SubagentTier } from "../agent/directors/types.js";
 
 /**
  * Every tool that grants control over other agents (spawn, list, steer,
- * observe). Tier 3 leaves may mount none of these — ever. Verbs not yet
- * implemented are listed here so their eventual mount sites inherit the gate
- * for free instead of needing a second allowlist.
+ * observe). Tier 3 leaves may mount none of these — ever. Reserved names
+ * (`list_agents`, `send_input`) stay in the set so a later mount site
+ * inherits the gate instead of needing a second allowlist.
  */
 export const FLEET_VERBS = new Set([
   "task",

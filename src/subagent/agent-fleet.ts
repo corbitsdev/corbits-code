@@ -2,10 +2,10 @@
  * spawn_agent / wait_agents: the non-blocking half of fleet dispatch,
  * split out of `task()`'s fused spawn+wait.
  *
- * `task()` (task-tool.ts) remains the fused, blocking primitive and is
- * unchanged. These two verbs let an orchestrator start several workers in
- * one turn (spawn_agent returns immediately) and later block on whichever
- * ones it cares about (wait_agents), instead of one task() call per worker
+ * `task()` (task-tool.ts) remains the deprecated fused spawn+wait fallback.
+ * These two verbs are the supported fleet path: start several workers in one
+ * turn (spawn_agent returns immediately) and later block on this caller's
+ * own workers (wait_agents), instead of one task() call per worker
  * serializing the wait.
  *
  * Running state and the mailbox (`subscribe`) are the existing
@@ -71,7 +71,7 @@ import { classifyAgentName } from "../telemetry/classify.js";
 
 /** Terminal (or running) record for one spawned agent, keyed by agent id. */
 interface FleetRecord {
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "interrupted";
   report?: string;
   error?: string;
   /** Set once a wait_agents caller has been handed this result. */
@@ -96,19 +96,70 @@ export const MAX_FLEET_RECORDS = 200;
  */
 class FleetRecords {
   private readonly records = new Map<string, FleetRecord>();
+  private readonly listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener();
+  }
 
   register(id: string): void {
     this.records.set(id, { status: "running" });
   }
 
   resolve(id: string, report: string): void {
+    const existing = this.records.get(id);
+    if (existing !== undefined && existing.status !== "running") return;
     this.records.set(id, { status: "done", report });
     this.enforceCap();
+    this.notify();
   }
 
   reject(id: string, error: string): void {
+    const existing = this.records.get(id);
+    if (existing !== undefined && existing.status !== "running") return;
     this.records.set(id, { status: "failed", error });
     this.enforceCap();
+    this.notify();
+  }
+
+  /**
+   * Marks a still-running record interrupted so wait_agents unblocks.
+   * No-op on an already-terminal id — interrupt must not clobber a collected
+   * report, and a late interrupt after complete/fail is meaningless.
+   */
+  interrupt(id: string, report?: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined) return;
+    if (existing.status === "interrupted" && existing.collected !== true && report !== undefined) {
+      existing.report = report;
+      this.notify();
+      return;
+    }
+    if (existing.status !== "running") return;
+    this.records.set(id, {
+      status: "interrupted",
+      ...(report !== undefined ? { report } : {}),
+    });
+    this.enforceCap();
+    this.notify();
+  }
+
+  ids(): string[] {
+    return [...this.records.keys()];
+  }
+
+  /** Running plus terminal-but-not-yet-handed-to-a-waiter. */
+  uncollectedIds(): string[] {
+    return [...this.records.entries()]
+      .filter(([, record]) => record.collected !== true)
+      .map(([id]) => id);
   }
 
   /** Read without consuming — used for the terminal-yet check. */
@@ -181,7 +232,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: "spawn_agent",
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to block on whichever ones you need next. Prefer task() when you only need one worker and want its result before doing anything else — spawn_agent+wait_agents earns its keep when you want to start more than one worker without stalling on the first.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them. task() is the deprecated fused spawn+wait fallback for a single blocking worker.",
   inputSchema: {
     type: "object",
     properties: {
@@ -221,6 +272,7 @@ export const spawnAgentToolDefinition: ToolDefinition = {
 const WaitAgentsArgs = type({
   "targets?": "string[]",
   "timeout_ms?": "number",
+  "mode?": "'any' | 'all'",
 });
 
 export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
@@ -229,13 +281,15 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    `Block until any of the given agents (default: every agent you have spawned that is still running) reaches a ` +
-    `terminal state, or timeout_ms elapses — whichever comes first. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
-    `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout is NOT an error and never touches the workers — they keep ` +
-    `running exactly as before and remain waitable. Do not call this in a tight zero-progress loop hoping for a ` +
-    `different answer: a timeout means "still running", not "try again right away" — either do other useful work ` +
-    `first, or call again with a longer timeout_ms. Calling again immediately with the same targets is safe (it is ` +
-    `a real timed wait, not a spin) but wastes turns if nothing about the situation has changed.`,
+    `Block until the given agents reach a terminal state (done, failed, or interrupted), or timeout_ms elapses. ` +
+    `Default mode is "any" (return when the first target finishes). Pass mode="all" to wait until every target is ` +
+    `terminal. Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
+    `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
+    `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
+    `the workers — they keep running and remain waitable. interrupt_agent unblocks this wait immediately with ` +
+    `status "interrupted". Do not call this in a tight zero-progress loop: a timeout means "still running", not ` +
+    `"try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
+    `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -243,11 +297,17 @@ export const waitAgentsToolDefinition: ToolDefinition = {
         type: "array",
         items: { type: "string" },
         description:
-          "agent_id values to wait on. Omit to wait on every currently-running spawned agent.",
+          "agent_id values to wait on. Omit to wait on this caller's uncollected spawned agents only.",
       },
       timeout_ms: {
         type: "number",
         description: `Max time to block, in ms. Default ${DEFAULT_WAIT_TIMEOUT_MS}, clamped to ${MAX_WAIT_TIMEOUT_MS}.`,
+      },
+      mode: {
+        type: "string",
+        enum: ["any", "all"],
+        description:
+          '"any" (default) returns when the first target is terminal. "all" waits until every target is terminal.',
       },
     },
   },
@@ -260,6 +320,12 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
   sessions: SubAgentSessionStore;
   fleetRecords: FleetRecordsHandle;
+  /**
+   * Session id of the caller that is mounting this spawn_agent. Nested
+   * orchestrators pass their own worker id so close_agent can walk the tree.
+   * Omit on the primary session — its children are top-level.
+   */
+  parentSessionId?: string;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -399,6 +465,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // of being torn down — close_agent (or resume_agent, transitively)
         // governs it from here on.
         retained: true,
+        ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
       });
       deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
@@ -470,8 +537,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // interrupt_agent already flipped this session to "interrupted"
           // synchronously (session-store.interruptOne) — do not let the
           // settling promise's normal bookkeeping overwrite that with a
-          // "completed" status.
-          if (result.interrupted === true) return;
+          // "completed" status. Still terminalize fleetRecords so a waiter
+          // that never saw interrupt_agent (or raced it) cannot hang.
+          if (result.interrupted === true) {
+            deps.fleetRecords.interrupt(session.id, result.report);
+            return;
+          }
           // Operator cancel may race after run resolves (childCtl aborted).
           // Keep strip status cancelled when sessions.cancel already flipped
           // it, but never discard a returned body (including salvage) —
@@ -514,26 +585,50 @@ interface WaitAgentsDeps {
   fleetRecords: FleetRecordsHandle;
 }
 
+function isSoftInterrupted(
+  session: ReturnType<SubAgentSessionStore["get"]>,
+): session is NonNullable<ReturnType<SubAgentSessionStore["get"]>> {
+  // interrupt_agent keeps strip status "running" so followup_task can reuse
+  // the session. cancel() also sets lifecycleStatus "interrupted" but flips
+  // status to "cancelled" — that path still owes wait_agents a salvage
+  // report via fleetRecords, so it is not wait-terminal on its own.
+  return (
+    session !== undefined &&
+    session.status === "running" &&
+    (session.lifecycleStatus === "interrupted" || session.lifecycleStatus === "shutdown")
+  );
+}
+
+function isWaitTerminal(
+  id: string,
+  sessions: SubAgentSessionStore,
+  fleetRecords: FleetRecordsHandle,
+): boolean {
+  const record = fleetRecords.peek(id);
+  if (record !== undefined && record.status !== "running") return true;
+  return isSoftInterrupted(sessions.get(id));
+}
+
 /**
- * Blocks until any of `targets` is terminal in `fleetRecords`, or `timeoutMs`
- * elapses. Driven by the session store's mailbox (`subscribe`) — complete()/
- * fail() always write fleetRecords before notifying, so a synchronous
- * subscriber sees the up-to-date record — raced against a timer; never
- * polls. Returns without side effects on timeout: nothing is touched, so a
- * caller can wait again immediately.
+ * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
+ * elapses. Driven by the session store's mailbox (`subscribe`) raced against
+ * a timer and the parent tool signal; never polls. Timeout and abort have no
+ * side effects: workers keep running and remain waitable.
  */
-async function waitForAnyTerminal(
+async function waitForTerminal(
   sessions: SubAgentSessionStore,
   fleetRecords: FleetRecordsHandle,
   targets: readonly string[],
   timeoutMs: number,
+  mode: "any" | "all",
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const anyTerminal = (): boolean =>
-    targets.some((id) => {
-      const record = fleetRecords.peek(id);
-      return record !== undefined && record.status !== "running";
-    });
-  if (anyTerminal()) return false;
+  const ready = (): boolean =>
+    mode === "all"
+      ? targets.every((id) => isWaitTerminal(id, sessions, fleetRecords))
+      : targets.some((id) => isWaitTerminal(id, sessions, fleetRecords));
+  if (signal?.aborted) return true;
+  if (ready()) return false;
 
   return await new Promise<boolean>((resolve) => {
     let settled = false;
@@ -541,64 +636,80 @@ async function waitForAnyTerminal(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      unsubscribe();
+      unsubscribeSessions();
+      unsubscribeFleet();
+      signal?.removeEventListener("abort", onAbort);
       resolve(timedOut);
     };
+    const onAbort = (): void => finish(true);
+    const onChange = (): void => {
+      if (ready()) finish(false);
+    };
     const timer = setTimeout(() => finish(true), timeoutMs);
-    const unsubscribe = sessions.subscribe(() => {
-      if (anyTerminal()) finish(false);
-    });
+    const unsubscribeSessions = sessions.subscribe(onChange);
+    const unsubscribeFleet = fleetRecords.subscribe(onChange);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) finish(true);
   });
 }
 
 export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
   return tool({
     definition: waitAgentsToolDefinition,
-    handler: async (call, _signal): Promise<ToolResult> => {
+    handler: async (call, signal): Promise<ToolResult> => {
       const parsed = WaitAgentsArgs(call.arguments);
       if (parsed instanceof type.errors) {
         return fleetResult(call.id, `Error: wait_agents arguments invalid: ${parsed.summary}`);
       }
       const requestedTimeout = parsed.timeout_ms ?? DEFAULT_WAIT_TIMEOUT_MS;
       const timeoutMs = Math.min(Math.max(requestedTimeout, 0), MAX_WAIT_TIMEOUT_MS);
+      const mode = parsed.mode ?? "any";
 
       const targets =
         parsed.targets !== undefined && parsed.targets.length > 0
           ? parsed.targets
-          : deps.sessions
-              .list()
-              .filter((s) => s.status === "running")
-              .map((s) => s.id);
+          : deps.fleetRecords.uncollectedIds();
 
       if (targets.length === 0) {
         return fleetResult(call.id, JSON.stringify({ results: [], timed_out: false }));
       }
 
-      const timedOut = await waitForAnyTerminal(
+      const timedOut = await waitForTerminal(
         deps.sessions,
         deps.fleetRecords,
         targets,
         timeoutMs,
+        mode,
+        signal,
       );
 
-      // Terminal records are consumed (removed) once delivered here; a
-      // running record is only peeked, so it stays waitable.
+      // Terminal fleet records are marked collected once delivered here; a
+      // running record is only peeked, so it stays waitable. Session
+      // lifecycle is a fallback for interrupt/close that raced the record.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
+        if (record !== undefined && record.status !== "running") {
+          const taken = deps.fleetRecords.take(id) ?? record;
+          return {
+            agent_id: id,
+            status: taken.status,
+            ...(taken.report !== undefined ? { report: taken.report } : {}),
+            ...(taken.error !== undefined ? { error: taken.error } : {}),
+            ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
+          };
+        }
+        const session = deps.sessions.get(id);
+        if (isSoftInterrupted(session)) {
+          return {
+            agent_id: id,
+            status: "interrupted" as const,
+            ...(session.report !== undefined ? { report: session.report } : {}),
+          };
+        }
         if (record === undefined) {
           return { agent_id: id, status: "unknown" as const };
         }
-        if (record.status === "running") {
-          return { agent_id: id, status: "running" as const };
-        }
-        const taken = deps.fleetRecords.take(id) ?? record;
-        return {
-          agent_id: id,
-          status: taken.status,
-          ...(taken.report !== undefined ? { report: taken.report } : {}),
-          ...(taken.error !== undefined ? { error: taken.error } : {}),
-          ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
-        };
+        return { agent_id: id, status: "running" as const };
       });
 
       return fleetResult(call.id, JSON.stringify({ results, timed_out: timedOut }));
