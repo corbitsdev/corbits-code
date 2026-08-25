@@ -19,6 +19,8 @@ describe("neckbeardPackage", () => {
     expect(neckbeardPackage.systemPrompt).toMatch(/NeckbeardDirector/);
     expect(neckbeardPackage.systemPrompt).toMatch(/never fix/i);
     expect(neckbeardPackage.systemPrompt).toContain("builder (to fix)");
+    expect(neckbeardPackage.systemPrompt).toContain("Critic");
+    expect(neckbeardPackage.systemPrompt).not.toMatch(/Critique/);
   });
 
   test("spawn.maySpawn is false", () => {
