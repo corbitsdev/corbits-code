@@ -35,6 +35,14 @@ export type BridgeInboundEvent =
     }
   | { readonly type: "system"; readonly text: string }
   | { readonly type: "run"; readonly state: RunState }
+  /**
+   * Live fleet-lane count. Emitted by the runner on every transition of
+   * the sub-agent store's running-lane count; drives idle-with-fleet —
+   * the run stays busy after the parent turn settles until this lands
+   * back at zero (true session-idle), and Enter mid-hold upgrades to a
+   * new turn rather than a queued steer.
+   */
+  | { readonly type: "fleet"; readonly running: number }
   | { readonly type: "tool.boundary" }
   | { readonly type: "error"; readonly message: string }
   /**
