@@ -102,6 +102,8 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("wait_agents");
     expect(p).toContain("Idle-orchestrator");
     expect(p).toContain("deprecated fused spawn+wait");
+    expect(p).toContain('mode="all"');
+    expect(p).toContain("uncollected spawns");
     expect(p).not.toContain("Present the plan when the change is large or ambiguous");
   });
 

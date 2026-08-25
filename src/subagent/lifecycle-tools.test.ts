@@ -6,6 +6,7 @@ import {
   createInterruptAgentTool,
   createFollowupTaskTool,
 } from "./lifecycle-tools.js";
+import { createFleetRecords } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 
 async function callTool(
@@ -50,7 +51,7 @@ describe("close_agent", () => {
       });
     }
 
-    const closeAgent = createCloseAgentTool({ sessions });
+    const closeAgent = createCloseAgentTool({ sessions, fleetRecords: createFleetRecords() });
     const result = await callTool(closeAgent, { target: parent.id });
 
     expect(result.status).toBe("shutdown");
@@ -135,7 +136,10 @@ describe("interrupt_agent / followup_task", () => {
       return `Applying fix given ${history.length} prior turns of context.`;
     });
 
-    const interruptAgent = createInterruptAgentTool({ sessions });
+    const interruptAgent = createInterruptAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+    });
     const followupTask = createFollowupTaskTool({ sessions });
 
     const interruptResult = await callTool(interruptAgent, { target: worker.id });
@@ -219,7 +223,10 @@ describe("interrupt_agent / followup_task", () => {
     });
     sessions.registerFollowup(worker.id, async () => "resumed cleanly");
 
-    const interruptAgent = createInterruptAgentTool({ sessions });
+    const interruptAgent = createInterruptAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+    });
     const followupTask = createFollowupTaskTool({ sessions });
 
     await callTool(interruptAgent, { target: worker.id });
@@ -239,7 +246,10 @@ describe("interrupt_agent / followup_task", () => {
     const notRunning = sessions.start({ description: "d", agentId: "a", brief: "b" });
     sessions.complete(notRunning.id, "## Summary\nDone.");
 
-    const interruptAgent = createInterruptAgentTool({ sessions });
+    const interruptAgent = createInterruptAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+    });
     const followupTask = createFollowupTaskTool({ sessions });
 
     if (interruptAgent.kind !== "full") throw new Error("expected full tool");
