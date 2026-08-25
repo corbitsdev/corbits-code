@@ -45,6 +45,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   // separate, deferred change.
   "spawn_agent",
   "wait_agents",
+  "list_agents",
   "close_agent",
   "resume_agent",
   "interrupt_agent",
@@ -56,6 +57,7 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
   "task",
   "spawn_agent",
   "wait_agents",
+  "list_agents",
   "close_agent",
   "resume_agent",
   "interrupt_agent",
