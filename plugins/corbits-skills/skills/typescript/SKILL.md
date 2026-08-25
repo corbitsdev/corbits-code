@@ -6,113 +6,56 @@ description: TypeScript-specific coding conventions and type system patterns. Al
 
 # TypeScript
 
-TypeScript-specific guidelines for type safety and code organization.
+Guidance for TypeScript output quality. Prefer these patterns; they are not a substitute for reading the project's own `AGENTS.md`, tsconfig, or existing code. When project conventions disagree with this skill, follow the project.
 
-## Quick Reference
+Load alongside `style` and `philosophy` when writing or reviewing TS.
 
-### Do
+## Quick reference
 
-- Use `import type` for type-only imports
-- Use `{ cause }` when re-throwing errors
-- Let TypeScript infer types when obvious
-- Create factory functions with `create*` prefix
-- Prefer factory functions over classes
-- Return `null` from handlers when request doesn't match
-- Use a logger instead of `console.log`
-- Validate external data at runtime (fetch, filesystem, env vars, user input) with an existing validation library
+**Prefer**
 
-### Don't
+- `import type` for type-only imports
+- `unknown` (then narrow) over `any`
+- Runtime validation at every external boundary (fetch, fs, env, user input, third-party APIs)
+- Factory functions (`create*`) that return plain objects over classes
+- Letting the compiler infer obvious types
+- `{ cause }` when re-throwing
+- Named exports
 
-- Use default exports
-- Use `any` type (use `unknown` and narrow)
-- Use type assertions (`as Type`) - they indicate interface problems
-- Use non-null assertions (`x!`) - they hide nullability bugs
-- Assume type assertions provide runtime safety - they don't
-- Over-type code with explicit annotations the compiler can infer
-- Include file extensions in imports (unless required by runtime)
+**Avoid**
 
-## Naming Conventions
+- Default exports
+- Type assertions (`as T`) and non-null assertions (`x!`) — they are compile-time lies
+- Hand-rolled `typeof` / shape guards for structured external data when a validator exists
+- Explicit annotations the compiler already proves
+- File extensions in imports unless the runtime or project requires them
+- Inline `await import("./known-module")` for a static dependency
 
-### Files
+## Naming (TypeScript)
 
-| Type                | Convention                        | Example                         |
-| ------------------- | --------------------------------- | ------------------------------- |
-| Regular modules     | Lowercase, hyphens for multi-word | `token-payment.ts`, `server.ts` |
-| Single-word modules | Lowercase                         | `cache.ts`, `common.ts`         |
-| Test files          | `{name}.test.ts`                  | `cache.test.ts`                 |
+Language-general naming lives in `style`. TS-specific suffixes:
 
-### Types and Interfaces
+| Pattern           | Use                        | Example             |
+| ----------------- | -------------------------- | ------------------- |
+| `PascalCase`      | Types, interfaces          | `RequestConfig`     |
+| `*Args` / `*Opts` | Function arguments         | `CreateHandlerOpts` |
+| `*Response`       | API / handler results      | `SettleResponse`    |
+| `create*`         | Factories                  | `createClient`      |
+| `is*`             | Type predicates / booleans | `isValidationError` |
 
-| Pattern           | Use Case                 | Example                           |
-| ----------------- | ------------------------ | --------------------------------- |
-| `PascalCase`      | Interfaces, type aliases | `PaymentHandler`, `RequestConfig` |
-| `*Args` / `*Opts` | Function arguments       | `CreateHandlerOpts`               |
-| `*Response`       | API responses            | `SettleResponse`                  |
-| `*Info`           | Data structures          | `ChainInfo`, `TokenInfo`          |
-| `*Handler`        | Handler interfaces       | `PaymentHandler`                  |
+Acronyms keep their natural case in types and values (`JSONSchema`, `getURL`, `parseHTTPHeaders`). `ID` is an abbreviation → `userId`, `getId()`.
 
-### Functions
+Files: lowercase with hyphens (`token-payment.ts`); tests co-located as `{name}.test.ts` or under the project's test tree.
 
-| Pattern     | Use Case                       | Example                             |
-| ----------- | ------------------------------ | ----------------------------------- |
-| `camelCase` | All functions                  | `handleRequest`                     |
-| `create*`   | Factory functions              | `createHandler`, `createClient`     |
-| `is*`       | Boolean predicates             | `isValidationError`, `isKnownType`  |
-| `get*`      | Retrieval without side effects | `getBalance`, `getConfig`           |
-| `lookup*`   | Search/lookup operations       | `lookupToken`, `lookupNetwork`      |
-| `generate*` | Builder/generator functions    | `generateMatcher`, `generateConfig` |
-| `handle*`   | Event/request handlers         | `handleSettle`, `handleVerify`      |
+## Type system
 
-### Variables
+### Boundary validation
 
-| Pattern                | Use Case                    | Example                          |
-| ---------------------- | --------------------------- | -------------------------------- |
-| `camelCase`            | Regular variables           | `paymentResponse`, `blockNumber` |
-| `SCREAMING_SNAKE_CASE` | Constants, environment vars | `API_BASE_URL`, `MAX_RETRIES`    |
-| `_` prefix             | Unused parameters           | `_ctx`, `_unused`                |
-
-### Acronyms in Names
-
-Acronyms are not words. Do not conform them to camelCase or PascalCase word boundaries. Preserve the acronym's natural capitalization:
-
-```
-// Good - types preserve acronyms
-type JSONSchema = { ... }
-type HTTPResponse = { ... }
-type APIClient = { ... }
-type XMLParser = { ... }
-
-// Bad - don't camelCase acronyms in types
-type JsonSchema = { ... }   // Should be JSONSchema
-type HttpResponse = { ... } // Should be HTTPResponse
-type ApiClient = { ... }    // Should be APIClient
-
-// Good - functions and variables preserve acronyms too
-getURLFromRequest
-requestURL
-parseHTTPHeaders
-parseJSON
-
-// Bad
-getUrlFromRequest  // Should be getURLFromRequest
-requestUrl         // Should be requestURL
-parseJson          // Should be parseJSON
-```
-
-Common acronyms: URL, HTTP, HTTPS, JSON, API, RPC, HTML, XML
-
-Note: "ID" is an abbreviation, not an acronym, so use standard camelCase: `userId`, `requestId`, `getId()`.
-
-## Type System Patterns
-
-### Runtime Validation
-
-Use a validation library (e.g., arktype, zod, typebox) for runtime type validation. Define the validator and TypeScript type together:
+Validate external data with a schema library already in the project (arktype, zod, typebox, …). Prefer deriving the TypeScript type from the validator:
 
 ```typescript
 import { type } from "arktype";
 
-// Define runtime validator
 export const PaymentRequest = type({
   scheme: "string",
   network: "string",
@@ -120,49 +63,37 @@ export const PaymentRequest = type({
   resource: "string.url",
 });
 
-// Derive TypeScript type from validator
 export type PaymentRequest = typeof PaymentRequest.infer;
 ```
 
-If no existing validation library is installed, install arktype and use it.
+If the project has no validator yet and needs one, prefer arktype. Do not invent parallel hand-rolled parsers for the same shape.
 
-This pattern should be used for all external data: API responses from `fetch`, file system reads, environment variables, user input, and third-party API responses.
+### Narrowing
 
-### Type Guards
-
-Create type guards using validation functions:
+Use validators and predicates; avoid casting into a branded shape:
 
 ```typescript
 export function isAddress(maybe: unknown): maybe is Address {
   return !isValidationError(Address(maybe));
 }
-
-export function isKnownNetwork(n: string): n is KnownNetwork {
-  return knownNetworks.includes(n as KnownNetwork);
-}
 ```
 
-### Interfaces vs Types
+### `type` vs `interface`
 
-- **`type`**: Use for data structures, unions, and validator-derived types
-- **`interface`**: Use for behavioral contracts (objects with methods)
+- **`type`** — data shapes, unions, intersections, validator-derived types
+- **`interface`** — behavioral contracts (objects with methods), when declaration merging is intentional
 
 ```typescript
-// Type for data structure
 export type RequestContext = {
   request: RequestInfo | URL;
 };
 
-// Interface for behavioral contract
 export interface PaymentHandler {
-  getSupported?: () => Promise<SupportedKind>[];
   handleSettle: (requirements, payment) => Promise<SettleResponse | null>;
 }
 ```
 
-### Const Assertions for Exhaustive Types
-
-Use `as const` for exhaustive literal types:
+### Exhaustive literals
 
 ```typescript
 const PaymentMode = {
@@ -171,157 +102,45 @@ const PaymentMode = {
 } as const;
 
 type PaymentMode = (typeof PaymentMode)[keyof typeof PaymentMode];
-
-// TypeScript ensures all cases handled in switch
-switch (mode) {
-  case PaymentMode.Direct:
-    // ...
-    break;
-  case PaymentMode.Deferred:
-    // ...
-    break;
-}
 ```
 
-### Type-Only Imports
+Prefer `as const` objects over TypeScript `enum`.
 
-Use `import type` for type-only imports:
+### Inference vs annotation
 
-```typescript
-import type { PaymentRequest } from "./types";
-import type { Hex, Account } from "viem";
+Let TypeScript infer when the type is obvious. Annotate when:
 
-// Mixed imports
-import {
-  type Transaction,
-  createTransaction, // value import
-} from "./transactions";
-```
+- The symbol is a public API boundary and the type is documentation
+- Inference would widen too far
+- The compiler cannot infer correctly
 
-### Avoid Over-Typing
+Do not annotate loop variables, trivial locals, or callback params already constrained by context.
 
-Let TypeScript infer types when obvious:
+### Assertions and `any`
+
+`as T` and `x!` change compile-time types only. Prefer validation or restructuring:
 
 ```typescript
-// Good - return type is obvious
-const createHandler = async (network: string) => {
-  const config = { network, enabled: true };
-  return {
-    getConfig: () => config,
-    isEnabled: () => config.enabled,
-  };
-};
-
-// Unnecessary - the return type is obvious
-const createHandler = async (network: string): Promise<{
-  getConfig: () => { network: string; enabled: boolean };
-  isEnabled: () => boolean;
-}> => { ... };
-```
-
-**When to add explicit types:**
-
-- Public API boundaries where the type serves as documentation
-- When the inferred type would be too wide
-- When TypeScript cannot infer the type correctly
-- Complex return types that benefit from explicit documentation
-
-**When NOT to add explicit types:**
-
-- Variable assignments with obvious literal values
-- Return types that match a simple expression
-- Loop variables and intermediate calculations
-- Arrow function parameters in callbacks where context provides types
-
-### Avoiding `any` and Type Assertions
-
-Type assertions (`as Type`) only affect compile-time types. They provide **zero runtime safety**. A type assertion tells TypeScript "trust me, this is the shape" but does nothing at runtime.
-
-This is especially critical for external data. Data from `fetch`, the filesystem, environment variables, user input, and third-party APIs **always needs runtime validation** because:
-
-1. The TypeScript type is just a guess about the actual data shape
-2. The network/file/env can return anything, not what you expected
-3. External data can be malformed, malicious, or changed without warning
-
-Use `unknown` instead of `any` when the type is truly unknown, then narrow with validation:
-
-```typescript
-// Bad
-function processData(data: any) {
-  return data.value;
-}
-
-// Good
-function processData(data: unknown) {
-  const validated = MyDataType(data);
-  if (isValidationError(validated)) {
-    throw new Error(`Invalid data: ${validated.summary}`);
-  }
-  return validated.value;
-}
-```
-
-Type assertions bypass type checking and often indicate interface problems. Prefer runtime validation:
-
-```typescript
-// Bad
-const data = (await response.json()) as UserData;
-
-// Good
+// Prefer
 const raw = await response.json();
 const data = UserData(raw);
 if (isValidationError(data)) {
   throw new Error(`Invalid response: ${data.summary}`);
 }
-```
 
-### Avoiding Non-Null Assertions
-
-The non-null assertion operator (`x!`) has the same problem as `as Type`: it's a compile-time lie. It tells TypeScript "trust me, this isn't null or undefined" when the compiler thinks it could be. If the compiler thinks a value might be null, there's usually a reason.
-
-Instead of silencing the compiler, restructure the code so the value is provably non-null:
-
-```typescript
-// Bad - hiding a potential bug
-const user = users.find((u) => u.id === id)!;
-processUser(user);
-
-// Good - handle the null case
+// Prefer
 const user = users.find((u) => u.id === id);
 if (!user) {
   throw new Error(`User not found: ${id}`);
 }
-processUser(user);
 ```
 
-```typescript
-// Bad - asserting map result exists
-const handler = handlers.get(name)!;
+Reach for `unknown` at untrusted edges, then narrow. If you need `as` or `!`, treat that as a signal the types or control flow are wrong.
 
-// Good - check and provide a meaningful error
-const handler = handlers.get(name);
-if (!handler) {
-  throw new Error(`No handler registered for: ${name}`);
-}
-```
-
-If you find yourself reaching for `!`, it means one of:
-
-- The code doesn't properly guarantee the value exists (fix the code)
-- The type is too wide for the context (narrow it with a guard or restructure)
-- An upstream function returns `T | null` when it shouldn't (fix the upstream function)
-
-### Generic Constraints vs Index Signatures
-
-Prefer generic type parameters with constraints over index signatures:
+### Generics over index signatures
 
 ```typescript
-// Bad - index signature (too permissive)
-export interface LoggingBackend {
-  configureApp(args: { level: LogLevel; [key: string]: unknown }): Promise<void>;
-}
-
-// Good - generic with constraint (type-safe)
+// Prefer
 export type BaseConfigArgs = { level: LogLevel };
 
 export interface LoggingBackend<TConfig extends BaseConfigArgs = BaseConfigArgs> {
@@ -329,206 +148,43 @@ export interface LoggingBackend<TConfig extends BaseConfigArgs = BaseConfigArgs>
 }
 ```
 
-## Import/Export Patterns
+## Modules
 
-### Barrel Exports
+### Exports
 
-Use `index.ts` files to re-export from modules:
+Named exports only. Prefer `create*` factories returning objects with methods over classes.
 
 ```typescript
-// packages/types/src/index.ts
-
-// Namespaced exports for grouped functionality
-export * as payments from "./payments";
-export * as client from "./client";
-
-// Flat exports for utilities
-export * from "./validation";
-export * from "./helpers";
+export function createMiddleware(args: CreateMiddlewareArgs) {
+  return {
+    handle: async (req: Request) => {
+      /* ... */
+    },
+  };
+}
 ```
 
-### Named Exports (Preferred)
+Barrels (`index.ts`) are fine for a package's public surface — namespaced (`export * as payments`) or flat — matching the package already in tree.
+
+### Imports
+
+Order: external libraries → internal packages → relative. Use `import type` / inline `type` for types.
 
 ```typescript
-// Good
-export function createMiddleware(args: CreateMiddlewareArgs) { ... }
-export const MAX_RETRIES = 3;
-
-// Avoid
-export default function createMiddleware(args: CreateMiddlewareArgs) { ... }
-```
-
-### Import Ordering
-
-Order imports by category:
-
-1. External library imports
-2. Internal package imports
-3. Relative imports
-
-```typescript
-// External libraries
 import { type } from "arktype";
-import { Hono } from "hono";
-
-// Internal packages
 import { isValidationError } from "@myorg/types";
 import type { Handler } from "@myorg/types/handler";
-
-// Relative imports
-import { isValidTransaction } from "./verify";
 import { logger } from "./logger";
 ```
 
-### Import Paths
+Omit extensions unless the project or runtime requires them. Use dynamic `import()` only when the path is truly runtime-variable or the dependency is optional.
 
-Omit file extensions in import paths when the module resolver can infer them:
+## Async and errors
 
-```typescript
-// Good - no extension needed
-import { createHandler } from "./handler";
-import type { Config } from "../types";
-
-// Bad - unnecessary extension
-import { createHandler } from "./handler.ts";
-import type { Config } from "../types.ts";
-```
-
-Note: Some environments (like Deno or Node.js with `"type": "module"`) require explicit extensions. Follow project conventions when extensions are mandated by the runtime.
-
-### Dynamic Imports
-
-Dynamic `import()` expressions should be used sparingly. They exist for genuinely dynamic scenarios where the module to load is not known at authoring time (e.g., plugin systems where the module path is constructed from a variable) or where a module must be conditionally loaded at runtime (e.g., optional dependencies that may not be installed).
-
-If you know which module you need, use a static `import` at the top of the file. Do not use `await import()` inline next to your code change because it is convenient — that is a static dependency with worse type safety and unnecessary indirection. Add the import statement to the top of the file where it belongs.
-
-```typescript
-// Bad - lazy inline import of a known module
-const { createHandler } = await import("./handler");
-
-// Good - static import at the top of the file
-import { createHandler } from "./handler";
-
-// Good - genuinely dynamic: the module path is not known at authoring time
-const plugin = await import(`./plugins/${pluginName}`);
-
-// Good - conditional loading of an optional dependency
-let sharp: typeof import("sharp") | undefined;
-try {
-  sharp = await import("sharp");
-} catch (err) {
-  logger.warn("sharp not installed, falling back to basic image handling", { cause: err });
-}
-```
-
-## Async Patterns
-
-### Factory Functions
-
-Use async factory functions that return objects with async methods:
-
-```typescript
-const createHandler = async (network: string, rpc: RpcClient, config?: HandlerOptions) => {
-  // Async initialization
-  const networkInfo = await fetchNetworkInfo(rpc);
-
-  // Return object with async methods
-  return {
-    getSupported,
-    handleVerify,
-    handleSettle,
-  };
-};
-```
-
-### Parallel Execution
-
-Use `Promise.all` for independent parallel operations:
-
-```typescript
-const [tokenName, tokenVersion] = await Promise.all([
-  client.readContract({ functionName: "name" }),
-  client.readContract({ functionName: "version" }),
-]);
-```
-
-### Timeouts
-
-Use `Promise.race` for operations that need timeouts:
-
-```typescript
-function timeout(timeoutMs: number, msg?: string) {
-  return new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(msg ?? "timed out")), timeoutMs),
-  );
-}
-
-const result = await Promise.race([fetchData(), timeout(5000, "fetch timed out")]);
-```
-
-### Retry Logic
-
-Implement retries with exponential backoff:
-
-```typescript
-let attempt = (options.retryCount ?? 2) + 1;
-let backoff = options.initialRetryDelay ?? 100;
-let response;
-
-do {
-  response = await makeRequest();
-
-  if (response.ok) {
-    return response;
-  }
-
-  await new Promise((resolve) => setTimeout(resolve, backoff));
-  backoff *= 2;
-} while (--attempt > 0);
-```
-
-## Error Handling
-
-### Validation Errors
-
-Check validation errors before proceeding:
-
-```typescript
-const payload = parsePayload(input);
-
-if (isValidationError(payload)) {
-  logger.debug(`couldn't validate payload: ${payload.summary}`);
-  return sendBadRequest();
-}
-
-// payload is now typed correctly
-```
-
-### Local Error Response Factories
-
-Create local helpers for consistent error responses:
-
-```typescript
-const handleSettle = async (requirements, payment) => {
-  const errorResponse = (msg: string): SettleResponse => {
-    logger.error(msg);
-    return {
-      success: false,
-      error: msg,
-      txHash: null,
-    };
-  };
-
-  if (someConditionFails) {
-    return errorResponse("Invalid transaction");
-  }
-  // ...
-};
-```
-
-### Error Chaining
-
-Use `{ cause }` when re-throwing errors:
+- Prefer `async`/`await` over raw promise chains for sequential work
+- `Promise.all` for independent parallel work; `Promise.race` / `AbortSignal` for timeouts when the project already uses that pattern
+- Re-throw with `{ cause }`
+- Handlers that participate in a chain may return `null` to mean "not mine" when that is the local convention
 
 ```typescript
 try {
@@ -538,87 +194,28 @@ try {
 }
 ```
 
-### Return `null` for "Not My Responsibility"
+Prefer a logger over `console.log` when the project has one.
 
-Handlers should return `null` when a request doesn't match their criteria:
+## Testing (TypeScript projects)
 
-```typescript
-const handleVerify = async (requirements, payment) => {
-  if (!isMatchingRequirement(requirements)) {
-    return null; // Let another handler try
-  }
-  // Handle the request...
-};
-```
-
-## Testing
-
-### Philosophy
-
-Focus test coverage on logic specific to your codebase:
-
-- Business logic and domain-specific validation
-- Integration points between components
-- Error handling paths and edge cases
-- Custom algorithms and data transformations
-
-Do not write tests that merely verify functionality provided by external libraries. Trust well-maintained libraries to do their job.
-
-### Test Structure
+Match the project's runner. In Bun/TS repos that use `bun:test`:
 
 ```typescript
-import t from "tap";
+import { expect, test } from "bun:test";
 
-await t.test("descriptiveTestName", async (t) => {
-  // Setup
-  const cache = new Cache({ capacity: 3 });
-
-  // Assertions
-  t.equal(cache.size, 0);
-  t.matchOnly(cache.get("key"), undefined);
-
-  t.end();
+test("rejects an empty id", () => {
+  expect(parseId("")).toBeNull();
 });
 ```
 
-### Time-Based Testing
+Cover domain logic, integration seams, and error paths. Do not test the typechecker or a well-maintained library's happy path. Prefer injecting clocks and I/O over sleeping or hitting the network.
 
-Inject time functions for deterministic time-based tests:
-
-```typescript
-let theTime = 0;
-const now = () => theTime;
-
-const cache = new Cache({
-  maxAge: 1000,
-  now, // Inject time function
-});
-
-theTime += 500;
-t.matchOnly(cache.get("key"), 42); // Still valid
-
-theTime += 1000;
-t.matchOnly(cache.get("key"), undefined); // Expired
-```
+Bug fixes start with a failing test that reproduces the bug when the project expects that discipline.
 
 ## Documentation
 
-### TSDoc Comments
+Public APIs may use short TSDoc when the signature alone is not enough. Do not narrate what the code already says — see `style` for comment rules.
 
-Document public APIs with TSDoc:
+## Sync / async API contracts
 
-```typescript
-/**
- * Creates a handler for the payment scheme.
- *
- * @param network - The network identifier (e.g., "mainnet", "testnet")
- * @param rpc - RPC client
- * @param config - Optional configuration options
- * @returns Promise resolving to a Handler
- */
-export const createHandler = async (
-  network: string,
-  rpc: RpcClient,
-  config?: HandlerOptions,
-): Promise<Handler> => { ... };
-```
+Preserve existing public sync/async shapes. Do not make a sync function `async` only to use Web Crypto or similar — prefer sync libraries (`node:crypto`, etc.) when the surface is sync. Match parameter order, optionality, and return types at call sites you own; update callers instead of leaving shims.
