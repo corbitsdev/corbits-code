@@ -122,9 +122,7 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.primaryIntent).toMatch(/product discovery/i);
     expect(bruckheimerPackage.outOfLane).toContain("shipping product code");
     expect(bruckheimerPackage.outOfLane).toContain("architecture gates");
-    expect(bruckheimerPackage.outOfLane).toContain(
-      "ongoing P/A/I docs maintenance as Shakespeare",
-    );
+    expect(bruckheimerPackage.outOfLane).toContain("ongoing P/A/I docs maintenance as Shakespeare");
     expect(bruckheimerPackage.outOfLane).toContain("ordered eng plans as Counsel");
   });
 });
