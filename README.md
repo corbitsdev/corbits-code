@@ -90,7 +90,7 @@ Corbits Code defaults to **auto mode** (`auto = true`). Workspace file writes/ed
 
 - Dependency installs and remote runners (`npm install` / `i` / `ci` / `add`, `pip install`, `cargo add`, `brew install`, `npx` / `bunx`, …)
 - Recursive `rm` (`-r` / `-R` / `--recursive`)
-- Git worktree boundary changes (`add` / `remove` / `prune`; read-only `git worktree list` is fine)
+- Force or uncontained git worktree add/remove/prune (contained non-force add/remove/prune and read-only `git worktree list` auto-allow)
 - Shell that references sensitive paths (`.env`, private keys, certs, credential files, …)
 - Opaque shell wrappers the policy cannot statically inspect (variable expansion or command substitution in a wrapper payload)
 - Paths outside the workspace, writes under the session state root, mutating MCP tools, and unknown built-ins
@@ -111,19 +111,19 @@ Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md` (per
 bun install
 bun run typecheck
 bun run build
-bun test
+bun run test
 ```
 
 ## Agent Workspace
 
-Corbits Code keeps repository guidance and sub-agent profiles separate:
+Corbits Code keeps repository guidance and the closed director fleet separate:
 
 - `AGENTS.md` — shared startup instructions and project context
 - `CLAUDE.md` — Claude-specific workspace notes
-- `src/agent/default-agents.ts` — built-in sub-agent profiles shipped with Corbits Code (`greybeard`, `critique`)
-- `.agents/agents/` — optional local profile overrides or additions; this directory is not required and may be absent
+- `src/agent/directors/` — closed spawn catalog (`directorProfiles()`). Skywalker is the primary orchestrator; spawnable directors include builder, explorer, counsel, intern, critic, greybeard, and the rest of `DIRECTOR_IDS`. Closed ids cannot be overridden by plugins or local files.
+- `.agents/agents/` — optional local profile additions; this directory is not required and may be absent
 
-Named `task` sub-agents resolve from built-ins first, then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles. Add a local profile under `.agents/agents/` or use an installed profile id such as `greybeard`.
+Named workers resolve through `spawn_agent` / `task` (`resolveDirector`): closed directors first, then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles. Use `search_agents` to discover ids before dispatching.
 
 ## License
 

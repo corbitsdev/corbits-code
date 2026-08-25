@@ -61,4 +61,3 @@ real public issue?**
 ## Related
 
 - Product gates: `evals/capability/`
-- Pattern notes: `docs/plans/capability-benchmark-patterns.md` (gitignored plans)

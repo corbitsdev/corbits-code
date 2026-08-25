@@ -926,7 +926,7 @@ export function providerCatalogToSettings(
     persistable.map((p): [string, ProviderSettings] => [p.name, catalogEntryAsProviderSettings(p)]),
   );
   // Spread the full existing settings so provider saves never drop plugins,
-  // pluginPaths, sessionMode, shell, tools, etc. Only the catalog and
+  // pluginPaths, shell, tools, or other unknown keys. Only the catalog and
   // defaultProvider are replaced. A hand-picked allowlist previously missed
   // fields and could wipe unrelated settings after a /model save.
   if (existing === undefined) {
