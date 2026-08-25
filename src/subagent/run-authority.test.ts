@@ -167,3 +167,49 @@ describe("runSubAgent search_agents mount gate (CL-7051, Tier-1 only)", () => {
     expect(searchAgentsMounts).toBe(1);
   });
 });
+
+describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
+  test("nested orchestrator fleetDeps.parentSessionId equals params.id", async () => {
+    const cwd = await tmpCwd();
+    let capturedParentSessionId: string | undefined;
+    let spawnMounts = 0;
+
+    await withMockedModuleDuring(
+      import.meta.resolve("./agent-fleet.js"),
+      (real: typeof import("./agent-fleet.js")) => ({
+        ...real,
+        createSpawnAgentTool: (deps: Parameters<typeof real.createSpawnAgentTool>[0]) => {
+          spawnMounts++;
+          capturedParentSessionId = deps.parentSessionId;
+          return real.createSpawnAgentTool(deps);
+        },
+      }),
+      async () => {
+        const { runSubAgent: run } = await import("./run.js");
+        try {
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx")),
+            id: "greybeard-session",
+            orchestrator: true,
+            orchestratorTier: "nested-orchestrator",
+            nestedDispatch: {
+              permissionGate: testPermissionGate,
+              getWorkdirBase: () => join(cwd, ".ctx"),
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
+              profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
+            },
+          });
+        } catch {
+          // Inference/agent construction may fail; mount decisions run first.
+        }
+      },
+    );
+
+    expect(spawnMounts).toBe(1);
+    expect(capturedParentSessionId).toBe("greybeard-session");
+  });
+});
