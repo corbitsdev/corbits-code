@@ -403,6 +403,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
       ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
       getBlobWriter: () => currentStorage?.writeBlob,
+      getContextDir: () => workdir,
       getBlobReader: () => {
         if (currentAgent === null) {
           throw new Error("blob reader requested before agent init");

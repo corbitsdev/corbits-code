@@ -10,13 +10,18 @@ import {
 import type { MCPClient } from "./client.js";
 import { mcpToolName } from "./tool-name.js";
 
+export interface McpSpillOptions {
+  getBlobWriter?: () => SpillBlobWriter | undefined;
+  getContextDir?: () => string | undefined;
+}
+
 // MCP results never reach the posix runner, so the secret-scrub and truncation
 // middleware in src/plugins never see them. Apply the same scrub-then-truncate
 // order here directly (see buildCorePosixToolPlugins) so a compromised MCP
 // server cannot leak credential-shaped strings or flood the transcript.
 function sanitizeMcpResultContent(
   content: string,
-  spill?: { callId: string; writeBlob: SpillBlobWriter },
+  spill?: { callId: string; writeBlob: SpillBlobWriter; contextDir?: string },
 ): Promise<string> {
   return truncateToolResultContent(scrubSecretShapedToolResultContent(content), undefined, spill);
 }
@@ -27,8 +32,10 @@ function sanitizeMcpResultContent(
 export function mcpClientToAgentTools(
   client: MCPClient,
   gate: PermissionGate,
-  getBlobWriter?: () => SpillBlobWriter | undefined,
+  spillOptions: McpSpillOptions = {},
 ): AgentTool[] {
+  const { getBlobWriter, getContextDir } = spillOptions;
+
   return client.tools.map((tool) => ({
     kind: "full" as const,
     definition: {
@@ -41,7 +48,15 @@ export function mcpClientToAgentTools(
         try {
           const content = await client.call(tool.name, call.arguments, signal);
           const writeBlob = getBlobWriter?.();
-          const spill = writeBlob !== undefined ? { callId: call.id, writeBlob } : undefined;
+          const contextDir = getContextDir?.();
+          const spill =
+            writeBlob !== undefined
+              ? {
+                  callId: call.id,
+                  writeBlob,
+                  ...(contextDir !== undefined ? { contextDir } : {}),
+                }
+              : undefined;
           return { callId: call.id, content: await sanitizeMcpResultContent(content, spill) };
         } catch (err) {
           return {
