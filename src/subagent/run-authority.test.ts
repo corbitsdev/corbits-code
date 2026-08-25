@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 
+import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { FleetAuthorityError } from "./authority.js";
 import { runSubAgent } from "./run.js";
@@ -79,5 +80,90 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
       expect(err).not.toBeInstanceOf(FleetAuthorityError);
       expect(String((err as Error).message)).toContain("nestedDispatch");
     }
+  });
+});
+
+describe("runSubAgent search_agents mount gate (CL-7051, Tier-1 only)", () => {
+  test("nested-orchestrator does not mount search_agents even when profiles exist", async () => {
+    const cwd = await tmpCwd();
+    let searchAgentsMounts = 0;
+
+    await withMockedModuleDuring(
+      import.meta.resolve("../agent/agent-search.js"),
+      (real: typeof import("../agent/agent-search.js")) => ({
+        ...real,
+        createSearchAgentsTool: (getProfiles: () => never) => {
+          searchAgentsMounts++;
+          return real.createSearchAgentsTool(getProfiles);
+        },
+      }),
+      async () => {
+        // Re-import so the mock is visible to runSubAgent's binding.
+        const { runSubAgent: run } = await import("./run.js");
+        try {
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx")),
+            id: "greybeard-session",
+            orchestrator: true,
+            orchestratorTier: "nested-orchestrator",
+            nestedDispatch: {
+              permissionGate: testPermissionGate,
+              getWorkdirBase: () => join(cwd, ".ctx"),
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
+              profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
+            },
+          });
+        } catch {
+          // Inference/agent construction may fail; mount decisions run first.
+        }
+      },
+    );
+
+    expect(searchAgentsMounts).toBe(0);
+  });
+
+  test("Tier-1 orchestrator mounts search_agents when profiles exist", async () => {
+    const cwd = await tmpCwd();
+    let searchAgentsMounts = 0;
+
+    await withMockedModuleDuring(
+      import.meta.resolve("../agent/agent-search.js"),
+      (real: typeof import("../agent/agent-search.js")) => ({
+        ...real,
+        createSearchAgentsTool: (getProfiles: () => never) => {
+          searchAgentsMounts++;
+          return real.createSearchAgentsTool(getProfiles);
+        },
+      }),
+      async () => {
+        const { runSubAgent: run } = await import("./run.js");
+        try {
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx")),
+            id: "skywalker-session",
+            orchestrator: true,
+            orchestratorTier: "orchestrator",
+            nestedDispatch: {
+              permissionGate: testPermissionGate,
+              getWorkdirBase: () => join(cwd, ".ctx"),
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
+              profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
+            },
+          });
+        } catch {
+          // Inference/agent construction may fail; mount decisions run first.
+        }
+      },
+    );
+
+    expect(searchAgentsMounts).toBe(1);
   });
 });
