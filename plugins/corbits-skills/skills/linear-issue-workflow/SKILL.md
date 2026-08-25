@@ -9,9 +9,13 @@ user-invocable: false
 
 Use this skill when implementing features or fixes tracked in Linear.
 
-## Phase 1: Understand the Issue
+## Phase 1: Fetch and claim
 
 Fetch the Linear issue using `mcp__linear__get_issue`. The returned issue includes title, description, status, branch name, and other metadata you will need later.
+
+**Claim immediately (hard first step):** before worktree setup, explore, plan, or any build thrash, set the issue to "In Progress" with `mcp__linear__save_issue`. Teammates must see ownership before you dig. Parallel lanes each claim their own issue ID — never claim a sibling lane's ID.
+
+If Linear MCP is unavailable or `save_issue` fails when claiming, report that the issue status could not be updated. Do not pretend the claim succeeded.
 
 Ask the user clarifying questions if the scope is unclear before proceeding.
 
@@ -63,8 +67,6 @@ All subsequent work — exploration, planning, implementation, and review — ha
    Keep the local file through implementation and review — it is the working reference, colocated with the code in the worktree's `tmp/`. Phase 7's `git worktree remove` deletes it along with the rest of the worktree. The Linear attachment is the canonical copy; the local file is a working convenience for the active branch. Re-planning overwrites the local file — Linear retains prior versions as separate attachments via the `<ISSUE-ID>` subtitle.
 
    Exception: plans with no structure — no file-by-file breakdown, no enumerated steps, no headings, no nested lists — can be posted as a comment instead. Structural shape, not length, is the test; a single-sentence plan is fine inline, a 10-line bulleted plan is not.
-
-5. Mark the issue as "In Progress" using `mcp__linear__save_issue` with the appropriate state.
 
 ## Phase 4: Implement
 
