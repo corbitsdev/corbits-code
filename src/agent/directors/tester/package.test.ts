@@ -24,13 +24,13 @@ describe("testerPackage", () => {
     expect(p).toMatch(/suite\s*\/\s*repro|suite \/ repro/i);
     expect(p).toMatch(/pass\/fail evidence|evidence/i);
     expect(p).toMatch(/never fix|Never fix|do not patch/i);
-    expect(p).toContain("re-dispatch to build or testsmith");
+    expect(p).toContain("re-dispatch to builder or testsmith");
   });
 
-  test("systemPrompt is blinders-on verify lane (not Build / Testsmith / orchestrator)", () => {
+  test("systemPrompt is blinders-on verify lane (not Builder / Testsmith / orchestrator)", () => {
     const p = testerPackage.systemPrompt;
     expect(p).toMatch(/Blinders on/i);
-    expect(p).toMatch(/not Build/i);
+    expect(p).toMatch(/not Builder/i);
     expect(p).toMatch(/not Testsmith/i);
     expect(p).toMatch(/not an orchestrator/i);
     expect(p).toMatch(/Do not design permanent test cases/i);

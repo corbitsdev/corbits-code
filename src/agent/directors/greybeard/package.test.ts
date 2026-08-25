@@ -33,8 +33,8 @@ describe("greybeardPackage", () => {
   test("systemPrompt allows limited spawn without fake caps or scheduler language", () => {
     const p = greybeardPackage.systemPrompt;
     expect(p).toMatch(/intern/);
-    expect(p).toMatch(/explore/);
-    expect(p).toMatch(/critique/);
+    expect(p).toMatch(/explorer/);
+    expect(p).toMatch(/critic/);
     expect(p).toMatch(/Prefer doing the review yourself/i);
     expect(p).toMatch(/Do not invent numeric spawn caps|not a soft ladder/i);
     expect(p).not.toMatch(/at most \d+/i);
@@ -66,26 +66,26 @@ describe("greybeardPackage", () => {
     expect(p).not.toMatch(/not Build\b/);
   });
 
-  test("systemPrompt forbids spawning build and names off-list directors", () => {
-    expect(greybeardPackage.systemPrompt).toContain("Do not spawn build");
+  test("systemPrompt forbids spawning builder and names off-list directors", () => {
+    expect(greybeardPackage.systemPrompt).toContain("Do not spawn builder");
     expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
   });
 
   test("spawn.maySpawn is true with limited allowlist", () => {
     expect(greybeardPackage.spawn.maySpawn).toBe(true);
-    expect(greybeardPackage.spawn.allowlist).toEqual(["intern", "explore", "critique"]);
+    expect(greybeardPackage.spawn.allowlist).toEqual(["intern", "explorer", "critic"]);
   });
 
-  test("allowlist is only intern, explore, critique", () => {
+  test("allowlist is only intern, explorer, critic", () => {
     const allow = greybeardPackage.spawn.allowlist ?? [];
     expect(allow).toHaveLength(3);
     expect(allow).toContain("intern");
-    expect(allow).toContain("explore");
-    expect(allow).toContain("critique");
+    expect(allow).toContain("explorer");
+    expect(allow).toContain("critic");
     expect(allow).not.toContain("implement");
-    expect(allow).not.toContain("build");
+    expect(allow).not.toContain("builder");
     expect(allow).not.toContain("skywalker");
-    expect(allow).not.toContain("plan");
+    expect(allow).not.toContain("counsel");
   });
 
   test("tools.allow is orchestrator surface with product writes", () => {

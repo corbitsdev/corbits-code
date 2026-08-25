@@ -333,7 +333,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       // Host wires a live session: the same chord enters it for real.
       setPaletteOnObserveRequest(shell, () => ({
         sessionId: "live-1",
-        agentId: "explore",
+        agentId: "explorer",
         description: "map callers",
         lines: [{ role: "assistant", text: "child line" }],
       }));

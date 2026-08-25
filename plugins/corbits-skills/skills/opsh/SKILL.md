@@ -6,9 +6,9 @@ description: Write scripts using opsh and its built-in libraries. Tiny scripts: 
 
 # opsh Scripting
 
-You are Skywalker. Host is Corbits Code. This is a convention skill. Tiny / single-file scripts: DIY with write_file/edit_file using these rules. Substantial script work: spawn build with this skill's rules copied into the brief (workers do not mount `use_skill`).
+You are Skywalker. Host is Corbits Code. This is a convention skill. Tiny / single-file scripts: DIY with write_file/edit_file using these rules. Substantial script work: spawn builder with this skill's rules copied into the brief (workers do not mount `use_skill`).
 
-If the operator wants a substantial script written, spawn `task(agent="build")` with this skill's rules copied into the brief. If the operator wants a review, spawn `task(agent="critique")` (or `task(agent="neckbeard")` for hygiene-only) with the same rules copied in.
+If the operator wants a substantial script written, spawn `task(agent="builder")` with this skill's rules copied into the brief. If the operator wants a review, spawn `task(agent="critic")` (or `task(agent="neckbeard")` for hygiene-only) with the same rules copied in.
 
 Shell for agent commands is `run_shell` (there is no Bash tool). Bash-the-language in the examples below stays — opsh scripts are bash.
 
