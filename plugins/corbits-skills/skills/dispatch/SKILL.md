@@ -31,11 +31,11 @@ If the spec is vague, incomplete, or contradictory: stop and report Blockers. Do
 
 | Work                                                                                             | Director                  |
 | ------------------------------------------------------------------------------------------------ | ------------------------- |
-| Map the codebase, gather facts                                                                   | `task(agent="explorer")`   |
-| Eng plan from a spec (no ship)                                                                   | `task(agent="counsel")`      |
-| Write `dispatch.yaml` / `plan.md` / status artifacts (mechanical brief; no product feature work) | `task(agent="builder")`     |
-| Ship product code + tests                                                                        | `task(agent="builder")`     |
-| Review a landed task (defects, evidence, no fix)                                                 | `task(agent="critic")`  |
+| Map the codebase, gather facts                                                                   | `task(agent="explorer")`  |
+| Eng plan from a spec (no ship)                                                                   | `task(agent="counsel")`   |
+| Write `dispatch.yaml` / `plan.md` / status artifacts (mechanical brief; no product feature work) | `task(agent="builder")`   |
+| Ship product code + tests                                                                        | `task(agent="builder")`   |
+| Review a landed task (defects, evidence, no fix)                                                 | `task(agent="critic")`    |
 | Architecture judgment before a large DAG                                                         | `task(agent="greybeard")` |
 | Independent suite / repro evidence                                                               | `task(agent="tester")`    |
 

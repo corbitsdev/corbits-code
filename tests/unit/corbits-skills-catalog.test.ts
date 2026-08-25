@@ -216,9 +216,7 @@ test("only background libs carry disable-model-invocation", async () => {
 });
 
 test("linear-issue-workflow references use_skill(git-worktrees)", async () => {
-  const skill = await Bun.file(
-    join(pluginRoot, "skills/linear-issue-workflow/SKILL.md"),
-  ).text();
+  const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
   expect(skill).toContain('use_skill("git-worktrees")');
   expect(skill).not.toContain("git worktree add");
 });

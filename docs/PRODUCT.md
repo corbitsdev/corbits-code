@@ -144,12 +144,12 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker** (product name remains Corbits Code; when asked its name, answer Skywalker): classify work, DIY tiny/single-file/one-route product edits, dispatch a **closed fleet of 16 directors** for substantial work, track the fleet, and synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are mounted on the primary (CORE / `SKYWALKER_TOOLS`) — path tools are the DIY surface; spawn remains the default for substantial, multi-file, parallel, or specialist work. Shell file-writes stay denied. MCP tools are not re-filtered by a product-write deny list (that list is gone). There is no static per-package write-path declaration (CL-6952 removed it — no shipped director ever set one). A concurrent dispatch landing on the same working directory as another still-running lane is recorded as a `conflict` intervention, not blocked. Operator slash recipes (`/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`) tell Skywalker which directors to spawn for substantial work; tiny/bounded edits may run on the primary.
 
-| Lane      | Directors                                                                            |
-| --------- | ------------------------------------------------------------------------------------ |
-| Primary   | skywalker                                                                            |
+| Lane      | Directors                                                                              |
+| --------- | -------------------------------------------------------------------------------------- |
+| Primary   | skywalker                                                                              |
 | Eng       | builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot |
-| Design    | draper, emil, rand                                                                   |
-| Docs / QA | shakespeare, testsmith, tester                                                       |
+| Design    | draper, emil, rand                                                                     |
+| Docs / QA | shakespeare, testsmith, tester                                                         |
 
 There is **no catch-all worker**. `task` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critic); bare dispatch and `intent=general` are refused. Named `task(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a spawned worker. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) and greybeard (intern/explorer/critic) may spawn; other workers have no `task`. Primary omits an allowlist so plugin profiles remain reachable from the main session.
 

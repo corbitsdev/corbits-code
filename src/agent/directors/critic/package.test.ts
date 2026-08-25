@@ -61,9 +61,7 @@ describe("criticPackage", () => {
       /returning Promise when callers expect a plain value/i,
     );
     expect(criticPackage.systemPrompt).toMatch(/blocking correctness defect/i);
-    expect(criticPackage.systemPrompt).toMatch(
-      /parameter order\/optionality\/return-type drift/i,
-    );
+    expect(criticPackage.systemPrompt).toMatch(/parameter order\/optionality\/return-type drift/i);
     expect(criticPackage.systemPrompt).toMatch(/Rank these as blocking, not style nits/i);
   });
 
@@ -102,9 +100,7 @@ describe("criticPackage", () => {
   });
 
   test("primaryIntent and outOfLane match critic lane", () => {
-    expect(criticPackage.primaryIntent).toBe(
-      "Evidence-based code review; never fix product code",
-    );
+    expect(criticPackage.primaryIntent).toBe("Evidence-based code review; never fix product code");
     expect(criticPackage.outOfLane).toContain("implementing fixes");
     expect(criticPackage.outOfLane).toContain("architecture portfolio without code evidence");
     expect(criticPackage.outOfLane).toContain("visual brand");

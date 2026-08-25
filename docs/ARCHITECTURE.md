@@ -265,21 +265,21 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Intent → director** (`task(intent=…)` when `agent` is omitted)
 
-| Intent    | Default director                  |
-| --------- | --------------------------------- |
-| implement | builder                           |
-| explore   | explorer                          |
-| plan      | counsel                           |
-| review    | critic (override with `agent=…`)  |
-| general   | **none** — reclassify only        |
+| Intent    | Default director                 |
+| --------- | -------------------------------- |
+| implement | builder                          |
+| explore   | explorer                         |
+| plan      | counsel                          |
+| review    | critic (override with `agent=…`) |
+| general   | **none** — reclassify only       |
 
 **Spawn matrix**
 
-| Who                         | Spawn rights                     |
-| --------------------------- | -------------------------------- |
-| skywalker (primary session) | Full closed fleet                |
-| greybeard                   | intern, explorer, critic only    |
-| All other directors         | no `task`                        |
+| Who                         | Spawn rights                  |
+| --------------------------- | ----------------------------- |
+| skywalker (primary session) | Full closed fleet             |
+| greybeard                   | intern, explorer, critic only |
+| All other directors         | no `task`                     |
 
 **Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, rand, bruckheimer) mount write tools with no path-level lock. Lane routing is spawn policy (shakespeare = P/A/I docs, rand = DESIGN.md, bruckheimer = product discovery), not a file lock. There is no static per-package write-path declaration (CL-6952 removed it — no shipped director ever set one); instead the task tool records, without blocking, when two concurrently running dispatches land on the same cwd (see `intervention-log.ts`'s `conflict` class).
 
@@ -422,12 +422,12 @@ Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory
 
 A skill file begins with a YAML frontmatter block, followed by the body that holds the instructions. Discovery parses `description` and `disable-model-invocation`; `loadSkillCommands` also reads `user-invocable`. The skill's identifier (what `use_skill` and `/<skill-name>` take) is its directory name. A skill with no `SKILL.md` or an empty body is skipped.
 
-| Field                       | Required     | Description                                                                                                                                                                                                 |
-| --------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `description`               | yes          | One-line summary shown in the prompt's lazy skills listing and the slash picker                                                                                                                             |
-| `name`                      | conventional | Conventionally matches the directory name; the directory name is what is actually used as the identifier                                                                                                    |
-| `user-invocable`            | no           | When `false`, `loadSkillCommands` skips slash synthesis; the skill remains `use_skill` only. Untagged skills still become slashes (marketplace BC)                                                          |
-| `disable-model-invocation`  | no           | When `true`, `discoverSkills` omits the skill from the lazy listing (but still claims the name for first-wins). Explicit `resolveSkillBody` / `use_skill("name")` still loads the body. Does not affect slash emission. |
+| Field                      | Required     | Description                                                                                                                                                                                                             |
+| -------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `description`              | yes          | One-line summary shown in the prompt's lazy skills listing and the slash picker                                                                                                                                         |
+| `name`                     | conventional | Conventionally matches the directory name; the directory name is what is actually used as the identifier                                                                                                                |
+| `user-invocable`           | no           | When `false`, `loadSkillCommands` skips slash synthesis; the skill remains `use_skill` only. Untagged skills still become slashes (marketplace BC)                                                                      |
+| `disable-model-invocation` | no           | When `true`, `discoverSkills` omits the skill from the lazy listing (but still claims the name for first-wins). Explicit `resolveSkillBody` / `use_skill("name")` still loads the body. Does not affect slash emission. |
 
 There is no skill `type` field required for model invocation — a skill body is plain instruction text. Background libraries (e.g. `git-worktrees`) set both `user-invocable: false` and `disable-model-invocation: true` so they are absent from slash and listing, yet recipes can still `use_skill("git-worktrees")`. `argument-hint` on frontmatter is preserved for the slash picker (greyed arg guidance). Multi-step orchestration is a separate mechanism (see Workflows above), not a skill `type`.
 
