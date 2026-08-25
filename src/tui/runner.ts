@@ -2413,6 +2413,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           id: s.id,
           description: s.description,
           status: s.status,
+          lifecycleStatus: s.lifecycleStatus,
           currentToolName: s.currentToolName,
           currentToolPreview: s.currentToolPreview,
           currentToolStartedAt: s.currentToolStartedAt,

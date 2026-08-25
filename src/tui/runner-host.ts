@@ -279,6 +279,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
       deps.subAgentSessions().map((s) => ({
         id: s.id,
         status: s.status,
+        lifecycleStatus: s.lifecycleStatus,
         currentToolName: s.currentToolName,
         currentToolPreview: s.currentToolPreview,
         currentToolStartedAt: s.currentToolStartedAt,

@@ -54,6 +54,7 @@ export interface ChromeAgentSession {
   readonly agentId: string;
   readonly description: string;
   readonly status: "running" | "done" | "failed" | "cancelled";
+  readonly lifecycleStatus?: AgentProgressSession["lifecycleStatus"];
   /** Current tool while running (optional detail). */
   readonly currentToolName?: string | null;
   /**
@@ -319,6 +320,7 @@ function toProgressSession(session: ChromeAgentSession): AgentProgressSession | 
   if (session.startedAt === undefined) return null;
   return {
     status: session.status,
+    ...(session.lifecycleStatus !== undefined ? { lifecycleStatus: session.lifecycleStatus } : {}),
     currentToolName: session.currentToolName ?? null,
     currentToolPreview: session.currentToolPreview ?? null,
     currentToolStartedAt: session.currentToolStartedAt,
@@ -493,6 +495,7 @@ export interface ChromeSessionAgent {
   readonly id?: string;
   readonly description: string;
   readonly status: "running" | "done" | "failed" | "cancelled";
+  readonly lifecycleStatus?: AgentProgressSession["lifecycleStatus"];
   readonly currentToolName?: string | null;
   readonly currentToolPreview?: string | null;
   readonly currentToolStartedAt: number | null;
@@ -554,6 +557,7 @@ function mapSessionAgents(
       agentId: agentId.length > 0 ? agentId : "agent",
       description: a.description,
       status: a.status,
+      ...(a.lifecycleStatus !== undefined ? { lifecycleStatus: a.lifecycleStatus } : {}),
       ...(a.currentToolName !== undefined ? { currentToolName: a.currentToolName } : {}),
       ...(a.currentToolPreview !== undefined ? { currentToolPreview: a.currentToolPreview } : {}),
       currentToolStartedAt: a.currentToolStartedAt,
