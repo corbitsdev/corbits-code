@@ -79,20 +79,20 @@ src/
       <id>/package.ts     Per-director prompt, envelope, spawn, report
     renderer.ts           Event-stream renderer (stderr + live cost; used by tests/utilities)
   session/
-    index.ts              Session lifecycle (was session.ts)
+    index.ts              Session lifecycle
     state.ts              RunState JSON save/load
-    compactor.ts          Context compactor (was context-compactor.ts)
+    compactor.ts          Context compactor
     summarizer.ts         Model-backed structured compaction summary (+ deterministic fallback)
     run-sink.ts           Run-level event sink
     stream-consumer.ts    Async stream consumer with error handling
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
   subagent/
     index.ts              Sub-agent spawn + SubAgentDirector
-    task-tool.ts          task() — resolveDirector first; concurrent-lane-overlap check on spawn
+    task-tool.ts          task() — fused spawn+wait; resolveDirector first
     session-store.ts      Retained child session transcripts for observe UI
     identity-context.ts   ALS: worker description + cwd for gate attribution
   config/
-    index.ts              Config resolution (settings files + flags) (was config.ts)
+    index.ts              Config resolution (settings files + flags)
     settings.ts           Settings schema, validators, loaders, resolveProvider
     providers.ts          ProviderCatalogEntry type + TUI provider list helpers
     profiles.ts           Profile-level selection logic
@@ -153,10 +153,10 @@ docs/
 
 Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
 
-1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
+1. `spawn_agent(agent=…)` / `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
 2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities` and `spawn.maySpawn` → `orchestrator`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
 3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `task(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
-4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker; plugin agent profiles still load and can override by id.
+4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker. Plugin and local `.agents/agents/` profiles still load, but closed `DIRECTOR_IDS` cannot be overridden or aliased.
 5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn builder/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. There is no static per-profile write-path lock (CL-6952).
 
    **Codex tool proxies.** When the active provider is Codex (`isCodexProviderName`), `createAgentToolset` and `runSubAgent` mount `apply_patch`, `shell`, and `update_plan` stringTools from `createCodexToolProxies`, all forwarding through the same posix `ToolRunner` seam (`runTool`) so permission plugins still apply. `apply_patch` parses the Codex envelope and forwards each op (`write_file` / `delete_file` / `read_file`). `shell` — the native Codex name is `shell`, not `exec_command`, per the pinned base-instructions text quoted in `codex-responses-adapter.ts`'s bridge message — normalizes Codex's `command` (string or `["bash","-lc",script]`-style argv array), `workdir`, and `timeout_ms` onto `run_shell`'s `{command, cwd?, timeout?}` and is gated by `allowShellFromCapabilities` (mirrors `allowDeleteFromCapabilities` against `run_shell`). `update_plan` maps Codex's `plan: [{step, status}]` onto `manage_tasks(action: "create")`; `pending`/`in_progress`/`completed` map to `todo`/`doing`/`done` — `manage_tasks`'s `cancelled` status has no Codex equivalent and is never produced by this proxy. Primary strips `apply_patch` after mount (Corbits DIY stays on `write_file` / `edit_file` / `delete_file`); `shell` and `update_plan` stay on primary (same classification as `run_shell` / `manage_tasks`). Build and docs leaf allowlists (`BUILD_TOOLS` / `DOCS_TOOLS`) include `apply_patch` so Codex workers keep the proxy after the capability filter. `CORE_TOOL_NAMES` does not list it.
@@ -175,9 +175,9 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 | Effect   | Categories                                                                                                                                                                                             |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc)                                                                                                         |
-| **ask**  | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
+| **ask**  | Dependency installs / remote runners, recursive `rm`, force or uncontained git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
 
-Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
+Unmatched shell auto-allows, including contained non-force `git worktree add`/`remove`/`prune` and read-only `list`. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
 ### Reasoning Effort
 
@@ -232,7 +232,7 @@ Provider and model configuration lives in JSON settings files. The global file h
   }
   ```
 
-  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. The `task` tool is always exempt: a dispatched sub-agent is bounded by its own limits (maxTurns, no-progress, thrash, opt-in `deadlineMs`), not the generic per-tool budget.
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. The `task` tool is always exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget.
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
   Optional `mcp` block bounds MCP tool calls (`mcp__*` names) specifically — unlike `tools.*`, this arms **unconditionally** even with no settings at all, defaulting to **5 minutes**, since a wedged MCP server otherwise hangs a call forever with nothing to bound it (CL-6895):
@@ -244,8 +244,6 @@ Provider and model configuration lives in JSON settings files. The global file h
   ```
 
   On expiry the call returns a normal tool-error result ("MCP tool `<name>` timed out after `<n>`s — the server may be wedged; retry or continue without it") that the model can react to; the turn itself is never aborted. `tools.maxTimeoutMs`, if set, still caps `mcp.timeoutMs`.
-
-  Optional `subagentMaxTurns` (integer **≥1**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; there is no hard upper cap (values are floor-sanitized to ≥1). Always applies — the primary session is always orchestrator-capable (CL-5814).
 
   Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
 

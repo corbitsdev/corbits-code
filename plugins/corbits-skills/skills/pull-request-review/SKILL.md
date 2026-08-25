@@ -149,7 +149,7 @@ Follow **Post the Review on GitHub** in the `review` skill:
    - Comment → `--comment`
    - Request changes → `--request-changes`
 2. Body: clean multi-line shape — lens label, one present-tense line on what the branch does, findings with `path:line`, no AI filler. Hard bans live in that skill section.
-3. If additional personas ran (`critique`, `greybeard`, OSS/quality), each lens with substance posts its own labeled review. Primary owns the merge action; secondary lenses use `--comment` only.
+3. If additional personas ran (`critic`, `greybeard`, OSS/quality), each lens with substance posts its own labeled review. Primary owns the merge action; secondary lenses use `--comment` only.
 4. Paste the posted review URL(s) into the user-facing summary.
 
 Do not skip the post because the chat already summarized the findings.

@@ -38,7 +38,7 @@ export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general"
  */
 export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
 
-/** Static model-role tag for CL-5816 stub resolution (not a full package yet). */
+/** Static model-role tag used by resolveEffortForRole / defaultEffortForDirector. */
 export type ModelRole =
   "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
 

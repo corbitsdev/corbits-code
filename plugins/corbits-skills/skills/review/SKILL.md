@@ -305,12 +305,12 @@ Do **not** post when the user only asked for a private/local read with no PR, or
 
 ### Multi-persona reviews
 
-When the workflow ran more than one review lens (for example `critique` for behavioral/architecture, `greybeard` for waivers or product judgment, an OSS/quality agent for packaging and public-API bar), each lens that produced a distinct judgment **posts its own review**. Do not collapse independent verdicts into one mushy "team thinks" paragraph.
+When the workflow ran more than one review lens (for example `critic` for behavioral/architecture, `greybeard` for waivers or product judgment, an OSS/quality agent for packaging and public-API bar), each lens that produced a distinct judgment **posts its own review**. Do not collapse independent verdicts into one mushy "team thinks" paragraph.
 
 | Lens                   | What it owns                                                       | When to post                                                                              |
 | ---------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
 | Primary / orchestrator | Verdict on the branch as it stands; residual findings; waiver list | Always when posting                                                                       |
-| Critique               | Behavioral bugs, missing tests, architecture, commit coherence     | When a critique subagent ran                                                              |
+| Critic                 | Behavioral bugs, missing tests, architecture, commit coherence     | When a critic subagent ran                                                                |
 | Greybeard              | Waiver rulings and intentional exceptions                          | When Greybeard authorized any waiver, or when product/architecture judgment was requested |
 | OSS / quality          | Public-API, packaging, polish bar for shippable surface            | When that lens was explicitly run                                                         |
 
