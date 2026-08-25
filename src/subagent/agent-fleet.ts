@@ -31,21 +31,25 @@
  *
  * Argument shape intentionally mirrors `task()`'s (description/prompt/
  * context/goals/intent/success_criteria/do_not/report_focus) so a
- * caller can swap one for the other. Scope is deliberately narrower than
- * `task()` for this first cut: only closed-director dispatch (`agent=` a
- * director id, or `intent=`) is supported — no custom AgentProfile lookup,
- * no nested orchestration, no re-dispatch ledger. Those remain `task()`-only
- * for now; nothing here stops adding them later.
+ * caller can swap one for the other. Closed-director dispatch also carries
+ * task()'s isolation and spawn-matrix: worktree cwd, parent allowlist,
+ * maySpawn nestedDispatch, and deadline. Custom AgentProfile lookup and the
+ * re-dispatch ledger remain task()-only until task becomes a thin wrapper.
  *
  */
+
+import { join } from "node:path";
 
 import { tool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { type } from "arktype";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { getLogger } from "@intx/log";
 
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
+import { generateSessionId } from "../session/index.js";
 import {
   isDirectorId,
   packageToCapabilities,
@@ -61,13 +65,18 @@ import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import type {
+  NestedDispatchDeps,
   RunSubAgentParams,
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
 } from "./types.js";
+import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
+import type { DirectorPackage } from "../agent/directors/types.js";
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 
 /** Terminal (or running) record for one spawned agent, keyed by agent id. */
 interface FleetRecord {
@@ -346,6 +355,14 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
    * Omit on the primary session — its children are top-level.
    */
   parentSessionId?: string;
+  /** When set, only these director ids may be spawned. */
+  spawnAllowlist?: readonly string[];
+  /** When false, maySpawn directors cannot remount fleet verbs. Defaults true. */
+  allowOrchestrator?: boolean;
+  /** Isolate each spawn in a git worktree branched from dispatcher HEAD. */
+  useWorktree?: boolean;
+  /** Optional wall-clock budget (ms) forwarded to runSubAgent. */
+  deadlineMs?: number;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -373,6 +390,7 @@ export function resolveDirectorDispatch(
       systemPromptRole: string;
       capabilities: ReturnType<typeof packageToCapabilities>;
       roleDefault: ReturnType<typeof defaultEffortForDirector>;
+      pkg: DirectorPackage;
     }
   | { ok: false; error: string } {
   if (agentId !== undefined && agentId.length > 0) {
@@ -391,6 +409,7 @@ export function resolveDirectorDispatch(
       systemPromptRole: formatDirectorSystemPrompt(pkg),
       capabilities: packageToCapabilities(pkg),
       roleDefault: defaultEffortForDirector(pkg),
+      pkg,
     };
   }
   if (intent !== undefined) {
@@ -403,6 +422,7 @@ export function resolveDirectorDispatch(
       systemPromptRole: formatDirectorSystemPrompt(pkg),
       capabilities: packageToCapabilities(pkg),
       roleDefault: defaultEffortForDirector(pkg),
+      pkg,
     };
   }
   return {
@@ -451,12 +471,34 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
       const resolved = resolveDirectorDispatch(agentId, intent);
       if (!resolved.ok) return fleetResult(call.id, resolved.error);
+      if (agentId === "skywalker" || resolved.directorId === "skywalker") {
+        return fleetResult(
+          call.id,
+          "Error: skywalker is the primary session identity, not a spawned worker. Pass spawn_agent(agent=…) for a specialist (builder, explorer, counsel, critic, …).",
+        );
+      }
+      if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
+        if (!deps.spawnAllowlist.includes(resolved.directorId)) {
+          return fleetResult(
+            call.id,
+            `Error: spawn of "${resolved.directorId}" is outside this director's allowlist. Allowed: ${deps.spawnAllowlist.join(", ")}.`,
+          );
+        }
+      }
 
       const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
 
+      const orchestrator = resolved.pkg.spawn.maySpawn === true && deps.allowOrchestrator !== false;
+      const nestedSpawnAllowlist =
+        orchestrator &&
+        resolved.pkg.spawn.allowlist !== undefined &&
+        resolved.pkg.spawn.allowlist.length > 0
+          ? resolved.pkg.spawn.allowlist
+          : undefined;
+
       let provider: SubAgentProvider = resolveDep(deps.provider);
       const effort = resolveEffortForRole({
-        orchestrator: false,
+        orchestrator,
         roleDefault: resolved.roleDefault,
         ...(provider.reasoningEffort !== undefined
           ? { parentEffort: provider.reasoningEffort }
@@ -503,6 +545,52 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       };
 
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
+      let worktreeCwd: string | undefined;
+      let worktreeStashBaseline: readonly string[] | null = [];
+      let worktreeHeadAtCreate: string | undefined;
+      if (deps.useWorktree === true) {
+        const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
+        try {
+          const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
+          worktreeCwd = worktree.path;
+          worktreeStashBaseline = worktree.stashBaseline;
+          worktreeHeadAtCreate = worktree.headAtCreate;
+        } catch (err) {
+          const message =
+            err instanceof WorktreeError
+              ? err.message
+              : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+          deps.fleetRecords.reject(session.id, message);
+          deps.sessions.fail(session.id, message);
+          return fleetResult(call.id, `Error: ${message}`);
+        }
+      }
+
+      const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
+        ? {
+            permissionGate: deps.permissionGate,
+            ...(deps.inheritMcpTools !== undefined
+              ? { inheritMcpTools: deps.inheritMcpTools }
+              : {}),
+            ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+            ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
+            ...(deps.extraToolPlugins !== undefined
+              ? { extraToolPlugins: deps.extraToolPlugins }
+              : {}),
+            ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
+            getWorkdirBase: deps.getWorkdirBase,
+            provider: deps.provider,
+            ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+            ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+            sessions: deps.sessions,
+            ...(settings !== undefined ? { settings } : {}),
+            ...(catalog !== undefined ? { catalog } : {}),
+            parentSessionId: session.id,
+            ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
+            ...(nestedSpawnAllowlist !== undefined ? { spawnAllowlist: nestedSpawnAllowlist } : {}),
+          }
+        : undefined;
+
       const params: RunSubAgentParams = {
         // Name the trace directory after the session-store id so the
         // descendant-scoping check behind read_agent_trace can resolve this
@@ -514,7 +602,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
         ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
         ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
-        cwd: deps.cwd,
+        cwd: worktreeCwd ?? deps.cwd,
         workdirBase: deps.getWorkdirBase(),
         provider,
         ...(settings !== undefined ? { settings } : {}),
@@ -533,6 +621,18 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
         systemPromptRole: resolved.systemPromptRole,
         directorId: resolved.directorId,
+        ...(orchestrator
+          ? {
+              orchestrator: true,
+              orchestratorTier: resolved.pkg.tier,
+              nestedDispatch: nestedDispatch!,
+            }
+          : {}),
+        ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
+        tier: resolved.pkg.tier,
+        ...(resolved.pkg.reportContract?.outputType !== undefined
+          ? { reportType: resolved.pkg.reportContract.outputType }
+          : {}),
         // Keep the session open after a clean completion, and hand the
         // store a bounded close for close_agent to call later.
         persist: true,
@@ -593,6 +693,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             agent_name: agentName,
             status: deps.sessions.get(session.id)?.status ?? "completed",
             duration_ms: Date.now() - startedAt,
+          });
+          if (worktreeCwd === undefined) return;
+          void cleanupSubAgentWorktree(deps.cwd, worktreeCwd, {
+            stashBaseline: worktreeStashBaseline,
+            ...(worktreeHeadAtCreate !== undefined ? { headAtCreate: worktreeHeadAtCreate } : {}),
+          }).catch((err: unknown) => {
+            log.error("spawn_agent worktree cleanup failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
         });
 
