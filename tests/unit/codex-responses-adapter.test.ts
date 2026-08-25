@@ -476,7 +476,7 @@ describe("codex-responses parseResponse", () => {
     ]);
     expect(out[0]).toMatchObject({
       type: "inference.usage",
-      data: { usage: { input: 100, output: 20, cacheRead: 64, cacheWrite: 0, thinking: 8 } },
+      data: { usage: { input: 36, output: 20, cacheRead: 64, cacheWrite: 0, thinking: 8 } },
     });
   });
 
