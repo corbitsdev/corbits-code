@@ -337,6 +337,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         run: runSubAgent,
         sessions: fleetSessions,
         fleetRecords,
+        ...(sa.useWorktree !== undefined ? { useWorktree: sa.useWorktree } : {}),
         ...(sa.onEvent !== undefined ? { onEvent: sa.onEvent } : {}),
         ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),
         ...(sa.settings !== undefined ? { settings: sa.settings } : {}),
