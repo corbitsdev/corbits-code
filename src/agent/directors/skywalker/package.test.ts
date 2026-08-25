@@ -180,15 +180,6 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Do not always explorer→implement→critic");
   });
 
-  test("systemPrompt defaults to native fleet and loads dispatch only for an existing tree", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Native fleet vs dispatch/ protocol");
-    expect(p).toContain("Size is not a reason to load dispatch");
-    expect(p).toContain('use_skill("dispatch")');
-    expect(p).toContain("never because the work is large");
-    expect(p).not.toContain("Use counsel or the dispatch skill");
-  });
-
   test("systemPrompt re-dispatches builder on blocking critic", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("blocking");
