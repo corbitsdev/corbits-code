@@ -669,6 +669,58 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(again.timed_out).toBe(false);
     expect(again.results).toEqual([]);
   });
+
+  test("late salvage attaches after wait collected an early interrupt", async () => {
+    const settle = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+      });
+      return settle.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    // Let onAgentReady register interrupt before we call interrupt_agent.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-1", name: "interrupt_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+
+    const early = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect((early.results as { status: string }[])[0]!.status).toBe("interrupted");
+    expect((early.results as { report?: string }[])[0]!.report).toBeUndefined();
+
+    settle.resolve({
+      report: "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
+      interrupted: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const again = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const results = again.results as { status: string; report?: string }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(results[0]!.report).toContain("salvage");
+  });
 });
 
 describe("close_agent unblocks wait_agents", () => {
