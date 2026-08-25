@@ -57,7 +57,7 @@ function inferenceDone(
   } as unknown as ReactorInboundEvent;
 }
 
-function inferenceDoneText(text: string): ReactorInboundEvent {
+function inferenceDoneText(text: string, inputTokens = 0): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
@@ -66,7 +66,7 @@ function inferenceDoneText(text: string): ReactorInboundEvent {
       timestamp: 0,
       content: [{ type: "text", text }],
     },
-    usage: { input: 0, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    usage: { input: inputTokens, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
     source: { model: "test-model" },
   } as unknown as ReactorInboundEvent;
 }
@@ -476,5 +476,79 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     );
     expect(followup.some((action) => action.type === "infer")).toBe(true);
     expect(followup.some((action) => action.type === "wait")).toBe(false);
+  });
+
+  test("empty continuation after incomplete-report-stop salvage waits instead of re-inferring", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 1000);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(inferenceDoneText("Still looking at the files..."), state, caps);
+    const salvage = actions(
+      await director.decide(inferenceDoneText("Still narrating, no envelope."), state, caps),
+    );
+    expect(salvage).toContainEqual({ type: "checkpoint", message: "subagent-incomplete-report" });
+    expect(salvage.some((action) => action.type === "reply")).toBe(true);
+
+    const afterEmpty = actions(await director.decide(messageReceived(""), state, caps));
+    expect(afterEmpty.some((action) => action.type === "infer")).toBe(false);
+    expect(afterEmpty.some((action) => action.type === "reply")).toBe(false);
+    expect(afterEmpty).toContainEqual({ type: "wait" });
+  });
+
+  test("idle-compact meter path after a report reply waits instead of re-inferring", async () => {
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      1000,
+    );
+    const caps = capabilities();
+
+    // Under-threshold tooling so tool.done does not compact before the report.
+    await director.decide(inferenceDone(["read-1"]), longState, caps);
+    await director.decide(toolDone("read-1"), longState, caps);
+
+    const complete = actions(
+      await director.decide(inferenceDoneText(REPORT_ENVELOPE, 999_999), longState, caps),
+    );
+    expect(complete).toContainEqual({ type: "checkpoint", message: "subagent-complete" });
+    expect(complete.some((action) => action.type === "reply")).toBe(true);
+    // noteIdleTurn arms a continuation so the idle-compact path can run.
+    expect(continuations).toBe(1);
+
+    const compact = actions(await director.decide(messageReceived(""), longState, caps));
+    expect(compact).toEqual([
+      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
+    ]);
+    expect(continuations).toBe(2);
+
+    // Post-compact empty re-entry is meter-only; reportReplied keeps it waiting.
+    const afterMeter = actions(await director.decide(messageReceived(""), longState, caps));
+    expect(afterMeter.some((action) => action.type === "infer")).toBe(false);
+    expect(afterMeter.some((action) => action.type === "reply")).toBe(false);
+    expect(afterMeter).toContainEqual({ type: "wait" });
+  });
+
+  test("repeated empty continuations after a report reply keep waiting", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 1000);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
+
+    const firstEmpty = actions(await director.decide(messageReceived(""), state, caps));
+    expect(firstEmpty.some((action) => action.type === "infer")).toBe(false);
+    expect(firstEmpty).toContainEqual({ type: "wait" });
+
+    const secondEmpty = actions(await director.decide(messageReceived(""), state, caps));
+    expect(secondEmpty.some((action) => action.type === "infer")).toBe(false);
+    expect(secondEmpty.some((action) => action.type === "reply")).toBe(false);
+    expect(secondEmpty).toContainEqual({ type: "wait" });
   });
 });
