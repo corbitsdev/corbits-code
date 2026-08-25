@@ -69,6 +69,18 @@ function withEphemeralNudge(
   return { ...(options ?? {}), ephemeralTurns: [ephemeralNudgeTurn(text)] };
 }
 
+function isEmptyContinuation(event: ReactorInboundEvent): boolean {
+  if (event.type !== "message.received") return false;
+  const content = event.message.content;
+  return typeof content === "string" && content.length === 0;
+}
+
+function isNonEmptyParentMessage(event: ReactorInboundEvent): boolean {
+  if (event.type !== "message.received") return false;
+  const content = event.message.content;
+  return typeof content === "string" && content.length > 0;
+}
+
 export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
@@ -94,6 +106,13 @@ export class SubAgentDirector extends DefaultDirector {
   // narration without the envelope salvages as incomplete-report
   // (MAX_TOOLLESS_NARRATION_CYCLES = 2).
   private toolLessNarrationCycles = 0;
+
+  // Once this leaf has replied with a terminal report (complete envelope or
+  // salvage), empty continuations from idle-compact / stall must not fall
+  // through to DefaultDirector.infer — that re-opens the brief without a new
+  // parent message (CL-7068). Cleared only by a non-empty parent message
+  // (followup_task / send_input).
+  private reportReplied = false;
 
   // Stall management: a leaf that goes quiet (e.g. parked on a long-running
   // background command with nothing else to do) produces no inbound events
@@ -166,14 +185,20 @@ export class SubAgentDirector extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    // A real parent follow-up re-opens the brief; empty continuations do not.
+    if (isNonEmptyParentMessage(event)) {
+      this.reportReplied = false;
+    }
+
     const afterCompact = this.compaction.resumeAfterCompact(event);
     if (afterCompact !== null) {
       // Compacted history is the live occupancy until the next provider-
       // reported inference.done; paint from the estimate in the meantime.
       this.compaction.notePostCompact(state.turns ?? []);
       // Idle empty compact only needed the decide re-entry to sync the meter;
-      // stay idle rather than starting an unprompted inference.
-      if (afterCompact === "meter") return capabilities.wait();
+      // stay idle rather than starting an unprompted inference. Same for any
+      // post-compact resume after this leaf already replied its report.
+      if (afterCompact === "meter" || this.reportReplied) return capabilities.wait();
       return this.applyPendingNudge([capabilities.infer()], capabilities);
     }
     const idleCompact = this.compaction.interceptIdleContinuation(event, capabilities);
@@ -187,6 +212,12 @@ export class SubAgentDirector extends DefaultDirector {
         this.pendingNudgeText = this.lastConsumedNudgeText;
       }
       return recovery;
+    }
+
+    // After a terminal report reply, empty idle-compact / stall pings must
+    // not reach DefaultDirector (which always infers on message.received).
+    if (this.reportReplied && isEmptyContinuation(event)) {
+      return capabilities.wait();
     }
 
     const stallOutcome = this.checkStallPing(event, capabilities);
@@ -223,6 +254,7 @@ export class SubAgentDirector extends DefaultDirector {
       });
 
       if (stop === "complete") {
+        this.reportReplied = true;
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-complete"),
           capabilities.reply(lastText(content)),
@@ -256,6 +288,7 @@ export class SubAgentDirector extends DefaultDirector {
           detail: "no report envelope after the wrap-up nudge",
         });
         this.onForcedStop("incomplete-report");
+        this.reportReplied = true;
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-incomplete-report"),
           capabilities.reply(
@@ -338,6 +371,7 @@ export class SubAgentDirector extends DefaultDirector {
       detail: `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
     });
     this.onForcedStop("stalled");
+    this.reportReplied = true;
     const terminal: ReactorAction[] = [
       capabilities.checkpoint("subagent-stalled"),
       capabilities.reply(
