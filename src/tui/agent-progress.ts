@@ -16,6 +16,9 @@
 /** Minimal session shape this module reads — avoids a hard dep on the store. */
 export interface AgentProgressSession {
   readonly status: "running" | "done" | "failed" | "cancelled";
+  /** Present when the strip knows lifecycle independently of TUI status. */
+  readonly lifecycleStatus?:
+    "pending_init" | "running" | "interrupted" | "completed" | "shutdown" | "not_found";
   readonly currentToolName: string | null;
   /**
    * Bounded subject of the oldest outstanding call (command, path, pattern…),
@@ -145,6 +148,17 @@ export function agentProgress(
         : null;
   const hasSubject = subject !== null;
   const state = laneState(session, nowMs, stallMs);
+
+  if (session.lifecycleStatus === "interrupted") {
+    const toolBit =
+      hasSubject && session.currentToolName !== null ? ` · ${subject} still running` : "";
+    return {
+      stat: `interrupted${toolBit}`,
+      state,
+      working: false,
+      stalled: false,
+    };
+  }
 
   const base = hasSubject ? `${elapsed} · ${subject}` : elapsed;
   // Never render "quiet" — operator chrome only shows motion (elapsed / tool).

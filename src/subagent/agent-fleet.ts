@@ -131,13 +131,19 @@ class FleetRecords {
 
   /**
    * Marks a still-running record interrupted so wait_agents unblocks.
-   * No-op on an already-terminal id — interrupt must not clobber a collected
-   * report, and a late interrupt after complete/fail is meaningless.
+   * No-op on an already-terminal id that is not interrupted — a late
+   * interrupt after complete/fail is meaningless. A late salvage report may
+   * still attach to an interrupted record that has none yet (including after
+   * an early collect), but never overwrites an existing report.
    */
   interrupt(id: string, report?: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
-    if (existing.status === "interrupted" && existing.collected !== true && report !== undefined) {
+    if (
+      existing.status === "interrupted" &&
+      report !== undefined &&
+      existing.report === undefined
+    ) {
       existing.report = report;
       this.notify();
       return;
