@@ -269,10 +269,13 @@ const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
 const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 
 // Interpreters whose `-c` / `--command` payload is an independent shell subject.
-const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+// Exported so tests and callers share one explicit list with the peeler.
+export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 // Transparent prefixes that sit in front of a real program without changing it.
 const PREFIX_WRAPPERS = new Set(["command", "env", "builtin", "time", "nice", "nohup", "timeout"]);
-const MAX_PEEL_DEPTH = 4;
+// Max recursive peel depth for nested wrappers. Exported so the depth cap is a
+// named policy knob tests can assert against, not a magic number.
+export const MAX_PEEL_DEPTH = 4;
 
 // xargs flags that consume the following token as a value.
 const XARGS_VALUE_FLAGS = new Set([
@@ -371,6 +374,43 @@ function rejoinTokens(tokens: string[]): string | null {
   return quoted.join(" ");
 }
 
+// True when a token is a safe `$0`/`$1` positional after `bash -c 'script'` —
+// a plain word with no shell syntax. Anything else after the -c payload is
+// treated as evidence the quoted body was split by a tokenizer that does not
+// honor backslash-escapes (classic `bash -c "…\"…"` degradation).
+function isSafeShellPositional(token: string): boolean {
+  if (token.startsWith("-") && token !== "-") return false;
+  if (token.includes("\\")) return false;
+  if (/[><|&;`$]/.test(token)) return false;
+  return SAFE_REJOIN_TOKEN.test(token);
+}
+
+// `\bash` / `\sh` — tokenize artifact from peeling through an escaped quote.
+function isBackslashInterpreterToken(token: string): boolean {
+  const base = programBasename(token);
+  return base.startsWith("\\") && SHELL_INTERPRETERS.has(base.slice(1));
+}
+
+function shellPayloadReferencesPositional(payload: string): boolean {
+  return /\$(?:[0-9@*#]|\{(?:[0-9]+|[@*#])\})/.test(payload);
+}
+
+function nestedInterpreterPayloadOpaque(payload: string, rest: readonly string[]): boolean {
+  if (isBackslashInterpreterToken(payload)) return true;
+  const first = tokenize(payload)[0];
+  if (first !== undefined && isBackslashInterpreterToken(first)) return true;
+  // The payload can execute trailing argv through $0/$1/... substitution, so
+  // the payload alone is not a faithful subject for dependency-install policy.
+  if (rest.length > 0 && shellPayloadReferencesPositional(payload)) return true;
+  // Trailing tokens after the -c payload: allow only plain positionals.
+  // `-c`, redirects, backslashes, or flags mean the quoted body was split and
+  // the truncated payload must not be trusted on its own under auto.
+  if (rest.length > 0 && !rest.every(isSafeShellPositional)) return true;
+  return false;
+}
+
+const SHELL_SEPARATE_VALUE_FLAGS = new Set(["-O", "-o"]);
+
 function peelShellDashC(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
@@ -382,18 +422,28 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
     if (t === "-c" || t === "--command") {
       const payload = tokens[i + 1];
       if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      const rest = tokens.slice(i + 2);
+      if (nestedInterpreterPayloadOpaque(payload, rest)) return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (t.startsWith("--command=")) {
       const payload = t.slice("--command=".length);
       if (isOpaquePayload(payload)) return { kind: "opaque" };
+      // Glued `--command=` has no separate rest tokens; still reject `\bash`.
+      if (nestedInterpreterPayloadOpaque(payload, [])) return { kind: "opaque" };
       return { kind: "inner", command: payload };
+    }
+    if (SHELL_SEPARATE_VALUE_FLAGS.has(t)) {
+      i += 2;
+      continue;
     }
     // Clustered short flags that include `c` (`-lc`, `-ic`, …): `c` takes the
     // next token as the command string, matching bash/sh/zsh.
     if (/^-[A-Za-z]*c[A-Za-z]*$/.test(t)) {
       const payload = tokens[i + 1];
       if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      const rest = tokens.slice(i + 2);
+      if (nestedInterpreterPayloadOpaque(payload, rest)) return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (t.startsWith("-") && t !== "-") {
@@ -808,7 +858,15 @@ export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH):
       seen.add(stripped);
       subjects.push(stripped);
     }
-    if (depth >= maxDepth) return;
+    if (depth >= maxDepth) {
+      // Depth exhausted while this subject may still be a nested interpreter
+      // wrapper. Mark opaque so auto cannot accept a leaf we never fully peeled.
+      for (const segment of splitChainedCommand(trimmed)) {
+        const peeled = peelOnce(segment);
+        if (peeled.kind === "inner" || peeled.kind === "opaque") opaque = true;
+      }
+      return;
+    }
 
     for (const segment of splitChainedCommand(trimmed)) {
       const peeled = peelOnce(segment);
