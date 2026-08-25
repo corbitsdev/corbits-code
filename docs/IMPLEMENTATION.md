@@ -172,9 +172,9 @@ Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-au
 
 When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOLS` and any `run_shell` that does not match the auto-shell policy. The policy (`autoShellRuleForCall` / `AUTO_SHELL_RULES` in `src/permission/auto-shell-policy.ts`) peels wrappers via `expandShellSubjects` (`bash`/`sh`/`zsh -c`, `xargs`, transparent prefixes), then applies:
 
-| Effect   | Categories                                                                                                                                                                                             |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc)                                                                                                         |
+| Effect   | Categories                                                                                                                                                                                                                  |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc)                                                                                                                              |
 | **ask**  | Dependency installs / remote runners, recursive `rm`, force or uncontained git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
 
 Unmatched shell auto-allows, including contained non-force `git worktree add`/`remove`/`prune` and read-only `list`. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
