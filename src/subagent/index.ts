@@ -16,6 +16,7 @@ export {
   fleetDigest,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
+  liveFleetCount,
   observeFleet,
   type FleetLane,
   type FleetObservation,

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createFleetWatch, fleetDigest, observeFleet, type FleetLane } from "./fleet-report.js";
+import {
+  createFleetWatch,
+  fleetDigest,
+  liveFleetCount,
+  observeFleet,
+  type FleetLane,
+} from "./fleet-report.js";
 
 const T0 = 1_000_000;
 
@@ -15,6 +21,24 @@ function lane(overrides: Partial<FleetLane> & { id: string }): FleetLane {
     ...overrides,
   };
 }
+
+describe("liveFleetCount", () => {
+  test("counts only running lanes — the idle-with-fleet hold reads the same definition", () => {
+    const lanes = [
+      lane({ id: "a" }),
+      lane({ id: "b", status: "done", report: "## Summary\nDone." }),
+      lane({ id: "c", status: "failed", error: "boom" }),
+      lane({ id: "d", status: "cancelled" }),
+      lane({ id: "e" }),
+    ];
+    expect(liveFleetCount(lanes)).toBe(2);
+  });
+
+  test("an empty or fully-terminal fleet counts zero", () => {
+    expect(liveFleetCount([])).toBe(0);
+    expect(liveFleetCount([lane({ id: "a", status: "done", report: "x" })])).toBe(0);
+  });
+});
 
 describe("observeFleet", () => {
   test("the first observation seeds without announcing an in-flight fleet", () => {

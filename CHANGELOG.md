@@ -13,6 +13,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### TUI
+
+- Idle-with-fleet is real: after Skywalker dispatches workers with `spawn_agent`
+  and ends its turn, the session holds itself open while they run. Enter starts
+  a new primary turn immediately instead of queueing a soft-steer behind a
+  parent tool that no longer exists; Alt+Enter follow-ups still wait for true
+  session-idle (parent idle and no live fleet lanes), delivering the moment the
+  last worker terminalizes. Ctrl+C stop policy is unchanged.
+
 ## [0.3.2] - 2026-08-25
 
 ### Agent
