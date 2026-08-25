@@ -397,16 +397,54 @@ async function runTaskViaFleet(input: {
     if (result === undefined) {
       return taskToolResult(input.callId, `Error: wait_agents returned no result for ${agentId}.`);
     }
-    if (result.status === "failed") {
+    // Cancel must not be misclassified as failed:abort — strip cancel /
+    // AbortError leaves fleetRecords as failed with "aborted" while the
+    // session store holds cancelled + the operator reason. A cancel that
+    // still resolved a salvage body (fleet status done) keeps the report,
+    // matching the fused task() race contract.
+    const session = input.sessions.get(agentId);
+    if (session?.status === "cancelled") {
+      if (
+        (result.status === "done" || result.status === "interrupted") &&
+        typeof result.report === "string" &&
+        result.report.length > 0
+      ) {
+        return taskToolResult(
+          input.callId,
+          `Sub-agent "${input.description}" reported:\n\n${result.report}`,
+        );
+      }
       return taskToolResult(
         input.callId,
-        `Error: sub-agent "${input.description}" failed: ${result.error ?? "unknown error"}`,
+        cancelledSubAgentMessage(input.description, session.error),
+      );
+    }
+    if (result.status === "failed") {
+      const errText = result.error ?? "unknown error";
+      // Auth failures already carry the actionable Re-authenticate wording
+      // from formatSubAgentTaskAuthFailureMessage (baked in spawn catch).
+      if (errText.includes("Re-authenticate")) {
+        return taskToolResult(input.callId, `Error: ${errText}`);
+      }
+      return taskToolResult(
+        input.callId,
+        `Error: sub-agent "${input.description}" failed: ${errText}`,
       );
     }
     const report = result.report ?? "";
     return taskToolResult(input.callId, `Sub-agent "${input.description}" reported:\n\n${report}`);
   }
-  return taskToolResult(input.callId, `Sub-agent "${input.description}" cancelled by operator.`);
+  // Parent tool abort must cancel the child — wait_agents itself has no
+  // abort side effects (workers stay waitable), so task()'s fused contract
+  // owns the cancel here.
+  if (input.sessions.get(agentId)?.status === "running") {
+    input.sessions.cancel(agentId);
+  }
+  const cancelled = input.sessions.get(agentId);
+  return taskToolResult(
+    input.callId,
+    cancelledSubAgentMessage(input.description, cancelled?.error),
+  );
 }
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
