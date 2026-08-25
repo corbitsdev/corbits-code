@@ -23,7 +23,7 @@ import {
   surfaceSystemNotice,
   toggleTasksPanel,
 } from "./shell";
-import { makeOperatorQuestion, openOperatorOverlay, openPermissionsOverlay } from "./overlays";
+import { makePermissionItems, openPermissionsOverlay } from "./overlays";
 import {
   LANDING_HINTS,
   LANDING_SUGGESTIONS,
@@ -429,11 +429,26 @@ describe("landing screen", () => {
           // together before the overlay opens.
           expect(was).toEqual([...was].sort((a, b) => a - b));
 
-          // Inset permission overlay: landing stays visible and only slides as
-          // far as the overlay's content needs. Operator asks use full_shell
-          // (CL-7067) and hide the landing instead — that path is covered in
-          // overlays.test.ts.
-          openPermissionsOverlay(shell, { items: ["Allow once", "Allow session", "Deny"] });
+          // Heavy inset permission overlay: many choices plus a multi-line body
+          // so the float must take real headroom from the landing split. A
+          // three-item empty body leaves message delta 0 and would pass even if
+          // the split never slid. Operator asks use full_shell (CL-7067) and
+          // hide the landing instead — that path is covered in overlays.test.ts.
+          const heavyBody = [
+            "run_shell",
+            "Run shell command",
+            "Proposed: git reset --hard origin/main && rm -rf node_modules",
+            "Files at risk: 128 modified, 12 untracked.",
+            "Continue only if you accept discarding local work.",
+            "Also note: this path was requested by the explore agent.",
+            "Scopes include session, project, and once-only grants.",
+            "Review carefully before approving this request.",
+          ].join("\n");
+          openPermissionsOverlay(shell, {
+            items: makePermissionItems(16),
+            body: heavyBody,
+          });
+          expect(shell.layout.overlayMode).toBe("inset");
           await settle(h);
           const after = rows(h);
           // Every landing anchor is still on screen and in the same relative
@@ -446,6 +461,9 @@ describe("landing screen", () => {
           expect(nowAt.every((index) => index > 0)).toBe(true);
           expect(nowAt).toEqual([...nowAt].sort((a, b) => a - b));
           expect(new Set(nowAt).size).toBe(nowAt.length);
+          // Real geometry pressure: the prompt field moves so the inset can
+          // claim rows the even split would not have given it.
+          expect(nowAt[0]).not.toBe(was[0]);
           expect(h.captureCharFrame()).toContain("Esc cancel");
         } finally {
           shell.dispose();
@@ -455,12 +473,14 @@ describe("landing screen", () => {
     );
   });
 
-  // A question with more choices than the even top/bottom split would leave
-  // room for used to get its list starved down to whatever that split
-  // happened to allow — as little as one or two choices — because the float
-  // only asked the split for one choice row of headroom. It now asks for the
-  // overlay's real, already fraction-capped content height, so a terminal
+  // An inset permission list with more choices than the even top/bottom split
+  // would leave room for used to get its list starved down to whatever that
+  // split happened to allow — as little as one or two choices — because the
+  // float only asked the split for one choice row of headroom. It now asks for
+  // the overlay's real, already fraction-capped content height, so a terminal
   // tall enough for that content shows every choice without scrolling.
+  // Operator full_shell hides the landing (CL-7067); this coverage stays on
+  // the inset permission path that still floats over landing.
   test("a landing overlay with many choices shows them all when there is room", async () => {
     await withTestRenderer(
       async (h) => {
@@ -470,10 +490,15 @@ describe("landing screen", () => {
           run: "idle",
         });
         try {
-          openOperatorOverlay(shell);
+          const items = makePermissionItems(8);
+          openPermissionsOverlay(shell, {
+            items,
+            body: "run_shell\nRun shell command\nbun test src/tui",
+          });
+          expect(shell.layout.overlayMode).toBe("inset");
           await settle(h);
           const frame = h.captureCharFrame();
-          for (const choice of makeOperatorQuestion().choices) {
+          for (const choice of items) {
             expect(frame).toContain(choice);
           }
         } finally {
