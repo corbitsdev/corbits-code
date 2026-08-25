@@ -23,7 +23,7 @@ import {
   surfaceSystemNotice,
   toggleTasksPanel,
 } from "./shell";
-import { makeOperatorQuestion, openOperatorOverlay } from "./overlays";
+import { makeOperatorQuestion, openOperatorOverlay, openPermissionsOverlay } from "./overlays";
 import {
   LANDING_HINTS,
   LANDING_SUGGESTIONS,
@@ -429,7 +429,11 @@ describe("landing screen", () => {
           // together before the overlay opens.
           expect(was).toEqual([...was].sort((a, b) => a - b));
 
-          openOperatorOverlay(shell);
+          // Inset permission overlay: landing stays visible and only slides as
+          // far as the overlay's content needs. Operator asks use full_shell
+          // (CL-7067) and hide the landing instead — that path is covered in
+          // overlays.test.ts.
+          openPermissionsOverlay(shell, { items: ["Allow once", "Allow session", "Deny"] });
           await settle(h);
           const after = rows(h);
           // Every landing anchor is still on screen and in the same relative
