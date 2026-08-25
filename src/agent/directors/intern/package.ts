@@ -7,8 +7,7 @@ import { INTERN_TOOLS } from "../tool-sets.js";
  */
 export const internPackage: DirectorPackage = {
   id: "intern",
-  primaryIntent:
-    "Execute clear mechanical instructions exactly — zero judgment, zero invention",
+  primaryIntent: "Execute clear mechanical instructions exactly — zero judgment, zero invention",
   outOfLane: [
     "debugging failures or inventing fixes",
     "decisions not covered by the brief",
