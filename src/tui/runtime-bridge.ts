@@ -254,6 +254,7 @@ function isBridgeInbound(event: { type: string }): event is BridgeInboundEvent {
     case "tool_result":
     case "system":
     case "run":
+    case "fleet":
     case "tool.boundary":
     case "error":
       return true;
@@ -332,6 +333,13 @@ interface BridgeBag {
   mapCtx: StreamMapContext;
   disposed: boolean;
   turn: TurnState;
+  /**
+   * Live fleet-lane count from the last `fleet` event (idle-with-fleet).
+   * While this is above zero a settled parent turn holds the run busy —
+   * Enter upgrades to a new primary turn, follow-ups keep waiting for true
+   * session-idle — and the hold releases when the count lands back at zero.
+   */
+  liveFleet: number;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
   /** One auto-retry per rate-limit window. */
@@ -741,8 +749,47 @@ function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   paintChrome(shell);
 }
 
+/**
+ * Release the run to idle and drain everything queued — but only at true
+ * session-idle. A live fleet holds the run busy after the parent turn settles
+ * (idle-with-fleet): Enter upgrades to a new primary turn during the hold and
+ * follow-ups keep waiting; the fleet event landing at zero re-enters here to
+ * release the hold.
+ */
+function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
+  if (shell.session.run !== "busy") return;
+  bag.turnThinking = null;
+  shell.inFlightTool = null;
+  if (bag.liveFleet > 0) {
+    // Hold: the fleet is still live, so the run stays busy. Steers left
+    // pending deliver now — the parent they were steering has stopped, so
+    // each one just starts its own turn — while follow-ups keep waiting.
+    drainSteersAtBoundary(shell, bag);
+    return;
+  }
+  shell.session = setRunState(shell.session, "idle");
+  // Full drain: soft steers first, then follow-ups (drainOrder).
+  drainAtBoundary(shell, bag);
+}
+
 function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent): void {
   if (bag.disposed) return;
+
+  // Fleet liveness owns no transcript row state, so it is handled before the
+  // open-row machinery — a lane terminalizing mid-parent-stream must not
+  // close the assistant row the parent's own deltas are growing.
+  if (event.type === "fleet") {
+    // Idle-with-fleet bookkeeping. A transition to zero while the parent is
+    // already idle releases the hold: that moment is true session-idle, so
+    // queued follow-ups drain now. While the parent is still working the
+    // count just updates — the ordinary turn settle does the draining.
+    bag.liveFleet = event.running;
+    if (event.running === 0 && !bag.turn.isProcessing) {
+      settleRunToIdle(shell, bag);
+    }
+    paintChrome(shell);
+    return;
+  }
 
   if (event.type === "assistant.delta") {
     growOpenRow(shell, bag, "assistant", event.text);
@@ -770,16 +817,13 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
   if (event.type === "user" && consumeEcho(bag, event.text)) return;
 
   if (event.type === "run") {
-    if (event.state === "idle") {
-      bag.turnThinking = null;
-      shell.inFlightTool = null;
+    if (event.state === "busy") {
+      shell.session = setRunState(shell.session, "busy");
+      paintChrome(shell);
+      return;
     }
-    shell.session = setRunState(shell.session, event.state);
+    settleRunToIdle(shell, bag);
     paintChrome(shell);
-    if (event.state === "idle") {
-      // Full drain: soft steers first, then follow-ups (drainOrder).
-      drainAtBoundary(shell, bag);
-    }
     return;
   }
 
@@ -831,6 +875,7 @@ export function attachSessionBridge(
     mapCtx: createStreamMapContext(),
     disposed: false,
     turn: initialTurnState(now()),
+    liveFleet: 0,
     lastSentMessage: "",
     quotaFired: false,
     now,
@@ -985,15 +1030,14 @@ export function attachSessionBridge(
   };
 
   /**
-   * A settled turn hands the session back to the operator. A chat session's
-   * terminator is `connector.reply`, which maps to no `run` event, so without
-   * this the shell would stay busy — offering the stop key and holding queued
-   * prompts — for the rest of the session.
+   * A settled turn hands the session back to the operator — unless a live
+   * fleet holds it busy (idle-with-fleet, see `settleRunToIdle`). A chat
+   * session's terminator is `connector.reply`, which maps to no `run` event,
+   * so without this the shell would stay busy — offering the stop key and
+   * holding queued prompts — for the rest of the session.
    */
   const settleRun = (): void => {
-    if (shell.session.run === "idle") return;
-    shell.session = setRunState(shell.session, "idle");
-    drainAtBoundary(shell, bag);
+    settleRunToIdle(shell, bag);
   };
 
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
@@ -1024,6 +1068,8 @@ export function attachSessionBridge(
     kind: "queue" | "steer" | "immediate" | "reinject",
     attachments?: readonly PendingImageAttachment[],
   ): void => {
+    // A steer is a queued boundary delivery only while the parent turn is
+    // actually in flight; see `parentIdleWithFleet` below for the exception.
     if (bag.disposed) return;
     const t = text.trim();
     const attached = attachments ?? [];
@@ -1070,7 +1116,17 @@ export function attachSessionBridge(
       bag.turn = turnStateOnInterrupt(bag.turn, now());
     }
 
-    if (kind === "immediate" || kind === "reinject" || shell.session.run === "idle") {
+    // Idle-with-fleet: the parent turn has settled while spawned workers are
+    // still live, so the run is only nominally busy. Plain Enter is a new
+    // primary turn right now — not a queued steer waiting on a parent tool
+    // that no longer exists.
+    const parentIdleWithFleet = kind === "steer" && bag.liveFleet > 0 && !bag.turn.isProcessing;
+    if (
+      kind === "immediate" ||
+      kind === "reinject" ||
+      shell.session.run === "idle" ||
+      parentIdleWithFleet
+    ) {
       appendStreamRow(shell, {
         role: "user",
         text: userRowText(t, attached),

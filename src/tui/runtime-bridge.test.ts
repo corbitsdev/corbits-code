@@ -881,6 +881,183 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
   });
 });
 
+describe("idle-with-fleet (CL-7057)", () => {
+  /** A tool-less turn settles on inference.done — the spawn_agent dispatch shape. */
+  function settleToollessTurn(bridge: ReturnType<typeof attachSessionBridge>): void {
+    bridge.handle({ type: "inference.start", data: {} });
+    bridge.handle({ type: "inference.done", data: {} });
+  }
+
+  test("parent settles while fleet is live: run holds busy, follow-up keeps waiting", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 2 });
+          bridge.submit("follow up later", "queue");
+          port.clear();
+          settleToollessTurn(bridge);
+          // The parent turn settled but the fleet is live: the run stays
+          // busy and the follow-up does not drain at mere parent-idle.
+          expect(shell.session.run).toBe("busy");
+          expect(badgeCount(shell.session)).toBe(1);
+          expect(port.calls).toEqual([]);
+          await h.renderOnce();
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Enter mid-hold starts a new primary turn instead of queueing a steer", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          // Hold state: live fleet + settled parent turn.
+          bridge.handle({ type: "fleet", running: 2 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+          port.clear();
+
+          shell.prompt.value = "also update the docs";
+          shell.prompt.submit();
+          // A new turn, not a queued steer waiting on a tool that no longer
+          // exists.
+          expect(port.calls.some((c) => c.op === "enqueue")).toBe(false);
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(true);
+          expect(badgeCount(shell.session)).toBe(0);
+          expect(shell.session.run).toBe("busy");
+          await h.renderOnce();
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Alt+Enter mid-hold queues the follow-up; last lane terminalizing drains it at session-idle", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+
+          bridge.submit("when it finishes, summarize", "queue");
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+
+          // The last lane terminalizes: the hold releases, the run idles,
+          // and only now does the queued follow-up deliver.
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(shell.session.run).toBe("idle");
+          expect(badgeCount(shell.session)).toBe(0);
+          const deliver = port.calls.find((c) => c.op === "deliver");
+          expect(deliver).toEqual({
+            op: "deliver",
+            item: expect.objectContaining({ text: "when it finishes, summarize", kind: "queue" }),
+          });
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a steer left pending at hold engagement delivers immediately; the hold stays on", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("dispatch workers", "immediate");
+          // Parent busy (turn in flight): this steer queues for the boundary.
+          bridge.submit("one more worker", "steer");
+          bridge.handle({ type: "fleet", running: 1 });
+          port.clear();
+          settleToollessTurn(bridge);
+          // The parent the steer was addressing has stopped, so it delivers
+          // as its own turn right away instead of sitting out the hold — but
+          // the run itself stays held by the live fleet.
+          expect(shell.session.run).toBe("busy");
+          expect(badgeCount(shell.session)).toBe(0);
+          const deliver = port.calls.find((c) => c.op === "deliver");
+          expect(deliver).toEqual({
+            op: "deliver",
+            item: expect.objectContaining({ text: "one more worker", kind: "steer" }),
+          });
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("fleet count reaching zero mid-turn does not idle a working parent", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          // The lone worker fails immediately while the parent is still
+          // streaming its reply: no release, no premature idle.
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("idle");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
 describe("syncAgentProgress", () => {
   function taskSession(over: Partial<TaskProgressSession>): TaskProgressSession {
     return {
