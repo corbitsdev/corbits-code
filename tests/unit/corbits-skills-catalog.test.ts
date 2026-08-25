@@ -112,6 +112,22 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("typescript skill guides TS quality without fake enforcement", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/typescript/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain("import type");
+  expect(skill).toContain("arktype");
+  expect(skill).toContain("unknown");
+  expect(skill).toContain("create*");
+  expect(skill).toContain("bun:test");
+  expect(skill).toContain("Guidance for TypeScript output quality");
+  expect(skill).toContain("When project conventions disagree");
+  expect(skill).not.toContain('import t from "tap"');
+  expect(skill).not.toContain("new Cache");
+  expect(skill).not.toMatch(/^## Quick Reference$/m);
+  expect(skill).not.toMatch(/^### Don't$/m);
+});
+
 test("implement skill is a sequential Skywalker spawn recipe without a false 4-cap", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
   expect(skill).toContain("You are Skywalker");
