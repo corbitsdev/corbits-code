@@ -174,7 +174,7 @@ describe("spawn_agent + wait_agents", () => {
     expect(secondResults[0]!.report).toBe("finished");
   });
 
-  test("wait_agents with no targets waits on all currently running spawned agents", async () => {
+  test("wait_agents with no targets waits on all uncollected agents in this fleet", async () => {
     const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
     let callIndex = 0;
     const deps = makeDeps(async () => gates[callIndex++]!.promise);
@@ -460,6 +460,64 @@ describe("wait_agents caller scope", () => {
     expect(finished.timed_out).toBe(false);
     const finishedResults = finished.results as { status: string }[];
     expect(finishedResults.every((r) => r.status === "done")).toBe(true);
+  });
+
+  test("mode=all with one interrupted target stays blocked until siblings finish", async () => {
+    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    let callIndex = 0;
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+      });
+      return gates[callIndex++]!.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const first = await callTool(spawn, {
+      description: "a",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const second = await callTool(spawn, {
+      description: "b",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const ids = [first.agent_id as string, second.agent_id as string];
+
+    // Interrupt one of N while mode=all is in flight: interrupted is terminal
+    // for that target, but mode=all must not complete as "all done" while a
+    // sibling is still running.
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-1", name: "interrupt_agent", arguments: { target: ids[0]! } },
+      new AbortController().signal,
+    );
+
+    const partial = await callTool(wait, { targets: ids, mode: "all", timeout_ms: 50 });
+    expect(partial.timed_out).toBe(true);
+    const partialResults = partial.results as { agent_id: string; status: string }[];
+    expect(partialResults.find((r) => r.agent_id === ids[0]!)?.status).toBe("interrupted");
+    expect(partialResults.find((r) => r.agent_id === ids[1]!)?.status).toBe("running");
+
+    gates[1]!.resolve({ report: "b done" });
+    const finished = await callTool(wait, { targets: ids, mode: "all", timeout_ms: 5000 });
+    expect(finished.timed_out).toBe(false);
+    const finishedResults = finished.results as { agent_id: string; status: string }[];
+    expect(finishedResults.find((r) => r.agent_id === ids[0]!)?.status).toBe("interrupted");
+    expect(finishedResults.find((r) => r.agent_id === ids[1]!)?.status).toBe("done");
+    // Leave the interrupted gate unresolved — interrupt unblocked the wait
+    // without the run settling.
   });
 
   test("aborting the wait returns without cancelling workers", async () => {

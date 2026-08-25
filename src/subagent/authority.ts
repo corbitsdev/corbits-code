@@ -109,14 +109,9 @@ function isDescendant(
 }
 
 /**
- * SEAM, NOT YET A LIVE GATE: this function has no production call site today.
- * No verb in this codebase currently lets one live agent target another
- * (`task` only spawns; it never addresses an existing session), so the
- * subtree rule below is exercised only by authority.test.ts — it is not
- * enforced at runtime yet. It exists now so future verbs that make one
- * agent addressable by another can call it from day one instead of
- * inventing their own check. Until one of those wires a call site here, do
- * not describe this rule as enforced; only assertTierMayMountFleetVerb is.
+ * Live gate for `read_agent_trace` (and any future verb that addresses an
+ * existing session). Callers that only spawn (`task`, `spawn_agent`) never
+ * reach this check.
  *
  * Authority rule (root owns its tree; a child manages only its own
  * descendants): throws unless `actor` is Tier 1, or `targetId` is `actor.id`

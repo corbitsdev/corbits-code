@@ -87,9 +87,14 @@ function descendantsClosingOrder(
 
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
-  /** When set, interrupt_agent terminalizes this wait mailbox immediately. */
+  /** Optional for close/resume/followup; interrupt requires it (see InterruptAgentToolDeps). */
   fleetRecords?: FleetRecordsHandle;
 }
+
+/** interrupt_agent always terminalizes the wait mailbox — no silent skip. */
+export type InterruptAgentToolDeps = LifecycleToolDeps & {
+  fleetRecords: FleetRecordsHandle;
+};
 
 export function createCloseAgentTool(deps: LifecycleToolDeps): AgentTool {
   return tool({
@@ -173,7 +178,7 @@ export const interruptAgentToolDefinition: ToolDefinition = {
   },
 };
 
-export function createInterruptAgentTool(deps: LifecycleToolDeps): AgentTool {
+export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentTool {
   return tool({
     definition: interruptAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -194,7 +199,7 @@ export function createInterruptAgentTool(deps: LifecycleToolDeps): AgentTool {
       }
       // Wait mailbox is separate from the TUI strip — flip it here so
       // wait_agents does not stay blocked on a still-"running" record.
-      deps.fleetRecords?.interrupt(target);
+      deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
         JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),
