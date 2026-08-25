@@ -79,7 +79,12 @@ describe("counselPackage", () => {
   });
 
   test("optionalSkills order", () => {
-    expect(counselPackage.optionalSkills).toEqual(["style", "philosophy", "interview"]);
+    expect(counselPackage.optionalSkills).toEqual(["style", "philosophy"]);
+  });
+
+  test("does not advertise interview skill workers cannot use", () => {
+    expect(counselPackage.optionalSkills).not.toContain("interview");
+    expect(counselPackage.systemPrompt).not.toMatch(/interview-skill awareness/i);
   });
 
   test("primaryIntent and outOfLane match counsel / plan lane", () => {

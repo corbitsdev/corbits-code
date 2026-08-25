@@ -27,3 +27,5 @@ export {
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
 } from "./identity.js";
+
+export { formatBakedOptionalSkills, loadBakedSkillBody } from "./bake-skills.js";
