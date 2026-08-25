@@ -18,7 +18,7 @@ function agentModule(
 }
 
 const validProfile = {
-  id: "explorer",
+  id: "scout",
   description: "Repository exploration sub-agent",
   capabilities: { mode: "allow" as const, tools: ["read_file", "search_files", "grep"] },
   systemPromptRole: "You explore repositories.",
@@ -29,7 +29,7 @@ describe("resolveAgentPluginProfiles", () => {
     const { mod, config } = agentModule("p1", [validProfile]);
     const profiles = await resolveAgentPluginProfiles([mod], config);
     expect(profiles.length).toBe(1);
-    expect(profiles[0]!.id).toBe("explorer");
+    expect(profiles[0]!.id).toBe("scout");
   });
 
   test("skips profiles from disabled plugins", async () => {
@@ -60,7 +60,7 @@ describe("resolveAgentPluginProfiles", () => {
     ]);
     const profiles = await resolveAgentPluginProfiles([mod], config);
     expect(profiles.length).toBe(1);
-    expect(profiles[0]!.id).toBe("explorer");
+    expect(profiles[0]!.id).toBe("scout");
   });
 
   test("collects from multiple plugins and flattens", async () => {
@@ -69,7 +69,7 @@ describe("resolveAgentPluginProfiles", () => {
       { id: "reviewer", description: "Code reviewer", systemPromptRole: "You review code." },
     ]);
     const profiles = await resolveAgentPluginProfiles([a.mod, b.mod], { ...a.config, ...b.config });
-    expect(profiles.map((p) => p.id).sort()).toEqual(["explorer", "reviewer"]);
+    expect(profiles.map((p) => p.id).sort()).toEqual(["reviewer", "scout"]);
   });
 
   test("profiles from a non-array agents field are skipped", async () => {
@@ -102,7 +102,7 @@ describe("resolveAgentPluginProfiles", () => {
       origin: "repo",
     };
     const profiles = await resolveAgentPluginProfiles([mod], {});
-    expect(profiles.map((p) => p.id)).toEqual(["explorer"]);
+    expect(profiles.map((p) => p.id)).toEqual(["scout"]);
   });
 
   test("does not load profiles from a non-repo plugin with defaultEnabled and no settings entry", async () => {
@@ -121,5 +121,30 @@ describe("resolveAgentPluginProfiles", () => {
       origin: "repo",
     };
     expect(await resolveAgentPluginProfiles([mod], { p1: { enabled: false } })).toEqual([]);
+  });
+
+  test("skips profiles whose id collides with a closed DIRECTOR_IDS entry", async () => {
+    const warnings: string[] = [];
+    const { mod, config } = agentModule("p1", [
+      validProfile,
+      {
+        id: "explorer",
+        description: "Collides with closed director",
+        systemPromptRole: "Should be skipped.",
+      },
+      {
+        id: "builder",
+        description: "Also reserved",
+        systemPromptRole: "Should be skipped.",
+      },
+    ]);
+    const profiles = await resolveAgentPluginProfiles([mod], config, (msg) => warnings.push(msg));
+    expect(profiles.map((p) => p.id)).toEqual(["scout"]);
+    expect(warnings.some((w) => w.includes('agent "explorer"') && w.includes("reserved"))).toBe(
+      true,
+    );
+    expect(warnings.some((w) => w.includes('agent "builder"') && w.includes("reserved"))).toBe(
+      true,
+    );
   });
 });

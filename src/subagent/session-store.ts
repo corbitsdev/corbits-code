@@ -6,7 +6,7 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
-import { stopReasonFromReport } from "./report.js";
+import type { ForcedStopReason } from "./stop-policy.js";
 import { toolCallPreview } from "./tool-preview.js";
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
@@ -79,9 +79,8 @@ export interface SubAgentSession {
   report?: string;
   error?: string;
   /**
-   * Machine-readable termination reason for a forced stop (stall abort,
-   * operator cancel) — the report's `Stopped:` line, or `cancelled — <reason>`
-   * on cancel. Absent on clean completes.
+   * Typed ForcedStopReason from runSubAgent, or `cancelled — <reason>` on
+   * cancel(). Absent on clean completes. Never parsed from report prose.
    */
   stopReason?: string;
   // Session id of the orchestrator that dispatched this worker, when this is
@@ -147,7 +146,11 @@ export interface SubAgentSessionStore {
   // deadline/cancel salvage resolves the same promise agent-fleet routes
   // here but always disposes its agent first, so omitting/false-ing this
   // keeps a disposed session from ever reporting as resumable.
-  complete(id: string, report: string, opts?: { agentRetained?: boolean }): void;
+  complete(
+    id: string,
+    report: string,
+    opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
+  ): void;
   fail(id: string, error: string): void;
   // Register the live abort handle for a running session so cancel() can stop
   // the child reactor (agent.close), not only flip status.
@@ -767,7 +770,11 @@ export function createSubAgentSessionStore(
       });
     },
 
-    complete(id: string, report: string, opts?: { agentRetained?: boolean }): void {
+    complete(
+      id: string,
+      report: string,
+      opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
+    ): void {
       // CL-7001: run.ts always disposes on a salvage return (deadline/cancel)
       // even though it resolves through this same success path — only trust
       // "still open, resumable" when the caller says the agent genuinely
@@ -795,10 +802,7 @@ export function createSubAgentSessionStore(
         session.finishedAt = now();
         clearToolCalls(session);
         session.report = report;
-        // A forced-stop salvage arrives via complete(); its Stopped: line is
-        // the terminal reason (stall abort, etc).
-        const stopped = stopReasonFromReport(report);
-        if (stopped !== null) session.stopReason = stopped;
+        if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         // A disposed salvage has nothing left for its close handle to do —
         // release it now rather than leaving a stale reference around.

@@ -11,6 +11,13 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Fixed
+
+- One-shot confirmation flashes (copy, mouse toggle, attach results, reasoning effort, stall recovery) now clear themselves after a short TTL. Rate-limit waits no longer park on the bottom notice row; the durable error stays in the transcript. Live stall notice and landing hold still omit a TTL so they stay until replaced.
+- A TTL flash no longer paints chrome after the TUI renderer is destroyed, which crashed parallel TUI tests with `TextBuffer is destroyed`.
+
 ## [0.3.1] - 2026-08-24
 
 ### Fixed

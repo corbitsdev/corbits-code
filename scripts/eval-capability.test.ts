@@ -164,9 +164,9 @@ describe("parseArgs", () => {
     );
   });
 
-  test("--director build is parsed", () => {
-    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "build"]);
-    expect(opts.director).toBe("build");
+  test("--director builder is parsed", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "builder"]);
+    expect(opts.director).toBe("builder");
   });
 
   test("omitted --director stays undefined", () => {
@@ -325,8 +325,8 @@ describe("buildEvalDiagnostics", () => {
     expect(diagnostics.reasoningEffort).toBe("high");
   });
 
-  test("--director build reports the director's own advertised allowlist", async () => {
-    const diagnostics = await buildEvalDiagnostics(sampleConfig({ director: "build" }));
+  test("--director builder reports the director's own advertised allowlist", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ director: "builder" }));
     expect(diagnostics.advertisedTools).not.toEqual(
       (await buildEvalDiagnostics(sampleConfig({}))).advertisedTools,
     );

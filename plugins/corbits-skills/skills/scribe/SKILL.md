@@ -11,4 +11,4 @@ Spawn `task(agent="shakespeare")` with the operator args / pasted material as th
 
 Use `ask_operator` if the doc target (P vs A vs I) is ambiguous.
 
-Do not edit those docs yourself except a one-line fix. DESIGN.md is brand-reviewer, not this skill.
+Do not edit those docs yourself except a one-line fix. DESIGN.md is rand, not this skill.

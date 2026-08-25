@@ -8,7 +8,9 @@
  *    (today: task, search_agents, read_agent_trace; the spawn_agent/
  *    wait_agents/list_agents/send_input/interrupt_agent/close_agent/
  *    resume_agent/followup_task verbs land in later child issues against
- *    this same gate).
+ *    this same gate). Fleet *discovery* verbs (search_agents, list_agents)
+ *    are further restricted to Tier 1 only (CL-7051) — nested orchestrators
+ *    keep task/spawn allowlists but must not discover the full fleet.
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.
  *    Tier 1 (the primary orchestrator) may target anyone. Callers pass the
@@ -41,8 +43,18 @@ export const FLEET_VERBS = new Set([
   "followup_task",
 ]);
 
+/**
+ * Fleet discovery — Tier 1 (skywalker) only. Nested orchestrators spawn from
+ * a closed allowlist and must not index the full fleet (CL-7051).
+ */
+export const ORCHESTRATOR_ONLY_FLEET_VERBS = new Set(["search_agents", "list_agents"]);
+
 export function isFleetVerb(toolName: string): boolean {
   return FLEET_VERBS.has(toolName);
+}
+
+export function isOrchestratorOnlyFleetVerb(toolName: string): boolean {
+  return ORCHESTRATOR_ONLY_FLEET_VERBS.has(toolName);
 }
 
 export class FleetAuthorityError extends Error {
@@ -53,15 +65,23 @@ export class FleetAuthorityError extends Error {
 }
 
 /**
- * Guard at the tool-mount point: throws if a Tier 3 leaf is about to receive
- * a fleet verb. Call this where tools are assembled (run.ts), not from a
- * prompt instruction — a leaf must never even hold the tool.
+ * Guard at the tool-mount point: throws if the caller's tier may not receive
+ * this fleet verb. Call this where tools are assembled (run.ts), not from a
+ * prompt instruction — a leaf must never even hold the tool; a nested
+ * orchestrator must never hold fleet-discovery verbs.
  */
 export function assertTierMayMountFleetVerb(tier: SubagentTier, toolName: string): void {
-  if (tier === "leaf" && isFleetVerb(toolName)) {
+  if (!isFleetVerb(toolName)) return;
+  if (tier === "leaf") {
     throw new FleetAuthorityError(
       `Tier 3 leaf directors cannot mount fleet verb "${toolName}". ` +
         `Leaves get ask_director / submit_result / progress_note only.`,
+    );
+  }
+  if (tier === "nested-orchestrator" && isOrchestratorOnlyFleetVerb(toolName)) {
+    throw new FleetAuthorityError(
+      `Tier 2 nested orchestrators cannot mount fleet discovery verb "${toolName}". ` +
+        `Only Tier 1 (skywalker) may discover the fleet; nested directors spawn from their allowlist.`,
     );
   }
 }

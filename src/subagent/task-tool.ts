@@ -531,11 +531,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       if (agentId === "skywalker" || resolvedDirectorId === "skywalker") {
         return taskToolResult(
           call.id,
-          "Error: skywalker is the primary session identity, not a spawned worker. Pass task(agent=…) for a specialist (build, explore, plan, critique, …).",
+          "Error: skywalker is the primary session identity, not a spawned worker. Pass task(agent=…) for a specialist (builder, explorer, counsel, critic, …).",
         );
       }
 
-      // Parent director spawn matrix (e.g. greybeard → intern/explore/critique only).
+      // Parent director spawn matrix (e.g. greybeard → intern/explorer/critic only).
       if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
         const childId =
           agentId !== undefined && agentId.length > 0 ? agentId : (resolvedDirectorId ?? "");
@@ -840,7 +840,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               ),
             );
           }
-          if (session !== undefined) deps.sessions?.complete(session.id, result.report);
+          if (session !== undefined)
+            deps.sessions?.complete(session.id, result.report, {
+              ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+            });
+
           const reported = appendSubAgentParentHints(result.report, result.stopReason, hintOptions);
           return await finishWithWorktree(
             taskToolResult(

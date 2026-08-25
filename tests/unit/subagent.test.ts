@@ -255,7 +255,7 @@ test("closed director resolves without profiles loaded", async () => {
   const result = await callHandler(tool, {
     description: "ship",
     prompt: "implement the fix",
-    agent: "build",
+    agent: "builder",
   });
   expect(result).toContain("ok");
   expect(received?.systemPromptRole).toBeDefined();
@@ -283,9 +283,9 @@ test("intent maps to closed director without profiles", async () => {
   expect(received?.systemPromptRole).toContain("PRIMARY INTENT");
   expect(received?.capabilities?.mode).toBe("allow");
   expect(received?.capabilities?.tools).toContain("read_file");
-  expect(received?.capabilities?.tools).not.toContain("write_file");
-  expect(received?.capabilities?.tools).not.toContain("edit_file");
-  expect(received?.capabilities?.tools).not.toContain("delete_file");
+  expect(received?.capabilities?.tools).toContain("write_file");
+  expect(received?.capabilities?.tools).toContain("edit_file");
+  expect(received?.capabilities?.tools).toContain("delete_file");
 });
 
 test("intent general is refused (no general director)", async () => {
@@ -338,7 +338,7 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
-    spawnAllowlist: ["intern", "explore", "critique"],
+    spawnAllowlist: ["intern", "explorer", "critic"],
     run: async () => {
       ran = true;
       return { report: "should not run" };
@@ -347,7 +347,7 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
   const denied = await callHandler(tool, {
     description: "ship code",
     prompt: "implement the feature",
-    agent: "build",
+    agent: "builder",
   });
   expect(denied).toContain("Error:");
   expect(denied).toContain("allowlist");
@@ -356,7 +356,7 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
   const allowed = await callHandler(tool, {
     description: "map",
     prompt: "read the tree",
-    agent: "explore",
+    agent: "explorer",
   });
   expect(allowed).not.toContain("Error:");
   expect(ran).toBe(true);
@@ -402,7 +402,7 @@ test("greybeard nestedDispatch carries spawn allowlist into nested task", async 
     prompt: "review approach",
     agent: "greybeard",
   });
-  expect(nestedAllow).toEqual(["intern", "explore", "critique"]);
+  expect(nestedAllow).toEqual(["intern", "explorer", "critic"]);
 });
 
 test("orchestrator profile installs nestedDispatch so task can be re-dispatched", async () => {

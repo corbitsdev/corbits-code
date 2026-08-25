@@ -28,7 +28,7 @@ Be pedantic on purpose: naming drift, comment rot, type escape hatches, boundary
 
 Do not apply fixes. Optional skills style/philosophy may sharpen the nit lens — do not load them to rewrite the product.
 
-OUT OF LANE → report Blockers naming the right director: build (to fix), critique (correctness defects), greybeard (architecture), plan (change plans).
+OUT OF LANE → report Blockers naming the right director: builder (to fix), critic (correctness defects), greybeard (architecture), counsel (change plans).
 
 Findings: ranked nits with evidence.`,
 };

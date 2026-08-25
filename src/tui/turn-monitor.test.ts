@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
 import { createAppShell, noticeText } from "./shell.js";
 import { withTestRenderer } from "./harness.js";
+import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import { STALL_NOTICE_MESSAGE, STALL_RECOVERY_MESSAGE } from "./stall-watchdog.js";
 
 type Harness = Awaited<ReturnType<typeof setup>>;
@@ -258,12 +259,15 @@ describe("quota auto-retry", () => {
 
         t.advance(10_000);
         t.tick();
-        expect(t.shell.statusFlash).toBe("rate limited — retrying in 50s");
+        // The durable error is already in the transcript; the notice row must
+        // not park a sticky countdown that outlives every other flash.
+        expect(t.shell.statusFlash).toBeNull();
         expect(t.port.calls).toEqual([]);
 
         t.advance(60_000);
         t.tick();
         expect(t.port.calls).toEqual([{ op: "sendImmediate", text: "run the build" }]);
+        expect(t.shell.statusFlash).toBe("rate limit cleared — resubmitting");
 
         // Window is closed — a later tick must not replay the prompt again.
         t.advance(60_000);
@@ -271,6 +275,50 @@ describe("quota auto-retry", () => {
         expect(t.port.calls.filter((c) => c.op === "sendImmediate")).toHaveLength(1);
       } finally {
         t.bridge.dispose();
+      }
+    });
+  });
+
+  test("the clear-and-resubmit flash expires on its own", async () => {
+    await withTestRenderer(async (h) => {
+      const lapse: (() => void)[] = [];
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "idle",
+        flashSchedule: (fn, ms) => {
+          expect(ms).toBe(RUNTIME_FLASH_MS);
+          lapse.push(fn);
+          return () => {};
+        },
+      });
+      const port = createRecordingPort();
+      let nowMs = 0;
+      let tick: (() => void) | undefined;
+      const bridge = attachSessionBridge(shell, port, {
+        now: () => nowMs,
+        stallTimeoutMs: 1_000,
+        stallNoticeMs: 400,
+        schedule: (fn) => {
+          tick = fn;
+          return () => {
+            tick = undefined;
+          };
+        },
+      });
+      try {
+        bridge.submit("run the build", "immediate");
+        port.clear();
+        bridge.handle(quotaEvent(1_000));
+        nowMs += 10_000;
+        tick?.();
+        expect(shell.statusFlash).toBe("rate limit cleared — resubmitting");
+        expect(lapse).toHaveLength(1);
+        lapse[0]?.();
+        expect(shell.statusFlash).toBeNull();
+      } finally {
+        bridge.dispose();
+        shell.dispose();
       }
     });
   });

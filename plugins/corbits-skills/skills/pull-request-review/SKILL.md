@@ -1,6 +1,6 @@
 ---
 name: pull-request-review
-description: Review a pull request by branch name or URL. Intern checks out a worktree if needed; critique (or neckbeard) reviews. Skywalker does not implement fixes.
+description: Review a pull request by branch name or URL. Intern checks out a worktree if needed; critic (or neckbeard) reviews. Skywalker does not implement fixes.
 ---
 
 # Pull Request Review
@@ -67,7 +67,7 @@ If any of these commands fail, intern stops and reports. Do not retry workaround
 
 ### 3. Review
 
-- **Default:** `task(agent="critique")` with the PR scope (branch, base, worktree path, PR URL/number).
+- **Default:** `task(agent="critic")` with the PR scope (branch, base, worktree path, PR URL/number).
 - **Hygiene-only** (operator said nits / naming / lint / pedantry): `task(agent="neckbeard")`.
 
 Brief the reviewer:
@@ -83,7 +83,7 @@ Prefer a typed brief: `intent="review"`, `success_criteria`, `do_not`, `report_f
 
 ### 4. After the report
 
-Synthesize critique/neckbeard Summary / Findings / Blockers / Paths for the operator. Do not land fixes.
+Synthesize critic/neckbeard Summary / Findings / Blockers / Paths for the operator. Do not land fixes.
 
 If a GitHub review must be posted, intern runs `gh pr review` as the operator's `gh` identity — never as a Claude (or other vendor) bot. Primary owns `--approve` / `--request-changes` only when the operator asked to post; secondary lenses use `--comment` only.
 
@@ -101,7 +101,7 @@ Or leave it and tell the operator it remains for further investigation.
 
 ## Hard rules
 
-- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn build for substantial fixes.
+- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn builder for substantial fixes.
 - Skywalker MUST NOT run the worktree git; intern does, via `run_shell`.
 - Do not implement fixes as part of the review.
 - Do not impersonate GitHub-Claude review comments.
