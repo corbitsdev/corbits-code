@@ -5,6 +5,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createFollowupTaskTool,
+  createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 
@@ -13,7 +14,8 @@ async function callTool(
     | ReturnType<typeof createCloseAgentTool>
     | ReturnType<typeof createResumeAgentTool>
     | ReturnType<typeof createInterruptAgentTool>
-    | ReturnType<typeof createFollowupTaskTool>,
+    | ReturnType<typeof createFollowupTaskTool>
+    | ReturnType<typeof createSendInputTool>,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
@@ -256,5 +258,174 @@ describe("interrupt_agent / followup_task", () => {
     );
     // Not retained, so followup_task must reject even though it is "completed".
     expect(followupErr.isError).toBe(true);
+  });
+});
+
+describe("send_input", () => {
+  test("soft-delivers a durable message to a running worker without awaiting a reply", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    const delivered: string[] = [];
+    sessions.registerDeliver(worker.id, (message) => {
+      delivered.push(message);
+    });
+
+    const sendInput = createSendInputTool({ sessions });
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "stop and inspect line 4",
+    });
+
+    expect(result).toEqual({ agent_id: worker.id, status: "running" });
+    expect(delivered).toEqual(["stop and inspect line 4"]);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("interrupts and queues a next-turn message without awaiting the reply", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    let interrupted = false;
+    let followupStarted = false;
+    sessions.registerInterrupt(worker.id, () => {
+      interrupted = true;
+    });
+    sessions.registerFollowup(worker.id, async (message) => {
+      followupStarted = true;
+      expect(message).toBe("drop the broad refactor and patch only the test");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return "queued turn finished";
+    });
+    sessions.registerDeliver(worker.id, () => {
+      throw new Error("interrupt:true should not soft-deliver");
+    });
+
+    const sendInput = createSendInputTool({ sessions });
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "drop the broad refactor and patch only the test",
+      interrupt: true,
+    });
+
+    expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
+    expect(interrupted).toBe(true);
+    expect(followupStarted).toBe(true);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("interrupted");
+  });
+
+  test("fails closed when interrupt:true cannot queue the followup", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    let interrupted = false;
+    sessions.registerInterrupt(worker.id, () => {
+      interrupted = true;
+    });
+
+    const sendInput = createSendInputTool({ sessions });
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const result = await sendInput.handler(
+      {
+        id: "missing-followup",
+        name: "send_input",
+        arguments: { target: worker.id, message: "steer after interrupt", interrupt: true },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(interrupted).toBe(false);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("rejects empty and oversize messages", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerDeliver(worker.id, () => {});
+    const sendInput = createSendInputTool({ sessions });
+
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const empty = await sendInput.handler(
+      { id: "empty", name: "send_input", arguments: { target: worker.id, message: "   " } },
+      new AbortController().signal,
+    );
+    expect(empty.isError).toBe(true);
+
+    const oversize = await sendInput.handler(
+      {
+        id: "big",
+        name: "send_input",
+        arguments: { target: worker.id, message: "x".repeat(24_001) },
+      },
+      new AbortController().signal,
+    );
+    expect(oversize.isError).toBe(true);
+  });
+
+  test("enforces nested orchestrator descendant authority", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({
+      id: "nested",
+      description: "nested",
+      agentId: "a",
+      brief: "b",
+    });
+    const child = sessions.start({
+      id: "child",
+      description: "child",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "sibling",
+      agentId: "a",
+      brief: "b",
+    });
+    for (const session of [nested, child, sibling]) {
+      sessions.markRunning(session.id);
+      sessions.registerDeliver(session.id, () => {});
+    }
+    const sendInput = createSendInputTool({
+      sessions,
+      authority: {
+        actorId: nested.id,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+    });
+
+    const ok = await callTool(sendInput, { target: child.id, message: "continue" });
+    expect(ok.status).toBe("running");
+
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const denied = await sendInput.handler(
+      { id: "denied", name: "send_input", arguments: { target: sibling.id, message: "continue" } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
   });
 });

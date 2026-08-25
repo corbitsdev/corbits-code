@@ -172,6 +172,9 @@ export type RunSubAgentParams = {
    *    active — this is the resume mechanism `resume_agent`/`followup_task`
    *    build on, reusing `agent.send`'s own FIFO send-queue ordering rather
    *    than a second continuation scheme.
+   *  - `deliver`: durable mid-run injection via `agent.deliver` (not
+   *    ephemeralTurns) so `send_input` can soft-steer a running worker
+   *    without awaiting a reply.
    *
    * Always fired regardless of `persist`, so a caller can act on a
    * still-running session too, not only a retained one. The deadline
@@ -183,6 +186,7 @@ export type RunSubAgentParams = {
     close: (deadlineMs?: number) => Promise<void>;
     interrupt: () => void;
     followup: (message: string) => Promise<string>;
+    deliver: (message: string) => void;
   }) => void;
 } & SubAgentSandboxDeps;
 

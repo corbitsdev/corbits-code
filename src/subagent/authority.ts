@@ -11,10 +11,11 @@
  *    this same gate).
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.
- *    Tier 1 (the primary orchestrator) may target anyone. Callers pass the
- *    live fleet as a flat list of {id, parentSessionId} nodes — the same
- *    shape SubAgentSessionStore already tracks — so no parallel tree
- *    structure is needed.
+ *    Tier 1 (the primary orchestrator) may target anyone. Addressing verbs
+ *    such as read_agent_trace and send_input call this at their handler
+ *    boundary. Callers pass the live fleet as a flat list of {id,
+ *    parentSessionId} nodes — the same shape SubAgentSessionStore already
+ *    tracks — so no parallel tree structure is needed.
  */
 
 import type { SubagentTier } from "../agent/directors/types.js";
@@ -89,15 +90,6 @@ function isDescendant(
 }
 
 /**
- * SEAM, NOT YET A LIVE GATE: this function has no production call site today.
- * No verb in this codebase currently lets one live agent target another
- * (`task` only spawns; it never addresses an existing session), so the
- * subtree rule below is exercised only by authority.test.ts — it is not
- * enforced at runtime yet. It exists now so future verbs that make one
- * agent addressable by another can call it from day one instead of
- * inventing their own check. Until one of those wires a call site here, do
- * not describe this rule as enforced; only assertTierMayMountFleetVerb is.
- *
  * Authority rule (root owns its tree; a child manages only its own
  * descendants): throws unless `actor` is Tier 1, or `targetId` is `actor.id`
  * itself, or a descendant of `actor.id` in `nodes`. A Tier 3 leaf holds no

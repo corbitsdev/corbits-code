@@ -1,7 +1,7 @@
 /**
- * Primary createAgentToolset mounts the six fleet verbs beside task /
- * search_agents / read_agent_trace when subAgent (with the shared TUI
- * sessions store) is wired. Leaves / no-subAgent toolsets stay without them.
+ * Primary createAgentToolset mounts the fleet verbs beside task / search_agents /
+ * read_agent_trace when subAgent (with the shared TUI sessions store) is wired.
+ * Leaves / no-subAgent toolsets stay without them.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,10 +17,11 @@ const FLEET_VERBS = [
   "resume_agent",
   "interrupt_agent",
   "followup_task",
+  "send_input",
 ] as const;
 
 describe("primary fleet verb mount", () => {
-  test("createAgentToolset registers the six fleet verbs when subAgent + sessions are set", async () => {
+  test("createAgentToolset registers the fleet verbs when subAgent + sessions are set", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
     const { createAgentToolset } = await import("./tools.js");
     const permissionGate = {

@@ -202,6 +202,18 @@ export interface SubAgentSessionStore {
   ): Promise<
     { ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus; hint?: string }
   >;
+  // CL-6944: registers the live agent.deliver handle so send_input can soft-steer
+  // a running worker (durable mid-run injection) without awaiting a reply.
+  registerDeliver(id: string, deliver: (message: string) => void): void;
+  // Soft: running only → deliver durable message, return immediately.
+  // interrupt:true → interruptOne then queue a next-turn followup without
+  // awaiting the reply. Fails closed when the target is not running / has no
+  // registered handle.
+  sendInputOne(
+    id: string,
+    message: string,
+    opts?: { interrupt?: boolean },
+  ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -213,7 +225,8 @@ const DEFAULT_MAX_COMPLETED = 20;
 // sidebar list — see maxRetained doc above.
 const DEFAULT_MAX_RETAINED = 50;
 const DEFAULT_MAX_ENTRIES = 400;
-const DEFAULT_MAX_ENTRY_CHARS = 24_000;
+/** Cap on characters per transcript entry / send_input message body. */
+export const DEFAULT_MAX_ENTRY_CHARS = 24_000;
 
 const EVICTED_RETENTION_HINT =
   "Session evicted to bound retained-session memory; recover full detail via read_agent_trace(agent_id).";
@@ -359,6 +372,10 @@ export function createSubAgentSessionStore(
   // an interrupt can never accidentally resolve to the close codepath.
   const interruptHandles = new Map<string, () => void>();
   const followupHandles = new Map<string, (message: string) => Promise<string>>();
+  // CL-6944: soft-steer deliver handles (agent.deliver), distinct from
+  // followupHandles (agent.send) so mid-run injection cannot be confused with
+  // a next-turn followup.
+  const deliverHandles = new Map<string, (message: string) => void>();
   const listeners = new Set<() => void>();
   // CL-7007: tombstones for sessions dropped by pruneRetained, keyed by id,
   // insertion-ordered (Map preserves it) so the oldest can be dropped first
@@ -463,6 +480,9 @@ export function createSubAgentSessionStore(
       void close(DEFAULT_CLOSE_DEADLINE_MS).catch(() => {});
     }
     cancelHandles.delete(id);
+    interruptHandles.delete(id);
+    followupHandles.delete(id);
+    deliverHandles.delete(id);
   };
 
   // An open retained session (spawn_agent's reusable-session contract:
@@ -602,6 +622,7 @@ export function createSubAgentSessionStore(
       closeHandles.delete(id);
       interruptHandles.delete(id);
       followupHandles.delete(id);
+      deliverHandles.delete(id);
       forgetRevision(id);
       const session: SubAgentSession = {
         id,
@@ -912,6 +933,7 @@ export function createSubAgentSessionStore(
       cancelHandles.delete(id);
       interruptHandles.delete(id);
       followupHandles.delete(id);
+      deliverHandles.delete(id);
       pruneCompleted();
       return "shutdown";
     },
@@ -926,6 +948,11 @@ export function createSubAgentSessionStore(
       followupHandles.set(id, followup);
     },
 
+    registerDeliver(id: string, deliver: (message: string) => void): void {
+      if (!sessions.has(id)) return;
+      deliverHandles.set(id, deliver);
+    },
+
     interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
@@ -938,6 +965,54 @@ export function createSubAgentSessionStore(
       });
       pruneRetained();
       return { ok: true };
+    },
+
+    sendInputOne(
+      id: string,
+      message: string,
+      opts?: { interrupt?: boolean },
+    ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
+      const session = sessions.get(id);
+      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session.status !== "running") return { ok: false, status: session.lifecycleStatus };
+
+      if (opts?.interrupt === true) {
+        const interrupt = interruptHandles.get(id);
+        const followup = followupHandles.get(id);
+        if (interrupt === undefined || followup === undefined) {
+          return { ok: false, status: session.lifecycleStatus };
+        }
+        interrupt();
+        mutate(id, (s) => {
+          s.lifecycleStatus = "interrupted";
+        });
+        // Queue the next-turn message on the same live agent without awaiting
+        // its reply — send_input returns immediately with "interrupted".
+        void followup(message)
+          .then((reply) => {
+            const still = sessions.get(id);
+            if (still === undefined || still.lifecycleStatus === "shutdown") return;
+            mutate(id, (s) => {
+              s.status = "done";
+              s.lifecycleStatus = "completed";
+              s.finishedAt = now();
+              s.report = reply;
+              pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+            });
+            pruneRetained();
+          })
+          .catch(() => {
+            // Best-effort: a failed queued followup must not reject the
+            // already-returned send_input call.
+          });
+        pruneRetained();
+        return { ok: true, status: "interrupted" };
+      }
+
+      const deliver = deliverHandles.get(id);
+      if (deliver === undefined) return { ok: false, status: session.lifecycleStatus };
+      deliver(message);
+      return { ok: true, status: "running" };
     },
 
     async followupOne(
@@ -1037,6 +1112,7 @@ export function createSubAgentSessionStore(
       closeHandles.clear();
       interruptHandles.clear();
       followupHandles.clear();
+      deliverHandles.clear();
       sessions.clear();
       revisions.clear();
       snapshotCache.clear();

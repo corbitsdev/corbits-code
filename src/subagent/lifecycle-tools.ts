@@ -1,14 +1,10 @@
 /**
- * close_agent / resume_agent: the session-lifecycle half of
- * reusable worker sessions. spawn_agent/wait_agents start and
- * collect workers; these two verbs let an orchestrator tear one down on
- * purpose (close_agent) or bring a retained one back for further input
- * (resume_agent), instead of every session dying the instant its turn ends.
- *
- * interrupt_agent and followup_task (the verbs that actually push a new
- * prompt into a resumed session) are a separate, later change — resume_agent
- * here only flips a retained session back to an addressable state; it takes
- * no prompt argument.
+ * close_agent / resume_agent / interrupt_agent / followup_task / send_input:
+ * the session-lifecycle half of reusable worker sessions. spawn_agent/
+ * wait_agents start and collect workers; these verbs let an orchestrator tear
+ * one down on purpose (close_agent), bring a retained one back (resume_agent),
+ * stop a turn without teardown (interrupt_agent), push new work into a retained
+ * session (followup_task), or soft-/hard-steer a running worker (send_input).
  */
 
 import { tool } from "@intx/agent";
@@ -17,7 +13,17 @@ import { type } from "arktype";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
-import type { AgentLifecycleStatus, SubAgentSessionStore } from "./session-store.js";
+import {
+  DEFAULT_MAX_ENTRY_CHARS,
+  type AgentLifecycleStatus,
+  type SubAgentSessionStore,
+} from "./session-store.js";
+import {
+  assertCanTargetAgent,
+  FleetAuthorityError,
+  type FleetNode,
+  type SubagentTier,
+} from "./authority.js";
 
 function lifecycleResult(callId: string, content: string): ToolResult {
   const isError = content.startsWith("Error:");
@@ -88,6 +94,20 @@ export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
 }
 
+/**
+ * Descendant-scoping for a Tier 2 nested orchestrator's `send_input`.
+ * Omit for Tier 1 (primary), which may target anyone.
+ */
+export interface SendInputAuthority {
+  actorId: string | undefined;
+  tier: SubagentTier;
+  getNodes: () => readonly FleetNode[];
+}
+
+export interface SendInputToolDeps extends LifecycleToolDeps {
+  authority?: SendInputAuthority;
+}
+
 export function createCloseAgentTool(deps: LifecycleToolDeps): AgentTool {
   return tool({
     definition: closeAgentToolDefinition,
@@ -142,7 +162,10 @@ export function createResumeAgentTool(deps: LifecycleToolDeps): AgentTool {
           `Error: cannot resume "${target}" (status: ${outcome.status}).${hint}`,
         );
       }
-      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: "running" }));
+      return lifecycleResult(
+        call.id,
+        JSON.stringify({ agent_id: target, status: "running" satisfies AgentLifecycleStatus }),
+      );
     },
   });
 }
@@ -246,6 +269,95 @@ export function createFollowupTaskTool(deps: LifecycleToolDeps): AgentTool {
         call.id,
         JSON.stringify({ agent_id: target, status: "completed", reply: outcome.reply }),
       );
+    },
+  });
+}
+
+const SendInputArgs = type({
+  target: "string",
+  message: "string",
+  "interrupt?": "boolean",
+});
+
+export const sendInputToolDefinition: ToolDefinition = {
+  name: "send_input",
+  description:
+    "Steer a running worker mid-turn. Soft (default): durable-deliver `message` into the " +
+    "worker's live session via agent.deliver and return immediately without awaiting a reply. " +
+    "With interrupt:true: stop the current turn (same as interrupt_agent) then queue `message` " +
+    "as the next-turn followup without awaiting that reply either — returns status " +
+    "'interrupted'. Fails on a session that is not currently running, or when the message is " +
+    "empty / oversize. Tier 2 nested orchestrators may only target their own descendants.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target: { type: "string", description: "agent_id of the running session to steer." },
+      message: {
+        type: "string",
+        description: `Instruction to inject (non-empty, max ${DEFAULT_MAX_ENTRY_CHARS} characters).`,
+      },
+      interrupt: {
+        type: "boolean",
+        description:
+          "When true, interrupt the current turn then queue message as the next-turn followup " +
+          "(no await). When false/omitted, soft-deliver into the running turn.",
+      },
+    },
+    required: ["target", "message"],
+  },
+};
+
+export function createSendInputTool(deps: SendInputToolDeps): AgentTool {
+  return tool({
+    definition: sendInputToolDefinition,
+    handler: async (call, _signal): Promise<ToolResult> => {
+      const parsed = SendInputArgs(call.arguments);
+      if (parsed instanceof type.errors) {
+        return lifecycleResult(call.id, `Error: send_input arguments invalid: ${parsed.summary}`);
+      }
+      const target = parsed.target.trim();
+      const message = parsed.message.trim();
+      if (message.length === 0) {
+        return lifecycleResult(call.id, "Error: send_input requires a non-empty message.");
+      }
+      if (message.length > DEFAULT_MAX_ENTRY_CHARS) {
+        return lifecycleResult(
+          call.id,
+          `Error: send_input message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
+            `(got ${message.length}).`,
+        );
+      }
+      if (deps.authority !== undefined) {
+        if (deps.authority.actorId === undefined) {
+          return lifecycleResult(
+            call.id,
+            "Error: send_input is unavailable for this worker (no resolvable session " +
+              "id to scope descendant access).",
+          );
+        }
+        try {
+          assertCanTargetAgent(
+            { id: deps.authority.actorId, tier: deps.authority.tier },
+            target,
+            deps.authority.getNodes(),
+          );
+        } catch (cause) {
+          if (cause instanceof FleetAuthorityError) {
+            return lifecycleResult(call.id, `Error: ${cause.message}`);
+          }
+          throw cause;
+        }
+      }
+      const outcome = deps.sessions.sendInputOne(target, message, {
+        ...(parsed.interrupt === true ? { interrupt: true } : {}),
+      });
+      if (!outcome.ok) {
+        return lifecycleResult(
+          call.id,
+          `Error: cannot send_input to "${target}" (status: ${outcome.status}).`,
+        );
+      }
+      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
     },
   });
 }

@@ -49,6 +49,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createFollowupTaskTool,
+  createSendInputTool,
 } from "../subagent/lifecycle-tools.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
@@ -348,6 +349,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         createResumeAgentTool({ sessions: fleetSessions }),
         createInterruptAgentTool({ sessions: fleetSessions }),
         createFollowupTaskTool({ sessions: fleetSessions }),
+        // Tier 1: primary may target any worker — omit authority (unrestricted).
+        createSendInputTool({ sessions: fleetSessions }),
       );
     }
   }

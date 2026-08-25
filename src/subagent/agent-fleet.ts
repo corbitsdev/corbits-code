@@ -449,10 +449,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // Keep the session open after a clean completion, and hand the
         // store a bounded close for close_agent to call later.
         persist: true,
-        onAgentReady: ({ close, interrupt, followup }) => {
+        onAgentReady: ({ close, interrupt, followup, deliver }) => {
           deps.sessions.registerClose(session.id, close);
           deps.sessions.registerInterrupt(session.id, interrupt);
           deps.sessions.registerFollowup(session.id, followup);
+          deps.sessions.registerDeliver(session.id, deliver);
           deps.sessions.markRunning(session.id);
         },
       };
