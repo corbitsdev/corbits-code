@@ -128,9 +128,8 @@ test("typescript skill guides TS quality without fake enforcement", async () => 
   expect(skill).not.toMatch(/^### Don't$/m);
 });
 
-test("implement skill is a sequential Skywalker spawn recipe without a false 4-cap", async () => {
+test("implement skill is a sequential spawn loop without a false 4-cap", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
-  expect(skill).toContain("You are Skywalker");
   expect(skill).toContain('task(agent="greybeard")');
   expect(skill).toContain('task(agent="builder")');
   expect(skill).toContain('task(agent="critic")');
@@ -142,6 +141,17 @@ test("implement skill is a sequential Skywalker spawn recipe without a false 4-c
   expect(skill).not.toContain("4 workers");
   expect(skill).not.toContain("max-parallel");
   expect(skill).not.toContain("INTERN_TOOLS");
+});
+
+test("first-party skills are how-to playbooks, not director personas", async () => {
+  for (const name of SKILL_DIRS) {
+    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    expect(skill).not.toContain("You are Skywalker");
+    expect(skill).not.toMatch(/You are \w+Director/);
+    expect(skill).not.toContain("Host is Corbits");
+    expect(skill).not.toContain("## Acknowledgment");
+    expect(skill).not.toMatch(/I have reviewed the .+ skill/);
+  }
 });
 
 test("style skill is guidance, not ceremony or tool-contract restatement", async () => {

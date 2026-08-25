@@ -1,14 +1,16 @@
 ---
 name: scribe
-description: Skywalker spawn recipe — shakespeare writes PRODUCT.md, ARCHITECTURE.md, and IMPLEMENTATION.md.
+description: Update PRODUCT.md, ARCHITECTURE.md, and IMPLEMENTATION.md via shakespeare. Use when those docs need writing or alignment.
 ---
 
 # Scribe
 
-You are Skywalker. This skill is a spawn recipe. Spawn `task(agent="shakespeare")` for PRODUCT.md, ARCHITECTURE.md, and IMPLEMENTATION.md unless the ask is a one-line fix (DIY with write_file/edit_file).
+How to maintain PRODUCT.md, ARCHITECTURE.md, and IMPLEMENTATION.md.
 
-Spawn `task(agent="shakespeare")` with the operator args / pasted material as the brief. Shakespeare owns PRODUCT.md, ARCHITECTURE.md, and IMPLEMENTATION.md.
+## Steps
 
-Use `ask_operator` if the doc target (P vs A vs I) is ambiguous.
+1. If the doc target (P vs A vs I) is ambiguous, `ask_operator`.
+2. One-line fix: edit the file directly with write_file/edit_file.
+3. Otherwise spawn `task(agent="shakespeare")` with the operator args / pasted material as the brief.
 
-Do not edit those docs yourself except a one-line fix. DESIGN.md is rand, not this skill.
+DESIGN.md is rand, not this skill.

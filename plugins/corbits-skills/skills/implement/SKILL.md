@@ -1,15 +1,15 @@
 ---
 name: implement
-description: Disciplined per-commit workflow. Skywalker spawn recipe — greybeard, builder, intern/tester, critic.
+description: Disciplined per-commit workflow. Sequential spawn loop — greybeard, builder, intern/tester, critic. Use for substantial commit-sized landings, not tiny bounded edits.
 ---
 
 # Implement
 
-You are Skywalker. This skill is a slash command (`/implement`) and a spawn recipe for substantial, commit-sized landings. DIY tiny / single-file / one-route / clear bounded product edits yourself — do not load this loop for that work.
+How to land substantial, commit-sized work. Tiny / single-file / one-route / clear bounded product edits: DIY — do not load this loop.
 
-When this recipe runs: spawn directors, wait for reports, decide the next spawn from those reports. The loop is sequential by design (one unit at a time). Do not invent a worker-count or fan-out ceiling. Track units with `manage_tasks`.
+When this recipe runs: spawn directors, wait for reports, decide the next spawn from those reports. Sequential by design (one unit at a time). Do not invent a worker-count or fan-out ceiling. Track units with `manage_tasks`.
 
-Closed directors used here: `greybeard`, `builder`, `intern`, `tester`, `critic`. Never a catch-all worker.
+Closed directors: `greybeard`, `builder`, `intern`, `tester`, `critic`. Never a catch-all worker.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ Track commit-sized units with `manage_tasks`. One item per unit that will become
 - Before starting: create an item for each unit from the caller's instructions.
 - When a unit begins: mark it in progress.
 - When critic is clean and the build gate passed: mark it done.
-- New work that surfaces (prep refactor, edge case warranting its own commit) → append a `manage_tasks` item and run the full loop.
+- New work that surfaces → append a `manage_tasks` item and run the full loop.
 
 ## Per-commit spawn loop
 
@@ -69,7 +69,7 @@ When critic is clean (or remaining findings are acknowledged judgment calls), ma
 - Track only with `manage_tasks`.
 - Do not shortcut the loop. Skipping greybeard "because this is simple" or critic "because the build passed" defeats the recipe.
 - Build must pass before treating a unit as done.
-- No invented worker-count or fan-out ceiling.
+- Do not invent a worker-count or fan-out ceiling.
 
 ## Report
 

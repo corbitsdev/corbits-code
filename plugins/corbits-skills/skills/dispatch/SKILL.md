@@ -2,14 +2,14 @@
 name: dispatch
 user-invocable: false
 argument-hint: "[<name> | dispatch/<name>/ | dispatch/<name>/dispatch.yaml | <spec-file> ]"
-description: Multi-lane DAG orchestration. Skywalker recipe — use_skill("dispatch"). Spawns explorer, intern, builder, counsel, and critic. DAG product tasks go through builder; Skywalker may DIY tiny edits outside the DAG.
+description: Multi-lane DAG orchestration via use_skill("dispatch"). Spawns explorer, intern, builder, counsel, and critic. Use for DAG product work; tiny edits outside the DAG may be DIY.
 ---
 
 # Dispatch
 
-You are Skywalker. This skill is loadable with `use_skill("dispatch")`. Follow this recipe. DAG product tasks go through builder workers. Do not write `dispatch.yaml` or `plan.md` yourself (intern cannot write; builder writes manifests). Tiny / single-file / one-route product edits outside this DAG may be DIY with write_file/edit_file/delete_file.
+How to orchestrate parallel director runs across a dependency graph. Fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done.
 
-Orchestrate parallel director runs across a dependency graph. Fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done.
+DAG product tasks go through builder workers. Do not write `dispatch.yaml` or `plan.md` on the parent (intern cannot write; builder writes manifests). Tiny / single-file / one-route product edits outside this DAG may be DIY with write_file/edit_file/delete_file.
 
 Default batch size: **4 live workers** (recipe default — not a hard runtime cap). Widen when lanes are named and non-overlapping, or when the operator asks. Track progress with `manage_tasks`.
 
@@ -39,7 +39,7 @@ If the spec is vague, incomplete, or contradictory: stop and report Blockers. Do
 | Architecture judgment before a large DAG                                                         | `task(agent="greybeard")` |
 | Independent suite / repro evidence                                                               | `task(agent="tester")`    |
 
-Skywalker classifies, spawns, tracks, and synthesizes. Path tools (`write_file` / `edit_file` / `delete_file`) are mounted for DIY tiny/bounded product edits; spawn remains the default for DAG product work. Durable orchestration artifacts (`dispatch.yaml`, `plan.md`, status) still go through builder — intern does not have write tools (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest. Do not write those manifests on Skywalker.
+Classify, spawn, track, and synthesize. Path tools (`write_file` / `edit_file` / `delete_file`) are mounted for DIY tiny/bounded product edits; spawn remains the default for DAG product work. Durable orchestration artifacts (`dispatch.yaml`, `plan.md`, status) still go through builder — intern does not have write tools (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest. Do not write those manifests on the parent.
 
 Prefer typed briefs: `intent`, `success_criteria`, `do_not`, `report_focus`, and `agent`.
 
@@ -79,7 +79,7 @@ If requirements are not actionable, stop. Ask: "Can a builder worker succeed wit
 
 ## Phase 2: Directory structure
 
-Have **builder** write the run tree (mechanical brief; no product feature work). Do not write these files on Skywalker. Do not use intern — intern cannot write files. Do not use a catch-all worker.
+Have **builder** write the run tree (mechanical brief; no product feature work). Do not write these files on the parent. Do not use intern — intern cannot write files. Do not use a catch-all worker.
 
 ```
 dispatch/
@@ -183,7 +183,7 @@ If the working tree has unrelated uncommitted changes before Phase 4, ask the op
 
 ## Phase 5: Verify
 
-Must `task(agent="tester")` for the suite (or intern for one named mechanical command). Do not run the full verify pipeline on the parent via Skywalker `run_shell`. Compare against any baseline you captured.
+Must `task(agent="tester")` for the suite (or intern for one named mechanical command). Do not run the full verify pipeline on the parent via `run_shell`. Compare against any baseline you captured.
 
 - Green, or same failures as baseline → proceed.
 - New failures → attribute to a task/commit, re-dispatch `builder` on that lane, re-verify. Cap rounds, then Blockers.
@@ -209,7 +209,7 @@ Re-resolve input to the existing `dispatch/<name>/`. Re-validate the remaining D
 
 ## Non-negotiables
 
-- You are Skywalker. Spawn directors. Do not implement product features. Do not author dispatch YAML/plan files yourself or via a catch-all worker. Durable orchestration files go through builder.
+- Spawn directors. Do not implement product features. Do not author dispatch YAML/plan files on the parent or via a catch-all worker. Durable orchestration files go through builder.
 - `use_skill("dispatch")` loads this recipe. It is a command.
 - Agents: `explorer`, `intern`, `builder` only for DAG nodes. Critique via `task(agent="critic")`. Plan via `task(agent="counsel")` when a spec needs an eng plan first.
 - Progress: `manage_tasks`.

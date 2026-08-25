@@ -1,16 +1,16 @@
 ---
 name: refactor
 argument-hint: <directory>
-description: Skywalker maps a directory then plans improvements. Explore, then plan. Does not ship product code.
+description: Map a directory then plan improvements. Explore, then plan. Does not ship product code.
 ---
 
 # Refactor
 
-You are Skywalker. This skill is a spawn recipe. You do not write a design document. `$ARGUMENTS` is the directory to analyze. This recipe maps and plans; it does not ship. Tiny / single-file / one-route product edits outside this recipe may be DIY with write_file/edit_file/delete_file.
+How to map a directory and plan improvements. `$ARGUMENTS` is the directory. This recipe maps and plans; it does not ship. Tiny / single-file / one-route product edits outside this recipe may be DIY with write_file/edit_file/delete_file.
 
-## Recipe
+## Steps
 
-1. Load philosophy via `use_skill("philosophy")` on the primary **before spawning**. Those principles guide how you evaluate design decisions and what you put in worker briefs.
+1. Load philosophy via `use_skill("philosophy")` on the primary **before spawning**. Those principles guide how to evaluate design decisions and what goes in worker briefs.
 2. If `$ARGUMENTS` is missing or the directory is broad, `ask_operator` before exploring:
    - Is there a specific concern or area to focus on?
    - What prompted the desire to refactor?
@@ -31,11 +31,11 @@ You are Skywalker. This skill is a spawn recipe. You do not write a design docum
    - Enough detail that a builder worker could execute later
    - For structural transformations (renames, signature changes, API migrations), note that execution should load the `ast-grep` skill — bulk AST rewrites, not manual read-edit-write cycles
 
-Do not write the plan to disk yourself. Counsel's report is the artifact. A later `/implement` or `use_skill("dispatch")` ships it.
+Do not write the plan to disk. Counsel's report is the artifact. A later `/implement` or `use_skill("dispatch")` ships it.
 
 ## Hard rules
 
-- Do not write the plan to disk or author design documents on this session — counsel's report is the artifact. A later `/implement` or `use_skill("dispatch")` ships substantial work; DIY remains for tiny/bounded edits outside this recipe.
-- Do not skip explore "because you already know the directory."
+- Do not write the plan to disk or author design documents on this session — counsel's report is the artifact.
+- Do not skip explore "because the directory is already known."
 - Do not skip `ask_operator` when the operator has not chosen among alternatives.
 - Spawn with `task(agent="explorer")` then `task(agent="counsel")`.

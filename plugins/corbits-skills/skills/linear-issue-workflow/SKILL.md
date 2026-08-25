@@ -1,13 +1,13 @@
 ---
 name: linear-issue-workflow
 user-invocable: false
-description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn builder for substantial landings.
+description: Implement a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn builder for substantial landings.
 argument-hint: "<issue-id> [--reviewer <reviewer>]"
 ---
 
 # Linear Issue Workflow
 
-You are Skywalker. Host is Corbits Code. This skill is a spawn recipe for substantial issue work. Tiny / single-file / one-route / clear bounded product edits: DIY with write_file/edit_file/delete_file. Substantial landings: Linear MCP on the primary, then the `/implement` spawn loop.
+How to land a Linear issue. Tiny / single-file / one-route / clear bounded product edits: DIY with write_file/edit_file/delete_file. Substantial landings: Linear MCP on the primary, then the `/implement` spawn loop.
 
 If Linear MCP (`mcp__linear__*`) is missing, stop and tell the operator. Do not invent Claude-only tools.
 
@@ -21,7 +21,7 @@ If the scope is unclear, `ask_operator` before proceeding. Do not guess.
 
 Read `branchName` from the issue (call `mcp__linear__get_issue` again if needed).
 
-Load `use_skill("git-worktrees")`. Copy the create-from-origin/<default-branch> recipe into an intern brief (substitute `<branch-name>`). Spawn `task(agent="intern")`. Intern executes; Skywalker does not run the git.
+Load `use_skill("git-worktrees")`. Copy the create-from-origin/<default-branch> recipe into an intern brief (substitute `<branch-name>`). Spawn `task(agent="intern")`. Intern executes; do not run the git on the parent.
 
 If intern fails, stop and `ask_operator`. If the operator rejects the issue before implementation, intern tears down the worktree via the git-worktrees teardown recipe rather than leaving it stranded.
 
@@ -44,7 +44,7 @@ If intern fails, stop and `ask_operator`. If the operator rejects the issue befo
 
 ## Phase 4: Implement — spawn loop
 
-Do not implement on Skywalker. For each commit-sized unit, run `/implement`:
+Do not implement on the parent. For each commit-sized unit, run `/implement`:
 
 1. `task(agent="greybeard")` on the approach before any code is written.
 2. `task(agent="builder")` with a typed brief (`intent`, `success_criteria`, `do_not`, `report_focus`) and the absolute worktree path. Bug fixes start from a failing test. Features ship tests with the change.
@@ -69,7 +69,7 @@ After the last unit's critique is clean, spawn `task(agent="critic")` on the **w
 
 Fix-every-finding: treat surviving findings as a worklist and re-enter Phase 4 for each. Cap three whole-branch re-reviews. If findings remain, `ask_operator` — do not push.
 
-The only path to leaving a finding unfixed is a greybeard waiver: `task(agent="greybeard")` with the finding, proposed disposition, and relevant diff. Accept the ruling by default. Escalate with `ask_operator` only if you disagree or greybeard is unreachable. Never waive on Skywalker's own authority.
+The only path to leaving a finding unfixed is a greybeard waiver: `task(agent="greybeard")` with the finding, proposed disposition, and relevant diff. Accept the ruling by default. Escalate with `ask_operator` only if you disagree or greybeard is unreachable. Never waive on the parent's own authority.
 
 ## Phase 6: Push and PR — intern, after confirmation
 

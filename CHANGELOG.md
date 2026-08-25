@@ -13,6 +13,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Changed
+
+- First-party skills are how-to playbooks (what to do, in what order, what done looks like),
+  not director personas. Identity stays on director system prompts.
+
 ### Fixed
 
 - One-shot confirmation flashes (copy, mouse toggle, attach results, reasoning effort, stall recovery) now clear themselves after a short TTL. Rate-limit waits no longer park on the bottom notice row; the durable error stays in the transcript. Live stall notice and landing hold still omit a TTL so they stay until replaced.
