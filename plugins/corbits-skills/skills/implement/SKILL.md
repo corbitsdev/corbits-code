@@ -11,6 +11,10 @@ A disciplined implementation workflow that produces reviewed, verified commits. 
 
 Before using this workflow, load the `style` and `philosophy` skills. Follow their conventions throughout.
 
+## Linear claim (when applicable)
+
+When the work is tied to a Linear issue ID, claim it **before** greybeard / explore / build thrash: set state to "In Progress" with `mcp__linear__save_issue`. This is a hard first step. Parallel lanes each claim their own issue ID — never claim a sibling lane's ID. If Linear MCP is unavailable or the update fails, report that the issue status could not be updated; do not pretend it was claimed.
+
 ## When to Use
 
 This is a standalone skill, loaded on request. Use it when you want a single agent to work through a series of commits with review discipline.
@@ -151,6 +155,8 @@ Ask critic to review the committed change.
 Mark the current `manage_tasks` item done. Move to the next unit of work and return to Step 1.
 
 ## Guidelines
+
+**Claim Linear work first when applicable.** When tied to a Linear issue: claim "In Progress" with `mcp__linear__save_issue` before the spawn loop. Parallel lanes claim their own IDs. If Linear MCP is unavailable, report that the issue status could not be updated.
 
 **Close the loop.** Ship → verify → fix → re-verify.
 
