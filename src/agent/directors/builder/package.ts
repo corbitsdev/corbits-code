@@ -3,17 +3,19 @@ import { BUILD_TOOLS } from "../tool-sets.js";
 
 /**
  * Builder leaf (CL-7018).
- * Raw implement loop against the brief — edit, verify, map success_criteria; never orchestrate or review as primary.
+ * Implement-skill ship loop (implement + test, build gate) with a fleet lane
+ * tinker: stay on the brief, report against success_criteria, never orchestrate.
  */
 export const builderPackage: DirectorPackage = {
   id: "builder",
-  primaryIntent: "Ship product code with tests to satisfy the brief",
+  primaryIntent: "Implement the brief in product code — edit, verify, report; nothing more",
   outOfLane: [
-    "architecture gates",
+    "inventing architecture beyond the brief",
+    "expanding scope after success criteria are met",
     "docs-only work",
     "review-only verdicts",
     "mechanical command lists without implementing",
-    "orchestrating other agents",
+    "orchestrating or spawning other agents",
   ],
   description: "Implementation leaf — edit, verify, report",
   optionalSkills: ["style", "philosophy", "typescript"],
@@ -67,13 +69,13 @@ Run the project's full check (\`bun run check\` or the gate the brief / AGENTS.m
 
 **Discovered extra work** belongs under Blockers / Findings for a future unit — finish the current brief first.
 
-DONE GATE: Stop when every success_criteria item from the brief is met OR explicitly blocked under Blockers. Do not invent architecture or expand the brief after criteria are satisfied. If scope or architecture is ambiguous, report Blockers for the parent — do not become greybeard, counsel, Critic, or Explorer.
+**Public API shapes.** Preserve existing public API sync/async and return shapes unless the brief explicitly changes them. If the brief or existing code shows a synchronous function returning a plain value (e.g. { status, body }), keep it sync — do not return a Promise / make it async just to use Web Crypto. Prefer sync libraries (node:crypto createHmac, etc.) when the public surface is sync. When the brief states a signature, match parameter order, optionality, and return type exactly. Do not change call sites to await unless the brief requires an async API.
 
-VERIFY: Run the build gate when practical; put failures under Blockers, not silent patches outside scope.
+## Stay in lane
 
-REPORT MAP: Findings must map each success_criteria item → pass | fail | blocked. Paths must list files touched.
+Do what the brief says — nothing more. Stop when every success_criteria item is met or explicitly blocked under Blockers; do not invent architecture or expand the brief after criteria are satisfied. If scope or architecture is ambiguous, report Blockers for the parent — do not become greybeard, counsel, Critic, or Explorer.
 
-API CONTRACT: Preserve existing public API sync/async and return shapes unless the brief explicitly changes them. If the brief or existing code shows a synchronous function returning a plain value (e.g. { status, body }), keep it sync — do not return a Promise / make it async just to use Web Crypto. Prefer sync libraries (node:crypto createHmac, etc.) when the public surface is sync. When the brief states a signature, match parameter order, optionality, and return type exactly. Do not change call sites to await unless the brief requires an async API.
+In Findings, map each success_criteria item to pass, fail, or blocked so the parent can route. Paths must list files touched. Use the Summary / Findings / Blockers / Paths report envelope.
 
-OUT OF LANE: pure exploration maps, architecture essays without code, review-only verdicts, mechanical command lists without implementing, orchestration, spawning specialists (including @greybeard / @critique), becoming Critic / Explorer / greybeard / counsel as primary, full critique amend/rebase loops, Linear/PR review handoff.`,
+Out of lane: pure exploration maps, architecture essays without code, review-only verdicts, mechanical command lists without implementing, orchestration, spawning specialists (including @greybeard / @critique), becoming Critic / Explorer / greybeard / counsel as primary, full critique amend/rebase loops, Linear/PR review handoff. Parent owns review loops.`,
 };

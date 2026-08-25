@@ -99,30 +99,43 @@ describe("builderPackage", () => {
     expect(builderPackage.optionalSkills).toEqual(["style", "philosophy", "typescript"]);
   });
 
-  test("systemPrompt has DONE GATE for success_criteria", () => {
+  test("primaryIntent and outOfLane reinforce lane discipline", () => {
+    expect(builderPackage.primaryIntent).toMatch(/nothing more|brief/i);
+    expect(builderPackage.outOfLane).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/architecture/i),
+        expect.stringMatching(/scope/i),
+        expect.stringMatching(/spawn/i),
+      ]),
+    );
+  });
+
+  test("systemPrompt stays in lane without branded Corbits banner titles", () => {
     const prompt = builderPackage.systemPrompt;
-    expect(prompt).toContain("DONE GATE");
+    expect(prompt).toContain("Stay in lane");
+    expect(prompt).not.toContain("DONE GATE");
+    expect(prompt).not.toContain("REPORT MAP");
+    expect(prompt).not.toContain("API CONTRACT");
+  });
+
+  test("systemPrompt stops when success_criteria are met", () => {
+    const prompt = builderPackage.systemPrompt;
     expect(prompt).toContain("success_criteria");
     expect(prompt).toMatch(/[Ss]top when/);
+    expect(prompt).toMatch(/do not invent architecture|nothing more/i);
   });
 
-  test("systemPrompt has VERIFY language", () => {
+  test("systemPrompt reports criteria status for parent routing", () => {
     const prompt = builderPackage.systemPrompt;
-    expect(prompt).toContain("VERIFY");
-    expect(prompt).toMatch(/build gate/i);
-    expect(prompt).toContain("Blockers");
-  });
-
-  test("systemPrompt has REPORT MAP for criteria and Paths", () => {
-    const prompt = builderPackage.systemPrompt;
-    expect(prompt).toContain("REPORT MAP");
-    expect(prompt).toMatch(/success_criteria.*pass|fail|blocked/s);
+    expect(prompt).toMatch(/Findings/i);
+    expect(prompt).toMatch(/pass.*fail.*blocked|pass, fail, or blocked/s);
     expect(prompt).toMatch(/Paths must list files touched/);
+    expect(prompt).toMatch(/Summary \/ Findings \/ Blockers \/ Paths/);
   });
 
-  test("systemPrompt has API CONTRACT for sync/async preservation", () => {
+  test("systemPrompt preserves public API sync/async under Guidelines", () => {
     const prompt = builderPackage.systemPrompt;
-    expect(prompt).toContain("API CONTRACT");
+    expect(prompt).toMatch(/Public API shapes/i);
     expect(prompt).toMatch(/sync/i);
     expect(prompt).toMatch(/Promise|async/);
     expect(prompt).toMatch(/public API|return shape/i);
