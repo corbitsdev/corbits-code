@@ -427,3 +427,54 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     expect(result.some((action) => action.type === "reply")).toBe(false);
   });
 });
+
+describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
+  test("empty continuation after a valid report reply waits instead of re-inferring", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 1000);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    const complete = actions(
+      await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps),
+    );
+    expect(complete).toContainEqual({ type: "checkpoint", message: "subagent-complete" });
+    expect(complete.some((action) => action.type === "reply")).toBe(true);
+
+    const afterEmpty = actions(await director.decide(messageReceived(""), state, caps));
+    expect(afterEmpty.some((action) => action.type === "infer")).toBe(false);
+    expect(afterEmpty.some((action) => action.type === "reply")).toBe(false);
+    expect(afterEmpty).toContainEqual({ type: "wait" });
+  });
+
+  test("stall empty-ping after a report reply does not revive inference", async () => {
+    let now = 0;
+    const director = new SubAgentDirector("system", [], undefined, 1000, () => now);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
+
+    now += 1500;
+    const afterStall = actions(await director.decide(messageReceived(""), state, caps));
+    expect(afterStall.some((action) => action.type === "infer")).toBe(false);
+    expect(afterStall).toContainEqual({ type: "wait" });
+    expect(afterStall.some((action) => action.type === "checkpoint")).toBe(false);
+  });
+
+  test("a non-empty parent follow-up re-opens inference after a report reply", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 1000);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
+
+    const followup = actions(
+      await director.decide(messageReceived("Please also check auth.ts"), state, caps),
+    );
+    expect(followup.some((action) => action.type === "infer")).toBe(true);
+    expect(followup.some((action) => action.type === "wait")).toBe(false);
+  });
+});
