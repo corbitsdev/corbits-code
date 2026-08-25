@@ -150,7 +150,7 @@ export function buildGuidelines(
       : [
           "",
           "Orchestration:",
-          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then `wait_agents` for the reports you need. `task` remains the deprecated fused spawn+wait fallback for a single blocking worker.",
+          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle, and `wait_agents` / `list_agents` on a later turn collect their reports without holding this conversation blocked. `task` remains the deprecated fused spawn+wait fallback for a single blocking worker.",
           "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
           "- If a worker comes back without finishing, change the brief rather than repeating it: narrow the scope, name the files, or state the done-when more sharply.",
