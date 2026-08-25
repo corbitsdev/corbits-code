@@ -63,7 +63,7 @@ import type { Settings } from "../config/settings.js";
 import { resolveEffortForRole } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
-import type { SubAgentSessionStore } from "./session-store.js";
+import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
 import type {
   NestedDispatchDeps,
   RunSubAgentParams,
@@ -75,6 +75,8 @@ import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import type { DirectorPackage } from "../agent/directors/types.js";
+import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
+import { isSubAgentCancelError } from "./dispose.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 
@@ -363,6 +365,8 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   useWorktree?: boolean;
   /** Optional wall-clock budget (ms) forwarded to runSubAgent. */
   deadlineMs?: number;
+  /** When false, tear the worker down on completion (task wrapper). Default true. */
+  persist?: boolean;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -660,7 +664,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // stays alive for followup (agentRetained / interrupt keep-alive) —
         // matching run.ts's persisting gate so followup_task does not hit a
         // removed cwd.
-        persist: true,
+        persist: deps.persist !== false,
         onAgentReady: ({ close, interrupt, followup, deliver }) => {
           deps.sessions.registerClose(session.id, async (deadlineMs) => {
             try {
@@ -716,11 +720,24 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         })
         .catch((err) => {
           // Always terminalize fleetRecords — including pre-progress cancel that
-          // rethrows with no salvage — so wait_agents does not hang. fail()
-          // no-ops when cancel already flipped the strip status.
-          const message = err instanceof Error ? err.message : String(err);
-          deps.fleetRecords.reject(session.id, message);
-          deps.sessions.fail(session.id, message);
+          // rethrows with no salvage — so wait_agents does not hang. Prefer
+          // cancel semantics over fail when the strip already cancelled or the
+          // throw is an AbortError (legacy task() parent contract).
+          const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
+          if (alreadyCancelled || isSubAgentCancelError(err, childCtl.signal)) {
+            if (!alreadyCancelled) {
+              deps.sessions.cancel(session.id, DEFAULT_CANCEL_REASON);
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            deps.fleetRecords.reject(session.id, message);
+            return;
+          }
+          // Auth failures keep the actionable Re-authenticate wording that
+          // task()'s fused path surfaces via formatSubAgentTaskAuthFailureMessage.
+          const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
+          const failReason = authMessage ?? (err instanceof Error ? err.message : String(err));
+          deps.fleetRecords.reject(session.id, failReason);
+          deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
           telemetry.capture("subagent_end", {
