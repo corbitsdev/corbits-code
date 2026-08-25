@@ -51,7 +51,7 @@ describe("close_agent", () => {
       });
     }
 
-    const closeAgent = createCloseAgentTool({ sessions });
+    const closeAgent = createCloseAgentTool({ sessions, fleetRecords: createFleetRecords() });
     const result = await callTool(closeAgent, { target: parent.id });
 
     expect(result.status).toBe("shutdown");

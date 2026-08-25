@@ -282,7 +282,7 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `terminal. Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
-    `the workers — they keep running and remain waitable. interrupt_agent unblocks this wait immediately with ` +
+    `the workers — they keep running and remain waitable. interrupt_agent and close_agent unblock this wait immediately with ` +
     `status "interrupted". Do not call this in a tight zero-progress loop: a timeout means "still running", not ` +
     `"try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
     `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,
@@ -696,10 +696,18 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         }
         const session = deps.sessions.get(id);
         if (isSoftInterrupted(session)) {
+          // Terminalize + collect so an omitted-targets re-wait does not keep
+          // seeing this id as uncollected / re-deliver soft-interrupt.
+          deps.fleetRecords.interrupt(id, session.report);
+          const taken = deps.fleetRecords.take(id);
           return {
             agent_id: id,
             status: "interrupted" as const,
-            ...(session.report !== undefined ? { report: session.report } : {}),
+            ...(taken?.report !== undefined
+              ? { report: taken.report }
+              : session.report !== undefined
+                ? { report: session.report }
+                : {}),
           };
         }
         if (record === undefined) {

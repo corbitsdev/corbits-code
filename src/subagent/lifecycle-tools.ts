@@ -35,7 +35,8 @@ export const closeAgentToolDefinition: ToolDefinition = {
     "Permanently close a worker session by agent_id, closing its descendants first. Bounded " +
     `by a ~${Math.round(DEFAULT_CLOSE_DEADLINE_MS / 1000)}s cleanup deadline per session so a wedged worker cannot hang ` +
     "this call — a session that misses the deadline is still marked shutdown; its teardown just " +
-    "keeps running in the background. Closing is permanent: a closed session cannot be resumed.",
+    "keeps running in the background. Unblocks any in-flight wait_agents on these ids immediately with " +
+    "status 'interrupted'. Closing is permanent: a closed session cannot be resumed.",
   inputSchema: {
     type: "object",
     properties: {
@@ -87,16 +88,21 @@ function descendantsClosingOrder(
 
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
-  /** Optional for close/resume/followup; interrupt requires it (see InterruptAgentToolDeps). */
+  /** Optional for resume/followup; close and interrupt require it (see CloseAgentToolDeps / InterruptAgentToolDeps). */
   fleetRecords?: FleetRecordsHandle;
 }
+
+/** close_agent always terminalizes the wait mailbox — no silent skip. */
+export type CloseAgentToolDeps = LifecycleToolDeps & {
+  fleetRecords: FleetRecordsHandle;
+};
 
 /** interrupt_agent always terminalizes the wait mailbox — no silent skip. */
 export type InterruptAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetRecordsHandle;
 };
 
-export function createCloseAgentTool(deps: LifecycleToolDeps): AgentTool {
+export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
   return tool({
     definition: closeAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -117,6 +123,11 @@ export function createCloseAgentTool(deps: LifecycleToolDeps): AgentTool {
       const order = descendantsClosingOrder(nodes, target);
       const closed: { agent_id: string; status: AgentLifecycleStatus }[] = [];
       for (const id of order) {
+        // Terminalize the wait mailbox before teardown. closeOne flips strip
+        // status to "cancelled", which kills the soft-interrupt fallback that
+        // still requires status === "running" — without this, in-flight
+        // wait_agents hangs until timeout.
+        deps.fleetRecords.interrupt(id);
         const status = await deps.sessions.closeOne(id, DEFAULT_CLOSE_DEADLINE_MS);
         closed.push({ agent_id: id, status });
       }

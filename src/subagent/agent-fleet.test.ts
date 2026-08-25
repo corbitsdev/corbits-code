@@ -7,7 +7,7 @@ import {
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
-import { createInterruptAgentTool } from "./lifecycle-tools.js";
+import { createInterruptAgentTool, createCloseAgentTool } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { forcedStopReport } from "./stop-policy.js";
@@ -628,5 +628,89 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const results = waited.results as { status: string; report?: string }[];
     expect(results[0]!.status).toBe("interrupted");
     expect(results[0]!.report).toContain("partial");
+  });
+
+  test("soft-interrupt wait path collects so omitted re-wait does not re-deliver", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    // Soft-interrupt via the session store only — leave fleetRecords running
+    // so wait_agents takes the soft-path fallback (not the terminal-record branch).
+    expect(deps.sessions.interruptOne(id).ok).toBe(true);
+    expect(deps.fleetRecords.peek(id)?.status).toBe("running");
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { agent_id: string; status: string }[];
+    expect(results).toEqual([{ agent_id: id, status: "interrupted" }]);
+    expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
+    expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
+
+    const again = await callTool(wait, { timeout_ms: 50 });
+    expect(again.timed_out).toBe(false);
+    expect(again.results).toEqual([]);
+  });
+});
+
+describe("close_agent unblocks wait_agents", () => {
+  test("close terminalizes the fleet record so wait returns without the run settling", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const close = createCloseAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
+    if (close.kind !== "full") throw new Error("expected full tool");
+    await close.handler(
+      { id: "close-1", name: "close_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+
+    const waited = await waiting;
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { agent_id: string; status: string }[];
+    expect(results).toEqual([{ agent_id: id, status: "interrupted" }]);
+    expect(deps.sessions.get(id)?.lifecycleStatus).toBe("shutdown");
+    expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
   });
 });
