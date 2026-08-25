@@ -6,7 +6,10 @@ import { tool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { type } from "arktype";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { getLogger } from "@intx/log";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
+
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
@@ -30,6 +33,14 @@ import {
 } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
+import {
+  createFleetRecords,
+  createSpawnAgentTool,
+  createWaitAgentsTool,
+  MAX_WAIT_TIMEOUT_MS,
+  type AgentFleetDeps,
+  type FleetRecordsHandle,
+} from "./agent-fleet.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import { appendSubAgentParentHints, type ForcedStopReason } from "./stop-policy.js";
 import {
@@ -54,6 +65,8 @@ import type {
   SubAgentProvider,
   SubAgentSandboxDeps,
 } from "./types.js";
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "task-tool"]);
 
 export const TaskToolArgs = type({
   description: "string",
@@ -186,6 +199,8 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // Records sub-agent starts and outcomes. Injected so the tool has no
   // process-wide dependency; omitting it makes dispatch silent.
   telemetry?: Telemetry;
+  /** Shared with spawn_agent/wait_agents when this task tool is fleet-backed. */
+  fleetRecords?: FleetRecordsHandle;
 };
 
 function taskToolResult(
@@ -249,11 +264,159 @@ function requiredTaskFieldsError(
   return message;
 }
 
+async function runTaskViaFleet(input: {
+  callId: string;
+  signal: AbortSignal;
+  description: string;
+  prompt: string;
+  context: string | undefined;
+  agentId: string | undefined;
+  goals: string[];
+  intent: TaskIntent | undefined;
+  successCriteria: string[];
+  doNot: string[];
+  reportFocus: string | undefined;
+  deps: TaskToolDeps;
+  sessions: SubAgentSessionStore;
+  fleetRecords: FleetRecordsHandle;
+}): Promise<ToolResult> {
+  const fleetDeps: AgentFleetDeps = {
+    permissionGate: input.deps.permissionGate,
+    ...(input.deps.inheritMcpTools !== undefined
+      ? { inheritMcpTools: input.deps.inheritMcpTools }
+      : {}),
+    ...(input.deps.shellTimeout !== undefined ? { shellTimeout: input.deps.shellTimeout } : {}),
+    ...(input.deps.shellEnv !== undefined ? { shellEnv: input.deps.shellEnv } : {}),
+    ...(input.deps.extraToolPlugins !== undefined
+      ? { extraToolPlugins: input.deps.extraToolPlugins }
+      : {}),
+    ...(input.deps.getBlobReader !== undefined ? { getBlobReader: input.deps.getBlobReader } : {}),
+    cwd: input.deps.cwd,
+    getWorkdirBase: input.deps.getWorkdirBase,
+    provider: input.deps.provider,
+    run: input.deps.run,
+    sessions: input.sessions,
+    fleetRecords: input.fleetRecords,
+    persist: false,
+    ...(input.deps.parentSessionId !== undefined
+      ? { parentSessionId: input.deps.parentSessionId }
+      : {}),
+    ...(input.deps.spawnAllowlist !== undefined
+      ? { spawnAllowlist: input.deps.spawnAllowlist }
+      : {}),
+    ...(input.deps.allowOrchestrator !== undefined
+      ? { allowOrchestrator: input.deps.allowOrchestrator }
+      : {}),
+    ...(input.deps.useWorktree !== undefined ? { useWorktree: input.deps.useWorktree } : {}),
+    ...(input.deps.deadlineMs !== undefined ? { deadlineMs: input.deps.deadlineMs } : {}),
+    ...(input.deps.settings !== undefined ? { settings: input.deps.settings } : {}),
+    ...(input.deps.catalog !== undefined ? { catalog: input.deps.catalog } : {}),
+    ...(input.deps.onEvent !== undefined ? { onEvent: input.deps.onEvent } : {}),
+    ...(input.deps.onProgress !== undefined ? { onProgress: input.deps.onProgress } : {}),
+    ...(input.deps.telemetry !== undefined ? { telemetry: input.deps.telemetry } : {}),
+  };
+  const spawn = createSpawnAgentTool(fleetDeps);
+  const wait = createWaitAgentsTool({
+    sessions: input.sessions,
+    fleetRecords: input.fleetRecords,
+  });
+  if (spawn.kind !== "full" || wait.kind !== "full") {
+    return taskToolResult(input.callId, "Error: fleet tools are unavailable.");
+  }
+  const started = await spawn.handler(
+    {
+      id: input.callId,
+      name: "spawn_agent",
+      arguments: {
+        description: input.description,
+        prompt: input.prompt,
+        ...(input.context !== undefined ? { context: input.context } : {}),
+        ...(input.agentId !== undefined ? { agent: input.agentId } : {}),
+        ...(input.goals.length > 0 ? { goals: input.goals } : {}),
+        ...(input.intent !== undefined ? { intent: input.intent } : {}),
+        ...(input.successCriteria.length > 0 ? { success_criteria: input.successCriteria } : {}),
+        ...(input.doNot.length > 0 ? { do_not: input.doNot } : {}),
+        ...(input.reportFocus !== undefined ? { report_focus: input.reportFocus } : {}),
+      },
+    },
+    input.signal,
+  );
+  const startedText =
+    typeof started.content === "string" ? started.content : JSON.stringify(started.content);
+  if (started.isError === true || startedText.startsWith("Error:")) {
+    return taskToolResult(input.callId, startedText);
+  }
+  let agentId: string;
+  try {
+    const parsed = JSON.parse(startedText) as { agent_id?: unknown };
+    if (typeof parsed.agent_id !== "string" || parsed.agent_id.length === 0) {
+      return taskToolResult(input.callId, "Error: spawn_agent returned no agent_id.");
+    }
+    agentId = parsed.agent_id;
+  } catch (err) {
+    log.error("spawn_agent payload was not JSON: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return taskToolResult(
+      input.callId,
+      `Error: spawn_agent returned invalid payload: ${startedText}`,
+    );
+  }
+
+  while (!input.signal.aborted) {
+    const waited = await wait.handler(
+      {
+        id: `${input.callId}-wait`,
+        name: "wait_agents",
+        arguments: { targets: [agentId], mode: "all", timeout_ms: MAX_WAIT_TIMEOUT_MS },
+      },
+      input.signal,
+    );
+    const waitedText =
+      typeof waited.content === "string" ? waited.content : JSON.stringify(waited.content);
+    if (waited.isError === true || waitedText.startsWith("Error:")) {
+      return taskToolResult(input.callId, waitedText);
+    }
+    let payload: {
+      timed_out?: boolean;
+      results?: { status?: string; report?: string; error?: string }[];
+    };
+    try {
+      payload = JSON.parse(waitedText) as typeof payload;
+    } catch (err) {
+      log.error("wait_agents payload was not JSON: {error}", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return taskToolResult(
+        input.callId,
+        `Error: wait_agents returned invalid payload: ${waitedText}`,
+      );
+    }
+    if (payload.timed_out === true) continue;
+    const result = payload.results?.[0];
+    if (result === undefined) {
+      return taskToolResult(input.callId, `Error: wait_agents returned no result for ${agentId}.`);
+    }
+    if (result.status === "failed") {
+      return taskToolResult(
+        input.callId,
+        `Error: sub-agent "${input.description}" failed: ${result.error ?? "unknown error"}`,
+      );
+    }
+    const report = result.report ?? "";
+    return taskToolResult(input.callId, `Sub-agent "${input.description}" reported:\n\n${report}`);
+  }
+  return taskToolResult(input.callId, `Sub-agent "${input.description}" cancelled by operator.`);
+}
+
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const run = deps.run;
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   // Session-scoped re-dispatch ledger: one per parent task tool instance.
   const briefLedger = createBriefDispatchLedger();
+  const fleetSessions = deps.sessions;
+  const fleetRecords =
+    deps.fleetRecords ?? (fleetSessions !== undefined ? createFleetRecords() : undefined);
   // Every completed dispatch gets an outcome record — the log otherwise
   // carries shape and run state but never what the run actually produced.
   // Tagged with the dispatched child's provider/model/family so
@@ -332,6 +495,32 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           (name) => (name === "description" ? description : prompt).length === 0,
         );
         return taskToolResult(call.id, requiredTaskFieldsError(args, empty));
+      }
+
+      // Closed-director task() is spawn_agent + wait_agents. Custom profiles
+      // still use the legacy await-run path until spawn grows profile lookup.
+      const agentForFleet = typeof args.agent === "string" ? args.agent : undefined;
+      const canUseFleet =
+        fleetSessions !== undefined &&
+        fleetRecords !== undefined &&
+        (agentForFleet === undefined || agentForFleet.length === 0 || isDirectorId(agentForFleet));
+      if (canUseFleet) {
+        return await runTaskViaFleet({
+          callId: call.id,
+          signal,
+          description,
+          prompt,
+          context,
+          agentId,
+          goals,
+          intent,
+          successCriteria,
+          doNot,
+          reportFocus,
+          deps,
+          sessions: fleetSessions,
+          fleetRecords,
+        });
       }
 
       let provider: SubAgentProvider =

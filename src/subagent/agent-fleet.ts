@@ -363,6 +363,8 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   useWorktree?: boolean;
   /** Optional wall-clock budget (ms) forwarded to runSubAgent. */
   deadlineMs?: number;
+  /** When false, tear the worker down on completion (task wrapper). Default true. */
+  persist?: boolean;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -660,7 +662,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // stays alive for followup (agentRetained / interrupt keep-alive) —
         // matching run.ts's persisting gate so followup_task does not hit a
         // removed cwd.
-        persist: true,
+        persist: deps.persist !== false,
         onAgentReady: ({ close, interrupt, followup, deliver }) => {
           deps.sessions.registerClose(session.id, async (deadlineMs) => {
             try {
