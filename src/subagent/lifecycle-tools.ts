@@ -17,6 +17,7 @@ import { type } from "arktype";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
+import type { FleetRecordsHandle } from "./agent-fleet.js";
 import type { AgentLifecycleStatus, SubAgentSessionStore } from "./session-store.js";
 
 function lifecycleResult(callId: string, content: string): ToolResult {
@@ -86,6 +87,8 @@ function descendantsClosingOrder(
 
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
+  /** When set, interrupt_agent terminalizes this wait mailbox immediately. */
+  fleetRecords?: FleetRecordsHandle;
 }
 
 export function createCloseAgentTool(deps: LifecycleToolDeps): AgentTool {
@@ -155,7 +158,8 @@ export const interruptAgentToolDefinition: ToolDefinition = {
   name: "interrupt_agent",
   description:
     "Stop a worker session's current turn while keeping the session and its context intact and " +
-    "reusable — distinct from close_agent, which is permanent. The worker's in-flight tool call or " +
+    "reusable — distinct from close_agent, which is permanent. Unblocks any in-flight wait_agents " +
+    "on this id immediately with status 'interrupted'. The worker's in-flight tool call or " +
     "inference keeps running in the background (there is no way to hard-stop it without tearing the " +
     "session down); this only stops the caller from waiting on it and marks the session " +
     "'interrupted' so followup_task or resume_agent can pick it back up with full prior context. " +
@@ -188,6 +192,9 @@ export function createInterruptAgentTool(deps: LifecycleToolDeps): AgentTool {
           `Error: cannot interrupt "${target}" (status: ${outcome.status}).`,
         );
       }
+      // Wait mailbox is separate from the TUI strip — flip it here so
+      // wait_agents does not stay blocked on a still-"running" record.
+      deps.fleetRecords?.interrupt(target);
       return lifecycleResult(
         call.id,
         JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),

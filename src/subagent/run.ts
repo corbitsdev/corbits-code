@@ -585,6 +585,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         telemetry: liveTelemetry,
         sessions: fleetSessions,
         fleetRecords,
+        ...(params.id !== undefined ? { parentSessionId: params.id } : {}),
         ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
@@ -596,7 +597,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions }),
         createResumeAgentTool({ sessions: fleetSessions }),
-        createInterruptAgentTool({ sessions: fleetSessions }),
+        createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createFollowupTaskTool({ sessions: fleetSessions }),
       ];
     }
