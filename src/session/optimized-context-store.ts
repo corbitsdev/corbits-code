@@ -80,12 +80,34 @@ function sanitizeCallId(callId: string): string {
  * `fileName` when provided so diagnostics point at the on-disk file, not a bare
  * Bun JSON token.
  *
- * `skipMalformed` is for display-only reads (see loadRecentTurns): a bad line
- * anywhere in any segment drops that line and keeps the surrounding history,
- * because a blank transcript is a worse answer than a transcript with a hole in
- * it. The reactor's own load() must never use it — there, history *is* the live
- * conversation state and silently dropping a turn would corrupt it (CL-5935).
+ * `skipMalformed` drops (or partially recovers) a bad line anywhere in the
+ * segment and keeps surrounding history. Used by display-only reads
+ * (`loadRecentTurns`) and by the reactor's own `load()` recovery path so a
+ * mid-file garbage/interleaved record does not kill resume (CL-7052). Earlier
+ * CL-5935 kept reactor load strict; killing the session on one bad line was
+ * worse than a hole in history.
+ *
+ * When a crash left a truncated stub glued to the next append (no newline),
+ * the line fails as a whole; `recoverTurnFromGluedLine` still salvages a
+ * trailing complete turn from that line when one is present.
  */
+function recoverTurnFromGluedLine(line: string): ConversationTurn | null {
+  // Walk every `{` start: a truncated prefix glued onto a complete record
+  // parses only from the start of that complete record to end-of-line.
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== "{") continue;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line.slice(i));
+    } catch {
+      continue;
+    }
+    const result = ConversationTurnSchema(raw);
+    if (!(result instanceof type.errors)) return result;
+  }
+  return null;
+}
+
 function parseSegmentTurns(
   text: string,
   tolerateTornTail: boolean,
@@ -109,11 +131,21 @@ function parseSegmentTurns(
     try {
       raw = JSON.parse(line);
     } catch (cause) {
-      if (tolerateTornTail && isLast) break;
       if (skipMalformed) {
+        const recovered = recoverTurnFromGluedLine(line);
+        if (recovered !== null) {
+          log.warn?.(
+            `recovered trailing turn from glued/malformed JSON at ${fileName} line ${i + 1}`,
+          );
+          turns.push(recovered);
+          continue;
+        }
+        // Torn final line: drop it rather than warning as mid-file garbage.
+        if (tolerateTornTail && isLast) break;
         log.warn?.(`skipping malformed JSON at ${fileName} line ${i + 1}`);
         continue;
       }
+      if (tolerateTornTail && isLast) break;
       throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, { cause });
     }
     const result = ConversationTurnSchema(raw);
@@ -253,7 +285,8 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
     // Only the active (last) segment can be mid-write; sealed ones are complete.
     // Display-only: skip lines that will not parse rather than losing the whole
     // transcript to one bad line, and name the segment in any error that does
-    // escape (CL-5935).
+    // escape (CL-5935). Reactor load uses the same skip path for mid-file
+    // garbage so resume does not die (CL-7052).
     const turns = parseSegmentTurns(text, i === segments.length - 1, name, true);
     collectedNewestFirst.push(turns);
     total += turns.length;
@@ -391,6 +424,7 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
         text,
         index === extraTexts.length - 1,
         segmentFileName(TURNS_FILE, index + 1),
+        true,
       ),
     );
     const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
@@ -414,10 +448,10 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     // optional convenience — callers that only need a recent tail (e.g. TUI
     // resume hydration) should use `loadRecentTurns` instead.
     //
-    // When the base isogit store hard-fails (e.g. null-padded turns.jsonl from
-    // a stale truncate), recover usable turns via resilient segment parse and
-    // re-read metadata via the base schema (soft-empty only if that fails too)
-    // so resume does not die on a bare Bun JSON token or wipe pending ops.
+    // When the base isogit store hard-fails (e.g. null-padded or mid-file
+    // garbage turns.jsonl), recover usable turns via resilient segment parse
+    // and re-read metadata via the base schema (soft-empty only if that fails
+    // too) so resume does not die on a bare Bun JSON token or wipe pending ops.
     async load(signal) {
       try {
         const baseResult = await base.load(signal);
@@ -432,10 +466,12 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
         let baseTurns: ConversationTurn[];
         try {
           // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
+          // skipMalformed: mid-file garbage/interleaved records must not kill resume
+          // (CL-7052); null-pad stripping and torn-tail drop still apply.
           const basePath = path.join(dir, TURNS_FILE);
           if (await pathExists(basePath)) {
             const text = await fs.promises.readFile(basePath, "utf-8");
-            baseTurns = parseSegmentTurns(text, false, TURNS_FILE);
+            baseTurns = parseSegmentTurns(text, true, TURNS_FILE, true);
           } else {
             baseTurns = [];
           }

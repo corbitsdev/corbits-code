@@ -3,7 +3,7 @@ import { INTERN_TOOLS } from "../tool-sets.js";
 
 /**
  * Mechanical intern leaf (CL-5822).
- * Shell/commands only — no judgment, no exploration, no product writes.
+ * Shell/commands first — no judgment, no exploration; path writes only when the brief requires them.
  */
 export const internPackage: DirectorPackage = {
   id: "intern",

@@ -15,13 +15,15 @@ import {
   forcedStopReport,
   formatSubAgentReport,
   parseSubAgentReport,
-  stopReasonFromReport,
   appendSubAgentParentHints,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
   classifyBriefSalvage,
   EMPTY_THRASH_STATE,
   nextThrashState,
+  salvagePathsFromThrash,
+  evaluateToolLessNarrationSpiral,
+  MAX_TOOLLESS_NARRATION_CYCLES,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
@@ -185,6 +187,30 @@ describe("sub-agent stop helpers", () => {
     ).toBe("incomplete-report-stop");
   });
 
+  test("evaluateToolLessNarrationSpiral nudges once then stops at the cycle cap", () => {
+    expect(evaluateToolLessNarrationSpiral(1)).toBe("nudge");
+    expect(evaluateToolLessNarrationSpiral(MAX_TOOLLESS_NARRATION_CYCLES)).toBe("stop");
+    expect(evaluateToolLessNarrationSpiral(MAX_TOOLLESS_NARRATION_CYCLES + 1)).toBe("stop");
+  });
+
+  test("evaluateSubAgentStop spiral uses toolLessNarrationCycles over the deprecated flag", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        lastAssistantText: SUMMARY_ONLY_NARRATION,
+        toolLessNarrationCycles: 1,
+        incompleteReportNudgeFired: true,
+      }),
+    ).toBe("incomplete-report");
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        lastAssistantText: SUMMARY_ONLY_NARRATION,
+        toolLessNarrationCycles: 2,
+      }),
+    ).toBe("incomplete-report-stop");
+  });
+
   test("evaluateSubAgentStop returns complete for tool-less after tools with all four headings", () => {
     expect(
       evaluateSubAgentStop({
@@ -194,8 +220,8 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
-  test("shouldRequireEvidence is armed for the critique director id", () => {
-    expect(shouldRequireEvidence({ directorId: "critique" })).toBe(true);
+  test("shouldRequireEvidence is armed for the critic director id", () => {
+    expect(shouldRequireEvidence({ directorId: "critic" })).toBe(true);
   });
 
   test("shouldRequireEvidence is off for greybeard even with intent=review", () => {
@@ -391,29 +417,58 @@ describe("sub-agent stop helpers", () => {
     expect(deadlineWithHint).toContain("wall-clock deadline");
     expect(deadlineWithHint).toContain("deadline reached");
     // Only fires for a deadline report, not for other forced-stop reasons.
-    expect(
-      appendSubAgentParentHints(forcedStopReport("cancelled", "x"), "cancelled"),
-    ).not.toContain("wall-clock deadline");
+    const cancelledWithHint = appendSubAgentParentHints(
+      forcedStopReport("cancelled", "x"),
+      "cancelled",
+    );
+    expect(cancelledWithHint).not.toContain("wall-clock deadline");
+    expect(cancelledWithHint).toContain("was cancelled before finishing");
+    expect(cancelledWithHint).toContain("Findings and Paths");
+
+    // Paths section carries thrash salvage; empty prose with paths still informs Findings.
+    const withPaths = forcedStopReport("cancelled", "", {
+      paths: ["src/a.ts", "src/b.ts"],
+    });
+    const withPathsParsed = parseSubAgentReport(withPaths);
+    expect(withPathsParsed.paths).toContain("src/a.ts");
+    expect(withPathsParsed.paths).toContain("src/b.ts");
+    expect(withPathsParsed.findings).toContain("Files touched before stop");
+    expect(withPathsParsed.findings).toContain("src/a.ts");
   });
 
-  test("forcedStopReport carries a machine-readable Stopped line the parent sees verbatim", () => {
-    const cancelled = forcedStopReport("cancelled", "partial", "Session closed");
-    expect(stopReasonFromReport(cancelled)).toBe("cancelled — Session closed");
-    // Without a detail the line is the bare reason token.
-    expect(stopReasonFromReport(forcedStopReport("cancelled", "partial"))).toBe("cancelled");
-    expect(stopReasonFromReport(forcedStopReport("deadline", "x", "30s elapsed"))).toBe(
-      "deadline — 30s elapsed",
+  test("forcedStopReport renders a Stopped line for display; classification uses the typed reason", () => {
+    expect(forcedStopReport("cancelled", "partial", { detail: "Session closed" })).toMatch(
+      /^Stopped: cancelled — Session closed\n/,
     );
-
-    // A nested forced-stop quoted in Findings must not leak its Stopped line
-    // as the outer report's reason.
+    expect(forcedStopReport("cancelled", "partial")).toMatch(/^Stopped: cancelled\n/);
+    expect(forcedStopReport("deadline", "x", { detail: "30s elapsed" })).toMatch(
+      /^Stopped: deadline — 30s elapsed\n/,
+    );
+    // Nested Stopped: under Findings is display-only; classify via typed reason.
     const nested = forcedStopReport(
       "deadline",
-      forcedStopReport("cancelled", "inner", "inner reason"),
+      forcedStopReport("cancelled", "inner", { detail: "inner reason" }),
     );
-    expect(stopReasonFromReport(nested)).toBe("deadline");
-    // A clean report has no Stopped line.
-    expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
+    expect(nested).toMatch(/^Stopped: deadline\n/);
+    expect(nested).toContain("Stopped: cancelled — inner reason");
+  });
+
+  test("salvagePathsFromThrash prefers edited paths then collapses chunked reads", () => {
+    const state = nextThrashState(EMPTY_THRASH_STATE, [
+      {
+        type: "tool_call",
+        name: "read_file",
+        arguments: { path: "src/a.ts", offset: 0, limit: 10 },
+      },
+      {
+        type: "tool_call",
+        name: "edit_file",
+        arguments: { path: "src/b.ts", old_string: "a", new_string: "b" },
+      },
+      { type: "tool_call", name: "read_file", arguments: { path: "src/a.ts" } },
+    ]);
+    expect(salvagePathsFromThrash(state)).toEqual(["src/b.ts", "src/a.ts"]);
+    expect(salvagePathsFromThrash(state, 1)).toEqual(["src/b.ts"]);
   });
 
   test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {

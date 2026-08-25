@@ -31,7 +31,7 @@ const SETTINGS_TEST_ITEMS = ["Permissions", "Telemetry", "Close"] as const;
 function testObserveSession(): ObserveSession {
   return {
     sessionId: "child-1",
-    agentId: "explore",
+    agentId: "explorer",
     description: "map callers of openListOverlay",
     lines: [
       { role: "system", text: "— child session explore —" },
@@ -141,7 +141,7 @@ describe("Wave 7: subagent observe", () => {
           const child = testObserveSession();
           enterSubagentObserve(shell, child);
 
-          expect(shell.observe?.agentId).toBe("explore");
+          expect(shell.observe?.agentId).toBe("explorer");
           expect(focusOwner(shell.focus)).toBe("observe");
           expect(shell.parentStreamLog).not.toBeNull();
           expect(shell.streamLog.some((r) => r.text.includes("child session"))).toBe(true);

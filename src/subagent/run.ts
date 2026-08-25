@@ -90,6 +90,7 @@ import {
   resolveSubAgentDeadlineMs,
   type ForcedStopReason,
 } from "./stop-policy.js";
+import { EMPTY_THRASH_STATE, nextThrashState, salvagePathsFromThrash } from "./thrash.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import { assertTierMayMountFleetVerb } from "./authority.js";
 import { createReadAgentTraceTool } from "./trace-tool.js";
@@ -269,7 +270,23 @@ function abortReasonText(signal: AbortSignal): string | undefined {
 }
 
 /**
- * Arm requireEvidence only for the critique director. Greybeard is also
+ * Findings payload for cancel/deadline salvage. Prefer multi-turn accumulated
+ * prose; fall back to the last turn-boundary text, then the in-flight cycle tail.
+ */
+function salvageFindingsText(
+  accumulatedProse: string,
+  lastPartialText: string,
+  abortedCycleText: string,
+): string {
+  const prior = accumulatedProse.trim();
+  if (prior.length > 0) return prior;
+  const last = lastPartialText.trim();
+  if (last.length > 0) return last;
+  return abortedCycleText.slice(-2000);
+}
+
+/**
+ * Arm requireEvidence only for the critic director. Greybeard is also
  * intent=review and may spawn-only then envelope; that is not a fake
  * review — do not pull it into the empty-readCounts gate.
  */
@@ -277,7 +294,7 @@ export function shouldRequireEvidence(input: {
   intent?: TaskIntent;
   directorId?: string;
 }): boolean {
-  return input.directorId === "critique";
+  return input.directorId === "critic";
 }
 
 const submitResultDefinition: ToolDefinition = {
@@ -466,18 +483,20 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       ];
     }
 
-    // Orchestrators need task + search_agents installed, not just mentioned in
-    // the prompt. Nested dispatch always forbids further orchestration so the
-    // tree bottoms out after one hop.
+    // Orchestrators need task installed, not just mentioned in the prompt.
+    // Nested dispatch always forbids further orchestration so the tree
+    // bottoms out after one hop. Fleet discovery (search_agents) is Tier-1
+    // only (CL-7051) — nested directors keep task/spawn allowlists.
     if (params.orchestrator === true) {
       // Tier enforcement at the mount point, not the prompt, fails closed:
       // an unresolved tier defaults to "leaf" rather than skipping the check,
       // so an AgentProfile outside the closed director set cannot mount
       // task/search_agents just by setting orchestrator: true.
       const tier = params.orchestratorTier ?? "leaf";
+      const mayDiscoverFleet = tier === "orchestrator";
       for (const verb of [
         "task",
-        "search_agents",
+        ...(mayDiscoverFleet ? (["search_agents"] as const) : []),
         "read_agent_trace",
         "spawn_agent",
         "wait_agents",
@@ -523,7 +542,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
           ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
         }),
-        ...(nd.profiles !== undefined
+        ...(mayDiscoverFleet && nd.profiles !== undefined
           ? [
               createSearchAgentsTool(() => {
                 const profiles = nd.profiles;
@@ -770,6 +789,12 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     // transcript (which would interleave sub-agent text with the parent turn).
     const toolNamesUsed: string[] = [];
     let lastPartialText = "";
+    // Accumulate assistant prose across turns (capped) so cancel/deadline
+    // salvage Findings keep substantive mid-run text, not only the final cycle.
+    const TURN_PROSE_CAP = 12_000;
+    let accumulatedProse = "";
+    // Thrash paths from tool.start so mid-tool cancel still lists files touched.
+    let thrashState = EMPTY_THRASH_STATE;
     // Watch the streamed text of the in-flight cycle so a salvage on
     // cancel/deadline has the cycle's tail as its payload, even though no
     // turn boundary has completed yet to carry it.
@@ -780,9 +805,27 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         toolNamesUsed.push(name);
         params.onProgress?.({ description: params.description, toolName: name });
       }
+      if (event.type === "tool.start") {
+        const call = (event as { data?: { call?: { name?: unknown; arguments?: unknown } } }).data
+          ?.call;
+        if (typeof call?.name === "string" && call.name.length > 0) {
+          thrashState = nextThrashState(thrashState, [
+            { type: "tool_call", name: call.name, arguments: call.arguments },
+          ]);
+        }
+      }
       cycleRecorder.handleEvent(event);
       const partial = partialTextFromEvent(event);
-      if (partial !== null) lastPartialText = partial;
+      if (partial !== null) {
+        lastPartialText = partial;
+        const trimmed = partial.trim();
+        if (trimmed.length > 0) {
+          const joined =
+            accumulatedProse.length === 0 ? trimmed : `${accumulatedProse}\n\n${trimmed}`;
+          accumulatedProse =
+            joined.length <= TURN_PROSE_CAP ? joined : joined.slice(-TURN_PROSE_CAP);
+        }
+      }
       params.onEvent?.(event);
     };
     streamPromise = consumeStream(agent.stream(), streamSink);
@@ -925,11 +968,13 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       if (interruptController.signal.aborted && !runController.signal.aborted) {
         interruptedKeepAlive = true;
         const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
-        const tail =
-          lastPartialText.trim().length > 0 ? lastPartialText : abortedCycleText.slice(-2000);
+        const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);
         return {
           report: appendActivitySummary(
-            forcedStopReport("cancelled", tail, "interrupted by interrupt_agent"),
+            forcedStopReport("cancelled", tail, {
+              detail: "interrupted by interrupt_agent",
+              paths: salvagePathsFromThrash(thrashState),
+            }),
             toolNamesUsed,
           ),
           stopReason: "cancelled",
@@ -951,15 +996,17 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         // Deadline always salvages (even with zero output). Cancel after any
         // tools or assistant prose salvages so the parent keeps partial work;
         // pre-progress cancel still surfaces as a bare AbortError.
-        const hadProgress = toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
+        const hadProgress =
+          toolNamesUsed.length > 0 ||
+          lastPartialText.trim().length > 0 ||
+          accumulatedProse.trim().length > 0;
         const outcome = resolveSubAgentCatchOutcome({
           deadlineHit: runController.deadlineHit(),
           hadProgress,
         });
         if (outcome !== "rethrow") {
           const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
-          const tail =
-            lastPartialText.trim().length > 0 ? lastPartialText : abortedCycleText.slice(-2000);
+          const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);
           const detail =
             reason === "deadline" && resolvedDeadlineMs !== undefined
               ? `${resolvedDeadlineMs}ms elapsed`
@@ -971,7 +1018,13 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
             ...(detail !== undefined ? { detail } : {}),
           });
           return {
-            report: appendActivitySummary(forcedStopReport(reason, tail, detail), toolNamesUsed),
+            report: appendActivitySummary(
+              forcedStopReport(reason, tail, {
+                ...(detail !== undefined ? { detail } : {}),
+                paths: salvagePathsFromThrash(thrashState),
+              }),
+              toolNamesUsed,
+            ),
             stopReason: reason,
           };
         }

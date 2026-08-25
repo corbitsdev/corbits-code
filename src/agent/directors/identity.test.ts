@@ -17,12 +17,12 @@ function stripFrontmatter(raw: string): string {
 
 describe("formatDirectorSystemPrompt", () => {
   test("prefixes agent id, model role, and optional skills", () => {
-    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.build);
-    expect(text.startsWith("Identity: agent id `build`")).toBe(true);
-    expect(text).toContain('task(agent="build")');
+    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
+    expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
+    expect(text).toContain('task(agent="builder")');
     expect(text).toContain("Model role: implement.");
     expect(text).toContain("style, philosophy, typescript");
-    expect(text).toContain(DIRECTOR_REGISTRY.build.systemPrompt);
+    expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
   test("intern reports no optional skills by default", () => {
@@ -30,8 +30,8 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("Optional skills: none by default");
   });
 
-  test("bakes real style/philosophy/typescript bodies for build workers (CL-6803)", () => {
-    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.build);
+  test("bakes real style/philosophy/typescript bodies for builder workers (CL-6803)", () => {
+    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     const style = stripFrontmatter(
       readFileSync(
         join(import.meta.dirname, "../../../plugins/corbits-skills/skills/style/SKILL.md"),
@@ -63,7 +63,7 @@ describe("formatDirectorSystemPrompt", () => {
 
   test("does not advertise bake when no skill bodies resolve (total miss)", () => {
     const text = formatDirectorSystemPrompt({
-      ...DIRECTOR_REGISTRY.build,
+      ...DIRECTOR_REGISTRY.builder,
       optionalSkills: ["does-not-exist-xyz"],
     });
     expect(text).not.toContain("# Baked skill guidance");
@@ -83,18 +83,18 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("dispatch, style, philosophy, interview");
   });
 
-  test("plan does not bake interview ask_operator guidance (CL-6803)", () => {
-    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.plan);
+  test("counsel does not bake interview ask_operator guidance (CL-6803)", () => {
+    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.counsel);
     const interview = stripFrontmatter(
       readFileSync(
         join(import.meta.dirname, "../../../plugins/corbits-skills/skills/interview/SKILL.md"),
         "utf8",
       ),
     );
-    expect(DIRECTOR_REGISTRY.plan.optionalSkills).toEqual(["style", "philosophy"]);
+    expect(DIRECTOR_REGISTRY.counsel.optionalSkills).toEqual(["style", "philosophy"]);
     expect(text).not.toContain(interview);
     expect(text).not.toContain("### interview");
-    // interview recipe centers on ask_operator batches; plan must not embed it
+    // interview recipe centers on ask_operator batches; counsel must not embed it
     expect(text).not.toMatch(/multiple-choice questions in batches via `ask_operator`/);
     expect(text).toContain("style, philosophy");
     expect(text).toContain("# Baked skill guidance");
@@ -104,7 +104,7 @@ describe("formatDirectorSystemPrompt", () => {
 describe("defaultEffortForDirector", () => {
   test("intern is low; implement is medium; greybeard is high", () => {
     expect(defaultEffortForDirector(DIRECTOR_REGISTRY.intern)).toBe("low");
-    expect(defaultEffortForDirector(DIRECTOR_REGISTRY.build)).toBe(
+    expect(defaultEffortForDirector(DIRECTOR_REGISTRY.builder)).toBe(
       MODEL_ROLE_DEFAULT_EFFORT.implement,
     );
     expect(defaultEffortForDirector(DIRECTOR_REGISTRY.greybeard)).toBe("high");

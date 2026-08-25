@@ -442,7 +442,7 @@ describe("landing screen", () => {
           expect(nowAt.every((index) => index > 0)).toBe(true);
           expect(nowAt).toEqual([...nowAt].sort((a, b) => a - b));
           expect(new Set(nowAt).size).toBe(nowAt.length);
-          expect(h.captureCharFrame()).toContain("operator");
+          expect(h.captureCharFrame()).toContain("Esc cancel");
         } finally {
           shell.dispose();
         }
@@ -661,10 +661,23 @@ describe("landing screen", () => {
         await settle(h);
 
         expect(isLanding(shell)).toBe(false);
-        const frame = h.captureCharFrame();
-        expect(frame).toContain("mcp github did not connect");
-        expect(frame).not.toContain("command");
-        expect(frame).not.toContain("overlay");
+        // Assert on the flushed notice row(s) — not the full char frame. The
+        // footer/chrome can echo the process cwd, and a worktree path that
+        // happens to contain "overlay" (or "command") must not false-positive
+        // the plumbing-label invariant.
+        const noticeNeedle = "mcp github did not connect";
+        const noticeRows = shell.streamLog.filter((row) => row.text.includes(noticeNeedle));
+        expect(noticeRows.length).toBeGreaterThan(0);
+        for (const row of noticeRows) {
+          expect(row.meta).not.toBe("command");
+          expect(row.meta).not.toBe("overlay");
+        }
+        const painted = rows(h).filter((line) => line.includes(noticeNeedle));
+        expect(painted.length).toBeGreaterThan(0);
+        for (const line of painted) {
+          expect(line).not.toContain("command");
+          expect(line).not.toContain("overlay");
+        }
       } finally {
         shell.dispose();
       }

@@ -597,8 +597,8 @@ describe("update_plan proxy", () => {
 });
 
 describe("allowDeleteFromCapabilities", () => {
-  test("docs allowlist (no delete_file) → false; build → true", () => {
-    expect(allowDeleteFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(false);
+  test("docs allowlist (includes delete_file) → true; build → true", () => {
+    expect(allowDeleteFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(true);
     expect(allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS })).toBe(true);
     expect(allowDeleteFromCapabilities(undefined)).toBe(true);
     expect(allowDeleteFromCapabilities({ mode: "exclude", tools: ["run_shell"] })).toBe(true);

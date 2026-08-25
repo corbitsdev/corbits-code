@@ -6,9 +6,9 @@ description: Conduct an iterative multiple-choice interview using ask_operator. 
 
 # Interview
 
-Use this skill to gather user input on a topic by asking multiple-choice questions in batches via `ask_operator`. Return the questions and answers in the conversation. The caller decides what to do with them.
+Gather structured user input on a topic via multiple-choice `ask_operator` questions. Emit the Q&A inline; the caller decides what to do with it.
 
-This is a utility, not a planner. It does not decide what to build, write any files, or invoke other skills.
+This is a utility, not a planner. It does not decide what to build, write any files, spawn agents, or invoke other skills.
 
 ## Argument
 
@@ -23,15 +23,17 @@ If no topic is given, ask for one with `ask_operator` before proceeding.
 
 ### Identify dimensions to probe
 
-Enumerate the open questions worth asking, drawn from the topic and context. Skip dimensions the context already settles. Add domain-specific ones where relevant. There is no fixed dimension list — the topic determines it.
+Enumerate the open questions worth asking from the topic and context. Skip dimensions the context already settles. Add domain-specific ones where relevant. There is no fixed dimension list — the topic determines it.
 
 Probe objective and priorities before details. They shape every later question, so anchoring them early prevents reshuffling halfway through.
 
-### Ask in batches
+### Ask with ask_operator
 
-Each question is one `ask_operator` call: `question` (string) plus `options` (array of strings). Batch a round by firing 2–4 independent `ask_operator` calls together (parallel tool calls). Refer to the tool's own documentation for parameter limits.
+Each question is one `ask_operator` call: `question` (string) plus `options` (array of strings). Fire independent questions together as parallel tool calls in the same turn.
 
-`ask_operator` is single-select per call. The operator can also type a custom answer. There is no multi-select flag — if a dimension genuinely permits several answers, encode the realistic combinations as options, or follow up with a second question once the first answer lands.
+`ask_operator` is single-select per call. The operator can also type a custom answer. There is no multi-select flag — if a dimension genuinely permits several answers, encode the realistic combinations as options, or follow up once the first answer lands.
+
+**No false caps.** `ask_operator` has no skill-invented ceiling on option count, parallel questions per round, or total rounds. Batch every independent dimension you can author now. Drop to one question only when the next question's text or options cannot be written without this answer. Stop when marginal value is low (see below) — never because a made-up quota was hit. If the caller passed an explicit cap, honour it.
 
 **Quality bar for options:**
 
@@ -42,11 +44,7 @@ Each question is one `ask_operator` call: `question` (string) plus `options` (ar
 - Combination options only when the dimension genuinely permits more than one answer
 - If you have a recommendation, put it first and label it
 
-**Batching:**
-
-- Default 2–4 `ask_operator` calls per round, bundling dimensions that do not depend on each other
-- Drop to 1 question only when the next question's text or options cannot be authored without this answer
-- Referencing a prior answer inside a later question's text is fine
+Referencing a prior answer inside a later question's text is fine.
 
 ### Decide when to stop
 
@@ -57,7 +55,7 @@ Stop when:
 - The user has signalled fatigue (declines to choose, short non-substantive custom answers, asks to wrap up)
 - The topic has shifted into territory outside this interview's scope
 
-There is no fixed round cap. Stop when the marginal value of another round is low. If the caller passed an explicit cap, honour it.
+There is no fixed round cap. Stop when the marginal value of another round is low.
 
 ### Handle trouble
 
@@ -92,7 +90,7 @@ After emitting the findings, stop. Do not load other skills, invoke other agents
 
 **Invocation:** `use_skill(name="interview")` with the topic in the conversation, or `/interview notification system; backend is Node/Postgres, internal users only, must integrate with existing auth`
 
-**Round 1** (3 parallel `ask_operator` calls, bundled because none depends on the others):
+**Round 1** (three parallel `ask_operator` calls — independent dimensions, so ask together):
 
 ```
 ask_operator({
@@ -138,7 +136,8 @@ ask_operator({
 ## Anti-patterns
 
 - **Interviewing yourself.** Filling in answers because they "seem obvious" — stop and ask, or note as assumption.
-- **One question per round, ten rounds deep.** Batch related questions as parallel `ask_operator` calls.
+- **Serializing independent questions.** If dimensions do not depend on each other, ask them in parallel.
+- **Inventing quotas.** Do not stop or thin options because of a made-up question or option count.
 - **Asking about everything.** Prune dimensions that do not apply.
 - **Treating a custom answer as failure.** Custom answers are signal.
 - **Forgetting context.** Read it. Do not re-ask things the context already settled.

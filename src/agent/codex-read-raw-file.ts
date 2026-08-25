@@ -14,8 +14,9 @@
  *
  * Reuses the existing containment and secret-file authorities rather than
  * reimplementing them: `resolveWorkspacePath` (symlink-aware realpath
- * containment, the same function pathEscapePlugin calls) and `isSensitivePath`
- * (the secretGuardPlugin denylist). Both are hard denials — the latter has no
+ * containment, the same function pathEscapePlugin calls) and
+ * `isSensitivePathResolved` (the secretGuardPlugin denylist, including the
+ * CL-6971 realpath floor). Both are hard denials — the latter has no
  * yolo/allowOutside bypass, matching secretGuardPlugin's own unconditional
  * behavior.
  */
@@ -25,7 +26,7 @@ import { resolve } from "node:path";
 import { hasCode } from "@intx/types";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
-import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { isSensitivePath, isSensitivePathResolved } from "../plugins/secret-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { CodexReadRawFile } from "./codex-tool-proxies.js";
 
@@ -52,7 +53,9 @@ export function createCodexReadRawFile(
     if (resolved !== undefined) {
       absolutePath = resolved;
     } else if (allowOutside()) {
-      // Mirrors pathEscapePlugin's own allowOutside fallback (yolo mode).
+      // Mirrors pathEscapePlugin's own allowOutside fallback (yolo mode):
+      // lexical absolutize. The realpath floor below still catches symlinks
+      // whose innocuous names would otherwise defeat the denylist (CL-6971).
       absolutePath = resolve(cwd, path);
     } else {
       return {
@@ -61,9 +64,10 @@ export function createCodexReadRawFile(
       };
     }
 
-    // Re-check the resolved, symlink-realpath'd form too: a symlink can name
-    // something innocuous while pointing at a sensitive real path.
-    if (isSensitivePath(absolutePath)) {
+    // Re-check after resolve — and realpath when the allowOutside branch left
+    // a symlink unresolved — so a link can name something innocuous while
+    // pointing at a sensitive real path.
+    if (isSensitivePathResolved(absolutePath)) {
       return {
         content: `Access to sensitive file blocked by policy: ${path}`,
         isError: true,
