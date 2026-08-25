@@ -495,8 +495,8 @@ describe("wait_agents caller scope", () => {
     });
     const ids = [first.agent_id as string, second.agent_id as string];
 
-    // Interrupt one of N while mode=all is in flight: interrupted is terminal
-    // for that target, but mode=all must not complete as "all done" while a
+    // Interrupt one of N before mode=all starts: interrupted is terminal for
+    // that target, but mode=all must not complete as "all done" while a
     // sibling is still running.
     if (interrupt.kind !== "full") throw new Error("expected full tool");
     await interrupt.handler(
