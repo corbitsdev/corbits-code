@@ -13,6 +13,19 @@ describe("internPackage", () => {
     expect(internPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
   });
 
+  test("systemPrompt is mechanical executor (gaas intern port)", () => {
+    const p = internPackage.systemPrompt;
+    expect(p).toMatch(/execute clear (mechanical )?instructions/i);
+    expect(p).toMatch(/STOP/i);
+    expect(p).toMatch(/Blockers/i);
+    expect(p).toMatch(/## Summary/);
+    expect(p).toMatch(/## Findings/);
+    expect(p).toMatch(/## Paths/);
+    expect(p).toMatch(/run_shell/);
+    // Role forbids debugging; body states the ban explicitly
+    expect(p).toMatch(/You do NOT:[\s\S]*Debug failures/);
+  });
+
   test("spawn.maySpawn is false", () => {
     expect(internPackage.spawn.maySpawn).toBe(false);
   });
@@ -39,7 +52,14 @@ describe("internPackage", () => {
   });
 
   test("primaryIntent and description", () => {
-    expect(internPackage.primaryIntent).toContain("Mechanical shell/commands only");
+    expect(internPackage.primaryIntent).toMatch(/mechanical|exact|zero judgment/i);
     expect(internPackage.description).toBe("Mechanical intern leaf");
+  });
+
+  test("outOfLane bans debugging and exploration", () => {
+    const lane = internPackage.outOfLane.join(" ");
+    expect(lane).toMatch(/debug/i);
+    expect(lane).toMatch(/explor/i);
+    expect(lane).toMatch(/spawn/i);
   });
 });
