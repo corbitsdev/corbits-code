@@ -4,6 +4,7 @@ import {
   createFleetRecords,
   createSpawnAgentTool,
   createWaitAgentsTool,
+  createListAgentsTool,
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
@@ -764,5 +765,52 @@ describe("close_agent unblocks wait_agents", () => {
     expect(results).toEqual([{ agent_id: id, status: "interrupted" }]);
     expect(deps.sessions.get(id)?.lifecycleStatus).toBe("shutdown");
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
+  });
+});
+
+describe("list_agents", () => {
+  test("lists this fleet only, including director and lifecycle", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async () => gate.promise);
+    deps.sessions.start({
+      id: "foreign-sibling",
+      description: "someone else's worker",
+      agentId: "explorer",
+      brief: "b",
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "mine",
+      prompt: "do it",
+      intent: "explore",
+    });
+    if (list.kind !== "full") throw new Error("expected full tool");
+    const raw = await list.handler(
+      { id: "list-1", name: "list_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const parsed = JSON.parse(content) as {
+      agents: {
+        agent_id: string;
+        status: string;
+        collected: boolean;
+        director?: string;
+        description?: string;
+        lifecycle?: string;
+      }[];
+    };
+    expect(parsed.agents).toHaveLength(1);
+    expect(parsed.agents[0]!.agent_id).toBe(spawned.agent_id as string);
+    expect(parsed.agents[0]!.status).toBe("running");
+    expect(parsed.agents[0]!.collected).toBe(false);
+    expect(parsed.agents[0]!.director).toBe("explorer");
+    expect(parsed.agents[0]!.description).toBe("mine");
+    expect(parsed.agents[0]!.lifecycle).toBe("pending_init");
+    gate.resolve({ report: "done" });
   });
 });
