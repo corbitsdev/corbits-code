@@ -18,6 +18,7 @@ const FLEET_VERBS = [
   "resume_agent",
   "interrupt_agent",
   "followup_task",
+  "send_input",
 ] as const;
 
 describe("primary fleet verb mount", () => {
