@@ -93,6 +93,7 @@ describe("createToolIndex", () => {
       "resume_agent",
       "interrupt_agent",
       "followup_task",
+      "send_input",
     ] as const) {
       expect(CORE_TOOL_NAMES).toContain(name);
       expect(advertised).toContain(name);
@@ -243,6 +244,7 @@ describe("advertisedTools", () => {
       "resume_agent",
       "interrupt_agent",
       "followup_task",
+      "send_input",
     ] as const) {
       expect(prefix).toContain(name);
     }

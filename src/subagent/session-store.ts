@@ -5,9 +5,13 @@
 // this store is the dedicated child record the enter-session UI reads.
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 import { toolCallPreview } from "./tool-preview.js";
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -202,6 +206,12 @@ export interface SubAgentSessionStore {
   ): Promise<
     { ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus; hint?: string }
   >;
+  registerDeliver(id: string, deliver: (message: string) => void): void;
+  sendInputOne(
+    id: string,
+    message: string,
+    opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
+  ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -213,7 +223,8 @@ const DEFAULT_MAX_COMPLETED = 20;
 // sidebar list — see maxRetained doc above.
 const DEFAULT_MAX_RETAINED = 50;
 const DEFAULT_MAX_ENTRIES = 400;
-const DEFAULT_MAX_ENTRY_CHARS = 24_000;
+/** Cap on characters per transcript entry / send_input message body. */
+export const DEFAULT_MAX_ENTRY_CHARS = 24_000;
 
 const EVICTED_RETENTION_HINT =
   "Session evicted to bound retained-session memory; recover full detail via read_agent_trace(agent_id).";
@@ -359,6 +370,7 @@ export function createSubAgentSessionStore(
   // an interrupt can never accidentally resolve to the close codepath.
   const interruptHandles = new Map<string, () => void>();
   const followupHandles = new Map<string, (message: string) => Promise<string>>();
+  const deliverHandles = new Map<string, (message: string) => void>();
   const listeners = new Set<() => void>();
   // CL-7007: tombstones for sessions dropped by pruneRetained, keyed by id,
   // insertion-ordered (Map preserves it) so the oldest can be dropped first
@@ -460,9 +472,16 @@ export function createSubAgentSessionStore(
     const close = closeHandles.get(id);
     if (close !== undefined) {
       closeHandles.delete(id);
-      void close(DEFAULT_CLOSE_DEADLINE_MS).catch(() => {});
+      void close(DEFAULT_CLOSE_DEADLINE_MS).catch((err: unknown) => {
+        log.warn("session close during handle release failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
     cancelHandles.delete(id);
+    interruptHandles.delete(id);
+    followupHandles.delete(id);
+    deliverHandles.delete(id);
   };
 
   // An open retained session (spawn_agent's reusable-session contract:
@@ -602,6 +621,7 @@ export function createSubAgentSessionStore(
       closeHandles.delete(id);
       interruptHandles.delete(id);
       followupHandles.delete(id);
+      deliverHandles.delete(id);
       forgetRevision(id);
       const session: SubAgentSession = {
         id,
@@ -897,7 +917,11 @@ export function createSubAgentSessionStore(
       // close that does not honor its own deadline argument — a wedged
       // descendant must not hang the whole close_agent call.
       await Promise.race([
-        close(deadlineMs).catch(() => {}),
+        close(deadlineMs).catch((err: unknown) => {
+          log.warn("session close raced deadline: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }),
         new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
       ]);
       mutate(id, (s) => {
@@ -912,6 +936,7 @@ export function createSubAgentSessionStore(
       cancelHandles.delete(id);
       interruptHandles.delete(id);
       followupHandles.delete(id);
+      deliverHandles.delete(id);
       pruneCompleted();
       return "shutdown";
     },
@@ -924,6 +949,60 @@ export function createSubAgentSessionStore(
     registerFollowup(id: string, followup: (message: string) => Promise<string>): void {
       if (!sessions.has(id)) return;
       followupHandles.set(id, followup);
+    },
+
+    registerDeliver(id: string, deliver: (message: string) => void): void {
+      if (!sessions.has(id)) return;
+      deliverHandles.set(id, deliver);
+    },
+
+    sendInputOne(
+      id: string,
+      message: string,
+      opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
+    ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
+      const session = sessions.get(id);
+      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session.status !== "running") return { ok: false, status: session.lifecycleStatus };
+
+      if (opts?.interrupt === true) {
+        const interrupt = interruptHandles.get(id);
+        const followup = followupHandles.get(id);
+        if (interrupt === undefined || followup === undefined) {
+          return { ok: false, status: session.lifecycleStatus };
+        }
+        interrupt();
+        mutate(id, (s) => {
+          s.lifecycleStatus = "interrupted";
+        });
+        void followup(message)
+          .then((reply) => {
+            const still = sessions.get(id);
+            if (still === undefined || still.lifecycleStatus === "shutdown") return;
+            mutate(id, (s) => {
+              s.status = "done";
+              s.lifecycleStatus = "completed";
+              s.finishedAt = now();
+              s.report = reply;
+              pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+            });
+            opts.onFollowupReply?.(reply);
+            pruneRetained();
+          })
+          .catch((err: unknown) => {
+            log.error("send_input followup failed for {id}: {error}", {
+              id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        pruneRetained();
+        return { ok: true, status: "interrupted" };
+      }
+
+      const deliver = deliverHandles.get(id);
+      if (deliver === undefined) return { ok: false, status: session.lifecycleStatus };
+      deliver(message);
+      return { ok: true, status: "running" };
     },
 
     interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
@@ -1037,6 +1116,7 @@ export function createSubAgentSessionStore(
       closeHandles.clear();
       interruptHandles.clear();
       followupHandles.clear();
+      deliverHandles.clear();
       sessions.clear();
       revisions.clear();
       snapshotCache.clear();

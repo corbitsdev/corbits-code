@@ -183,6 +183,7 @@ export type RunSubAgentParams = {
     close: (deadlineMs?: number) => Promise<void>;
     interrupt: () => void;
     followup: (message: string) => Promise<string>;
+    deliver: (message: string) => void;
   }) => void;
 } & SubAgentSandboxDeps;
 
