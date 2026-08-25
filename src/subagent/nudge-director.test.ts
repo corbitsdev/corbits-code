@@ -392,6 +392,8 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
     expect(reply.content).toContain("narrated instead of writing a report envelope");
     expect(reply.content).toContain("Still narrating, no envelope.");
+    expect(reply.content).toContain("## Paths");
+    expect(reply.content).toContain("read-1.ts");
   });
 
   test("tool-less turn with the four headings completes normally", async () => {

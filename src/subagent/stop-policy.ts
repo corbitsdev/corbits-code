@@ -72,6 +72,23 @@ export function resolveSubAgentCatchOutcome(input: {
 export type SubAgentStopReason = "complete" | "incomplete-report" | "incomplete-report-stop";
 
 /**
+ * Consecutive tool-less narration turns (no four-heading envelope) before
+ * salvage. Cycle 1 nudges; cycle 2 (and beyond) stops as incomplete-report.
+ */
+export const MAX_TOOLLESS_NARRATION_CYCLES = 2;
+
+export type ToolLessNarrationSpiral = "nudge" | "stop";
+
+/**
+ * Decide whether another tool-less narration without an envelope should nudge
+ * once more or salvage. `cycles` is the 1-based count of consecutive tool-less
+ * narration turns so far (including the current one).
+ */
+export function evaluateToolLessNarrationSpiral(cycles: number): ToolLessNarrationSpiral {
+  return cycles >= MAX_TOOLLESS_NARRATION_CYCLES ? "stop" : "nudge";
+}
+
+/**
  * Pure stop decision for leaf workers. Null means keep running tools.
  *
  * "incomplete-report" is a one-shot signal telling the caller to inject a
@@ -79,7 +96,7 @@ export type SubAgentStopReason = "complete" | "incomplete-report" | "incomplete-
  * that never called a tool at all) completes only when the assistant text has
  * a four-heading envelope (Summary, Findings, Blockers, Paths). Missing
  * envelope nudges once (`incomplete-report`) then salvages
- * (`incomplete-report-stop`).
+ * (`incomplete-report-stop`) via evaluateToolLessNarrationSpiral.
  * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
  * is not complete even with all four headings — same incomplete-report
  * nudge then salvage, so a wrap-up envelope cannot fake a real review.
@@ -100,24 +117,36 @@ export function evaluateSubAgentStop(input: {
    * (Summary/Findings/Blockers/Paths) nudges once then salvages.
    */
   lastAssistantText: string;
-  /** True after the one-shot incomplete-report wrap-up nudge has been injected. */
+  /**
+   * 1-based count of consecutive tool-less narration turns so far (including
+   * the current one). When omitted, falls back to `incompleteReportNudgeFired`
+   * for older call sites (false → cycle 1, true → cycle 2).
+   */
+  toolLessNarrationCycles?: number;
+  /**
+   * @deprecated Prefer `toolLessNarrationCycles`. True after the one-shot
+   * incomplete-report wrap-up nudge has been injected.
+   */
   incompleteReportNudgeFired?: boolean;
 }): SubAgentStopReason | null {
+  const spiralCycles =
+    input.toolLessNarrationCycles ?? (input.incompleteReportNudgeFired === true ? 2 : 1);
+  const spiralStop = (): SubAgentStopReason =>
+    evaluateToolLessNarrationSpiral(spiralCycles) === "stop"
+      ? "incomplete-report-stop"
+      : "incomplete-report";
+
   // A tool-less turn is complete only with a report envelope. CritiqueDirector
   // additionally requires at least one read/search (hasEvidence).
   if (!input.hasToolCalls) {
     if (!hasReportEnvelope(input.lastAssistantText)) {
-      return input.incompleteReportNudgeFired === true
-        ? "incomplete-report-stop"
-        : "incomplete-report";
+      return spiralStop();
     }
     if (
       input.requireEvidence === true &&
       (input.thrashState === undefined || input.thrashState.readCounts.size === 0)
     ) {
-      return input.incompleteReportNudgeFired === true
-        ? "incomplete-report-stop"
-        : "incomplete-report";
+      return spiralStop();
     }
     return "complete";
   }
@@ -154,6 +183,14 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
 
 export type ForcedStopReason = "cancelled" | "deadline" | "stalled" | "incomplete-report";
 
+/** Optional detail / Paths payload for a forced-stop salvage envelope. */
+export interface ForcedStopReportOptions {
+  /** Path-specific specifics (cancel reason) rendered on the `Stopped:` line. */
+  detail?: string;
+  /** Edited/read paths for the Paths section (string or list; capped by caller). */
+  paths?: string | readonly string[];
+}
+
 // Exact Summary text rendered for each forced-stop reason. Human-facing only —
 // forcedStopReport is the sole reader; the parent classifies outcomes from the
 // structured ForcedStopReason value itself (see run.ts/task-tool.ts), never by
@@ -166,19 +203,29 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
 };
 
+function normalizeSalvagePaths(paths: ForcedStopReportOptions["paths"]): string {
+  if (paths === undefined) return "";
+  if (typeof paths === "string") return paths.trim();
+  return paths
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .join("\n");
+}
+
 /**
  * Build the parent-facing report when a leaf is force-stopped. There is no
  * further inference, so this must already be a full envelope — not an
- * instruction asking the finished worker to summarize. `detail` is the
- * path-specific specifics (cancel reason) rendered verbatim on the report's
- * `Stopped:` line so the parent and the TUI see the cause, not just that the
- * worker stopped.
+ * instruction asking the finished worker to summarize. Options carry the
+ * cancel `detail` (Stopped line) and salvage `paths` (Paths section). Findings
+ * keep demoted partial prose, or a files-touched stub when only paths remain.
  */
 export function forcedStopReport(
   reason: ForcedStopReason,
   partialText: string,
-  detail?: string,
+  options: ForcedStopReportOptions = {},
 ): string {
+  const detail = options.detail;
+  const pathText = normalizeSalvagePaths(options.paths);
   const summary = FORCED_STOP_SUMMARIES[reason];
   const blockers =
     reason === "cancelled"
@@ -191,21 +238,27 @@ export function forcedStopReport(
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (cancel after a structured partial).
+  const trimmed = partialText.trim();
   const findings =
-    partialText.trim().length > 0
-      ? demoteNestedReportHeadings(partialText.trim())
-      : "(no partial findings on the final turn)";
+    trimmed.length > 0
+      ? demoteNestedReportHeadings(trimmed)
+      : pathText.length > 0
+        ? `Files touched before stop:\n${pathText}`
+        : "(no partial findings on the final turn)";
   return formatSubAgentReport({
     summary,
     findings,
     blockers,
-    paths: "",
+    paths: pathText,
     stopped: detail !== undefined && detail.length > 0 ? `${reason} — ${detail}` : reason,
   });
 }
 
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
+
+const CANCELLED_PARENT_HINT =
+  "[Sub-agent was cancelled before finishing. Continue from Findings and Paths rather than redoing completed work; re-dispatch only if remaining work is still needed.]";
 
 /** Options for parent-hint stacking (session re-dispatch ledger state). */
 export interface SubAgentParentHintOptions {
@@ -219,8 +272,8 @@ export interface SubAgentParentHintOptions {
 /**
  * Prepend the parent-facing salvage hint for `reason`, chosen from the
  * structured ForcedStopReason the run reported directly — never by parsing
- * `report`'s prose. Reasons with no dedicated hint (cancelled, stalled,
- * incomplete-report, or a normal complete) pass `report` through unchanged.
+ * `report`'s prose. Reasons with no dedicated hint (stalled, incomplete-report,
+ * or a normal complete) pass `report` through unchanged.
  */
 export function appendSubAgentParentHints(
   report: string,
@@ -230,6 +283,8 @@ export function appendSubAgentParentHints(
   switch (reason) {
     case "deadline":
       return `${DEADLINE_PARENT_HINT}\n\n${report}`;
+    case "cancelled":
+      return `${CANCELLED_PARENT_HINT}\n\n${report}`;
     default:
       return report;
   }
