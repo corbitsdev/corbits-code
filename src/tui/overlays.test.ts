@@ -233,7 +233,11 @@ describe("operator question overlay", () => {
       "Should we proceed with the destructive reset of the working tree?",
       ...Array.from({ length: 24 }, (_, i) => `Context line ${i + 1}.`),
     ].join("\n");
-    const choices = ["Cancel — keep working tree", "Allow this once", "Allow for this session"] as const;
+    const choices = [
+      "Cancel — keep working tree",
+      "Allow this once",
+      "Allow for this session",
+    ] as const;
     const size = { width: 80, height: 40 } as const;
 
     async function bodyLineCount(mode: "inset" | "full_shell"): Promise<{
