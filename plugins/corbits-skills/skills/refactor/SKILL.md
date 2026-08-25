@@ -1,64 +1,88 @@
 ---
 name: refactor
 argument-hint: <directory>
-description: Examine a directory, document its design, and collaboratively plan improvements. Does not ship product code.
+description: Examine code, document its design, and collaboratively plan improvements
 ---
 
 # Refactor
 
-How to analyze existing code, document its design, and plan improvements. `$ARGUMENTS` is the directory. This skill maps and plans; it does not ship.
+Use this skill to analyze existing code, produce a structured design document, and collaboratively plan improvements for future implementation.
 
 ## Initialization
 
-Load `philosophy` first. Those principles guide how design decisions are evaluated.
+Before doing anything else, load the `philosophy` skill. The principles in that skill guide how you evaluate design decisions.
 
-## Steps
+## Workflow
 
-### 1. Understand the scope
+### Step 1: Understand the Scope
 
-If `$ARGUMENTS` is missing or the directory is broad, `ask_operator` before exploring:
+The user has specified a directory to analyze: `$ARGUMENTS`
 
-- Is there a specific concern or area to focus on?
+If the directory is broad, `ask_operator` before exploring:
+
+- Is there a specific concern or area they want to focus on?
 - What prompted the desire to refactor?
 - Are there known pain points?
 
-### 2. Examine the code
+### Step 2: Examine the Code
 
-Map `$ARGUMENTS`:
+Explore the specified directory to understand:
 
 - What the code does (purpose and behavior)
 - Key components and their responsibilities
 - How data flows through the system
 - Dependencies (internal and external)
 - Patterns and conventions in use
-- Areas of complexity or inconsistency (factual, not prescriptive)
+- Areas of complexity or inconsistency
 
-### 3. Document current design
+### Step 3: Document Current Design
 
-Write a structured markdown document in the working directory. Filename should reflect what was analyzed.
+Write a structured markdown document to the current working directory. Choose a filename that reflects what was analyzed.
 
-- **Overview** — what this code does and its role
-- **Components** — key parts and responsibilities
-- **Data flow** — how data moves
-- **Dependencies** — what it relies on
-- **Patterns** — conventions observed
-- **Observations** — complexity or inconsistency (factual, not prescriptive)
+Document structure:
 
-### 4. Collaborative improvement
+**Overview** - What this code does and its role in the larger system
 
-Present observations and `ask_operator` about priorities. Propose improvements with rationale grounded in philosophy (pragmatic over idealistic, simple is usually harder than easy, do no harm, respect existing decisions). Let the operator accept, reject, or modify. Iterate until alignment. Do not invent a plan the operator did not choose.
+**Components** - Key parts and their responsibilities
 
-### 5. Write the plan
+**Data Flow** - How data moves through the system
 
-Append an **Improvement Plan**:
+**Dependencies** - What it relies on
+
+**Patterns** - Design patterns and conventions observed
+
+**Observations** - Complexity, inconsistencies, or potential concerns (factual, not prescriptive)
+
+### Step 4: Collaborative Improvement Discussion
+
+After documenting the current state:
+
+1. Present your observations and `ask_operator` about priorities
+2. Propose specific improvements with rationale grounded in philosophy principles (pragmatic, simple over easy, etc.)
+3. Let the user accept, reject, or modify proposals
+4. Ask follow-up questions to refine the approach
+5. Iterate until alignment is reached
+
+### Step 5: Write the Plan
+
+Append an **Improvement Plan** section to the document with:
 
 - Specific changes to make
 - Rationale for each change
 - Suggested order of operations
-- Constraints or risks
-- Enough detail that a later `/implement` could execute
-- For structural transformations (renames, signature changes, API migrations), note that execution should load `ast-grep` — bulk AST rewrites, not manual read-edit-write cycles
+- Any constraints or risks to be aware of
+- Enough detail that another agent could execute the plan
+- For structural transformations (renames, signature changes, API migrations), note that the `ast-grep` skill should be loaded during execution — it enables bulk AST-based rewrites instead of manual read-edit-write cycles
 
 ## Output
 
-One markdown file containing the design analysis and the improvement plan. A later `/implement` ships it.
+A single markdown file in the user's current working directory containing both the design analysis and the improvement plan.
+
+## Guiding Principles
+
+From the philosophy skill:
+
+- **Pragmatic over idealistic** - Don't propose changes for theoretical purity
+- **Simple is usually harder than easy** - Favor designs that are genuinely simple, not just quick
+- **Do no harm** - Consider risks to stability and correctness
+- Respect existing decisions; understand why things are the way they are before proposing changes

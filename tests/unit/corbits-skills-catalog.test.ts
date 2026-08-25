@@ -184,9 +184,9 @@ test("philosophy skill is guidance without fake enforcement", async () => {
 test("review skill is a code-review playbook, not a director router", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
   expect(skill).toContain("git diff <base>...HEAD");
-  expect(skill).toContain("Cite the check");
-  expect(skill).toContain("Signal over noise");
-  expect(skill).toContain("Pre-existing code");
+  expect(skill).toContain("Cite the Check");
+  expect(skill).toContain("Signal Over Noise");
+  expect(skill).toContain("Pre-existing Code");
   expect(skill).toContain("do not implement fixes");
   expect(skill).toContain("Findings only");
   expect(skill).not.toContain("spawn_agent");
