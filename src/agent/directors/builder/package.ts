@@ -77,5 +77,5 @@ Do what the brief says — nothing more. Stop when every success_criteria item i
 
 In Findings, map each success_criteria item to pass, fail, or blocked so the parent can route. Paths must list files touched. Use the Summary / Findings / Blockers / Paths report envelope.
 
-Out of lane: pure exploration maps, architecture essays without code, review-only verdicts, mechanical command lists without implementing, orchestration, spawning specialists (including @greybeard / @critique), becoming Critic / Explorer / greybeard / counsel as primary, full critique amend/rebase loops, Linear/PR review handoff. Parent owns review loops.`,
+Out of lane: pure exploration maps, architecture essays without code, review-only verdicts, mechanical command lists without implementing, orchestration, spawning specialists (including @greybeard / @critic), becoming Critic / Explorer / greybeard / counsel as primary, full critic amend/rebase loops, Linear/PR review handoff. Parent owns review loops.`,
 };

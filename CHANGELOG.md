@@ -13,16 +13,61 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
-### Changed
+### Agent
 
-- First-party skills are how-to playbooks (what to do, in what order, what done looks like),
-  not director personas. Identity stays on director system prompts.
-- The first-party dispatch skill is gone. Skywalker orchestrates natively.
+- Closed directors are named entities (`skywalker`, `builder`, `explorer`, `counsel`,
+  `intern`, `critic`, `greybeard`, and the rest of `DIRECTOR_IDS`) instead of generic
+  role ids. Write tools are mounted on every closed director; Skywalker DIYs tiny
+  single-file edits and spawns specialists for substantial work. Fleet verbs
+  (`spawn_agent`, `wait_agents`, `search_agents`, …) stay on the primary only.
+- `spawn_agent` can isolate a worker in a git worktree, pass a tool allowlist, and
+  allow nested spawn where the director's spawn rights permit it. `task()` is now
+  a fused spawn-plus-wait wrapper around that path — still works, still deprecated
+  for new call sites.
+- New fleet verbs: `list_agents` (this caller's uncollected workers only) and
+  `send_input` (steer a running worker without completing `wait_agents`).
+  `wait_agents` is scoped to the caller, unblocks immediately on interrupt/close,
+  and no longer waits on a sibling orchestrator's fleet. Interrupted workers that
+  still have tools in flight stay inspectable instead of looking idle.
+- Cancelled and salvaged workers keep Findings and Paths in the parent-facing
+  report. `wait_agents` now sees those salvage records when the parent cancels
+  mid-wait.
+- Finished leaf workers stop re-inferring after they have already produced a
+  report reply. Optional first-party skill bodies are baked into worker director
+  prompts so leaves do not have to `use_skill` to load them.
+- Skywalker is an idle orchestrator: fire `spawn_agent`, tell the operator who is
+  running, then wait — do not fuse into a long `task()` after spawn. Linear work
+  must be set In Progress before explore/build thrash.
+- Director system prompts (Skywalker, Builder, Explorer, Counsel, Intern, Critic,
+  Greybeard, Neckbeard, Bruckheimer, Gaasbot, Draper, Emil, Rand, Shakespeare,
+  Testsmith, Tester) and first-party skills (style, philosophy, typescript,
+  implement, interview, review, create-issue) were rewritten as current-code
+  playbooks. The dispatch skill is gone; Skywalker orchestrates natively.
+
+### TUI
+
+- `ask_operator` uses a full-shell overlay instead of a cramped inset, so the
+  question and options are readable on a normal terminal.
+- One-shot confirmation flashes (copy, mouse toggle, attach results, reasoning
+  effort, stall recovery) now clear themselves after a short TTL. Rate-limit
+  waits no longer park on the bottom notice row; the durable error stays in the
+  transcript. Live stall notice and landing hold still omit a TTL so they stay
+  until replaced.
+- Decision-overlay orange is calmer: only the dithered subject spends the accent.
 
 ### Fixed
 
-- One-shot confirmation flashes (copy, mouse toggle, attach results, reasoning effort, stall recovery) now clear themselves after a short TTL. Rate-limit waits no longer park on the bottom notice row; the durable error stays in the transcript. Live stall notice and landing hold still omit a TTL so they stay until replaced.
-- A TTL flash no longer paints chrome after the TUI renderer is destroyed, which crashed parallel TUI tests with `TextBuffer is destroyed`.
+- Responses API cache tokens are no longer double-counted in context occupancy,
+  so the fill bar and compaction threshold match actual window use.
+- Resume skips mid-file interleaved garbage in `turns.jsonl` instead of aborting
+  the session load.
+- Oversized tool results pretty-spill into session files and return a
+  `tool-output:///` URI (plus an on-disk path when plumbed) instead of a raw
+  truncated blob.
+- A TTL flash no longer paints chrome after the TUI renderer is destroyed, which
+  crashed parallel TUI tests with `TextBuffer is destroyed`.
+- Session `stopReason` is set from the typed `ForcedStopReason` only, not from
+  free-form strings.
 
 ### Security
 
@@ -39,6 +84,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   auto-approved now prompts, and nothing that previously required a fresh
   decision now silently skips one — chains still ask for any segment that
   isn't already granted.
+- Nested interpreter peels (`bash -c 'python -c …'`) that used to misparse and
+  auto-allow now fall through to ask.
+- Secret-guard denylist paths are realpath'd so a symlink cannot bypass the
+  deny under `/yolo` or `--dangerously-skip-permissions`.
+
+### Changed
+
+- First-party skills are how-to playbooks (what to do, in what order, what done
+  looks like), not director personas. Identity stays on director system prompts.
 
 ## [0.3.1] - 2026-08-24
 

@@ -40,8 +40,9 @@ Horizontally, every surface sits inside one shared gutter
 (`resolveSideMargin`, `src/tui/geometry/margins.ts`) so the shell reads
 as a single column of content rather than stacked panes.
 `resolveGeometry` always returns `layoutMode: "stack"` — full-width
-y-stack, no dual-column rail. The live agents zone stays empty; fleet
-status paints as `● Task …` transcript rows instead (see Agents below).
+y-stack, no dual-column rail. Live workers paint in the agents strip
+above the prompt; transcript `● Task …` rows remain spawn/final/fail
+anchors (see Live agents chrome below).
 The side gutter is one column per side at every width that can afford it,
 and zero below `MARGIN_MIN_COLUMNS` (40), where every column belongs to
 content. There is no middle tier: one column is already enough to keep
@@ -198,8 +199,9 @@ The panel stays **hidden by default** (CL-5847): a fresh shell does not paint
 the checklist. `toggleTasksPanel` (bound to Alt+T) opts in for the shell's
 lifetime — it flips a hidden flag held on the shell in memory only — so demos
 and tests that call `setChromeZones` with task rows can still show them.
-Because `formatChromeZones` parks task auto-paint, Alt+T alone does not
-surface a live `manage_tasks` list today.
+Because `formatChromeZones` parks task auto-paint, Alt+T does not
+surface a live `manage_tasks` list; it can still show preformatted task
+rows that tests or demos push via `setChromeZones`.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
