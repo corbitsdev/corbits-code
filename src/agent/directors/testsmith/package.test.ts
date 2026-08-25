@@ -92,9 +92,7 @@ describe("testsmithPackage", () => {
 
   test("primaryIntent is permanent-design and not primary verifier", () => {
     expect(testsmithPackage.primaryIntent).toMatch(/permanent test cases/i);
-    expect(testsmithPackage.primaryIntent).toMatch(
-      /not.*verifier|do not run as primary verifier/i,
-    );
+    expect(testsmithPackage.primaryIntent).toMatch(/not.*verifier|do not run as primary verifier/i);
   });
 
   test("outOfLane refuses product implement, verifier role, and landing tests", () => {
