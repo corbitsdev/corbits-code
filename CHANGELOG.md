@@ -24,6 +24,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - One-shot confirmation flashes (copy, mouse toggle, attach results, reasoning effort, stall recovery) now clear themselves after a short TTL. Rate-limit waits no longer park on the bottom notice row; the durable error stays in the transcript. Live stall notice and landing hold still omit a TTL so they stay until replaced.
 - A TTL flash no longer paints chrome after the TUI renderer is destroyed, which crashed parallel TUI tests with `TextBuffer is destroyed`.
 
+### Security
+
+- **Shell chain approvals no longer skip minting once a chain gets long.**
+  Chains of 5+ segments used to be accept-once only — no grant was ever
+  persisted, so the same long chain re-prompted every single time no matter
+  what had already been approved. Approving a multi-segment chain now mints
+  one grant per real segment instead of one grant for the whole string, so
+  approving `a && b` also covers `b` on its own later, and long chains behave
+  the same as short ones. This is a real change in what a single approval
+  buys: granting per segment is strictly more permissive on later commands
+  than granting one exact whole-string match was, since a segment now reuses
+  outside the chain it was first approved in. Nothing that previously
+  auto-approved now prompts, and nothing that previously required a fresh
+  decision now silently skips one — chains still ask for any segment that
+  isn't already granted.
+
 ## [0.3.1] - 2026-08-24
 
 ### Fixed
