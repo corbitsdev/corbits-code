@@ -466,18 +466,20 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       ];
     }
 
-    // Orchestrators need task + search_agents installed, not just mentioned in
-    // the prompt. Nested dispatch always forbids further orchestration so the
-    // tree bottoms out after one hop.
+    // Orchestrators need task installed, not just mentioned in the prompt.
+    // Nested dispatch always forbids further orchestration so the tree
+    // bottoms out after one hop. Fleet discovery (search_agents) is Tier-1
+    // only (CL-7051) — nested directors keep task/spawn allowlists.
     if (params.orchestrator === true) {
       // Tier enforcement at the mount point, not the prompt, fails closed:
       // an unresolved tier defaults to "leaf" rather than skipping the check,
       // so an AgentProfile outside the closed director set cannot mount
       // task/search_agents just by setting orchestrator: true.
       const tier = params.orchestratorTier ?? "leaf";
+      const mayDiscoverFleet = tier === "orchestrator";
       for (const verb of [
         "task",
-        "search_agents",
+        ...(mayDiscoverFleet ? (["search_agents"] as const) : []),
         "read_agent_trace",
         "spawn_agent",
         "wait_agents",
@@ -523,7 +525,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
           ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
         }),
-        ...(nd.profiles !== undefined
+        ...(mayDiscoverFleet && nd.profiles !== undefined
           ? [
               createSearchAgentsTool(() => {
                 const profiles = nd.profiles;

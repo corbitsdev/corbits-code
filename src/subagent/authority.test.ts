@@ -25,9 +25,26 @@ describe("assertTierMayMountFleetVerb", () => {
     expect(() => assertTierMayMountFleetVerb("leaf", "read_file")).not.toThrow();
   });
 
-  test("Tier 1 and Tier 2 may mount fleet verbs", () => {
+  test("Tier 1 and Tier 2 may mount spawn/control fleet verbs", () => {
     expect(() => assertTierMayMountFleetVerb("orchestrator", "task")).not.toThrow();
     expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "task")).not.toThrow();
+    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "spawn_agent")).not.toThrow();
+  });
+
+  // CL-7051: fleet discovery is Skywalker (Tier 1) only — nested directors keep
+  // task/spawn allowlists but must not discover the full fleet.
+  test("Tier 2 nested orchestrator cannot mount search_agents or list_agents", () => {
+    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "search_agents")).toThrow(
+      FleetAuthorityError,
+    );
+    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "list_agents")).toThrow(
+      FleetAuthorityError,
+    );
+  });
+
+  test("Tier 1 orchestrator may mount search_agents and list_agents", () => {
+    expect(() => assertTierMayMountFleetVerb("orchestrator", "search_agents")).not.toThrow();
+    expect(() => assertTierMayMountFleetVerb("orchestrator", "list_agents")).not.toThrow();
   });
 
   test("isFleetVerb matches the same set used for the gate", () => {
