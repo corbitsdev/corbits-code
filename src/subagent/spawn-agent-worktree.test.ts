@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { createFleetRecords, createSpawnAgentTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
-import type { RunSubAgentParams } from "./types.js";
+import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
 const run = promisify(execFile);
 
@@ -42,6 +42,26 @@ async function makeRepo(): Promise<string> {
   await run("git", ["add", "."], { cwd: dir });
   await run("git", ["commit", "-m", "seed"], { cwd: dir });
   return dir;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (v: T) => void;
+} {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
 }
 
 describe("spawn_agent worktree isolation", () => {
@@ -112,5 +132,146 @@ describe("spawn_agent worktree isolation", () => {
     );
     expect(result.isError).toBe(true);
     expect(ran).toBe(false);
+  });
+
+  test("defers worktree cleanup while the session is retained for followup", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const workdirBase = await mkdtemp(join(tmpdir(), "corbits-workdir-"));
+    tempDirs.push(workdirBase);
+
+    const settle = deferred<RunSubAgentResult>();
+    let workerCwd: string | undefined;
+    const sessions = createSubAgentSessionStore();
+    const tool = createSpawnAgentTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => workdirBase,
+      provider,
+      useWorktree: true,
+      run: async (params) => {
+        workerCwd = params.cwd;
+        params.onAgentReady?.({
+          close: async () => {},
+          interrupt: () => {},
+          followup: async () => "",
+          deliver: () => {},
+        });
+        return settle.promise;
+      },
+      sessions,
+      fleetRecords: createFleetRecords(),
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+    const spawned = await tool.handler(
+      {
+        id: "retain-wt",
+        name: "spawn_agent",
+        arguments: { description: "keep alive", prompt: "Do the work", intent: "explore" },
+      },
+      new AbortController().signal,
+    );
+    const content = typeof spawned.content === "string" ? spawned.content : "";
+    const agentId = (JSON.parse(content) as { agent_id: string }).agent_id;
+
+    settle.resolve({ report: "## Summary\nDone.", agentRetained: true });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(workerCwd).toBeDefined();
+    expect(await pathExists(workerCwd!)).toBe(true);
+
+    await sessions.closeOne(agentId, 1000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await pathExists(workerCwd!)).toBe(false);
+  });
+
+  test("defers worktree cleanup while the session is interrupted for followup", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const workdirBase = await mkdtemp(join(tmpdir(), "corbits-workdir-"));
+    tempDirs.push(workdirBase);
+
+    const settle = deferred<RunSubAgentResult>();
+    let workerCwd: string | undefined;
+    const sessions = createSubAgentSessionStore();
+    const tool = createSpawnAgentTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => workdirBase,
+      provider,
+      useWorktree: true,
+      run: async (params) => {
+        workerCwd = params.cwd;
+        params.onAgentReady?.({
+          close: async () => {},
+          interrupt: () => {},
+          followup: async () => "",
+          deliver: () => {},
+        });
+        return settle.promise;
+      },
+      sessions,
+      fleetRecords: createFleetRecords(),
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+    const spawned = await tool.handler(
+      {
+        id: "interrupt-wt",
+        name: "spawn_agent",
+        arguments: { description: "interrupt me", prompt: "Do the work", intent: "explore" },
+      },
+      new AbortController().signal,
+    );
+    const content = typeof spawned.content === "string" ? spawned.content : "";
+    const agentId = (JSON.parse(content) as { agent_id: string }).agent_id;
+
+    settle.resolve({
+      report: "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
+      interrupted: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(workerCwd).toBeDefined();
+    expect(await pathExists(workerCwd!)).toBe(true);
+
+    await sessions.closeOne(agentId, 1000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await pathExists(workerCwd!)).toBe(false);
+  });
+
+  test("reclaims the worktree immediately when the agent is not retained", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const workdirBase = await mkdtemp(join(tmpdir(), "corbits-workdir-"));
+    tempDirs.push(workdirBase);
+
+    let workerCwd: string | undefined;
+    const tool = createSpawnAgentTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => workdirBase,
+      provider,
+      useWorktree: true,
+      run: async (params) => {
+        workerCwd = params.cwd;
+        // Salvage / non-persist path: no agentRetained flag.
+        return { report: "## Summary\nSalvaged." };
+      },
+      sessions: createSubAgentSessionStore(),
+      fleetRecords: createFleetRecords(),
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+    await tool.handler(
+      {
+        id: "no-retain-wt",
+        name: "spawn_agent",
+        arguments: { description: "one shot", prompt: "Do the work", intent: "explore" },
+      },
+      new AbortController().signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(workerCwd).toBeDefined();
+    expect(await pathExists(workerCwd!)).toBe(false);
   });
 });

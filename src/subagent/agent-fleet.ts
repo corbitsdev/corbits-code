@@ -592,6 +592,26 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           }
         : undefined;
 
+      // Aligns with run.ts: (persist && turnSucceeded) || interruptedKeepAlive.
+      // When true, the worktree stays until close_agent / eviction calls the
+      // wrapped close below; otherwise the run's finally reclaims it immediately.
+      let keepWorktreeAlive = false;
+      const reclaimWorktree = async (): Promise<void> => {
+        if (worktreeCwd === undefined) return;
+        const path = worktreeCwd;
+        worktreeCwd = undefined;
+        try {
+          await cleanupSubAgentWorktree(deps.cwd, path, {
+            stashBaseline: worktreeStashBaseline,
+            ...(worktreeHeadAtCreate !== undefined ? { headAtCreate: worktreeHeadAtCreate } : {}),
+          });
+        } catch (err: unknown) {
+          log.error("spawn_agent worktree cleanup failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      };
+
       const params: RunSubAgentParams = {
         // Name the trace directory after the session-store id so the
         // descendant-scoping check behind read_agent_trace can resolve this
@@ -636,9 +656,19 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           : {}),
         // Keep the session open after a clean completion, and hand the
         // store a bounded close for close_agent to call later.
+        // Worktree cleanup is deferred until that close when the session
+        // stays alive for followup (agentRetained / interrupt keep-alive) —
+        // matching run.ts's persisting gate so followup_task does not hit a
+        // removed cwd.
         persist: true,
         onAgentReady: ({ close, interrupt, followup, deliver }) => {
-          deps.sessions.registerClose(session.id, close);
+          deps.sessions.registerClose(session.id, async (deadlineMs) => {
+            try {
+              await close(deadlineMs);
+            } finally {
+              await reclaimWorktree();
+            }
+          });
           deps.sessions.registerInterrupt(session.id, interrupt);
           deps.sessions.registerFollowup(session.id, followup);
           deps.sessions.registerDeliver(session.id, deliver);
@@ -662,6 +692,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // "completed" status. Still terminalize fleetRecords so a waiter
           // that never saw interrupt_agent (or raced it) cannot hang.
           if (result.interrupted === true) {
+            keepWorktreeAlive = true;
             deps.fleetRecords.interrupt(session.id, result.report);
             return;
           }
@@ -676,8 +707,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // its agent first, so the store must not treat it as resumable
           // just because retained:true was requested at spawn.
           // complete() no-ops when status is already cancelled.
+          const agentRetained = result.agentRetained === true;
+          if (agentRetained) keepWorktreeAlive = true;
           deps.sessions.complete(session.id, result.report, {
-            agentRetained: result.agentRetained === true,
+            agentRetained,
             ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
           });
         })
@@ -695,15 +728,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             status: deps.sessions.get(session.id)?.status ?? "completed",
             duration_ms: Date.now() - startedAt,
           });
-          if (worktreeCwd === undefined) return;
-          void cleanupSubAgentWorktree(deps.cwd, worktreeCwd, {
-            stashBaseline: worktreeStashBaseline,
-            ...(worktreeHeadAtCreate !== undefined ? { headAtCreate: worktreeHeadAtCreate } : {}),
-          }).catch((err: unknown) => {
-            log.error("spawn_agent worktree cleanup failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
+          if (!keepWorktreeAlive) void reclaimWorktree();
         });
 
       return fleetResult(call.id, JSON.stringify({ agent_id: session.id, status: "running" }));
