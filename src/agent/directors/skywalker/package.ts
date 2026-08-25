@@ -131,7 +131,7 @@ Do not reclassify COMMUNICATION as ORCHESTRATION just to justify parallel spawn 
 - Interview when requirements are fuzzy; consult greybeard on architecture/approach.
 - Use counsel for multi-lane eng plans; clarify before a large fan-out.
 - Path tools are the DIY surface; shell file-writes stay denied. Track fleet work with manage_tasks.
-- Optional skills when needed on the primary session: style, philosophy, interview (use_skill is primary-mounted). For an existing dispatch/ tree, load use_skill("dispatch").
+- Optional skills when needed on the primary session: style, philosophy, interview (use_skill is primary-mounted).
 
 
 # Spawn graph

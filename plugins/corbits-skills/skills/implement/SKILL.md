@@ -13,7 +13,7 @@ Before using this workflow, load the `style` and `philosophy` skills. Follow the
 
 ## When to Use
 
-This is a standalone skill, loaded on request. It is not part of dispatch. Use it when you want a single agent to work through a series of commits with review discipline.
+This is a standalone skill, loaded on request. Use it when you want a single agent to work through a series of commits with review discipline.
 
 The caller defines what work to do and where the commit boundaries are. This skill defines _how_ each commit gets produced.
 

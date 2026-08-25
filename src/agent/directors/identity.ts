@@ -11,7 +11,7 @@ import { formatBakedOptionalSkills } from "./bake-skills.js";
  * Workers (non-orchestrator): bake first-party optionalSkills bodies (CL-6803)
  * and only advertise that bake when at least one body resolved. Primary
  * orchestrator (skywalker): use_skill is mounted — list skill names only; do
- * not bake huge dispatch/interview bodies or claim use_skill is unmounted.
+ * not bake huge interview bodies or claim use_skill is unmounted.
  */
 export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   const names = pkg.optionalSkills;

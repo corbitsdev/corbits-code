@@ -8,7 +8,6 @@ const pluginRoot = join(import.meta.dirname, "../../plugins/corbits-skills");
 
 const SKILL_DIRS = [
   "implement",
-  "dispatch",
   "scribe",
   "review",
   "ast-grep",
@@ -26,7 +25,7 @@ const SKILL_DIRS = [
   "plan",
 ] as const;
 
-const SPAWN_RECIPE_SKILLS = ["implement", "dispatch"] as const;
+const SPAWN_RECIPE_SKILLS = ["implement"] as const;
 
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
@@ -39,7 +38,7 @@ const USE_SKILL_ONLY = [
 ] as const;
 
 /** Background libs: absent from slash and use_skill listing; explicit resolve only. */
-const BACKGROUND_ONLY = ["git-worktrees", "dispatch"] as const;
+const BACKGROUND_ONLY = ["git-worktrees"] as const;
 
 const SLASH_SKILLS = [
   "implement",
@@ -87,8 +86,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 17 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(17);
+test("corbits-skills catalog lists 16 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(16);
   const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
