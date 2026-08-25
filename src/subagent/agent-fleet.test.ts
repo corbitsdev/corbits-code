@@ -800,6 +800,35 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(results[0]!.status).toBe("interrupted");
     expect(results[0]!.report).toContain("salvage");
   });
+
+  test("soft-interrupt wait collects so a later followup cannot resurrect done", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const worker = sessions.start({
+      id: "soft-int",
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    // Running fleet record + soft-interrupted session (lifecycle only) —
+    // the wait soft path must interrupt+take before returning.
+    fleetRecords.register(worker.id);
+    sessions.registerInterrupt(worker.id, () => {});
+    sessions.interruptOne(worker.id);
+
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const waited = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
+
+    fleetRecords.completeAfterInterrupt(worker.id, "resurrected reply");
+    expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
+    expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
+  });
 });
 
 describe("close_agent unblocks wait_agents", () => {

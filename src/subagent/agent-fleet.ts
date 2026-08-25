@@ -721,8 +721,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         }
         const session = deps.sessions.get(id);
         if (isSoftInterrupted(session)) {
-          // Terminalize + collect so an omitted-targets re-wait does not keep
-          // seeing this id as uncollected / re-deliver soft-interrupt.
+          // Match the mailbox to what we report (include salvage report when
+          // present), then collect so a later completeAfterInterrupt cannot
+          // resurrect this wait as "done".
           deps.fleetRecords.interrupt(id, session.report);
           const taken = deps.fleetRecords.take(id);
           return {

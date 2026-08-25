@@ -107,15 +107,15 @@ function isDescendant(
 }
 
 /**
- * Live gate for `read_agent_trace` (and any future verb that addresses an
- * existing session). Callers that only spawn (`task`, `spawn_agent`) never
- * reach this check.
- *
  * Authority rule (root owns its tree; a child manages only its own
  * descendants): throws unless `actor` is Tier 1, or `targetId` is `actor.id`
  * itself, or a descendant of `actor.id` in `nodes`. A Tier 3 leaf holds no
  * fleet verbs at all and can never reach this check with a real call, so it
  * always fails closed here too.
+ *
+ * Production call sites: `read_agent_trace`, `send_input`, `interrupt_agent`,
+ * `close_agent`, `resume_agent`, and `followup_task` (nested mounts pass
+ * authority from run.ts; Tier-1 primary omits it and stays unrestricted).
  */
 export function assertCanTargetAgent(
   actor: { readonly id: string; readonly tier: SubagentTier },

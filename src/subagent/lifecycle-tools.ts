@@ -96,10 +96,22 @@ function descendantsClosingOrder(
   return order;
 }
 
+/**
+ * Nested-orchestrator subtree gate for addressing verbs. When `authority` is
+ * omitted (Tier-1 primary mount), targeting is unrestricted. When present,
+ * a missing `actorId` fails closed — same rule as read_agent_trace.
+ */
+export interface LifecycleAuthority {
+  actorId: string | undefined;
+  tier: SubagentTier;
+  getNodes: () => readonly FleetNode[];
+}
+
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
   /** Optional for resume/followup/send_input; close and interrupt require it (see CloseAgentToolDeps / InterruptAgentToolDeps). */
   fleetRecords?: FleetRecordsHandle;
+  authority?: LifecycleAuthority;
 }
 
 /** close_agent always terminalizes the wait mailbox — no silent skip. */
@@ -112,14 +124,33 @@ export type InterruptAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetRecordsHandle;
 };
 
-export interface SendInputAuthority {
-  actorId: string | undefined;
-  tier: SubagentTier;
-  getNodes: () => readonly FleetNode[];
-}
-
-export interface SendInputToolDeps extends LifecycleToolDeps {
-  authority?: SendInputAuthority;
+function gateTarget(
+  deps: LifecycleToolDeps,
+  toolName: string,
+  target: string,
+  callId: string,
+): ToolResult | undefined {
+  if (deps.authority === undefined) return undefined;
+  if (deps.authority.actorId === undefined) {
+    return lifecycleResult(
+      callId,
+      `Error: ${toolName} is unavailable for this worker (no resolvable session ` +
+        "id to scope descendant access).",
+    );
+  }
+  try {
+    assertCanTargetAgent(
+      { id: deps.authority.actorId, tier: deps.authority.tier },
+      target,
+      deps.authority.getNodes(),
+    );
+  } catch (cause) {
+    if (cause instanceof FleetAuthorityError) {
+      return lifecycleResult(callId, `Error: ${cause.message}`);
+    }
+    throw cause;
+  }
+  return undefined;
 }
 
 export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
@@ -131,6 +162,8 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
         return lifecycleResult(call.id, `Error: close_agent arguments invalid: ${parsed.summary}`);
       }
       const target = parsed.target.trim();
+      const denied = gateTarget(deps, "close_agent", target, call.id);
+      if (denied !== undefined) return denied;
       if (deps.sessions.get(target) === undefined) {
         return lifecycleResult(
           call.id,
@@ -173,6 +206,8 @@ export function createResumeAgentTool(deps: LifecycleToolDeps): AgentTool {
         return lifecycleResult(call.id, `Error: resume_agent arguments invalid: ${parsed.summary}`);
       }
       const target = parsed.target.trim();
+      const denied = gateTarget(deps, "resume_agent", target, call.id);
+      if (denied !== undefined) return denied;
       const outcome = deps.sessions.resumeOne(target);
       if (!outcome.ok) {
         const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
@@ -221,6 +256,8 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
         );
       }
       const target = parsed.target.trim();
+      const denied = gateTarget(deps, "interrupt_agent", target, call.id);
+      if (denied !== undefined) return denied;
       const outcome = deps.sessions.interruptOne(target);
       if (!outcome.ok) {
         return lifecycleResult(
@@ -273,6 +310,8 @@ export function createFollowupTaskTool(deps: LifecycleToolDeps): AgentTool {
         );
       }
       const target = parsed.target.trim();
+      const denied = gateTarget(deps, "followup_task", target, call.id);
+      if (denied !== undefined) return denied;
       const message = parsed.message.trim();
       if (message.length === 0) {
         return lifecycleResult(call.id, "Error: followup_task requires a non-empty message.");
@@ -327,7 +366,7 @@ export const sendInputToolDefinition: ToolDefinition = {
   },
 };
 
-export function createSendInputTool(deps: SendInputToolDeps): AgentTool {
+export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
   return tool({
     definition: sendInputToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -336,6 +375,8 @@ export function createSendInputTool(deps: SendInputToolDeps): AgentTool {
         return lifecycleResult(call.id, `Error: send_input arguments invalid: ${parsed.summary}`);
       }
       const target = parsed.target.trim();
+      const denied = gateTarget(deps, "send_input", target, call.id);
+      if (denied !== undefined) return denied;
       const message = parsed.message.trim();
       if (message.length === 0) {
         return lifecycleResult(call.id, "Error: send_input requires a non-empty message.");
@@ -346,27 +387,6 @@ export function createSendInputTool(deps: SendInputToolDeps): AgentTool {
           `Error: send_input message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
             `(got ${message.length}).`,
         );
-      }
-      if (deps.authority !== undefined) {
-        if (deps.authority.actorId === undefined) {
-          return lifecycleResult(
-            call.id,
-            "Error: send_input is unavailable for this worker (no resolvable session " +
-              "id to scope descendant access).",
-          );
-        }
-        try {
-          assertCanTargetAgent(
-            { id: deps.authority.actorId, tier: deps.authority.tier },
-            target,
-            deps.authority.getNodes(),
-          );
-        } catch (cause) {
-          if (cause instanceof FleetAuthorityError) {
-            return lifecycleResult(call.id, `Error: ${cause.message}`);
-          }
-          throw cause;
-        }
       }
       const interrupt = parsed.interrupt === true;
       const outcome = deps.sessions.sendInputOne(target, message, {

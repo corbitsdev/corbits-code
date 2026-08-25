@@ -579,6 +579,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       // (see agent-fleet.ts).
       const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
       const fleetRecords = createFleetRecords();
+      const lifecycleAuthority = {
+        actorId: params.id,
+        tier,
+        getNodes: () => fleetSessions.list(),
+      };
       const fleetDeps = {
         permissionGate: nd.permissionGate,
         ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
@@ -604,18 +609,18 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
-        createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createResumeAgentTool({ sessions: fleetSessions }),
-        createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createFollowupTaskTool({ sessions: fleetSessions }),
+        createCloseAgentTool({ sessions: fleetSessions, fleetRecords, authority: lifecycleAuthority }),
+        createResumeAgentTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
+        createInterruptAgentTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
+        createFollowupTaskTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
         createSendInputTool({
           sessions: fleetSessions,
           fleetRecords,
-          authority: {
-            actorId: params.id,
-            tier,
-            getNodes: () => fleetSessions.list(),
-          },
+          authority: lifecycleAuthority,
         }),
       ];
     }

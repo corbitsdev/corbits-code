@@ -397,4 +397,171 @@ describe("send_input", () => {
     );
     expect(denied.isError).toBe(true);
   });
+
+  test("fails closed when nested authority has no actorId", async () => {
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({
+      id: "worker",
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerDeliver(worker.id, () => {});
+    const sendInput = createSendInputTool({
+      sessions,
+      authority: {
+        actorId: undefined,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+    });
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+    const denied = await sendInput.handler(
+      { id: "no-actor", name: "send_input", arguments: { target: worker.id, message: "x" } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(String(denied.content)).toContain("no resolvable session");
+  });
+});
+
+describe("nested lifecycle authority", () => {
+  function nestAuthority(sessions: ReturnType<typeof createSubAgentSessionStore>, actorId: string) {
+    return {
+      actorId,
+      tier: "nested-orchestrator" as const,
+      getNodes: () => sessions.list(),
+    };
+  }
+
+  test("interrupt_agent denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+    });
+    const sibling = sessions.start({ id: "sibling", description: "s", agentId: "a", brief: "b" });
+    for (const s of [child, sibling]) {
+      sessions.markRunning(s.id);
+      sessions.registerInterrupt(s.id, () => {});
+    }
+    const interrupt = createInterruptAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(interrupt, { target: child.id })).status).toBe("interrupted");
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    const denied = await interrupt.handler(
+      { id: "d", name: "interrupt_agent", arguments: { target: sibling.id } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+  });
+
+  test("close_agent denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+    });
+    const sibling = sessions.start({ id: "sibling", description: "s", agentId: "a", brief: "b" });
+    for (const s of [child, sibling]) sessions.registerClose(s.id, async () => {});
+    const close = createCloseAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(),
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(close, { target: child.id })).status).toBe("shutdown");
+    if (close.kind !== "full") throw new Error("expected full tool");
+    const denied = await close.handler(
+      { id: "d", name: "close_agent", arguments: { target: sibling.id } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(sessions.get(sibling.id)?.lifecycleStatus).not.toBe("shutdown");
+  });
+
+  test("followup_task denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+      retained: true,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "s",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    for (const s of [child, sibling]) {
+      sessions.complete(s.id, "done");
+      sessions.registerFollowup(s.id, async () => "reply");
+    }
+    const followup = createFollowupTaskTool({
+      sessions,
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(followup, { target: child.id, message: "more" })).status).toBe(
+      "completed",
+    );
+    if (followup.kind !== "full") throw new Error("expected full tool");
+    const denied = await followup.handler(
+      {
+        id: "d",
+        name: "followup_task",
+        arguments: { target: sibling.id, message: "more" },
+      },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+  });
+
+  test("resume_agent denies a sibling and allows a descendant", async () => {
+    const sessions = createSubAgentSessionStore();
+    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
+    const child = sessions.start({
+      id: "child",
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: nested.id,
+      retained: true,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "s",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.complete(child.id, "done");
+    sessions.complete(sibling.id, "done");
+    const resume = createResumeAgentTool({
+      sessions,
+      authority: nestAuthority(sessions, nested.id),
+    });
+    expect((await callTool(resume, { target: child.id })).status).toBe("running");
+    if (resume.kind !== "full") throw new Error("expected full tool");
+    const denied = await resume.handler(
+      { id: "d", name: "resume_agent", arguments: { target: sibling.id } },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+  });
 });
