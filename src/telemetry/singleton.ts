@@ -1,4 +1,5 @@
 import { NOOP_TELEMETRY, type Telemetry } from "./index.js";
+import { createPluginLoadReporter } from "./product-events.js";
 
 // Process-wide telemetry handle. index.ts constructs the real instance once
 // at startup; runner.ts and the /settings Telemetry tab read it from here rather
@@ -6,6 +7,8 @@ import { NOOP_TELEMETRY, type Telemetry } from "./index.js";
 // disabled no-op so any code path that runs before index.ts sets it (or in
 // tests) never throws.
 let instance: Telemetry = NOOP_TELEMETRY;
+
+export const runtimePluginLoadReporter = createPluginLoadReporter();
 
 export function setTelemetry(telemetry: Telemetry): void {
   instance = telemetry;
