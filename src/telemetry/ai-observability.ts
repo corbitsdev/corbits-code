@@ -219,30 +219,52 @@ export interface CreateTurnObserverOptions {
   // session id in this same process, and a trace id built from a captured
   // one would file the new session's turns under the old session's traces.
   getSessionId: () => string;
-  // The source the next inference will run against, which is the best
-  // available attribution for a turn that failed before producing one.
+  // The currently selected source. It is safe failure attribution only when
+  // its model matches the model named by the latest inference.start.
   getSource: () => TurnSource;
 }
 
-// Binds the emitters to the live session and source, giving the run sink two
-// plain callbacks and keeping the "read it now, do not capture it" rule in
-// one place instead of at each call site.
+const UNKNOWN_INFERENCE_PROVIDER = "unknown";
+
+function failedAttemptSource(
+  attemptedModel: string | undefined,
+  observedSource: TurnSource | undefined,
+  selectedSource: TurnSource,
+): TurnSource {
+  if (observedSource !== undefined) return observedSource;
+  if (attemptedModel === undefined || attemptedModel === selectedSource.model) {
+    return selectedSource;
+  }
+  return { provider: UNKNOWN_INFERENCE_PROVIDER, model: attemptedModel };
+}
+
+// Binds the emitters to the live session and source, keeping the "read it now,
+// do not capture it" rule in one place instead of at each call site.
 export function createTurnObserver(options: CreateTurnObserverOptions): {
-  onTurnStarted: (info: { turnIndex: number }) => void;
+  onTurnStarted: (info: { turnIndex: number; model: string }) => void;
   onTurnSourceObserved: (info: { turnIndex: number; source: TurnSource }) => void;
   onTurnComplete: (ctx: TurnContext) => void;
   onTurnFailed: (info: { turnIndex: number; error: string }) => void;
 } {
+  let latestAttemptModel: string | undefined;
   let latestAttemptSource: TurnSource | undefined;
+
+  function clearAttempt(): void {
+    latestAttemptModel = undefined;
+    latestAttemptSource = undefined;
+  }
+
   return {
     onTurnStarted: (info) => {
+      latestAttemptModel = info.model;
+      latestAttemptSource = undefined;
       noteCurrentTurnTraceId(turnTraceId(options.getSessionId(), info.turnIndex));
     },
     onTurnSourceObserved: (info) => {
       latestAttemptSource = { ...info.source };
     },
     onTurnComplete: (ctx) => {
-      latestAttemptSource = undefined;
+      clearAttempt();
       clearCurrentTurnTraceId();
       emitAiObservability(options.telemetry(), ctx, {
         sessionId: options.getSessionId(),
@@ -250,8 +272,12 @@ export function createTurnObserver(options: CreateTurnObserverOptions): {
     },
     onTurnFailed: (info) => {
       clearCurrentTurnTraceId();
-      const source = latestAttemptSource ?? options.getSource();
-      latestAttemptSource = undefined;
+      const source = failedAttemptSource(
+        latestAttemptModel,
+        latestAttemptSource,
+        options.getSource(),
+      );
+      clearAttempt();
       emitAiTurnFailure(options.telemetry(), {
         sessionId: options.getSessionId(),
         source,

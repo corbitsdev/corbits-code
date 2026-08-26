@@ -22,10 +22,9 @@ export interface RunSinkArgs {
   // run goes wrong. The turn index is the collector's current count: the
   // in-flight turn is the one that would have been recorded next.
   onTurnFailed?: (info: { turnIndex: number; error: string }) => void;
-  // Fired when inference for a turn begins. The turn index is the collector's
-  // current count (the in-flight turn that has not completed yet) — used to
-  // stamp parent_trace_id on subagent_end while tools still run.
-  onTurnStarted?: (info: { turnIndex: number }) => void;
+  // Fired for every inference attempt. The model comes from inference.start,
+  // while the turn index is the collector's current in-flight turn count.
+  onTurnStarted?: (info: { turnIndex: number; model: string }) => void;
   // inference.usage is the first attempt event carrying the runtime-resolved
   // provider/model pair. It remains authoritative even when the selected source
   // outside the reactor has not changed during fallback.
@@ -150,7 +149,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     perfObserver.observe(event);
     if (event.type === "inference.start") {
       turnInFlight = true;
-      onTurnStarted?.({ turnIndex: turnCollector.getTurnCount() });
+      onTurnStarted?.({ turnIndex: turnCollector.getTurnCount(), model: event.data.model });
     }
     if (event.type === "inference.usage") {
       onTurnSourceObserved?.({
