@@ -82,7 +82,7 @@ function fakeTurnContext(overrides: Partial<TurnContext> = {}): TurnContext {
   } as TurnContext;
 }
 
-const emitOptions = { sessionId: SESSION_ID, subagentToolName: SUBAGENT_TOOL_NAME, env: {} };
+const emitOptions = { sessionId: SESSION_ID, env: {} };
 const FAILED_TURN_SOURCE = { provider: "openai-compatible", model: "model-x" };
 
 describe("secondsFromMs", () => {
@@ -94,13 +94,14 @@ describe("secondsFromMs", () => {
 });
 
 describe("classifySpanKind", () => {
-  test("classifies the subagent tool as subagent_call", () => {
-    expect(classifySpanKind(SUBAGENT_TOOL_NAME, SUBAGENT_TOOL_NAME)).toBe("subagent_call");
+  test("classifies both subagent dispatch tools as subagent_call", () => {
+    expect(classifySpanKind("task")).toBe("subagent_call");
+    expect(classifySpanKind("spawn_agent")).toBe("subagent_call");
   });
 
   test("classifies every other tool as tool_call, regardless of name", () => {
-    expect(classifySpanKind("read_file", SUBAGENT_TOOL_NAME)).toBe("tool_call");
-    expect(classifySpanKind("mcp__acme__fetch_secret", SUBAGENT_TOOL_NAME)).toBe("tool_call");
+    expect(classifySpanKind("read_file")).toBe("tool_call");
+    expect(classifySpanKind("mcp__acme__fetch_secret")).toBe("tool_call");
   });
 });
 
@@ -146,7 +147,7 @@ describe("turnTraceId", () => {
 
 describe("aggregateToolCalls", () => {
   test("counts tool calls, subagent calls, and errors separately", () => {
-    expect(aggregateToolCalls(fakeTurnContext(), SUBAGENT_TOOL_NAME)).toEqual({
+    expect(aggregateToolCalls(fakeTurnContext())).toEqual({
       tool_call_count: 1,
       tool_error_count: 1,
       subagent_call_count: 1,
@@ -166,7 +167,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => sessionId,
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnComplete(fakeTurnContext({ turnIndex: 0, toolCalls: [], toolResults: [] }));
@@ -184,7 +184,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => sessionId,
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnFailed({ turnIndex: 0, error: "boom" });
@@ -204,7 +203,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => SESSION_ID,
       getSource: () => source,
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnFailed({ turnIndex: 0, error: "429 rate limit" });
@@ -223,7 +221,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => SESSION_ID,
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnStarted({ turnIndex: 2 });

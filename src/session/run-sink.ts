@@ -125,28 +125,19 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   let runCompleted = false;
   let runError: string | undefined;
   let turnCollector = createCollector(initialTurnCount);
-  // True between `inference.start` and whichever event settles that turn.
-  // One give-up reaches this sink twice — the director surfaces the failed
-  // inference, then the reactor terminates the run — and a turn that already
-  // completed is finished, so a later shutdown error belongs to no turn at
-  // all. Both cases resolve to the same question: is there a turn in flight
-  // for this error to be about?
+  // A provider failure is only an attempt failure until the enclosing message
+  // run settles. Retried attempts reuse the same turn index, so emitting at
+  // inference.error would create a terminal generation for a recoverable retry.
   let turnInFlight = false;
-  // Retries re-enter `inference.start` without advancing the turn count, so
-  // a second failure on a retried turn would report the index a consumer
-  // already recorded a failure for. Consumers key per-turn identity off that
-  // index, which makes a repeat indistinguishable from a duplicate.
-  let failedTurnIndex: number | null = null;
+  let pendingInferenceError: string | undefined;
   // Always-on local PerfTrace: not gated by lifecycle hooks.
   const perfObserver = createPerfReactorObserver();
 
-  function reportTurnFailure(error: string): void {
+  function settleTurnFailure(error: string): void {
     if (!turnInFlight) return;
     turnInFlight = false;
-    const turnIndex = turnCollector.getTurnCount();
-    if (turnIndex === failedTurnIndex) return;
-    failedTurnIndex = turnIndex;
-    onTurnFailed?.({ turnIndex, error });
+    pendingInferenceError = undefined;
+    onTurnFailed?.({ turnIndex: turnCollector.getTurnCount(), error });
   }
 
   const sink = (event: ReactorEmittedEvent): void => {
@@ -167,18 +158,25 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     // would mark a recovered successful send as failed.
     if (onTurnBoundary(event)) {
       turnInFlight = false;
+      pendingInferenceError = undefined;
       runError = undefined;
       onTurnBoundarySnapshot?.();
     }
     if (event.type === "reactor.error") {
       const data = event.data as { error: string };
       runError = data.error;
-      reportTurnFailure(data.error);
     }
     if (event.type === "inference.error") {
       const data = event.data as { error: { message: string } };
+      pendingInferenceError = data.error.message;
       runError = data.error.message;
-      reportTurnFailure(data.error.message);
+    }
+    if (event.type === "message.run.ended") {
+      if (event.data.status === "failed" && turnInFlight) {
+        settleTurnFailure(pendingInferenceError ?? event.data.error?.message ?? "Inference failed");
+      } else {
+        pendingInferenceError = undefined;
+      }
     }
     emitter.emit("event", event);
   };
@@ -196,7 +194,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
       runCompleted = false;
       runError = undefined;
       turnInFlight = false;
-      failedTurnIndex = null;
+      pendingInferenceError = undefined;
       turnCollector = createCollector();
       perfObserver.reset();
     },
