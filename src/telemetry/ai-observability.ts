@@ -82,11 +82,11 @@ export interface EmitAiObservabilityOptions {
   random?: () => number;
 }
 
-export type ToolCallAggregates = {
+export interface ToolCallAggregates {
   tool_call_count: number;
   tool_error_count: number;
   subagent_call_count: number;
-};
+}
 
 export function aggregateToolCalls(
   ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
