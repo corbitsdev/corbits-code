@@ -29,9 +29,7 @@ export type CaptureSubagentEndArgs = {
 };
 
 /** Build allowlisted `subagent_end` properties from a finished run. */
-export function buildSubagentEndProperties(
-  args: CaptureSubagentEndArgs,
-): Record<string, unknown> {
+export function buildSubagentEndProperties(args: CaptureSubagentEndArgs): Record<string, unknown> {
   const props: Record<string, unknown> = {
     agent_name: args.agentName,
     status: args.status,
@@ -69,11 +67,7 @@ export function captureSubagentEnd(telemetry: Telemetry, args: CaptureSubagentEn
 // emits; only `origin` is transmitted.
 const loadedPluginIdentities = new Set<string>();
 
-export function capturePluginLoaded(
-  telemetry: Telemetry,
-  origin: string,
-  identity: string,
-): void {
+export function capturePluginLoaded(telemetry: Telemetry, origin: string, identity: string): void {
   if (identity.length === 0) return;
   if (loadedPluginIdentities.has(identity)) return;
   loadedPluginIdentities.add(identity);

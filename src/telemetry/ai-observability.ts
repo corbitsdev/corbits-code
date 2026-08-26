@@ -9,7 +9,11 @@
 // CORBITS_TELEMETRY_AI_SPANS for debugging.
 
 import type { TurnContext } from "../session/hooks.js";
-import { noteLastTurnTraceId, noteCurrentTurnTraceId, clearCurrentTurnTraceId } from "./feedback.js";
+import {
+  noteLastTurnTraceId,
+  noteCurrentTurnTraceId,
+  clearCurrentTurnTraceId,
+} from "./feedback.js";
 
 import {
   aiSpansEnabled,
@@ -106,10 +110,7 @@ export function aggregateToolCalls(
   return { tool_call_count, tool_error_count, subagent_call_count };
 }
 
-function shouldSampleSuccessfulGeneration(
-  env: NodeJS.ProcessEnv,
-  random: () => number,
-): boolean {
+function shouldSampleSuccessfulGeneration(env: NodeJS.ProcessEnv, random: () => number): boolean {
   const rate = generationSampleRate(env);
   if (rate >= 1) return true;
   if (rate <= 0) return false;

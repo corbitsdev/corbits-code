@@ -1140,9 +1140,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(endRollup !== undefined ? { rollup: endRollup } : {}),
           ...(parentTraceId !== undefined ? { parentTraceId } : {}),
         });
-
       }
-
     },
   });
 }

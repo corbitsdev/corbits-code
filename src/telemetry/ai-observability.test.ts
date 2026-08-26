@@ -23,7 +23,6 @@ afterEach(() => {
 });
 
 function fakeTelemetry(): {
-
   telemetry: Telemetry;
   captured: { event: string; properties: Record<string, unknown> }[];
 } {

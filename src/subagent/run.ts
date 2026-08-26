@@ -881,9 +881,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         }
       }
       if (event.type === "tool.done") {
-        const result = (
-          event as { data?: { result?: { isError?: unknown } } }
-        ).data?.result;
+        const result = (event as { data?: { result?: { isError?: unknown } } }).data?.result;
         if (result?.isError === true) telemetryRollup.tool_error_count += 1;
       }
       if (onTurnBoundary(event)) {
@@ -1078,7 +1076,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         // resumable agent.
         ...(params.persist === true ? { agentRetained: true } : {}),
       });
-
     } catch (err) {
       // interrupt_agent fired its own signal, not runController's — check
       // that first so an interrupted send doesn't fall into the cancel/
@@ -1098,7 +1095,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           stopReason: "cancelled",
           interrupted: true,
         });
-
       }
       if (isSubAgentCancelError(err, runController.signal)) {
         // Close the recorder against the dead cycle before its inference.error
@@ -1146,7 +1142,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
             ),
             stopReason: reason,
           });
-
         }
       }
       throw err;
