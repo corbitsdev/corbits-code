@@ -10,6 +10,7 @@
 // it matches nothing. What leaves the process is a first-party enum: the fact
 // that something unrecognised was used, never what it was called.
 
+import { DIRECTOR_IDS } from "../agent/directors/types.js";
 import { isMcpToolName } from "../mcp/tool-name.js";
 
 const CUSTOM = "custom";
@@ -60,9 +61,10 @@ const BUILT_IN_COMMAND_NAMES: ReadonlySet<string> = new Set([
   "status",
 ]);
 
-// The one agent label the runtime supplies itself; every other profile id
-// comes from a project or plugin directory.
-const BUILT_IN_AGENT_NAME = "worker";
+// First-party director ids from the closed fleet package, plus the legacy
+// "worker" label the runtime still supplies as a fallback. Project/plugin
+// profile ids are never reported by name.
+const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([...DIRECTOR_IDS, "worker"]);
 
 // Error constructors defined by the language. A subclass name is application
 // or plugin code and can be as identifying as any other author-chosen string.
@@ -90,7 +92,7 @@ export function classifyCommandName(commandName: string): string {
 }
 
 export function classifyAgentName(agentName: string): string {
-  return agentName === BUILT_IN_AGENT_NAME ? BUILT_IN_AGENT_NAME : CUSTOM;
+  return BUILT_IN_AGENT_NAMES.has(agentName) ? agentName : CUSTOM;
 }
 
 export function classifyErrorClass(error: unknown): string {
