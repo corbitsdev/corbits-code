@@ -1590,6 +1590,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       hookManager,
       initialTurnCount: resumeSeed.turnsUsed,
       onTurnStarted: turnObserver.onTurnStarted,
+      onTurnSourceObserved: turnObserver.onTurnSourceObserved,
       onTurnComplete: turnObserver.onTurnComplete,
       onTurnFailed: turnObserver.onTurnFailed,
       // persistRunSnapshot is defined below but not invoked until the stream
