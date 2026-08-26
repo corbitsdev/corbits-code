@@ -1,12 +1,22 @@
-// Emits PostHog AI observability events ($ai_generation, $ai_span) from a
-// completed turn, in the same privacy mode as product telemetry: only ids,
-// enums, and counts ever leave the process. TurnContext already carries tool
-// call arguments and results for lifecycle hooks — this module reads only
+// Emits PostHog AI observability events ($ai_generation, optionally $ai_span)
+// from a completed turn, in the same privacy mode as product telemetry: only
+// ids, enums, and counts ever leave the process. TurnContext already carries
+// tool call arguments and results for lifecycle hooks — this module reads only
 // the scalar/id fields off it and never the content fields.
+//
+// Default volume shape (CL-6816): one $ai_generation per turn with tool/subagent
+// aggregates folded onto it. Per-call $ai_span events are opt-in via
+// CORBITS_TELEMETRY_AI_SPANS for debugging.
 
 import type { TurnContext } from "../session/hooks.js";
 import { noteLastTurnTraceId } from "./feedback.js";
-import type { AiErrorKind, AiSpanKind, Telemetry } from "./index.js";
+import {
+  aiSpansEnabled,
+  generationSampleRate,
+  type AiErrorKind,
+  type AiSpanKind,
+  type Telemetry,
+} from "./index.js";
 
 // PostHog reports latency in seconds as a float; the runtime measures every
 // duration in milliseconds. Reporting milliseconds under the seconds-typed
@@ -61,13 +71,54 @@ export interface EmitAiObservabilityOptions {
   // Name of the tool that spawns a sub-agent, used to classify that call's
   // span kind as "subagent_call" instead of the generic "tool_call".
   subagentToolName: string;
+  /** Override process.env for tests. */
+  env?: NodeJS.ProcessEnv;
+  /** Override Math.random for generation sampling tests. */
+  random?: () => number;
+}
+
+export type ToolCallAggregates = {
+  tool_call_count: number;
+  tool_error_count: number;
+  subagent_call_count: number;
+};
+
+export function aggregateToolCalls(
+  ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
+  subagentToolName: string,
+): ToolCallAggregates {
+  const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
+  let tool_call_count = 0;
+  let tool_error_count = 0;
+  let subagent_call_count = 0;
+  for (const call of ctx.toolCalls) {
+    const kind = classifySpanKind(call.name, subagentToolName);
+    if (kind === "subagent_call") {
+      subagent_call_count += 1;
+    } else {
+      tool_call_count += 1;
+    }
+    if (resultsByCallId.get(call.id)?.isError === true) {
+      tool_error_count += 1;
+    }
+  }
+  return { tool_call_count, tool_error_count, subagent_call_count };
+}
+
+function shouldSampleSuccessfulGeneration(
+  env: NodeJS.ProcessEnv,
+  random: () => number,
+): boolean {
+  const rate = generationSampleRate(env);
+  if (rate >= 1) return true;
+  if (rate <= 0) return false;
+  return random() < rate;
 }
 
 // Called once per completed turn. Emits one $ai_generation for the model
-// call, then one $ai_span per tool call in the turn, all sharing the turn's
-// $ai_trace_id. The trace is flat by construction: every span's
-// $ai_parent_id is the trace id, which PostHog accepts, and TurnContext only
-// exposes top-level tool calls so there is no nesting to describe. PostHog
+// call with tool/subagent aggregates. Per-call $ai_span events are emitted
+// only when CORBITS_TELEMETRY_AI_SPANS is truthy. The trace is flat by
+// construction: every span's $ai_parent_id is the trace id. PostHog
 // synthesises the trace itself from these children, so no $ai_trace event is
 // emitted.
 export function emitAiObservability(
@@ -75,10 +126,16 @@ export function emitAiObservability(
   ctx: TurnContext,
   options: EmitAiObservabilityOptions,
 ): void {
+  const env = options.env ?? process.env;
+  const random = options.random ?? Math.random;
   const traceId = turnTraceId(options.sessionId, ctx.turnIndex);
   // Remember for intentional /feedback linking (works even when ambient capture
   // is a no-op because this call still computes the id).
   noteLastTurnTraceId(traceId);
+
+  if (!shouldSampleSuccessfulGeneration(env, random)) return;
+
+  const aggregates = aggregateToolCalls(ctx, options.subagentToolName);
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
@@ -94,7 +151,12 @@ export function emitAiObservability(
     $ai_cache_read_input_tokens: ctx.usage.cacheRead,
     $ai_cache_creation_input_tokens: ctx.usage.cacheWrite,
     $ai_reasoning_tokens: ctx.usage.thinking,
+    tool_call_count: aggregates.tool_call_count,
+    tool_error_count: aggregates.tool_error_count,
+    subagent_call_count: aggregates.subagent_call_count,
   });
+
+  if (!aiSpansEnabled(env)) return;
 
   const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
 
@@ -135,6 +197,7 @@ export interface EmitAiTurnFailureOptions {
 // observability earns its keep and where a completion-only emitter is
 // silent. Emits the $ai_generation the turn never got to emit, marked as an
 // error, with no token counts or latency because the turn produced none.
+// Errored generations always ship (no sampling).
 export function emitAiTurnFailure(telemetry: Telemetry, options: EmitAiTurnFailureOptions): void {
   telemetry.capture("$ai_generation", {
     $ai_trace_id: turnTraceId(options.sessionId, options.turnIndex),

@@ -12,8 +12,11 @@ const DEFAULT_POSTHOG_API_KEY = "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbL
 const TELEMETRY_HOST_ENV = `${ENV_PREFIX}TELEMETRY_HOST`;
 const TELEMETRY_KEY_ENV = `${ENV_PREFIX}TELEMETRY_KEY`;
 export const TELEMETRY_ENV = `${ENV_PREFIX}TELEMETRY`;
+export const TELEMETRY_AI_SPANS_ENV = `${ENV_PREFIX}TELEMETRY_AI_SPANS`;
+export const TELEMETRY_GENERATION_SAMPLE_RATE_ENV = `${ENV_PREFIX}TELEMETRY_GENERATION_SAMPLE_RATE`;
 
 export const POSTHOG_HOST = process.env[TELEMETRY_HOST_ENV] ?? DEFAULT_POSTHOG_HOST;
+
 export const POSTHOG_API_KEY = process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG_API_KEY;
 
 // Upper bound on how long flush() may hold up process exit; anything still
@@ -128,7 +131,13 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "$ai_cache_read_input_tokens",
     "$ai_cache_creation_input_tokens",
     "$ai_reasoning_tokens",
+    // Aggregates folded from per-call spans (CL-6816). Custom properties —
+    // PostHog LLM cost views still only query the $ai_*-prefixed fields above.
+    "tool_call_count",
+    "tool_error_count",
+    "subagent_call_count",
   ],
+
   // The trace is flat: every span's $ai_parent_id is the turn's
   // $ai_trace_id. PostHog documents $ai_parent_id as accepting a trace id or
   // another span id, so a flat trace is legal and it is all the runtime can
@@ -164,10 +173,28 @@ const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
 // Trimmed so .env files and shell scripts that produce " 0" or "false\n"
 // still count as an opt-out — opt-out parsing must fail toward disabled.
-function truthyEnvFlag(value: string | undefined): boolean {
+export function truthyEnvFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
   return !FALSY_ENV_FLAG_VALUES.has(value.trim().toLowerCase());
 }
+
+/** Opt-in debug: emit per-call `$ai_span` events alongside generation aggregates. */
+export function aiSpansEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return truthyEnvFlag(env[TELEMETRY_AI_SPANS_ENV]);
+}
+
+/**
+ * Sample rate for successful `$ai_generation` events (0–1). Default 1.0 (no
+ * drop). Errors (`$ai_is_error: true`), `crash`, and `auth_failure` always ship.
+ */
+export function generationSampleRate(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[TELEMETRY_GENERATION_SAMPLE_RATE_ENV];
+  if (raw === undefined) return 1;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(1, Math.max(0, parsed));
+}
+
 
 // Env kills win over everything and require no settings at all — callers use
 // this to skip settings writes (installationId generation) entirely.
