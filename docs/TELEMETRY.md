@@ -114,11 +114,11 @@ Pre-progress operator aborts settle with `status=cancelled` and
 keeps a worker resumable settles with `status=interrupted` and the same
 `stop_reason=cancelled`; terminal events never report a still-running status.
 
-A deterministic representative fixture uses 10 parent turns with 80 parent tool
-calls and 4 workers totaling 24 turns and 96 tool calls. The former per-call and
-worker-generation shape is 218 billable events; the default aggregate shape is
-18 (10 generations plus 4 start/end pairs), a 91.7% reduction. This is a test
-fixture, not a claim about production PostHog traffic.
+A deterministic synthetic fixture captures 10 parent generations, 80 parent
+tool spans, and 4 worker start/end pairs. The comparable former shape is 98
+billable events; the default aggregate shape is 18 (10 generations plus 8
+start/end events), removing 80 of 98 events, or 81.6%. This is synthetic test
+evidence, not a claim about production PostHog traffic.
 
 Successful `$ai_generation` events may be sampled with
 `CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE` (a float in `0`–`1`, default `1.0`
@@ -165,10 +165,11 @@ Terminal generation settlement belongs to `src/session/run-sink.ts`.
 `inference.error` records only a pending attempt failure: retry success or a
 completed message run discards it. `inference.done` settles success and only
 then applies successful-generation sampling. A failed `message.run.ended`
-settles an unresolved turn once as an unsampled terminal failure, attributed to
-the provider/model snapshot from the latest `inference.start`. Therefore a
-parent turn emits at most one terminal `$ai_generation`, including retry and
-failover paths.
+settles an unresolved turn once as an unsampled terminal failure. Attribution
+uses the latest `inference.usage` source, the first lifecycle payload carrying
+the runtime-resolved provider/model pair for an attempt; it does not infer
+fallback from the externally selected source. Therefore a parent turn emits at
+most one terminal `$ai_generation`, including retry and failover paths.
 
 ## What's never collected
 
