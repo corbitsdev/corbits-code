@@ -702,7 +702,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // "completed" status. Still terminalize fleetRecords so a waiter
           // that never saw interrupt_agent (or raced it) cannot hang.
           if (result.interrupted === true) {
-
             keepWorktreeAlive = true;
             deps.fleetRecords.interrupt(session.id, result.report);
             return;

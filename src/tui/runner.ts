@@ -1601,7 +1601,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     });
 
-
     // MCP servers connected so far, keyed by name so a reconnect after a failure
     // replaces rather than duplicates the entry.
     let connectedMcpServers: ConnectedMcpServer[] = resumeSeed.mcpServers;

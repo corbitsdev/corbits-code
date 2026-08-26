@@ -374,7 +374,6 @@ test("buildSubagentEndProperties shapes rollup fields and omits empty parentTrac
 });
 
 test("first-party director ids are reported by name; unknown profiles stay custom", () => {
-
   expect(classifyAgentName("worker")).toBe("worker");
   expect(classifyAgentName("builder")).toBe("builder");
   expect(classifyAgentName("skywalker")).toBe("skywalker");
