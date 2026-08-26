@@ -23,7 +23,10 @@ import {
 } from "../../src/telemetry/classify.js";
 
 import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
-import { captureSlashCommand } from "../../src/telemetry/product-events.js";
+import {
+  captureSlashCommand,
+  resetPluginLoadedDedupeForTests,
+} from "../../src/telemetry/product-events.js";
 import { captureAuthFailure, classifyAgentSendFailure } from "../../src/tui/session-chrome.js";
 
 interface BatchBody {
@@ -59,6 +62,7 @@ function harness(): {
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  resetPluginLoadedDedupeForTests();
   while (tempDirs.length > 0) {
     await rm(tempDirs.pop()!, { recursive: true, force: true });
   }
@@ -180,6 +184,33 @@ test("plugin_loaded carries only the discovery origin, never the manifest id", a
   expect(await wire()).not.toContain("acmecorp");
 });
 
+test("plugin_loaded emits once per plugin identity in-process", async () => {
+  const { telemetry, events } = harness();
+  const root = await tempDir("corbits-plugin-dedupe-");
+  const pluginDir = join(root, "plugin");
+  await mkdir(join(pluginDir, "commands"), { recursive: true });
+  await writeFile(
+    join(pluginDir, "plugin.json"),
+    JSON.stringify({
+      id: "acmecorp/internal-tools",
+      name: "acmecorp internal tools",
+      version: "1.0.0",
+    }),
+  );
+  await writeFile(
+    join(pluginDir, "commands", "ship.md"),
+    "---\ndescription: ship it\n---\n\nShip.\n",
+  );
+
+  const first = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
+  const second = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+
+  const captured = await events();
+  expect(captured.filter((e) => e.event === "plugin_loaded")).toHaveLength(1);
+});
+
 // ---------------------------------------------------------------------------
 // 4. agent_name — agent profiles are user-definable per project
 // ---------------------------------------------------------------------------
@@ -243,7 +274,6 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
   expect(end?.properties.stop_reason).toBe("deadline");
   expect(await wire()).not.toContain("acmecorp");
 });
-
 
 test("first-party director ids are reported by name; unknown profiles stay custom", () => {
   expect(classifyAgentName("worker")).toBe("worker");
