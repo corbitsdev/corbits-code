@@ -108,6 +108,7 @@ export type RunSubAgentParams = {
   signal?: AbortSignal;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
+  onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
   /** Resolved closed-director id (e.g. "critic") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
@@ -188,6 +189,26 @@ export type RunSubAgentParams = {
 } & SubAgentSandboxDeps;
 
 /** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why — classify outcomes from `stopReason`, not by parsing `report`. */
+export interface SubAgentTelemetryRollup {
+  turn_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  tool_call_count: number;
+  tool_error_count: number;
+}
+
+export type SubAgentTerminalReason = ForcedStopReason | "complete" | "error";
+
+export interface SubAgentRunSettlement extends SubAgentTelemetryRollup {
+  error_count: number;
+  duration_ms: number;
+  model: string;
+  terminal_reason: SubAgentTerminalReason;
+}
+
 export interface RunSubAgentResult {
   report: string;
   stopReason?: ForcedStopReason;
@@ -207,4 +228,9 @@ export interface RunSubAgentResult {
    * already transitioned the session to "interrupted" synchronously.
    */
   interrupted?: boolean;
+  /**
+   * Counts accumulated during the run for ambient `subagent_end` telemetry.
+   * Never includes prompts, paths, or free-text ids.
+   */
+  telemetry?: SubAgentTelemetryRollup;
 }

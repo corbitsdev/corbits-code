@@ -10,7 +10,10 @@ import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import type { PluginLoadReporter } from "../telemetry/product-events.js";
+import { runtimePluginLoadReporter } from "../telemetry/singleton.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
+
 import {
   resolvePluginWarningHandler,
   stderrPluginWarning,
@@ -125,6 +128,7 @@ export async function loadPluginEntry(
     diagnostics?: PluginLoadDiagnostics;
     origin?: PluginOrigin;
     telemetry?: Telemetry;
+    pluginLoadReporter?: PluginLoadReporter;
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
@@ -139,6 +143,7 @@ export async function loadPluginEntry(
   );
   const origin = opts.origin;
   const telemetry = opts.telemetry ?? NOOP_TELEMETRY;
+  const reportPluginLoaded = opts.pluginLoadReporter ?? runtimePluginLoadReporter;
   let target = entryPath;
   let pluginDir = entryPath;
   try {
@@ -173,7 +178,9 @@ export async function loadPluginEntry(
             mod.origin = origin;
             mod.pluginPath = resolve(entryPath);
           }
-          if (origin !== undefined) telemetry.capture("plugin_loaded", { origin });
+          if (origin !== undefined) {
+            reportPluginLoaded(telemetry, origin, resolve(entryPath));
+          }
           return mod;
         }
         return null;
@@ -234,7 +241,9 @@ export async function loadPluginEntry(
       result.origin = origin;
       result.pluginPath = resolve(pluginDir);
     }
-    if (origin !== undefined) telemetry.capture("plugin_loaded", { origin });
+    if (origin !== undefined) {
+      reportPluginLoaded(telemetry, origin, resolve(pluginDir));
+    }
     return result;
   } catch (err) {
     // Route through the same sink as skill/load warnings so a diagnostics
@@ -848,7 +857,9 @@ export async function discoverClaudeInstalledPlugins(
           name: plugin.manifest.name === plugin.manifest.id ? idFromKey : plugin.manifest.name,
         };
       }
-      opts.telemetry?.capture("plugin_loaded", { origin: "user" });
+      if (opts.telemetry !== undefined) {
+        runtimePluginLoadReporter(opts.telemetry, "user", resolve(d));
+      }
       results.push(plugin);
     }
   }

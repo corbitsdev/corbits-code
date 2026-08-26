@@ -88,6 +88,7 @@ export type {
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
+  SubAgentTelemetryRollup,
 } from "./types.js";
 
 export {

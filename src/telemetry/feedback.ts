@@ -138,6 +138,8 @@ export function feedbackResultMessage(
 
 let feedbackCapturePending = false;
 let lastTurnTraceId: string | undefined;
+/** In-flight primary turn — set at inference.start, cleared when the turn settles. */
+let currentTurnTraceId: string | undefined;
 
 /** Arm after bare `/feedback` so the next non-command submit is treated as feedback. */
 export function armFeedbackCapture(): void {
@@ -169,8 +171,26 @@ export function getLastTurnTraceId(): string | undefined {
   return lastTurnTraceId;
 }
 
+/**
+ * Remember the in-flight turn's `$ai_trace_id` so `subagent_end` can link to the
+ * turn that is still running when `task` / `spawn_agent` dispatch (not the
+ * previous completed turn).
+ */
+export function noteCurrentTurnTraceId(traceId: string): void {
+  if (traceId.length > 0) currentTurnTraceId = traceId;
+}
+
+export function getCurrentTurnTraceId(): string | undefined {
+  return currentTurnTraceId;
+}
+
+export function clearCurrentTurnTraceId(): void {
+  currentTurnTraceId = undefined;
+}
+
 /** Test helper — reset module state between cases. */
 export function resetFeedbackStateForTests(): void {
   feedbackCapturePending = false;
   lastTurnTraceId = undefined;
+  currentTurnTraceId = undefined;
 }

@@ -1,6 +1,6 @@
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { TokenUsage } from "@intx/types/runtime";
+import type { LastCycleSource, TokenUsage } from "@intx/types/runtime";
 import { createPerfReactorObserver } from "../perf/reactor-spans.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { createTurnContextCollector, type LifecycleHookManager, type RunSummary } from "./hooks.js";
@@ -22,9 +22,17 @@ export interface RunSinkArgs {
   // run goes wrong. The turn index is the collector's current count: the
   // in-flight turn is the one that would have been recorded next.
   onTurnFailed?: (info: { turnIndex: number; error: string }) => void;
+  // Fired for every inference attempt. The model comes from inference.start,
+  // while the turn index is the collector's current in-flight turn count.
+  onTurnStarted?: (info: { turnIndex: number; model: string }) => void;
+  // inference.usage is the first attempt event carrying the runtime-resolved
+  // provider/model pair. It remains authoritative even when the selected source
+  // outside the reactor has not changed during fallback.
+  onTurnSourceObserved?: (info: { turnIndex: number; source: LastCycleSource }) => void;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
   initialTurnCount?: number;
+
   // Fired at every turn boundary so a caller can persist a mid-run run.json
   // snapshot. `inference.done` is the turn boundary every reactor cycle
   // guarantees; `reactor.done` fires once, at shutdown, and never between
@@ -88,6 +96,8 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     hookManager,
     onTurnComplete,
     onTurnFailed,
+    onTurnStarted,
+    onTurnSourceObserved,
     initialTurnCount,
     onTurnBoundarySnapshot,
   } = args;
@@ -119,28 +129,19 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   let runCompleted = false;
   let runError: string | undefined;
   let turnCollector = createCollector(initialTurnCount);
-  // True between `inference.start` and whichever event settles that turn.
-  // One give-up reaches this sink twice — the director surfaces the failed
-  // inference, then the reactor terminates the run — and a turn that already
-  // completed is finished, so a later shutdown error belongs to no turn at
-  // all. Both cases resolve to the same question: is there a turn in flight
-  // for this error to be about?
+  // A provider failure is only an attempt failure until the enclosing message
+  // run settles. Retried attempts reuse the same turn index, so emitting at
+  // inference.error would create a terminal generation for a recoverable retry.
   let turnInFlight = false;
-  // Retries re-enter `inference.start` without advancing the turn count, so
-  // a second failure on a retried turn would report the index a consumer
-  // already recorded a failure for. Consumers key per-turn identity off that
-  // index, which makes a repeat indistinguishable from a duplicate.
-  let failedTurnIndex: number | null = null;
+  let pendingInferenceError: string | undefined;
   // Always-on local PerfTrace: not gated by lifecycle hooks.
   const perfObserver = createPerfReactorObserver();
 
-  function reportTurnFailure(error: string): void {
+  function settleTurnFailure(error: string): void {
     if (!turnInFlight) return;
     turnInFlight = false;
-    const turnIndex = turnCollector.getTurnCount();
-    if (turnIndex === failedTurnIndex) return;
-    failedTurnIndex = turnIndex;
-    onTurnFailed?.({ turnIndex, error });
+    pendingInferenceError = undefined;
+    onTurnFailed?.({ turnIndex: turnCollector.getTurnCount(), error });
   }
 
   const sink = (event: ReactorEmittedEvent): void => {
@@ -148,7 +149,15 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     perfObserver.observe(event);
     if (event.type === "inference.start") {
       turnInFlight = true;
+      onTurnStarted?.({ turnIndex: turnCollector.getTurnCount(), model: event.data.model });
     }
+    if (event.type === "inference.usage") {
+      onTurnSourceObserved?.({
+        turnIndex: turnCollector.getTurnCount(),
+        source: event.data.source,
+      });
+    }
+
     if (event.type === "reactor.done") {
       runCompleted = true;
       // Terminal success clears any earlier transient inference error.
@@ -159,18 +168,25 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     // would mark a recovered successful send as failed.
     if (onTurnBoundary(event)) {
       turnInFlight = false;
+      pendingInferenceError = undefined;
       runError = undefined;
       onTurnBoundarySnapshot?.();
     }
     if (event.type === "reactor.error") {
       const data = event.data as { error: string };
       runError = data.error;
-      reportTurnFailure(data.error);
     }
     if (event.type === "inference.error") {
       const data = event.data as { error: { message: string } };
+      pendingInferenceError = data.error.message;
       runError = data.error.message;
-      reportTurnFailure(data.error.message);
+    }
+    if (event.type === "message.run.ended") {
+      if (event.data.status === "failed" && turnInFlight) {
+        settleTurnFailure(pendingInferenceError ?? event.data.error?.message ?? "Inference failed");
+      } else {
+        pendingInferenceError = undefined;
+      }
     }
     emitter.emit("event", event);
   };
@@ -188,7 +204,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
       runCompleted = false;
       runError = undefined;
       turnInFlight = false;
-      failedTurnIndex = null;
+      pendingInferenceError = undefined;
       turnCollector = createCollector();
       perfObserver.reset();
     },

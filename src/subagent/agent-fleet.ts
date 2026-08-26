@@ -70,11 +70,16 @@ import type {
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
+  SubAgentRunSettlement,
 } from "./types.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
+import { captureSubagentEnd } from "../telemetry/product-events.js";
+import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
 import type { DirectorPackage } from "../agent/directors/types.js";
+import { SPAWN_AGENT_TOOL_NAME } from "./tool-taxonomy.js";
+
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import { isSubAgentCancelError } from "./dispose.js";
 
@@ -261,7 +266,7 @@ const SpawnAgentArgs = type({
 });
 
 export const spawnAgentToolDefinition: ToolDefinition = {
-  name: "spawn_agent",
+  name: SPAWN_AGENT_TOOL_NAME,
   description:
     "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them. task() is the deprecated fused spawn+wait fallback for a single blocking worker.",
   inputSchema: {
@@ -536,8 +541,40 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       });
       deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
+      const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
       const startedAt = Date.now();
+      let settlement: Readonly<SubAgentRunSettlement> | undefined;
+      let endFinalized = false;
+      const finalizeEnd = (setupFailed = false): void => {
+        if (endFinalized) return;
+        endFinalized = true;
+        const terminalSession = deps.sessions.get(session.id);
+        const status =
+          terminalSession?.status === "cancelled"
+            ? "cancelled"
+            : terminalSession?.lifecycleStatus === "interrupted"
+              ? "interrupted"
+              : (terminalSession?.status ?? "completed");
+        captureSubagentEnd(telemetry, {
+          agentName,
+          status: setupFailed ? "failed" : status,
+          durationMs: Date.now() - startedAt,
+          model: settlement?.model ?? provider.model,
+          stopReason: setupFailed ? "setup_error" : (settlement?.terminal_reason ?? "error"),
+          rollup: settlement ?? {
+            turn_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: 0,
+            tool_call_count: 0,
+            tool_error_count: 0,
+          },
+          ...(parentTraceId !== undefined ? { parentTraceId } : {}),
+        });
+      };
 
       const childCtl = new AbortController();
       deps.sessions.registerCancel(session.id, () => {
@@ -567,6 +604,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
           deps.fleetRecords.reject(session.id, message);
           deps.sessions.fail(session.id, message);
+          finalizeEnd(true);
           return fleetResult(call.id, `Error: ${message}`);
         }
       }
@@ -642,6 +680,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
         signal: childCtl.signal,
         onEvent,
+        onRunSettled: (summary) => {
+          settlement = summary;
+        },
         ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
         ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
         systemPromptRole: resolved.systemPromptRole,
@@ -697,6 +738,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // that never saw interrupt_agent (or raced it) cannot hang.
           if (result.interrupted === true) {
             keepWorktreeAlive = true;
+            deps.sessions.interruptOne(session.id);
             deps.fleetRecords.interrupt(session.id, result.report);
             return;
           }
@@ -740,11 +782,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
-          telemetry.capture("subagent_end", {
-            agent_name: agentName,
-            status: deps.sessions.get(session.id)?.status ?? "completed",
-            duration_ms: Date.now() - startedAt,
-          });
+          finalizeEnd();
           if (!keepWorktreeAlive) void reclaimWorktree();
         });
 

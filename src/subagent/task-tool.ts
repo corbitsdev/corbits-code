@@ -57,6 +57,10 @@ import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { captureSubagentEnd } from "../telemetry/product-events.js";
+import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
+import { SPAWN_AGENT_TOOL_NAME, TASK_TOOL_NAME } from "./tool-taxonomy.js";
+
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,
@@ -64,6 +68,8 @@ import type {
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
+  SubAgentTelemetryRollup,
+  SubAgentTerminalReason,
 } from "./types.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "task-tool"]);
@@ -87,7 +93,7 @@ export const TaskToolArgs = type({
 // much still routes through it — but new work should reach for the split
 // verbs first.
 export const taskToolDefinition: ToolDefinition = {
-  name: "task",
+  name: TASK_TOOL_NAME,
   description:
     'Deprecated: prefer spawn_agent + wait_agents for new call sites (this fused blocking form is kept for compatibility). Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).',
   inputSchema: {
@@ -326,7 +332,7 @@ async function runTaskViaFleet(input: {
   const started = await spawn.handler(
     {
       id: input.callId,
-      name: "spawn_agent",
+      name: SPAWN_AGENT_TOOL_NAME,
       arguments: {
         description: input.description,
         prompt: input.prompt,
@@ -922,14 +928,18 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         },
       });
       const subagentStartedAt = Date.now();
-      // Profile ids come from project and plugin directories, so only the
-      // runtime's own "worker" fallback is reportable by name; anything else
-      // is bucketed. Sub-agents run in this process against the same session
-      // id, so there is no parent id worth sending — it would always equal
-      // the session_id already on the payload.
+      // Profile / director ids are classified: first-party DIRECTOR_IDS (and
+      // legacy "worker") report by name; project/plugin profiles become custom.
+      // Capture the in-flight parent turn trace at dispatch — getLastTurnTraceId
+      // would be the previous completed turn while this tool still runs.
       const agentName = classifyAgentName(agentLabel);
+      const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
       let subagentStatus: "completed" | "cancelled" | "failed" = "completed";
+      let endRollup: SubAgentTelemetryRollup | undefined;
+      let endStopReason: SubAgentTerminalReason | "setup_error" | undefined;
+      let endModel: string | undefined;
+
       try {
         if (deps.useWorktree === true) {
           const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
@@ -946,6 +956,18 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               err instanceof WorktreeError
                 ? err.message
                 : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+            subagentStatus = "failed";
+            endStopReason = "setup_error";
+            endRollup = {
+              turn_count: 0,
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+              reasoning_tokens: 0,
+              tool_call_count: 0,
+              tool_error_count: 0,
+            };
             briefLedger.release(fingerprint);
             if (session !== undefined) deps.sessions?.fail(session.id, message);
             signal.removeEventListener("abort", onParentAbort);
@@ -1009,6 +1031,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
             signal: childCtl.signal,
             onEvent,
+            onRunSettled: (summary) => {
+              endRollup = summary;
+              endStopReason = summary.terminal_reason;
+              endModel = summary.model;
+            },
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
@@ -1031,6 +1058,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           const result = await run(params);
           // Operator cancel may race after run resolves. Keep strip status cancelled
           // when requested, but never discard a returned body (including salvage).
+
           const wasCancelled =
             childCtl.signal.aborted ||
             (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled");
@@ -1119,10 +1147,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       } finally {
         activeLanes.delete(call.id);
         end(subagentSpanId);
-        telemetry.capture("subagent_end", {
-          agent_name: agentName,
+        captureSubagentEnd(telemetry, {
+          agentName,
           status: subagentStatus,
-          duration_ms: Date.now() - subagentStartedAt,
+          durationMs: Date.now() - subagentStartedAt,
+          ...(endModel !== undefined ? { model: endModel } : { model: provider.model }),
+          ...(endStopReason !== undefined ? { stopReason: endStopReason } : {}),
+          ...(endRollup !== undefined ? { rollup: endRollup } : {}),
+          ...(parentTraceId !== undefined ? { parentTraceId } : {}),
         });
       }
     },

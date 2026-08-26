@@ -62,6 +62,7 @@ import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js"
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
+import { createTurnObserver } from "../telemetry/ai-observability.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
   expandExistingPluginMembers,
@@ -657,9 +658,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const hookManager = createLifecycleHookManager({
       hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     });
+    const turnObserver = createTurnObserver({
+      telemetry: () => liveTelemetry,
+      getSessionId: () => sessionId,
+      getSource: () => liveSource,
+    });
     const liveSink = createRunSink({
       emitter,
       hookManager,
+      ...turnObserver,
       onTurnBoundarySnapshot: () => {
         void persist("running");
       },
