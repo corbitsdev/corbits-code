@@ -74,7 +74,9 @@ import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
+
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
 import { toolWatchdogFromSettings } from "../config/settings.js";
@@ -127,7 +129,13 @@ import {
   createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
-import type { RunSubAgentParams, RunSubAgentResult, SubAgentProvider } from "./types.js";
+import type {
+  RunSubAgentParams,
+  RunSubAgentResult,
+  SubAgentProvider,
+  SubAgentTelemetryRollup,
+} from "./types.js";
+
 import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
 
@@ -837,6 +845,21 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     let accumulatedProse = "";
     // Thrash paths from tool.start so mid-tool cancel still lists files touched.
     let thrashState = EMPTY_THRASH_STATE;
+    // Ambient subagent_end rollup — counts only; never prompts or paths.
+    const telemetryRollup: SubAgentTelemetryRollup = {
+      turn_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+      tool_call_count: 0,
+      tool_error_count: 0,
+    };
+    const withTelemetry = (result: RunSubAgentResult): RunSubAgentResult => ({
+      ...result,
+      telemetry: { ...telemetryRollup },
+    });
     // Watch the streamed text of the in-flight cycle so a salvage on
     // cancel/deadline has the cycle's tail as its payload, even though no
     // turn boundary has completed yet to carry it.
@@ -845,6 +868,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       const name = subAgentToolName(event);
       if (name !== null) {
         toolNamesUsed.push(name);
+        telemetryRollup.tool_call_count += 1;
         params.onProgress?.({ description: params.description, toolName: name });
       }
       if (event.type === "tool.start") {
@@ -854,6 +878,41 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           thrashState = nextThrashState(thrashState, [
             { type: "tool_call", name: call.name, arguments: call.arguments },
           ]);
+        }
+      }
+      if (event.type === "tool.done") {
+        const result = (
+          event as { data?: { result?: { isError?: unknown } } }
+        ).data?.result;
+        if (result?.isError === true) telemetryRollup.tool_error_count += 1;
+      }
+      if (onTurnBoundary(event)) {
+        telemetryRollup.turn_count += 1;
+        const usage = (
+          event as {
+            data?: {
+              usage?: {
+                input?: unknown;
+                output?: unknown;
+                cacheRead?: unknown;
+                cacheWrite?: unknown;
+                thinking?: unknown;
+              };
+            };
+          }
+        ).data?.usage;
+        if (usage !== undefined) {
+          if (typeof usage.input === "number") telemetryRollup.input_tokens += usage.input;
+          if (typeof usage.output === "number") telemetryRollup.output_tokens += usage.output;
+          if (typeof usage.cacheRead === "number") {
+            telemetryRollup.cache_read_tokens += usage.cacheRead;
+          }
+          if (typeof usage.cacheWrite === "number") {
+            telemetryRollup.cache_write_tokens += usage.cacheWrite;
+          }
+          if (typeof usage.thinking === "number") {
+            telemetryRollup.reasoning_tokens += usage.thinking;
+          }
         }
       }
       cycleRecorder.handleEvent(event);
@@ -870,6 +929,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       }
       params.onEvent?.(event);
     };
+
     streamPromise = consumeStream(agent.stream(), streamSink);
 
     // Aborting the send signal only rejects the promise; the child reactor keeps
@@ -1010,14 +1070,15 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       // salvaged run below falls through without setting this, so the
       // finally block still tears down for those.
       turnSucceeded = true;
-      return {
+      return withTelemetry({
         report: appendActivitySummary(report, toolNamesUsed),
         ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
         // Only this path skips teardown below when persist is set — tell
         // the caller so a salvage below is never mistaken for a still-live,
         // resumable agent.
         ...(params.persist === true ? { agentRetained: true } : {}),
-      };
+      });
+
     } catch (err) {
       // interrupt_agent fired its own signal, not runController's — check
       // that first so an interrupted send doesn't fall into the cancel/
@@ -1026,7 +1087,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         interruptedKeepAlive = true;
         const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
         const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);
-        return {
+        return withTelemetry({
           report: appendActivitySummary(
             forcedStopReport("cancelled", tail, {
               detail: "interrupted by interrupt_agent",
@@ -1036,7 +1097,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ),
           stopReason: "cancelled",
           interrupted: true,
-        };
+        });
+
       }
       if (isSubAgentCancelError(err, runController.signal)) {
         // Close the recorder against the dead cycle before its inference.error
@@ -1074,7 +1136,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
             state: { totalToolCalls: toolNamesUsed.length },
             ...(detail !== undefined ? { detail } : {}),
           });
-          return {
+          return withTelemetry({
             report: appendActivitySummary(
               forcedStopReport(reason, tail, {
                 ...(detail !== undefined ? { detail } : {}),
@@ -1083,7 +1145,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
               toolNamesUsed,
             ),
             stopReason: reason,
-          };
+          });
+
         }
       }
       throw err;
