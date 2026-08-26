@@ -134,6 +134,7 @@ import type {
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentTelemetryRollup,
+  SubAgentTerminalReason,
 } from "./types.js";
 
 import type { TaskIntent } from "./report.js";
@@ -361,6 +362,48 @@ export function createCodexProxyRunTool(posixTools: CodexProxyToolRunner): Codex
 // gets its own posix tool instances and its own git-backed context store so
 // the two loops never trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgentResult> {
+  const startedAt = Date.now();
+  const telemetryRollup: SubAgentTelemetryRollup = {
+    turn_count: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    tool_call_count: 0,
+    tool_error_count: 0,
+  };
+  let terminalReason: SubAgentTerminalReason = "error";
+  let errorCount = 0;
+
+  try {
+    const result = await runSubAgentInner(params, telemetryRollup);
+    terminalReason = result.stopReason ?? "complete";
+    return result;
+  } catch (error) {
+    errorCount = 1;
+    throw error;
+  } finally {
+    try {
+      params.onRunSettled?.(
+        Object.freeze({
+          ...telemetryRollup,
+          error_count: errorCount,
+          duration_ms: Date.now() - startedAt,
+          model: params.provider.model,
+          terminal_reason: terminalReason,
+        }),
+      );
+    } catch {
+      // Settlement is observational and must not change the run's outcome.
+    }
+  }
+}
+
+async function runSubAgentInner(
+  params: RunSubAgentParams,
+  telemetryRollup: SubAgentTelemetryRollup,
+): Promise<RunSubAgentResult> {
   await seedPricingMetadataFromCache({
     cachePath: defaultPricingCachePath(),
   });
@@ -845,17 +888,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     let accumulatedProse = "";
     // Thrash paths from tool.start so mid-tool cancel still lists files touched.
     let thrashState = EMPTY_THRASH_STATE;
-    // Ambient subagent_end rollup — counts only; never prompts or paths.
-    const telemetryRollup: SubAgentTelemetryRollup = {
-      turn_count: 0,
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_tokens: 0,
-      cache_write_tokens: 0,
-      reasoning_tokens: 0,
-      tool_call_count: 0,
-      tool_error_count: 0,
-    };
     const withTelemetry = (result: RunSubAgentResult): RunSubAgentResult => ({
       ...result,
       telemetry: { ...telemetryRollup },
