@@ -22,9 +22,14 @@ export interface RunSinkArgs {
   // run goes wrong. The turn index is the collector's current count: the
   // in-flight turn is the one that would have been recorded next.
   onTurnFailed?: (info: { turnIndex: number; error: string }) => void;
+  // Fired when inference for a turn begins. The turn index is the collector's
+  // current count (the in-flight turn that has not completed yet) — used to
+  // stamp parent_trace_id on subagent_end while tools still run.
+  onTurnStarted?: (info: { turnIndex: number }) => void;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
   initialTurnCount?: number;
+
   // Fired at every turn boundary so a caller can persist a mid-run run.json
   // snapshot. `inference.done` is the turn boundary every reactor cycle
   // guarantees; `reactor.done` fires once, at shutdown, and never between
@@ -88,6 +93,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     hookManager,
     onTurnComplete,
     onTurnFailed,
+    onTurnStarted,
     initialTurnCount,
     onTurnBoundarySnapshot,
   } = args;
@@ -148,7 +154,9 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     perfObserver.observe(event);
     if (event.type === "inference.start") {
       turnInFlight = true;
+      onTurnStarted?.({ turnIndex: turnCollector.getTurnCount() });
     }
+
     if (event.type === "reactor.done") {
       runCompleted = true;
       // Terminal success clears any earlier transient inference error.

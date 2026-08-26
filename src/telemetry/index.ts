@@ -206,7 +206,11 @@ export function aiSpansEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 export function generationSampleRate(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env[TELEMETRY_GENERATION_SAMPLE_RATE_ENV];
   if (raw === undefined) return 1;
-  const parsed = Number(raw);
+  const trimmed = raw.trim();
+  // Empty env ("CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE=") is unset, not 0 —
+  // Number("") is 0 and would silently drop every successful generation.
+  if (trimmed.length === 0) return 1;
+  const parsed = Number(trimmed);
   if (!Number.isFinite(parsed)) return 1;
   return Math.min(1, Math.max(0, parsed));
 }
