@@ -70,6 +70,7 @@ import type {
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
+  SubAgentRunSettlement,
 } from "./types.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
@@ -543,7 +544,30 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
       const startedAt = Date.now();
-      let endResult: RunSubAgentResult | undefined;
+      let settlement: Readonly<SubAgentRunSettlement> | undefined;
+      let endFinalized = false;
+      const finalizeEnd = (setupFailed = false): void => {
+        if (endFinalized) return;
+        endFinalized = true;
+        captureSubagentEnd(telemetry, {
+          agentName,
+          status: setupFailed ? "failed" : (deps.sessions.get(session.id)?.status ?? "completed"),
+          durationMs: Date.now() - startedAt,
+          model: settlement?.model ?? provider.model,
+          stopReason: setupFailed ? "setup_error" : (settlement?.terminal_reason ?? "error"),
+          rollup: settlement ?? {
+            turn_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: 0,
+            tool_call_count: 0,
+            tool_error_count: 0,
+          },
+          ...(parentTraceId !== undefined ? { parentTraceId } : {}),
+        });
+      };
 
       const childCtl = new AbortController();
       deps.sessions.registerCancel(session.id, () => {
@@ -573,6 +597,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
           deps.fleetRecords.reject(session.id, message);
           deps.sessions.fail(session.id, message);
+          finalizeEnd(true);
           return fleetResult(call.id, `Error: ${message}`);
         }
       }
@@ -648,6 +673,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
         signal: childCtl.signal,
         onEvent,
+        onRunSettled: (summary) => {
+          settlement = summary;
+        },
         ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
         ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
         systemPromptRole: resolved.systemPromptRole,
@@ -696,7 +724,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       deps
         .run(params)
         .then((result) => {
-          endResult = result;
           // interrupt_agent already flipped this session to "interrupted"
           // synchronously (session-store.interruptOne) — do not let the
           // settling promise's normal bookkeeping overwrite that with a
@@ -747,16 +774,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
-          captureSubagentEnd(telemetry, {
-            agentName,
-            status: deps.sessions.get(session.id)?.status ?? "completed",
-            durationMs: Date.now() - startedAt,
-            model: provider.model,
-            ...(endResult?.stopReason !== undefined ? { stopReason: endResult.stopReason } : {}),
-            ...(endResult?.telemetry !== undefined ? { rollup: endResult.telemetry } : {}),
-            ...(parentTraceId !== undefined ? { parentTraceId } : {}),
-          });
-
+          finalizeEnd();
           if (!keepWorktreeAlive) void reclaimWorktree();
         });
 
