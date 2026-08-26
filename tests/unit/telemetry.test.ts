@@ -262,6 +262,7 @@ test("capture payload shape includes distinct_id and common props, with no clien
   expect(body.properties.distinct_id).toBe("my-install-id");
   expect(typeof body.timestamp).toBe("string");
   expect(body.properties.$geoip_disable).toBeUndefined();
+  expect(body.properties.$process_person_profile).toBe(false);
   expect(body.properties.schema_version).toBe(1);
   expect(typeof body.properties.service_version).toBe("string");
   expect(body.properties.$app_version).toBe(body.properties.service_version);
@@ -269,6 +270,28 @@ test("capture payload shape includes distinct_id and common props, with no clien
   expect(String(body.properties.$app_version).length).toBeGreaterThan(0);
   expect(body.properties.os_type).toBe(process.platform);
   expect(body.properties.os_arch).toBe(process.arch);
+});
+
+test("intentional survey capture omits anonymous person-processing flag", async () => {
+  const { impl, events } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("my-install-id", false),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
+  expect(telemetry.enabled).toBe(false);
+  expect(
+    telemetry.captureIntentional("survey sent", {
+      $survey_id: "s",
+      $survey_response: "hello",
+      $survey_questions: [],
+    }),
+  ).toBe(true);
+  await telemetry.flush();
+  const body = events()[0]!;
+  expect(body.event).toBe("survey sent");
+  expect(body.properties.$process_person_profile).toBeUndefined();
 });
 
 test("flush resolves after pending captures settle", async () => {

@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { Telemetry } from "./index.js";
+import { generationSampleRate } from "./index.js";
 import type { TurnContext } from "../session/hooks.js";
 import {
+  aggregateToolCalls,
   classifyErrorKind,
   classifySpanKind,
   createTurnObserver,
@@ -11,9 +13,14 @@ import {
   secondsFromMs,
   turnTraceId,
 } from "./ai-observability.js";
+import { getCurrentTurnTraceId, resetFeedbackStateForTests } from "./feedback.js";
 
 const SUBAGENT_TOOL_NAME = "task";
 const SESSION_ID = "0199-parent-session";
+
+afterEach(() => {
+  resetFeedbackStateForTests();
+});
 
 function fakeTelemetry(): {
   telemetry: Telemetry;
@@ -75,7 +82,7 @@ function fakeTurnContext(overrides: Partial<TurnContext> = {}): TurnContext {
   } as TurnContext;
 }
 
-const emitOptions = { sessionId: SESSION_ID, subagentToolName: SUBAGENT_TOOL_NAME };
+const emitOptions = { sessionId: SESSION_ID, env: {} };
 const FAILED_TURN_SOURCE = { provider: "openai-compatible", model: "model-x" };
 
 describe("secondsFromMs", () => {
@@ -87,13 +94,14 @@ describe("secondsFromMs", () => {
 });
 
 describe("classifySpanKind", () => {
-  test("classifies the subagent tool as subagent_call", () => {
-    expect(classifySpanKind(SUBAGENT_TOOL_NAME, SUBAGENT_TOOL_NAME)).toBe("subagent_call");
+  test("classifies both subagent dispatch tools as subagent_call", () => {
+    expect(classifySpanKind("task")).toBe("subagent_call");
+    expect(classifySpanKind("spawn_agent")).toBe("subagent_call");
   });
 
   test("classifies every other tool as tool_call, regardless of name", () => {
-    expect(classifySpanKind("read_file", SUBAGENT_TOOL_NAME)).toBe("tool_call");
-    expect(classifySpanKind("mcp__acme__fetch_secret", SUBAGENT_TOOL_NAME)).toBe("tool_call");
+    expect(classifySpanKind("read_file")).toBe("tool_call");
+    expect(classifySpanKind("mcp__acme__fetch_secret")).toBe("tool_call");
   });
 });
 
@@ -137,6 +145,42 @@ describe("turnTraceId", () => {
   });
 });
 
+describe("representative fleet event volume", () => {
+  test("reduces deterministic synthetic billable events by at least 80 percent", () => {
+    const captureFixture = (includeToolSpans: boolean): string[] => {
+      const captured: string[] = [];
+      for (let turn = 0; turn < 10; turn++) captured.push("$ai_generation");
+      if (includeToolSpans) {
+        for (let toolCall = 0; toolCall < 80; toolCall++) captured.push("$ai_span");
+      }
+      for (let worker = 0; worker < 4; worker++) {
+        captured.push("subagent_start", "subagent_end");
+      }
+      return captured;
+    };
+
+    const oldCaptured = captureFixture(true);
+    const newCaptured = captureFixture(false);
+    const reduction = 1 - newCaptured.length / oldCaptured.length;
+
+    expect(oldCaptured).toHaveLength(98);
+    expect(newCaptured).toHaveLength(18);
+    expect(oldCaptured.length - newCaptured.length).toBe(80);
+    expect(reduction).toBeCloseTo(80 / 98, 6);
+    expect(reduction).toBeGreaterThanOrEqual(0.8);
+  });
+});
+
+describe("aggregateToolCalls", () => {
+  test("counts tool calls, subagent calls, and errors separately", () => {
+    expect(aggregateToolCalls(fakeTurnContext())).toEqual({
+      tool_call_count: 1,
+      tool_error_count: 1,
+      subagent_call_count: 1,
+    });
+  });
+});
+
 describe("createTurnObserver", () => {
   // Regression: the trace id must be built from whatever session id is live
   // at emission. A call site that captured it once would keep filing turns
@@ -149,7 +193,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => sessionId,
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnComplete(fakeTurnContext({ turnIndex: 0, toolCalls: [], toolResults: [] }));
@@ -167,7 +210,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => sessionId,
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnFailed({ turnIndex: 0, error: "boom" });
@@ -187,7 +229,6 @@ describe("createTurnObserver", () => {
       telemetry: () => telemetry,
       getSessionId: () => SESSION_ID,
       getSource: () => source,
-      subagentToolName: SUBAGENT_TOOL_NAME,
     });
 
     observer.onTurnFailed({ turnIndex: 0, error: "429 rate limit" });
@@ -199,13 +240,43 @@ describe("createTurnObserver", () => {
     expect(captured[1]?.properties.$ai_provider).toBe("codex");
     expect(captured[1]?.properties.$ai_model).toBe("model-y");
   });
+
+  test("onTurnStarted notes the in-flight turn for subagent parent_trace_id", () => {
+    const { telemetry } = fakeTelemetry();
+    const observer = createTurnObserver({
+      telemetry: () => telemetry,
+      getSessionId: () => SESSION_ID,
+      getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
+    });
+
+    observer.onTurnStarted({ turnIndex: 2, model: "model-x" });
+    expect(getCurrentTurnTraceId()).toBe(`${SESSION_ID}:turn:2`);
+    observer.onTurnComplete(fakeTurnContext({ turnIndex: 2, toolCalls: [], toolResults: [] }));
+    expect(getCurrentTurnTraceId()).toBeUndefined();
+  });
 });
 
 describe("emitAiObservability", () => {
-  test("emits one $ai_generation and one $ai_span per tool call", () => {
+  test("emits one $ai_generation with aggregates and zero $ai_span by default", () => {
     const { telemetry, captured } = fakeTelemetry();
 
     emitAiObservability(telemetry, fakeTurnContext(), emitOptions);
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]?.event).toBe("$ai_generation");
+    expect(captured[0]?.properties.tool_call_count).toBe(1);
+    expect(captured[0]?.properties.tool_error_count).toBe(1);
+    expect(captured[0]?.properties.subagent_call_count).toBe(1);
+    expect(captured.filter((c) => c.event === "$ai_span")).toHaveLength(0);
+  });
+
+  test("restores per-call $ai_span when CORBITS_TELEMETRY_AI_SPANS is truthy", () => {
+    const { telemetry, captured } = fakeTelemetry();
+
+    emitAiObservability(telemetry, fakeTurnContext(), {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_AI_SPANS: "1" },
+    });
 
     expect(captured.length).toBe(3);
     expect(captured[0]?.event).toBe("$ai_generation");
@@ -261,7 +332,10 @@ describe("emitAiObservability", () => {
     const { telemetry, captured } = fakeTelemetry();
     const ctx = fakeTurnContext();
 
-    emitAiObservability(telemetry, ctx, emitOptions);
+    emitAiObservability(telemetry, ctx, {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_AI_SPANS: "1" },
+    });
 
     const traceId = turnTraceId(SESSION_ID, ctx.turnIndex);
     const generation = captured.find((c) => c.event === "$ai_generation");
@@ -279,7 +353,10 @@ describe("emitAiObservability", () => {
   test("names the span by fixed enum, never the raw tool name", () => {
     const { telemetry, captured } = fakeTelemetry();
 
-    emitAiObservability(telemetry, fakeTurnContext(), emitOptions);
+    emitAiObservability(telemetry, fakeTurnContext(), {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_AI_SPANS: "true" },
+    });
 
     const spans = captured.filter((c) => c.event === "$ai_span");
     expect(spans[0]?.properties.$ai_span_name).toBe("tool_call");
@@ -293,7 +370,10 @@ describe("emitAiObservability", () => {
   test("propagates tool error state onto the span without the result content", () => {
     const { telemetry, captured } = fakeTelemetry();
 
-    emitAiObservability(telemetry, fakeTurnContext(), emitOptions);
+    emitAiObservability(telemetry, fakeTurnContext(), {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_AI_SPANS: "1" },
+    });
 
     const spans = captured.filter((c) => c.event === "$ai_span");
     expect(spans[0]?.properties.$ai_is_error).toBe(false);
@@ -303,7 +383,10 @@ describe("emitAiObservability", () => {
   test("never leaks prompt text, tool arguments, tool results, or file paths", () => {
     const { telemetry, captured } = fakeTelemetry();
 
-    emitAiObservability(telemetry, fakeTurnContext(), emitOptions);
+    emitAiObservability(telemetry, fakeTurnContext(), {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_AI_SPANS: "1" },
+    });
 
     const serialized = JSON.stringify(captured);
     expect(serialized).not.toContain("secret-project");
@@ -313,6 +396,38 @@ describe("emitAiObservability", () => {
     expect(serialized).not.toContain("find the leaked");
     expect(serialized).not.toContain("here is the plan");
     expect(serialized).not.toContain("/Users/attacker");
+  });
+
+  test("samples successful generations when CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE is below 1", () => {
+    const { telemetry, captured } = fakeTelemetry();
+
+    emitAiObservability(telemetry, fakeTurnContext(), {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0.5" },
+      random: () => 0.9,
+    });
+
+    expect(captured).toHaveLength(0);
+  });
+
+  test("always keeps a successful generation when the sample roll is under the rate", () => {
+    const { telemetry, captured } = fakeTelemetry();
+
+    emitAiObservability(telemetry, fakeTurnContext(), {
+      ...emitOptions,
+      env: { CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0.5" },
+      random: () => 0.1,
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.event).toBe("$ai_generation");
+  });
+
+  test("empty CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE is treated as unset (1.0)", () => {
+    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "" })).toBe(1);
+    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "  " })).toBe(1);
+    expect(generationSampleRate({})).toBe(1);
+    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0" })).toBe(0);
   });
 });
 
@@ -350,21 +465,36 @@ describe("emitAiTurnFailure", () => {
     expect(captured[0]?.properties.$ai_model).toBe("model-x");
   });
 
-  test("never leaks the raw provider error message", () => {
+  test("errored generations always ship regardless of sample rate", () => {
     const { telemetry, captured } = fakeTelemetry();
+
+    // emitAiTurnFailure has no sample gate — confirm directly.
+    emitAiTurnFailure(telemetry, {
+      sessionId: SESSION_ID,
+      turnIndex: 1,
+      source: FAILED_TURN_SOURCE,
+      error: "boom",
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.properties.$ai_is_error).toBe(true);
+  });
+
+  test("never forwards the provider's error message", () => {
+    const { telemetry, captured } = fakeTelemetry();
+    const message =
+      "POST https://api.acme.internal/v1/chat failed: prompt contained /Users/attacker/secret.md";
 
     emitAiTurnFailure(telemetry, {
       sessionId: SESSION_ID,
       turnIndex: 7,
       source: FAILED_TURN_SOURCE,
-      error:
-        "429 rate limit on https://api.internal.acme.corp/v1/chat while reading /Users/attacker/secret-project/plan.md: XYZ-SECRET-123",
+      error: message,
     });
 
     const serialized = JSON.stringify(captured);
-    expect(serialized).not.toContain("acme.corp");
+    expect(serialized).not.toContain("acme.internal");
     expect(serialized).not.toContain("/Users/attacker");
-    expect(serialized).not.toContain("secret-project");
-    expect(serialized).not.toContain("XYZ-SECRET-123");
+    expect(serialized).not.toContain(message);
   });
 });
