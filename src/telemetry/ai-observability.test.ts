@@ -146,21 +146,28 @@ describe("turnTraceId", () => {
 });
 
 describe("representative fleet event volume", () => {
-  test("reduces deterministic billable events by at least 80 percent", () => {
-    const parentTurns = 10;
-    const parentToolCalls = 80;
-    const workers = 4;
-    const workerTurns = 24;
-    const workerToolCalls = 96;
-    const oldBillableEvents =
-      parentTurns + parentToolCalls + workerTurns + workerToolCalls + workers * 2;
-    const newBillableEvents = parentTurns + workers * 2;
+  test("reduces deterministic synthetic billable events by at least 80 percent", () => {
+    const captureFixture = (includeToolSpans: boolean): string[] => {
+      const captured: string[] = [];
+      for (let turn = 0; turn < 10; turn++) captured.push("$ai_generation");
+      if (includeToolSpans) {
+        for (let toolCall = 0; toolCall < 80; toolCall++) captured.push("$ai_span");
+      }
+      for (let worker = 0; worker < 4; worker++) {
+        captured.push("subagent_start", "subagent_end");
+      }
+      return captured;
+    };
 
-    expect({ oldBillableEvents, newBillableEvents }).toEqual({
-      oldBillableEvents: 218,
-      newBillableEvents: 18,
-    });
-    expect(1 - newBillableEvents / oldBillableEvents).toBeGreaterThanOrEqual(0.8);
+    const oldCaptured = captureFixture(true);
+    const newCaptured = captureFixture(false);
+    const reduction = 1 - newCaptured.length / oldCaptured.length;
+
+    expect(oldCaptured).toHaveLength(98);
+    expect(newCaptured).toHaveLength(18);
+    expect(oldCaptured.length - newCaptured.length).toBe(80);
+    expect(reduction).toBeCloseTo(80 / 98, 6);
+    expect(reduction).toBeGreaterThanOrEqual(0.8);
   });
 });
 
