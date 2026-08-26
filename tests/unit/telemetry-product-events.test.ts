@@ -223,8 +223,24 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
   expect(await wire()).not.toContain("acmecorp");
 });
 
-test("the built-in worker label is reported by name", () => {
+test("first-party director ids are reported by name; unknown profiles stay custom", () => {
   expect(classifyAgentName("worker")).toBe("worker");
+  expect(classifyAgentName("builder")).toBe("builder");
+  expect(classifyAgentName("skywalker")).toBe("skywalker");
+  expect(classifyAgentName("greybeard")).toBe("greybeard");
+  expect(classifyAgentName("explorer")).toBe("explorer");
+  expect(classifyAgentName("counsel")).toBe("counsel");
+  expect(classifyAgentName("critic")).toBe("critic");
+  expect(classifyAgentName("intern")).toBe("intern");
+  expect(classifyAgentName("tester")).toBe("tester");
+  expect(classifyAgentName("testsmith")).toBe("testsmith");
+  expect(classifyAgentName("shakespeare")).toBe("shakespeare");
+  expect(classifyAgentName("rand")).toBe("rand");
+  expect(classifyAgentName("draper")).toBe("draper");
+  expect(classifyAgentName("emil")).toBe("emil");
+  expect(classifyAgentName("gaasbot")).toBe("gaasbot");
+  expect(classifyAgentName("bruckheimer")).toBe("bruckheimer");
+  expect(classifyAgentName("neckbeard")).toBe("neckbeard");
   expect(classifyAgentName("acmecorp-release-captain")).toBe("custom");
 });
 
