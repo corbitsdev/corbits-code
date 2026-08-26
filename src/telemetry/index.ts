@@ -211,7 +211,6 @@ export function generationSampleRate(env: NodeJS.ProcessEnv = process.env): numb
   return Math.min(1, Math.max(0, parsed));
 }
 
-
 // Env kills win over everything and require no settings at all — callers use
 // this to skip settings writes (installationId generation) entirely.
 // CORBITS_TELEMETRY set to any falsy value ("0", "false", "off", "")
@@ -383,7 +382,11 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     return running;
   }
 
-  function enqueue(event: TelemetryEvent, properties?: Record<string, unknown>): void {
+  function enqueue(
+    event: TelemetryEvent,
+    properties: Record<string, unknown> | undefined,
+    mode: "ambient" | "intentional",
+  ): void {
     // Own-property only: `in` walks Object.prototype, so capture("toString")
     // or capture("constructor") would clear the guard this exists to be and
     // hand allowedProperties a function where it expects an allowlist array.
@@ -394,6 +397,12 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
       timestamp: new Date().toISOString(),
       properties: {
         ...allowedProperties(event, properties),
+        // Ambient product/AI events are anonymous: PostHog's batch API
+        // defaults to identified processing, so stamp this explicitly
+        // (https://posthog.com/docs/data/anonymous-vs-identified-events).
+        // Intentional /feedback may stay identified so a survey can join a
+        // person profile if one is ever created.
+        ...(mode === "ambient" ? { $process_person_profile: false } : {}),
         // PostHog's built-in Version breakdown reads $app_version; without it
         // every event buckets as "Other". service_version is the same value
         // kept for dashboards that already filter on the custom property.
@@ -427,7 +436,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    enqueue(event, properties);
+    enqueue(event, properties, "ambient");
   }
 
   function captureIntentional(
@@ -438,7 +447,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     // must never ride the ambient-bypass path.
     if (event !== "survey sent") return false;
     if (!intentionalEnabled) return false;
-    enqueue(event, properties);
+    enqueue(event, properties, "intentional");
     return true;
   }
 

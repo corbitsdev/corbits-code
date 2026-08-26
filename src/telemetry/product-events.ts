@@ -63,3 +63,24 @@ export function buildSubagentEndProperties(
 export function captureSubagentEnd(telemetry: Telemetry, args: CaptureSubagentEndArgs): void {
   telemetry.capture("subagent_end", buildSubagentEndProperties(args));
 }
+
+// Process-scoped: the same plugin can be discovered via several paths in one
+// session (repo + project overlay, reloads). Only the first successful load
+// emits; only `origin` is transmitted.
+const loadedPluginIdentities = new Set<string>();
+
+export function capturePluginLoaded(
+  telemetry: Telemetry,
+  origin: string,
+  identity: string,
+): void {
+  if (identity.length === 0) return;
+  if (loadedPluginIdentities.has(identity)) return;
+  loadedPluginIdentities.add(identity);
+  telemetry.capture("plugin_loaded", { origin });
+}
+
+/** Test helper — clears the process-scoped plugin_loaded dedupe set. */
+export function resetPluginLoadedDedupeForTests(): void {
+  loadedPluginIdentities.clear();
+}
