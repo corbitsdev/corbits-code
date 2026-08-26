@@ -549,9 +549,16 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const finalizeEnd = (setupFailed = false): void => {
         if (endFinalized) return;
         endFinalized = true;
+        const terminalSession = deps.sessions.get(session.id);
+        const status =
+          terminalSession?.status === "cancelled"
+            ? "cancelled"
+            : terminalSession?.lifecycleStatus === "interrupted"
+              ? "interrupted"
+              : (terminalSession?.status ?? "completed");
         captureSubagentEnd(telemetry, {
           agentName,
-          status: setupFailed ? "failed" : (deps.sessions.get(session.id)?.status ?? "completed"),
+          status: setupFailed ? "failed" : status,
           durationMs: Date.now() - startedAt,
           model: settlement?.model ?? provider.model,
           stopReason: setupFailed ? "setup_error" : (settlement?.terminal_reason ?? "error"),
@@ -731,6 +738,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // that never saw interrupt_agent (or raced it) cannot hang.
           if (result.interrupted === true) {
             keepWorktreeAlive = true;
+            deps.sessions.interruptOne(session.id);
             deps.fleetRecords.interrupt(session.id, result.report);
             return;
           }

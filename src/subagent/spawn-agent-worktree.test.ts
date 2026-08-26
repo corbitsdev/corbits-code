@@ -67,6 +67,14 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt++) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("condition was not reached");
+}
+
 function deferred<T>(): {
   promise: Promise<T>;
   resolve: (v: T) => void;
@@ -170,6 +178,62 @@ describe("spawn_agent worktree isolation", () => {
     expect(typeof ends[0]?.properties.duration_ms).toBe("number");
   });
 
+  test("pairs pre-progress cancellation with a cancelled terminal event", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const { telemetry, events } = telemetryCapture();
+    const sessions = createSubAgentSessionStore();
+    const tool = createSpawnAgentTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => repo,
+      provider,
+      telemetry,
+      run: async (params) => {
+        params.onRunSettled?.({
+          turn_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          tool_call_count: 0,
+          tool_error_count: 0,
+          error_count: 1,
+          duration_ms: 1,
+          model: "test-model",
+          terminal_reason: "cancelled",
+        });
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        throw error;
+      },
+      sessions,
+      fleetRecords: createFleetRecords(),
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+
+    const result = await tool.handler(
+      {
+        id: "cancelled-spawn",
+        name: "spawn_agent",
+        arguments: { description: "cancelled", prompt: "Do the work", intent: "explore" },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).not.toBe(true);
+    await waitFor(() => events.some((event) => event.event === "subagent_end"));
+    expect(sessions.list()[0]?.status).toBe("cancelled");
+    expect(events.filter((event) => event.event === "subagent_start")).toHaveLength(1);
+    const ends = events.filter((event) => event.event === "subagent_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]?.properties).toMatchObject({
+      status: "cancelled",
+      stop_reason: "cancelled",
+    });
+  });
+
   test("defers worktree cleanup while the session is retained for followup", async () => {
     const repo = await makeRepo();
     tempDirs.push(repo);
@@ -229,6 +293,9 @@ describe("spawn_agent worktree isolation", () => {
 
     const settle = deferred<RunSubAgentResult>();
     let workerCwd: string | undefined;
+    let settlementCount = 0;
+    let settlementWasFrozen = false;
+    const { telemetry, events } = telemetryCapture();
     const sessions = createSubAgentSessionStore();
     const tool = createSpawnAgentTool({
       permissionGate: testPermissionGate,
@@ -236,6 +303,7 @@ describe("spawn_agent worktree isolation", () => {
       getWorkdirBase: () => workdirBase,
       provider,
       useWorktree: true,
+      telemetry,
       run: async (params) => {
         workerCwd = params.cwd;
         params.onAgentReady?.({
@@ -244,7 +312,25 @@ describe("spawn_agent worktree isolation", () => {
           followup: async () => "",
           deliver: () => {},
         });
-        return settle.promise;
+        const result = await settle.promise;
+        const summary = Object.freeze({
+          turn_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          tool_call_count: 0,
+          tool_error_count: 0,
+          error_count: 0,
+          duration_ms: 1,
+          model: "test-model",
+          terminal_reason: "cancelled" as const,
+        });
+        settlementCount += 1;
+        settlementWasFrozen = Object.isFrozen(summary);
+        params.onRunSettled?.(summary);
+        return result;
       },
       sessions,
       fleetRecords: createFleetRecords(),
@@ -263,10 +349,20 @@ describe("spawn_agent worktree isolation", () => {
 
     settle.resolve({
       report: "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
+      stopReason: "cancelled",
       interrupted: true,
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => events.some((event) => event.event === "subagent_end"));
 
+    expect(settlementCount).toBe(1);
+    expect(settlementWasFrozen).toBe(true);
+    expect(sessions.get(agentId)?.lifecycleStatus).toBe("interrupted");
+    const ends = events.filter((event) => event.event === "subagent_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]?.properties).toMatchObject({
+      status: "interrupted",
+      stop_reason: "cancelled",
+    });
     expect(workerCwd).toBeDefined();
     expect(await pathExists(workerCwd!)).toBe(true);
 
@@ -305,9 +401,11 @@ describe("spawn_agent worktree isolation", () => {
       },
       new AbortController().signal,
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => workerCwd !== undefined);
+    if (workerCwd === undefined) throw new Error("worker cwd was not captured");
+    const completedWorkerCwd = workerCwd;
+    await waitFor(async () => !(await pathExists(completedWorkerCwd)));
 
-    expect(workerCwd).toBeDefined();
-    expect(await pathExists(workerCwd!)).toBe(false);
+    expect(await pathExists(completedWorkerCwd)).toBe(false);
   });
 });

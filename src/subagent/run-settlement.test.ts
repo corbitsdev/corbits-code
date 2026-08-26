@@ -120,3 +120,65 @@ test("rejected workers settle prior rollups with the latest observed model", asy
   });
   expect(Object.isFrozen(settlement)).toBe(true);
 });
+
+test("pre-progress cancellation settles as cancelled without changing rejection", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "corbits-run-cancelled-"));
+  const controller = new AbortController();
+  const originalError = new DOMException("operator cancelled", "AbortError");
+  controller.abort(originalError);
+  let settlement: Readonly<SubAgentRunSettlement> | undefined;
+
+  const caught = await withMockedModuleDuring(
+    import.meta.resolve("../agent/live-tool-dispatch.js"),
+    (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+      ...real,
+      createAgentWithLiveToolDispatch: async () => ({
+        send: async () => {
+          throw new Error("send must not start after cancellation");
+        },
+        stream: () => (async function* () {})(),
+        deliver: () => {},
+        close: async () => {},
+        setSource: () => {},
+        setSources: () => {},
+        history: async () => [],
+        checkpoints: async () => [],
+        readAt: async () => [],
+        blobReader: {},
+      }),
+    }),
+    async () => {
+      const { runSubAgent } = await import("./run.js");
+      try {
+        await runSubAgent({
+          cwd,
+          workdirBase: join(cwd, ".ctx"),
+          permissionGate,
+          provider: {
+            providerName: "initial",
+            baseURL: "http://localhost",
+            model: "initial-model",
+          },
+          description: "cancelled settlement probe",
+          prompt: "do not start",
+          signal: controller.signal,
+          onRunSettled: (summary) => {
+            settlement = summary;
+          },
+        });
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected runSubAgent to reject");
+    },
+  );
+
+  expect(caught).toBe(originalError);
+  expect(settlement).toMatchObject({
+    turn_count: 0,
+    error_count: 1,
+    model: "initial-model",
+    terminal_reason: "cancelled",
+  });
+  expect(Object.isFrozen(settlement)).toBe(true);
+});
