@@ -229,14 +229,17 @@ export interface CreateTurnObserverOptions {
 // one place instead of at each call site.
 export function createTurnObserver(options: CreateTurnObserverOptions): {
   onTurnStarted: (info: { turnIndex: number }) => void;
+  onTurnSourceObserved: (info: { turnIndex: number; source: TurnSource }) => void;
   onTurnComplete: (ctx: TurnContext) => void;
   onTurnFailed: (info: { turnIndex: number; error: string }) => void;
 } {
   let latestAttemptSource: TurnSource | undefined;
   return {
     onTurnStarted: (info) => {
-      latestAttemptSource = { ...options.getSource() };
       noteCurrentTurnTraceId(turnTraceId(options.getSessionId(), info.turnIndex));
+    },
+    onTurnSourceObserved: (info) => {
+      latestAttemptSource = { ...info.source };
     },
     onTurnComplete: (ctx) => {
       latestAttemptSource = undefined;

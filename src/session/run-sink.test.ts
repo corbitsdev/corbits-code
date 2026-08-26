@@ -150,11 +150,11 @@ describe("createRunSink", () => {
       flush: async () => {},
       discard: () => {},
     };
-    let source = { provider: "provider-a", model: "model-a" };
+    const selectedSource = { provider: "provider-a", model: "model-a" };
     const observer = createTurnObserver({
       telemetry: () => telemetry,
       getSessionId: () => "session-1",
-      getSource: () => source,
+      getSource: () => selectedSource,
     });
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -164,10 +164,14 @@ describe("createRunSink", () => {
 
     runSink.sink(event("inference.start", { model: "model-a" }));
     runSink.sink(event("inference.error", { error: { message: "attempt a failed" } }));
-    source = { provider: "provider-b", model: "model-b" };
     runSink.sink(event("inference.start", { model: "model-b" }));
+    runSink.sink(
+      event("inference.usage", {
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { sourceId: "fallback", provider: "provider-b", model: "model-b" },
+      }),
+    );
     runSink.sink(event("inference.error", { error: { message: "attempt b failed" } }));
-    source = { provider: "provider-a", model: "model-a" };
     runSink.sink(
       event("message.run.ended", {
         messageRunId: "run-1",

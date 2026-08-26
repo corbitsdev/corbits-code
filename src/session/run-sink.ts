@@ -1,6 +1,6 @@
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { TokenUsage } from "@intx/types/runtime";
+import type { LastCycleSource, TokenUsage } from "@intx/types/runtime";
 import { createPerfReactorObserver } from "../perf/reactor-spans.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { createTurnContextCollector, type LifecycleHookManager, type RunSummary } from "./hooks.js";
@@ -26,6 +26,10 @@ export interface RunSinkArgs {
   // current count (the in-flight turn that has not completed yet) — used to
   // stamp parent_trace_id on subagent_end while tools still run.
   onTurnStarted?: (info: { turnIndex: number }) => void;
+  // inference.usage is the first attempt event carrying the runtime-resolved
+  // provider/model pair. It remains authoritative even when the selected source
+  // outside the reactor has not changed during fallback.
+  onTurnSourceObserved?: (info: { turnIndex: number; source: LastCycleSource }) => void;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
   initialTurnCount?: number;
@@ -94,6 +98,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     onTurnComplete,
     onTurnFailed,
     onTurnStarted,
+    onTurnSourceObserved,
     initialTurnCount,
     onTurnBoundarySnapshot,
   } = args;
@@ -146,6 +151,12 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     if (event.type === "inference.start") {
       turnInFlight = true;
       onTurnStarted?.({ turnIndex: turnCollector.getTurnCount() });
+    }
+    if (event.type === "inference.usage") {
+      onTurnSourceObserved?.({
+        turnIndex: turnCollector.getTurnCount(),
+        source: event.data.source,
+      });
     }
 
     if (event.type === "reactor.done") {
