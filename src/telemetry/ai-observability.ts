@@ -9,7 +9,8 @@
 // CORBITS_TELEMETRY_AI_SPANS for debugging.
 
 import type { TurnContext } from "../session/hooks.js";
-import { noteLastTurnTraceId } from "./feedback.js";
+import { noteLastTurnTraceId, noteCurrentTurnTraceId, clearCurrentTurnTraceId } from "./feedback.js";
+
 import {
   aiSpansEnabled,
   generationSampleRate,
@@ -133,7 +134,11 @@ export function emitAiObservability(
   // is a no-op because this call still computes the id).
   noteLastTurnTraceId(traceId);
 
-  if (!shouldSampleSuccessfulGeneration(env, random)) return;
+  if (!shouldSampleSuccessfulGeneration(env, random)) {
+    // Sampling drops the whole turn package, including opt-in `$ai_span`s —
+    // a span without its parent generation is not useful in PostHog traces.
+    return;
+  }
 
   const aggregates = aggregateToolCalls(ctx, options.subagentToolName);
 
@@ -226,17 +231,23 @@ export interface CreateTurnObserverOptions {
 // plain callbacks and keeping the "read it now, do not capture it" rule in
 // one place instead of at each call site.
 export function createTurnObserver(options: CreateTurnObserverOptions): {
+  onTurnStarted: (info: { turnIndex: number }) => void;
   onTurnComplete: (ctx: TurnContext) => void;
   onTurnFailed: (info: { turnIndex: number; error: string }) => void;
 } {
   return {
+    onTurnStarted: (info) => {
+      noteCurrentTurnTraceId(turnTraceId(options.getSessionId(), info.turnIndex));
+    },
     onTurnComplete: (ctx) => {
+      clearCurrentTurnTraceId();
       emitAiObservability(options.telemetry(), ctx, {
         sessionId: options.getSessionId(),
         subagentToolName: options.subagentToolName,
       });
     },
     onTurnFailed: (info) => {
+      clearCurrentTurnTraceId();
       emitAiTurnFailure(options.telemetry(), {
         sessionId: options.getSessionId(),
         source: options.getSource(),

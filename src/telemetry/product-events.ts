@@ -5,7 +5,6 @@ import type { ForcedStopReason } from "../subagent/stop-policy.js";
 import type { SubAgentTelemetryRollup } from "../subagent/types.js";
 import type { Telemetry } from "./index.js";
 import { classifyCommandName } from "./classify.js";
-import { getLastTurnTraceId } from "./feedback.js";
 
 /** Emit slash_command with a classified first-party (or `custom`) name. */
 export function captureSlashCommand(telemetry: Telemetry, commandName: string): void {
@@ -22,7 +21,10 @@ export type CaptureSubagentEndArgs = {
   model?: string;
   stopReason?: ForcedStopReason;
   rollup?: SubAgentTelemetryRollup;
-  /** Override for tests; defaults to the last parent-turn trace id. */
+  /**
+   * Spawn-time parent `$ai_trace_id` (in-flight turn). Callers must capture
+   * this at dispatch — never default to the last *completed* turn.
+   */
   parentTraceId?: string | undefined;
 };
 
@@ -30,8 +32,6 @@ export type CaptureSubagentEndArgs = {
 export function buildSubagentEndProperties(
   args: CaptureSubagentEndArgs,
 ): Record<string, unknown> {
-  const parentTraceId =
-    args.parentTraceId !== undefined ? args.parentTraceId : getLastTurnTraceId();
   const props: Record<string, unknown> = {
     agent_name: args.agentName,
     status: args.status,
@@ -43,8 +43,8 @@ export function buildSubagentEndProperties(
   if (args.stopReason !== undefined) {
     props.stop_reason = args.stopReason;
   }
-  if (parentTraceId !== undefined && parentTraceId.length > 0) {
-    props.parent_trace_id = parentTraceId;
+  if (args.parentTraceId !== undefined && args.parentTraceId.length > 0) {
+    props.parent_trace_id = args.parentTraceId;
   }
   if (args.rollup !== undefined) {
     props.turn_count = args.rollup.turn_count;

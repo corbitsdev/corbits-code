@@ -109,8 +109,11 @@ Leaf `runSubAgent` workers do not emit `$ai_*`; worker rollups travel on
 
 Successful `$ai_generation` events may be sampled with
 `CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE` (a float in `0`–`1`, default `1.0`
-= keep all). Errored generations (`$ai_is_error: true`), `crash`, and
-`auth_failure` always ship regardless of the sample rate.
+= keep all). An empty env value is treated as unset (keep all), not as `0`.
+Errored generations (`$ai_is_error: true`), `crash`, and `auth_failure` always
+ship regardless of the sample rate. When a successful generation is sampled
+out, opt-in `$ai_span`s for that turn are skipped too — a span without its
+parent generation is not useful in PostHog traces.
 
 The trace is **flat**. Every turn gets one `$ai_trace_id` derived from the
 runtime's session id and the turn index; the turn's `$ai_generation` and each

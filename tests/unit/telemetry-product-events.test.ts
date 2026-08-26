@@ -24,9 +24,15 @@ import {
 
 import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
 import {
+  buildSubagentEndProperties,
   captureSlashCommand,
   resetPluginLoadedDedupeForTests,
 } from "../../src/telemetry/product-events.js";
+import {
+  noteCurrentTurnTraceId,
+  noteLastTurnTraceId,
+  resetFeedbackStateForTests,
+} from "../../src/telemetry/feedback.js";
 import { captureAuthFailure, classifyAgentSendFailure } from "../../src/tui/session-chrome.js";
 
 interface BatchBody {
@@ -63,6 +69,7 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   resetPluginLoadedDedupeForTests();
+  resetFeedbackStateForTests();
   while (tempDirs.length > 0) {
     await rm(tempDirs.pop()!, { recursive: true, force: true });
   }
@@ -260,8 +267,6 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
   expect(names).toContain("subagent_end");
   for (const event of captured) {
     expect(event.properties.agent_name).toBe("custom");
-    // Sub-agents run in this process on the same session id, so a parent id
-    // would only ever restate session_id.
     expect(event.properties.parent_session_id).toBeUndefined();
   }
   const end = captured.find((e) => e.event === "subagent_end");
@@ -272,10 +277,104 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
   expect(end?.properties.input_tokens).toBe(10);
   expect(end?.properties.output_tokens).toBe(5);
   expect(end?.properties.stop_reason).toBe("deadline");
+  // No in-flight parent turn was noted — omit rather than invent.
+  expect(end?.properties.parent_trace_id).toBeUndefined();
   expect(await wire()).not.toContain("acmecorp");
 });
 
+test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last completed turn", async () => {
+  const { telemetry, events } = harness();
+  const cwd = await tempDir("corbits-parent-trace-");
+  const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+
+  // Completed turn 0 is already "last" — spawn happens during turn 1.
+  noteLastTurnTraceId("sess:turn:0");
+  noteCurrentTurnTraceId("sess:turn:1");
+
+  const tool = createTaskTool({
+    cwd,
+    getWorkdirBase: () => cwd,
+    permissionGate: gate,
+    provider: { providerName: "test-provider", baseURL: "http://localhost", model: "test-model" },
+    profiles: [
+      { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
+    ],
+    run: async () => ({ report: "done" }),
+    telemetry,
+  });
+  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  await tool.handler(
+    {
+      id: "call-1",
+      name: "task",
+      arguments: { description: "Ship", prompt: "Ship it", agent: "acmecorp-release-captain" },
+    },
+    new AbortController().signal,
+  );
+
+  const end = (await events()).find((e) => e.event === "subagent_end");
+  expect(end).toBeDefined();
+  expect(end?.properties.parent_trace_id).toBe("sess:turn:1");
+  expect(end?.properties.parent_trace_id).not.toBe("sess:turn:0");
+});
+
+test("buildSubagentEndProperties shapes rollup fields and omits empty parentTraceId", () => {
+  const withRollup = buildSubagentEndProperties({
+    agentName: "builder",
+    status: "completed",
+    durationMs: 42,
+    model: "gpt-test",
+    stopReason: "deadline",
+    parentTraceId: "sess:turn:3",
+    rollup: {
+      turn_count: 4,
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+      reasoning_tokens: 3,
+      tool_call_count: 7,
+      tool_error_count: 1,
+    },
+  });
+  expect(withRollup).toEqual({
+    agent_name: "builder",
+    status: "completed",
+    duration_ms: 42,
+    model: "gpt-test",
+    stop_reason: "deadline",
+    parent_trace_id: "sess:turn:3",
+    turn_count: 4,
+    input_tokens: 100,
+    output_tokens: 50,
+    cache_read_tokens: 2,
+    cache_write_tokens: 1,
+    reasoning_tokens: 3,
+    tool_call_count: 7,
+    tool_error_count: 1,
+  });
+
+  const bare = buildSubagentEndProperties({
+    agentName: "custom",
+    status: "failed",
+    durationMs: 1,
+    parentTraceId: "",
+  });
+  expect(bare.parent_trace_id).toBeUndefined();
+  expect(bare.turn_count).toBeUndefined();
+  // Must not invent a parent from last-completed feedback state.
+  noteLastTurnTraceId("sess:turn:99");
+  expect(
+    buildSubagentEndProperties({
+      agentName: "custom",
+      status: "completed",
+      durationMs: 1,
+    }).parent_trace_id,
+  ).toBeUndefined();
+});
+
 test("first-party director ids are reported by name; unknown profiles stay custom", () => {
+
   expect(classifyAgentName("worker")).toBe("worker");
   expect(classifyAgentName("builder")).toBe("builder");
   expect(classifyAgentName("skywalker")).toBe("skywalker");

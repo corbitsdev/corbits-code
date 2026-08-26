@@ -1591,6 +1591,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       emitter,
       hookManager,
       initialTurnCount: resumeSeed.turnsUsed,
+      onTurnStarted: turnObserver.onTurnStarted,
       onTurnComplete: turnObserver.onTurnComplete,
       onTurnFailed: turnObserver.onTurnFailed,
       // persistRunSnapshot is defined below but not invoked until the stream
@@ -1599,6 +1600,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         void persistRunSnapshot("running");
       },
     });
+
 
     // MCP servers connected so far, keyed by name so a reconnect after a failure
     // replaces rather than duplicates the entry.
