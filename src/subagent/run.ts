@@ -918,6 +918,9 @@ async function runSubAgentInner(
         const result = (event as { data?: { result?: { isError?: unknown } } }).data?.result;
         if (result?.isError === true) telemetryRollup.tool_error_count += 1;
       }
+      if (event.type === "inference.start") {
+        settlementState.latestModel = event.data.model;
+      }
       if (event.type === "inference.done") {
         settlementState.latestModel = event.data.source.model;
       }
