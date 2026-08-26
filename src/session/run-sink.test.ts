@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createRunSink } from "./run-sink.js";
 import type { LifecycleHookStatus } from "./hooks.js";
+import { createTurnObserver } from "../telemetry/ai-observability.js";
+import type { Telemetry } from "../telemetry/index.js";
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
   return { type, seq: 1, data } as ReactorEmittedEvent;
@@ -134,6 +136,53 @@ describe("createRunSink", () => {
     );
 
     expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
+  });
+
+  test("attributes terminal retry failure to the latest attempted source", () => {
+    const captured: { event: string; properties: Record<string, unknown> }[] = [];
+    const telemetry: Telemetry = {
+      enabled: true,
+      installationId: "test",
+      capture: (capturedEvent, properties = {}) => {
+        captured.push({ event: capturedEvent, properties });
+      },
+      captureIntentional: () => false,
+      flush: async () => {},
+      discard: () => {},
+    };
+    let source = { provider: "provider-a", model: "model-a" };
+    const observer = createTurnObserver({
+      telemetry: () => telemetry,
+      getSessionId: () => "session-1",
+      getSource: () => source,
+    });
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      ...observer,
+    });
+
+    runSink.sink(event("inference.start", { model: "model-a" }));
+    runSink.sink(event("inference.error", { error: { message: "attempt a failed" } }));
+    source = { provider: "provider-b", model: "model-b" };
+    runSink.sink(event("inference.start", { model: "model-b" }));
+    runSink.sink(event("inference.error", { error: { message: "attempt b failed" } }));
+    source = { provider: "provider-a", model: "model-a" };
+    runSink.sink(
+      event("message.run.ended", {
+        messageRunId: "run-1",
+        messageId: "message-1",
+        status: "failed",
+      }),
+    );
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.event).toBe("$ai_generation");
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "provider-b",
+      $ai_model: "model-b",
+      $ai_is_error: true,
+    });
   });
 
   test("discards a recoverable inference failure after retry success", () => {

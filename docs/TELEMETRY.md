@@ -161,8 +161,10 @@ Terminal generation settlement belongs to `src/session/run-sink.ts`.
 `inference.error` records only a pending attempt failure: retry success or a
 completed message run discards it. `inference.done` settles success and only
 then applies successful-generation sampling. A failed `message.run.ended`
-settles an unresolved turn once as an unsampled terminal failure. Therefore a
-parent turn emits at most one terminal `$ai_generation`, including retry paths.
+settles an unresolved turn once as an unsampled terminal failure, attributed to
+the provider/model snapshot from the latest `inference.start`. Therefore a
+parent turn emits at most one terminal `$ai_generation`, including retry and
+failover paths.
 
 ## What's never collected
 

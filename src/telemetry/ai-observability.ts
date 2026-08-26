@@ -232,11 +232,14 @@ export function createTurnObserver(options: CreateTurnObserverOptions): {
   onTurnComplete: (ctx: TurnContext) => void;
   onTurnFailed: (info: { turnIndex: number; error: string }) => void;
 } {
+  let latestAttemptSource: TurnSource | undefined;
   return {
     onTurnStarted: (info) => {
+      latestAttemptSource = { ...options.getSource() };
       noteCurrentTurnTraceId(turnTraceId(options.getSessionId(), info.turnIndex));
     },
     onTurnComplete: (ctx) => {
+      latestAttemptSource = undefined;
       clearCurrentTurnTraceId();
       emitAiObservability(options.telemetry(), ctx, {
         sessionId: options.getSessionId(),
@@ -244,9 +247,11 @@ export function createTurnObserver(options: CreateTurnObserverOptions): {
     },
     onTurnFailed: (info) => {
       clearCurrentTurnTraceId();
+      const source = latestAttemptSource ?? options.getSource();
+      latestAttemptSource = undefined;
       emitAiTurnFailure(options.telemetry(), {
         sessionId: options.getSessionId(),
-        source: options.getSource(),
+        source,
         ...info,
       });
     },
