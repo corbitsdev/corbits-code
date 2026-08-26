@@ -63,6 +63,11 @@ test("rejected workers settle prior rollups with the latest observed model", asy
                 },
               },
             } as ReactorEmittedEvent;
+            yield {
+              type: "inference.start",
+              seq: 4,
+              data: { model: "terminal-model" },
+            };
           })(),
         deliver: () => {},
         close: async () => {},
@@ -110,7 +115,7 @@ test("rejected workers settle prior rollups with the latest observed model", asy
     tool_call_count: 1,
     tool_error_count: 1,
     error_count: 1,
-    model: "backup-model",
+    model: "terminal-model",
     terminal_reason: "error",
   });
   expect(Object.isFrozen(settlement)).toBe(true);
