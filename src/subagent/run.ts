@@ -375,9 +375,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   };
   let terminalReason: SubAgentTerminalReason = "error";
   let errorCount = 0;
+  const settlementState = { latestModel: params.provider.model };
 
   try {
-    const result = await runSubAgentInner(params, telemetryRollup);
+    const result = await runSubAgentInner(params, telemetryRollup, settlementState);
     terminalReason = result.stopReason ?? "complete";
     return result;
   } catch (error) {
@@ -390,7 +391,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ...telemetryRollup,
           error_count: errorCount,
           duration_ms: Date.now() - startedAt,
-          model: params.provider.model,
+          model: settlementState.latestModel,
           terminal_reason: terminalReason,
         }),
       );
@@ -403,6 +404,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
 async function runSubAgentInner(
   params: RunSubAgentParams,
   telemetryRollup: SubAgentTelemetryRollup,
+  settlementState: { latestModel: string },
 ): Promise<RunSubAgentResult> {
   await seedPricingMetadataFromCache({
     cachePath: defaultPricingCachePath(),
@@ -915,6 +917,9 @@ async function runSubAgentInner(
       if (event.type === "tool.done") {
         const result = (event as { data?: { result?: { isError?: unknown } } }).data?.result;
         if (result?.isError === true) telemetryRollup.tool_error_count += 1;
+      }
+      if (event.type === "inference.done") {
+        settlementState.latestModel = event.data.source.model;
       }
       if (onTurnBoundary(event)) {
         telemetryRollup.turn_count += 1;
