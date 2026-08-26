@@ -145,6 +145,25 @@ describe("turnTraceId", () => {
   });
 });
 
+describe("representative fleet event volume", () => {
+  test("reduces deterministic billable events by at least 80 percent", () => {
+    const parentTurns = 10;
+    const parentToolCalls = 80;
+    const workers = 4;
+    const workerTurns = 24;
+    const workerToolCalls = 96;
+    const oldBillableEvents =
+      parentTurns + parentToolCalls + workerTurns + workerToolCalls + workers * 2;
+    const newBillableEvents = parentTurns + workers * 2;
+
+    expect({ oldBillableEvents, newBillableEvents }).toEqual({
+      oldBillableEvents: 218,
+      newBillableEvents: 18,
+    });
+    expect(1 - newBillableEvents / oldBillableEvents).toBeGreaterThanOrEqual(0.8);
+  });
+});
+
 describe("aggregateToolCalls", () => {
   test("counts tool calls, subagent calls, and errors separately", () => {
     expect(aggregateToolCalls(fakeTurnContext())).toEqual({

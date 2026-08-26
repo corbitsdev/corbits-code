@@ -22,11 +22,11 @@ import {
   classifyPermissionKind,
 } from "../../src/telemetry/classify.js";
 
-import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
+import { createTelemetry, NOOP_TELEMETRY, type Telemetry } from "../../src/telemetry/index.js";
 import {
   buildSubagentEndProperties,
   captureSlashCommand,
-  resetPluginLoadedDedupeForTests,
+  createPluginLoadReporter,
 } from "../../src/telemetry/product-events.js";
 import {
   noteCurrentTurnTraceId,
@@ -68,7 +68,6 @@ function harness(): {
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  resetPluginLoadedDedupeForTests();
   resetFeedbackStateForTests();
   while (tempDirs.length > 0) {
     await rm(tempDirs.pop()!, { recursive: true, force: true });
@@ -181,7 +180,12 @@ test("plugin_loaded carries only the discovery origin, never the manifest id", a
     "---\ndescription: ship it\n---\n\nShip.\n",
   );
 
-  const mod = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
+  const mod = await loadPluginEntry(pluginDir, {
+    cwd: root,
+    origin: "project",
+    telemetry,
+    pluginLoadReporter: createPluginLoadReporter(),
+  });
 
   expect(mod).not.toBeNull();
   const [event] = await events();
@@ -189,6 +193,17 @@ test("plugin_loaded carries only the discovery origin, never the manifest id", a
   expect(event?.properties.origin).toBe("project");
   expect(event?.properties.plugin_id).toBeUndefined();
   expect(await wire()).not.toContain("acmecorp");
+});
+
+test("disabled plugin reporting does not consume the enabled dedupe identity", async () => {
+  const { telemetry, events } = harness();
+  const reporter = createPluginLoadReporter();
+
+  reporter(NOOP_TELEMETRY, "project", "/plugin/acme");
+  reporter(telemetry, "project", "/plugin/acme");
+  reporter(telemetry, "project", "/plugin/acme");
+
+  expect((await events()).filter((event) => event.event === "plugin_loaded")).toHaveLength(1);
 });
 
 test("plugin_loaded emits once per plugin identity in-process", async () => {
@@ -209,8 +224,10 @@ test("plugin_loaded emits once per plugin identity in-process", async () => {
     "---\ndescription: ship it\n---\n\nShip.\n",
   );
 
-  const first = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
-  const second = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
+  const pluginLoadReporter = createPluginLoadReporter();
+  const options = { cwd: root, origin: "project" as const, telemetry, pluginLoadReporter };
+  const first = await loadPluginEntry(pluginDir, options);
+  const second = await loadPluginEntry(pluginDir, options);
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
 

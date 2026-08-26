@@ -10,7 +10,8 @@ import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
-import { capturePluginLoaded } from "../telemetry/product-events.js";
+import type { PluginLoadReporter } from "../telemetry/product-events.js";
+import { runtimePluginLoadReporter } from "../telemetry/singleton.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 
 import {
@@ -127,6 +128,7 @@ export async function loadPluginEntry(
     diagnostics?: PluginLoadDiagnostics;
     origin?: PluginOrigin;
     telemetry?: Telemetry;
+    pluginLoadReporter?: PluginLoadReporter;
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
@@ -141,6 +143,7 @@ export async function loadPluginEntry(
   );
   const origin = opts.origin;
   const telemetry = opts.telemetry ?? NOOP_TELEMETRY;
+  const reportPluginLoaded = opts.pluginLoadReporter ?? runtimePluginLoadReporter;
   let target = entryPath;
   let pluginDir = entryPath;
   try {
@@ -176,7 +179,7 @@ export async function loadPluginEntry(
             mod.pluginPath = resolve(entryPath);
           }
           if (origin !== undefined) {
-            capturePluginLoaded(telemetry, origin, resolve(entryPath));
+            reportPluginLoaded(telemetry, origin, resolve(entryPath));
           }
           return mod;
         }
@@ -239,7 +242,7 @@ export async function loadPluginEntry(
       result.pluginPath = resolve(pluginDir);
     }
     if (origin !== undefined) {
-      capturePluginLoaded(telemetry, origin, resolve(pluginDir));
+      reportPluginLoaded(telemetry, origin, resolve(pluginDir));
     }
     return result;
   } catch (err) {
@@ -855,7 +858,7 @@ export async function discoverClaudeInstalledPlugins(
         };
       }
       if (opts.telemetry !== undefined) {
-        capturePluginLoaded(opts.telemetry, "user", resolve(d));
+        runtimePluginLoadReporter(opts.telemetry, "user", resolve(d));
       }
       results.push(plugin);
     }

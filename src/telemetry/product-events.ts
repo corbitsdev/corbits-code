@@ -61,19 +61,13 @@ export function captureSubagentEnd(telemetry: Telemetry, args: CaptureSubagentEn
   telemetry.capture("subagent_end", buildSubagentEndProperties(args));
 }
 
-// Process-scoped: the same plugin can be discovered via several paths in one
-// session (repo + project overlay, reloads). Only the first successful load
-// emits; only `origin` is transmitted.
-const loadedPluginIdentities = new Set<string>();
+export type PluginLoadReporter = (telemetry: Telemetry, origin: string, identity: string) => void;
 
-export function capturePluginLoaded(telemetry: Telemetry, origin: string, identity: string): void {
-  if (identity.length === 0) return;
-  if (loadedPluginIdentities.has(identity)) return;
-  loadedPluginIdentities.add(identity);
-  telemetry.capture("plugin_loaded", { origin });
-}
-
-/** Test helper — clears the process-scoped plugin_loaded dedupe set. */
-export function resetPluginLoadedDedupeForTests(): void {
-  loadedPluginIdentities.clear();
+export function createPluginLoadReporter(): PluginLoadReporter {
+  const loadedPluginIdentities = new Set<string>();
+  return (telemetry, origin, identity) => {
+    if (!telemetry.enabled || identity.length === 0 || loadedPluginIdentities.has(identity)) return;
+    telemetry.capture("plugin_loaded", { origin });
+    loadedPluginIdentities.add(identity);
+  };
 }
