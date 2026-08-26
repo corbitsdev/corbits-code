@@ -9,6 +9,7 @@ import { createFleetRecords, createSpawnAgentTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
+import type { Telemetry } from "../telemetry/index.js";
 
 const run = promisify(execFile);
 
@@ -23,6 +24,19 @@ const provider = {
   baseURL: "http://localhost",
   model: "test-model",
 };
+
+function telemetryCapture() {
+  const events: { event: string; properties: Record<string, unknown> }[] = [];
+  const telemetry: Telemetry = {
+    enabled: true,
+    installationId: "test",
+    capture: (event, properties = {}) => events.push({ event, properties }),
+    captureIntentional: () => false,
+    flush: async () => {},
+    discard: () => {},
+  };
+  return { telemetry, events };
+}
 
 const tempDirs: string[] = [];
 
@@ -108,17 +122,20 @@ describe("spawn_agent worktree isolation", () => {
     tempDirs.push(workdirBase);
 
     let ran = false;
+    const { telemetry, events } = telemetryCapture();
+    const sessions = createSubAgentSessionStore();
     const tool = createSpawnAgentTool({
       permissionGate: testPermissionGate,
       cwd: notARepo,
       getWorkdirBase: () => workdirBase,
       provider,
       useWorktree: true,
+      telemetry,
       run: async () => {
         ran = true;
         return { report: "no" };
       },
-      sessions: createSubAgentSessionStore(),
+      sessions,
       fleetRecords: createFleetRecords(),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
@@ -132,6 +149,25 @@ describe("spawn_agent worktree isolation", () => {
     );
     expect(result.isError).toBe(true);
     expect(ran).toBe(false);
+    expect(sessions.list()).toHaveLength(1);
+    expect(sessions.list()[0]?.status).toBe("failed");
+    expect(events.filter((event) => event.event === "subagent_start")).toHaveLength(1);
+    const ends = events.filter((event) => event.event === "subagent_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]?.properties).toMatchObject({
+      status: "failed",
+      stop_reason: "setup_error",
+      model: "test-model",
+      turn_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+      tool_call_count: 0,
+      tool_error_count: 0,
+    });
+    expect(typeof ends[0]?.properties.duration_ms).toBe("number");
   });
 
   test("defers worktree cleanup while the session is retained for followup", async () => {
