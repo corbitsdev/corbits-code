@@ -58,6 +58,7 @@ import { currentTurnId } from "../perf/reactor-spans.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { captureSubagentEnd } from "../telemetry/product-events.js";
+import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
 
 import { join } from "node:path";
 import type {
@@ -68,7 +69,6 @@ import type {
   SubAgentSandboxDeps,
   SubAgentTelemetryRollup,
 } from "./types.js";
-
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "task-tool"]);
 
@@ -926,12 +926,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         },
       });
       const subagentStartedAt = Date.now();
-      // Profile ids come from project and plugin directories, so only the
-      // runtime's own "worker" fallback is reportable by name; anything else
-      // is bucketed. Sub-agents run in this process against the same session
-      // id, so there is no parent id worth sending — it would always equal
-      // the session_id already on the payload.
+      // Profile / director ids are classified: first-party DIRECTOR_IDS (and
+      // legacy "worker") report by name; project/plugin profiles become custom.
+      // Capture the in-flight parent turn trace at dispatch — getLastTurnTraceId
+      // would be the previous completed turn while this tool still runs.
       const agentName = classifyAgentName(agentLabel);
+      const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
       let subagentStatus: "completed" | "cancelled" | "failed" = "completed";
       let endRollup: SubAgentTelemetryRollup | undefined;
@@ -1138,7 +1138,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(endModel !== undefined ? { model: endModel } : { model: provider.model }),
           ...(endStopReason !== undefined ? { stopReason: endStopReason } : {}),
           ...(endRollup !== undefined ? { rollup: endRollup } : {}),
+          ...(parentTraceId !== undefined ? { parentTraceId } : {}),
         });
+
       }
 
     },

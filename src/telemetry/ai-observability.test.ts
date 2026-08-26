@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { Telemetry } from "./index.js";
+import { generationSampleRate } from "./index.js";
 import type { TurnContext } from "../session/hooks.js";
 import {
   aggregateToolCalls,
@@ -12,11 +13,17 @@ import {
   secondsFromMs,
   turnTraceId,
 } from "./ai-observability.js";
+import { getCurrentTurnTraceId, resetFeedbackStateForTests } from "./feedback.js";
 
 const SUBAGENT_TOOL_NAME = "task";
 const SESSION_ID = "0199-parent-session";
 
+afterEach(() => {
+  resetFeedbackStateForTests();
+});
+
 function fakeTelemetry(): {
+
   telemetry: Telemetry;
   captured: { event: string; properties: Record<string, unknown> }[];
 } {
@@ -210,6 +217,21 @@ describe("createTurnObserver", () => {
     expect(captured[1]?.properties.$ai_provider).toBe("codex");
     expect(captured[1]?.properties.$ai_model).toBe("model-y");
   });
+
+  test("onTurnStarted notes the in-flight turn for subagent parent_trace_id", () => {
+    const { telemetry } = fakeTelemetry();
+    const observer = createTurnObserver({
+      telemetry: () => telemetry,
+      getSessionId: () => SESSION_ID,
+      getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
+      subagentToolName: SUBAGENT_TOOL_NAME,
+    });
+
+    observer.onTurnStarted({ turnIndex: 2 });
+    expect(getCurrentTurnTraceId()).toBe(`${SESSION_ID}:turn:2`);
+    observer.onTurnComplete(fakeTurnContext({ turnIndex: 2, toolCalls: [], toolResults: [] }));
+    expect(getCurrentTurnTraceId()).toBeUndefined();
+  });
 });
 
 describe("emitAiObservability", () => {
@@ -377,6 +399,13 @@ describe("emitAiObservability", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0]?.event).toBe("$ai_generation");
+  });
+
+  test("empty CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE is treated as unset (1.0)", () => {
+    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "" })).toBe(1);
+    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "  " })).toBe(1);
+    expect(generationSampleRate({})).toBe(1);
+    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0" })).toBe(0);
   });
 });
 

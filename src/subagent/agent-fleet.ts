@@ -75,6 +75,7 @@ import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import { captureSubagentEnd } from "../telemetry/product-events.js";
+import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
 import type { DirectorPackage } from "../agent/directors/types.js";
 
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
@@ -538,11 +539,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       });
       deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
+      const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
       const startedAt = Date.now();
       let endResult: RunSubAgentResult | undefined;
-
-
 
       const childCtl = new AbortController();
       deps.sessions.registerCancel(session.id, () => {
@@ -754,10 +754,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             model: provider.model,
             ...(endResult?.stopReason !== undefined ? { stopReason: endResult.stopReason } : {}),
             ...(endResult?.telemetry !== undefined ? { rollup: endResult.telemetry } : {}),
+            ...(parentTraceId !== undefined ? { parentTraceId } : {}),
           });
+
           if (!keepWorktreeAlive) void reclaimWorktree();
         });
-
 
       return fleetResult(call.id, JSON.stringify({ agent_id: session.id, status: "running" }));
     },
