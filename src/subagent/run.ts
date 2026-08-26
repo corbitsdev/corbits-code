@@ -383,6 +383,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     return result;
   } catch (error) {
     errorCount = 1;
+    if (isSubAgentCancelError(error, params.signal)) terminalReason = "cancelled";
     throw error;
   } finally {
     try {

@@ -178,6 +178,53 @@ describe("createTaskTool worktree isolation", () => {
     expect(typeof ends[0]?.properties.duration_ms).toBe("number");
   });
 
+  test("pairs pre-progress cancellation with a cancelled terminal event", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const { telemetry, events } = telemetryCapture();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => repo,
+      provider,
+      telemetry,
+      run: async (params) => {
+        params.onRunSettled?.({
+          turn_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          tool_call_count: 0,
+          tool_error_count: 0,
+          error_count: 1,
+          duration_ms: 1,
+          model: "test-model",
+          terminal_reason: "cancelled",
+        });
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        throw error;
+      },
+    });
+
+    const result = await callTask(tool, {
+      description: "cancelled job",
+      prompt: "Do the work",
+      intent: "explore",
+    });
+
+    expect(result).toContain("cancelled by operator");
+    expect(events.filter((event) => event.event === "subagent_start")).toHaveLength(1);
+    const ends = events.filter((event) => event.event === "subagent_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]?.properties).toMatchObject({
+      status: "cancelled",
+      stop_reason: "cancelled",
+    });
+  });
+
   test("preserves a worktree the sub-agent left dirty, with a notice in the report", async () => {
     const repo = await makeRepo();
     tempDirs.push(repo);
