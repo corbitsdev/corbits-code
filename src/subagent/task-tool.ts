@@ -57,6 +57,8 @@ import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { captureSubagentEnd } from "../telemetry/product-events.js";
+
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,
@@ -64,7 +66,9 @@ import type {
   RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
+  SubAgentTelemetryRollup,
 } from "./types.js";
+
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "task-tool"]);
 
@@ -930,6 +934,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const agentName = classifyAgentName(agentLabel);
       telemetry.capture("subagent_start", { agent_name: agentName });
       let subagentStatus: "completed" | "cancelled" | "failed" = "completed";
+      let endRollup: SubAgentTelemetryRollup | undefined;
+      let endStopReason: ForcedStopReason | undefined;
+      let endModel: string | undefined;
+
       try {
         if (deps.useWorktree === true) {
           const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
@@ -1029,8 +1037,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               : {}),
           };
           const result = await run(params);
+          endRollup = result.telemetry;
+          endStopReason = result.stopReason;
+          endModel = lastCycleSource?.model ?? provider.model;
           // Operator cancel may race after run resolves. Keep strip status cancelled
           // when requested, but never discard a returned body (including salvage).
+
           const wasCancelled =
             childCtl.signal.aborted ||
             (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled");
@@ -1119,12 +1131,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       } finally {
         activeLanes.delete(call.id);
         end(subagentSpanId);
-        telemetry.capture("subagent_end", {
-          agent_name: agentName,
+        captureSubagentEnd(telemetry, {
+          agentName,
           status: subagentStatus,
-          duration_ms: Date.now() - subagentStartedAt,
+          durationMs: Date.now() - subagentStartedAt,
+          ...(endModel !== undefined ? { model: endModel } : { model: provider.model }),
+          ...(endStopReason !== undefined ? { stopReason: endStopReason } : {}),
+          ...(endRollup !== undefined ? { rollup: endRollup } : {}),
         });
       }
+
     },
   });
 }

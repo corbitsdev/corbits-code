@@ -74,7 +74,9 @@ import type {
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
+import { captureSubagentEnd } from "../telemetry/product-events.js";
 import type { DirectorPackage } from "../agent/directors/types.js";
+
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import { isSubAgentCancelError } from "./dispose.js";
 
@@ -538,6 +540,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const agentName = classifyAgentName(resolved.directorId);
       telemetry.capture("subagent_start", { agent_name: agentName });
       const startedAt = Date.now();
+      let endResult: RunSubAgentResult | undefined;
+
+
 
       const childCtl = new AbortController();
       deps.sessions.registerCancel(session.id, () => {
@@ -690,12 +695,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       deps
         .run(params)
         .then((result) => {
+          endResult = result;
           // interrupt_agent already flipped this session to "interrupted"
           // synchronously (session-store.interruptOne) — do not let the
           // settling promise's normal bookkeeping overwrite that with a
           // "completed" status. Still terminalize fleetRecords so a waiter
           // that never saw interrupt_agent (or raced it) cannot hang.
           if (result.interrupted === true) {
+
             keepWorktreeAlive = true;
             deps.fleetRecords.interrupt(session.id, result.report);
             return;
@@ -740,13 +747,17 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
-          telemetry.capture("subagent_end", {
-            agent_name: agentName,
+          captureSubagentEnd(telemetry, {
+            agentName,
             status: deps.sessions.get(session.id)?.status ?? "completed",
-            duration_ms: Date.now() - startedAt,
+            durationMs: Date.now() - startedAt,
+            model: provider.model,
+            ...(endResult?.stopReason !== undefined ? { stopReason: endResult.stopReason } : {}),
+            ...(endResult?.telemetry !== undefined ? { rollup: endResult.telemetry } : {}),
           });
           if (!keepWorktreeAlive) void reclaimWorktree();
         });
+
 
       return fleetResult(call.id, JSON.stringify({ agent_id: session.id, status: "running" }));
     },

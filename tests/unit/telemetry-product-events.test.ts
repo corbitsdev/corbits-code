@@ -197,7 +197,20 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     profiles: [
       { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
     ],
-    run: async () => ({ report: "done" }),
+    run: async () => ({
+      report: "done",
+      telemetry: {
+        turn_count: 2,
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_read_tokens: 1,
+        cache_write_tokens: 0,
+        reasoning_tokens: 0,
+        tool_call_count: 3,
+        tool_error_count: 1,
+      },
+      stopReason: "deadline",
+    }),
     telemetry,
   });
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
@@ -220,8 +233,17 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     // would only ever restate session_id.
     expect(event.properties.parent_session_id).toBeUndefined();
   }
+  const end = captured.find((e) => e.event === "subagent_end");
+  expect(end?.properties.model).toBe("test-model");
+  expect(end?.properties.turn_count).toBe(2);
+  expect(end?.properties.tool_call_count).toBe(3);
+  expect(end?.properties.tool_error_count).toBe(1);
+  expect(end?.properties.input_tokens).toBe(10);
+  expect(end?.properties.output_tokens).toBe(5);
+  expect(end?.properties.stop_reason).toBe("deadline");
   expect(await wire()).not.toContain("acmecorp");
 });
+
 
 test("first-party director ids are reported by name; unknown profiles stay custom", () => {
   expect(classifyAgentName("worker")).toBe("worker");
