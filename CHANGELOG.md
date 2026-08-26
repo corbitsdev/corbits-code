@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-25
+
 ### TUI
 
 - Idle-with-fleet is real: after Skywalker dispatches workers with `spawn_agent`
