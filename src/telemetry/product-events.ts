@@ -1,8 +1,7 @@
 // Shared product-event emitters that every surface (TUI, exec, future
 // headless) must call so dashboards are not silently TUI-only.
 
-import type { ForcedStopReason } from "../subagent/stop-policy.js";
-import type { SubAgentTelemetryRollup } from "../subagent/types.js";
+import type { SubAgentTelemetryRollup, SubAgentTerminalReason } from "../subagent/types.js";
 import type { Telemetry } from "./index.js";
 import { classifyCommandName } from "./classify.js";
 
@@ -19,7 +18,7 @@ export interface CaptureSubagentEndArgs {
   durationMs: number;
   /** Canonical model id from the provider, never a free-text source label. */
   model?: string;
-  stopReason?: ForcedStopReason;
+  stopReason?: SubAgentTerminalReason | "setup_error";
   rollup?: SubAgentTelemetryRollup;
   /**
    * Spawn-time parent `$ai_trace_id` (in-flight turn). Callers must capture

@@ -69,6 +69,7 @@ import type {
   SubAgentProvider,
   SubAgentSandboxDeps,
   SubAgentTelemetryRollup,
+  SubAgentTerminalReason,
 } from "./types.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "task-tool"]);
@@ -936,7 +937,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       telemetry.capture("subagent_start", { agent_name: agentName });
       let subagentStatus: "completed" | "cancelled" | "failed" = "completed";
       let endRollup: SubAgentTelemetryRollup | undefined;
-      let endStopReason: ForcedStopReason | undefined;
+      let endStopReason: SubAgentTerminalReason | "setup_error" | undefined;
       let endModel: string | undefined;
 
       try {
@@ -955,6 +956,18 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               err instanceof WorktreeError
                 ? err.message
                 : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+            subagentStatus = "failed";
+            endStopReason = "setup_error";
+            endRollup = {
+              turn_count: 0,
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+              reasoning_tokens: 0,
+              tool_call_count: 0,
+              tool_error_count: 0,
+            };
             briefLedger.release(fingerprint);
             if (session !== undefined) deps.sessions?.fail(session.id, message);
             signal.removeEventListener("abort", onParentAbort);
@@ -1018,6 +1031,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
             signal: childCtl.signal,
             onEvent,
+            onRunSettled: (summary) => {
+              endRollup = summary;
+              endStopReason = summary.terminal_reason;
+              endModel = summary.model;
+            },
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
@@ -1038,9 +1056,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               : {}),
           };
           const result = await run(params);
-          endRollup = result.telemetry;
-          endStopReason = result.stopReason;
-          endModel = lastCycleSource?.model ?? provider.model;
           // Operator cancel may race after run resolves. Keep strip status cancelled
           // when requested, but never discard a returned body (including salvage).
 

@@ -108,6 +108,7 @@ export type RunSubAgentParams = {
   signal?: AbortSignal;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
+  onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
   /** Resolved closed-director id (e.g. "critic") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
@@ -197,6 +198,15 @@ export interface SubAgentTelemetryRollup {
   reasoning_tokens: number;
   tool_call_count: number;
   tool_error_count: number;
+}
+
+export type SubAgentTerminalReason = ForcedStopReason | "complete" | "error";
+
+export interface SubAgentRunSettlement extends SubAgentTelemetryRollup {
+  error_count: number;
+  duration_ms: number;
+  model: string;
+  terminal_reason: SubAgentTerminalReason;
 }
 
 export interface RunSubAgentResult {
