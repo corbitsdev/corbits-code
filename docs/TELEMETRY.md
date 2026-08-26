@@ -72,8 +72,10 @@ by id; project-defined or marketplace profile ids become `custom`.
 `skill_used` and `plugin_loaded` go further: there is no first-party list of
 skills or plugins to match against, so `skill_used` carries no name at all and
 `plugin_loaded` carries only `origin`, the discovery tier (`repo`, `user`,
-`project`, `path`). The same plugin identity is emitted at most once per
-process — later rediscoveries or reloads are silent.
+`project`, `path`). Enabled telemetry reports the same plugin identity at most
+once per runtime reporter, including across reloads. Disabled/no-op loads do not
+consume that identity, so enabling telemetry later can report the first real
+load.
 
 `error_class` is bucketed the same way: only the error types defined by the
 language are reported by name, because an error subclass defined in
@@ -105,7 +107,14 @@ milliseconds and converts.
 `$ai_span` events are **off by default**. Set `CORBITS_TELEMETRY_AI_SPANS` to
 a truthy value (`1`, `true`, …) to restore per-call spans for debugging.
 Leaf `runSubAgent` workers do not emit `$ai_*`; worker rollups travel on
-`subagent_end` instead.
+`subagent_end` instead. Both TUI and exec install the same turn observer, so a
+worker ending during an active parent turn carries that turn's `parent_trace_id`.
+
+A deterministic representative fixture uses 10 parent turns with 80 parent tool
+calls and 4 workers totaling 24 turns and 96 tool calls. The former per-call and
+worker-generation shape is 218 billable events; the default aggregate shape is
+18 (10 generations plus 4 start/end pairs), a 91.7% reduction. This is a test
+fixture, not a claim about production PostHog traffic.
 
 Successful `$ai_generation` events may be sampled with
 `CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE` (a float in `0`–`1`, default `1.0`
@@ -148,11 +157,12 @@ apart by `$ai_error`. A turn that never reaches inference at all — suspended
 at an approval prompt and never resumed — emits nothing, because the runtime
 raises no event for it.
 
-Exactly one `$ai_generation` is ever emitted per turn (when sampling keeps
-it). A single give-up usually surfaces twice at the event stream (the failed
-inference, then the reactor terminating), and a turn that already reported
-completion is finished; `src/session/run-sink.ts` latches on both so neither
-can double-count a turn or append a phantom failure to a successful one.
+Terminal generation settlement belongs to `src/session/run-sink.ts`.
+`inference.error` records only a pending attempt failure: retry success or a
+completed message run discards it. `inference.done` settles success and only
+then applies successful-generation sampling. A failed `message.run.ended`
+settles an unresolved turn once as an unsampled terminal failure. Therefore a
+parent turn emits at most one terminal `$ai_generation`, including retry paths.
 
 ## What's never collected
 
