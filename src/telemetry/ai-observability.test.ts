@@ -249,7 +249,7 @@ describe("createTurnObserver", () => {
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
     });
 
-    observer.onTurnStarted({ turnIndex: 2 });
+    observer.onTurnStarted({ turnIndex: 2, model: "model-x" });
     expect(getCurrentTurnTraceId()).toBe(`${SESSION_ID}:turn:2`);
     observer.onTurnComplete(fakeTurnContext({ turnIndex: 2, toolCalls: [], toolResults: [] }));
     expect(getCurrentTurnTraceId()).toBeUndefined();

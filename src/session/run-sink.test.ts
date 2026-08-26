@@ -25,6 +25,42 @@ const enabledHook: LifecycleHookStatus = {
   enabled: true,
 };
 
+function attributionHarness(selectedSource = { provider: "provider-a", model: "model-a" }) {
+  const captured: { event: string; properties: Record<string, unknown> }[] = [];
+  const telemetry: Telemetry = {
+    enabled: true,
+    installationId: "test",
+    capture: (capturedEvent, properties = {}) => {
+      captured.push({ event: capturedEvent, properties });
+    },
+    captureIntentional: () => false,
+    flush: async () => {},
+    discard: () => {},
+  };
+  const observer = createTurnObserver({
+    telemetry: () => telemetry,
+    getSessionId: () => "session-1",
+    getSource: () => selectedSource,
+  });
+  const runSink = createRunSink({
+    emitter: new EventEmitter(),
+    hookManager: stubHookManager([]),
+    ...observer,
+  });
+  return { captured, runSink };
+}
+
+function failMessageRun(runSink: ReturnType<typeof createRunSink>): void {
+  runSink.sink(event("inference.error", { error: { message: "attempt failed" } }));
+  runSink.sink(
+    event("message.run.ended", {
+      messageRunId: "run-1",
+      messageId: "message-1",
+      status: "failed",
+    }),
+  );
+}
+
 describe("createRunSink", () => {
   test("allocates no turn collector when no lifecycle hooks are configured", () => {
     const runSink = createRunSink({
@@ -138,32 +174,38 @@ describe("createRunSink", () => {
     expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
   });
 
-  test("attributes terminal retry failure to the latest attempted source", () => {
-    const captured: { event: string; properties: Record<string, unknown> }[] = [];
-    const telemetry: Telemetry = {
-      enabled: true,
-      installationId: "test",
-      capture: (capturedEvent, properties = {}) => {
-        captured.push({ event: capturedEvent, properties });
-      },
-      captureIntentional: () => false,
-      flush: async () => {},
-      discard: () => {},
-    };
-    const selectedSource = { provider: "provider-a", model: "model-a" };
-    const observer = createTurnObserver({
-      telemetry: () => telemetry,
-      getSessionId: () => "session-1",
-      getSource: () => selectedSource,
+  test("uses unknown attribution when a fallback model fails before usage", () => {
+    const { captured, runSink } = attributionHarness();
+
+    runSink.sink(event("inference.start", { model: "model-b" }));
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.event).toBe("$ai_generation");
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "unknown",
+      $ai_model: "model-b",
+      $ai_is_error: true,
     });
-    const runSink = createRunSink({
-      emitter: new EventEmitter(),
-      hookManager: stubHookManager([]),
-      ...observer,
-    });
+  });
+
+  test("uses the selected source when its model fails before usage", () => {
+    const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-a" }));
-    runSink.sink(event("inference.error", { error: { message: "attempt a failed" } }));
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "provider-a",
+      $ai_model: "model-a",
+      $ai_is_error: true,
+    });
+  });
+
+  test("uses authoritative usage attribution for a failed fallback", () => {
+    const { captured, runSink } = attributionHarness();
+
     runSink.sink(event("inference.start", { model: "model-b" }));
     runSink.sink(
       event("inference.usage", {
@@ -171,19 +213,33 @@ describe("createRunSink", () => {
         source: { sourceId: "fallback", provider: "provider-b", model: "model-b" },
       }),
     );
-    runSink.sink(event("inference.error", { error: { message: "attempt b failed" } }));
-    runSink.sink(
-      event("message.run.ended", {
-        messageRunId: "run-1",
-        messageId: "message-1",
-        status: "failed",
-      }),
-    );
+    failMessageRun(runSink);
 
     expect(captured).toHaveLength(1);
-    expect(captured[0]?.event).toBe("$ai_generation");
     expect(captured[0]?.properties).toMatchObject({
       $ai_provider: "provider-b",
+      $ai_model: "model-b",
+      $ai_is_error: true,
+    });
+  });
+
+  test("does not leak authoritative source attribution across retry attempts", () => {
+    const { captured, runSink } = attributionHarness();
+
+    runSink.sink(event("inference.start", { model: "model-a" }));
+    runSink.sink(
+      event("inference.usage", {
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { sourceId: "selected", provider: "provider-a", model: "model-a" },
+      }),
+    );
+    runSink.sink(event("inference.error", { error: { message: "retry" } }));
+    runSink.sink(event("inference.start", { model: "model-b" }));
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "unknown",
       $ai_model: "model-b",
       $ai_is_error: true,
     });
