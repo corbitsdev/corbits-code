@@ -13,6 +13,18 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-08-26
+
+### Telemetry
+
+- Ambient telemetry emits one parent generation per turn with aggregated tool and
+  subagent counts, rolls worker usage into one terminal event per dispatch, and
+  makes per-call spans opt-in. Ambient events use anonymous processing,
+  successful generations support sampling while failures always ship, plugin
+  loads deduplicate, and pre-usage fallback failures avoid stale provider
+  attribution. A deterministic representative fleet fixture drops from 98 to 18
+  billable events, an 81.6% reduction.
+
 ## [0.3.3] - 2026-08-25
 
 ### TUI
