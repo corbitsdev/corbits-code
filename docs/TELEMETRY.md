@@ -109,6 +109,10 @@ a truthy value (`1`, `true`, …) to restore per-call spans for debugging.
 Leaf `runSubAgent` workers do not emit `$ai_*`; worker rollups travel on
 `subagent_end` instead. Both TUI and exec install the same turn observer, so a
 worker ending during an active parent turn carries that turn's `parent_trace_id`.
+Pre-progress operator aborts settle with `status=cancelled` and
+`stop_reason=cancelled` even when the worker promise rejects. An interrupt that
+keeps a worker resumable settles with `status=interrupted` and the same
+`stop_reason=cancelled`; terminal events never report a still-running status.
 
 A deterministic representative fixture uses 10 parent turns with 80 parent tool
 calls and 4 workers totaling 24 turns and 96 tool calls. The former per-call and
