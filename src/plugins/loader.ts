@@ -181,7 +181,6 @@ export async function loadPluginEntry(
           return mod;
         }
         return null;
-
       }
     } else {
       pluginDir = dirname(entryPath);
