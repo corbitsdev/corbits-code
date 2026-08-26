@@ -13,7 +13,7 @@ export function captureSlashCommand(telemetry: Telemetry, commandName: string): 
   });
 }
 
-export type CaptureSubagentEndArgs = {
+export interface CaptureSubagentEndArgs {
   agentName: string;
   status: string;
   durationMs: number;
@@ -26,7 +26,7 @@ export type CaptureSubagentEndArgs = {
    * this at dispatch — never default to the last *completed* turn.
    */
   parentTraceId?: string | undefined;
-};
+}
 
 /** Build allowlisted `subagent_end` properties from a finished run. */
 export function buildSubagentEndProperties(args: CaptureSubagentEndArgs): Record<string, unknown> {
