@@ -11,22 +11,22 @@ env kill switches (see Intentional feedback below).
 
 Each event carries a small set of properties:
 
-| Event               | When                                                                             | Properties                                                                                                                                                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cli_start`         | Once per used session (see First-run disclosure)                                 | (none beyond common properties)                                                                                                                                                                                            |
-| `session_end`       | When a TUI session finishes                                                      | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason`                                                                                                                                                       |
-| `$ai_generation`    | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens` |
-| `$ai_span`          | Once per top-level tool call in a completed turn                                 | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error`                                                                                                                                            |
-| `slash_command`     | A slash command is dispatched (shared product-event path)                        | `command_name`                                                                                                                                                                                                             |
-| `skill_used`        | `use_skill` loads a skill that resolved                                          | (none beyond common properties)                                                                                                                                                                                            |
-| `plugin_loaded`     | A plugin is discovered and loaded at startup                                     | `origin`                                                                                                                                                                                                                   |
-| `subagent_start`    | A `task` dispatch begins                                                         | `agent_name`                                                                                                                                                                                                               |
-| `subagent_end`      | A `task` dispatch finishes                                                       | `agent_name`, `status`, `duration_ms`                                                                                                                                                                                      |
-| `permission_prompt` | An approval prompt is answered (or abandoned)                                    | `decision`, `permission_kind`                                                                                                                                                                                              |
-| `compaction`        | The compactor actually folds turns away                                          | `mode`, `duration_ms`, `turns_before`, `turns_after`                                                                                                                                                                       |
-| `crash`             | A fatal error reaches the process-level handler                                  | `kind`, `error_class`                                                                                                                                                                                                      |
-| `auth_failure`      | A provider rejects the stored credentials                                        | `auth_provider`                                                                                                                                                                                                            |
-| `survey sent`       | User submits intentional feedback via `/feedback`                                | `$survey_id`, `$survey_response`, `$survey_questions`, `turn_trace_id`                                                                                                                                                     |
+| Event               | When                                                                                | Properties                                                                                                                                                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli_start`         | Once per used session (see First-run disclosure)                                    | (none beyond common properties)                                                                                                                                                                                                                                                          |
+| `session_end`       | When a TUI session finishes                                                         | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason`                                                                                                                                                                                                                     |
+| `$ai_generation`    | Once per completed turn (may be sampled); always on turn failure                    | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens`, `tool_call_count`, `tool_error_count`, `subagent_call_count` |
+| `$ai_span`          | Opt-in only — once per top-level tool call when `CORBITS_TELEMETRY_AI_SPANS` is set | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error`                                                                                                                                                                                                          |
+| `slash_command`     | A slash command is dispatched (shared product-event path)                           | `command_name`                                                                                                                                                                                                                                                                           |
+| `skill_used`        | `use_skill` loads a skill that resolved                                             | (none beyond common properties)                                                                                                                                                                                                                                                          |
+| `plugin_loaded`     | First successful load of a plugin identity in this process                          | `origin`                                                                                                                                                                                                                                                                                 |
+| `subagent_start`    | A `task` / fleet dispatch begins                                                    | `agent_name`                                                                                                                                                                                                                                                                             |
+| `subagent_end`      | A `task` / fleet dispatch finishes                                                  | `agent_name`, `status`, `duration_ms`, `model`, `turn_count`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `tool_call_count`, `tool_error_count`, `stop_reason`, `parent_trace_id`                                                    |
+| `permission_prompt` | An approval prompt is answered (or abandoned)                                       | `decision`, `permission_kind`                                                                                                                                                                                                                                                            |
+| `compaction`        | The compactor actually folds turns away                                             | `mode`, `duration_ms`, `turns_before`, `turns_after`                                                                                                                                                                                                                                     |
+| `crash`             | A fatal error reaches the process-level handler                                     | `kind`, `error_class`                                                                                                                                                                                                                                                                    |
+| `auth_failure`      | A provider rejects the stored credentials                                           | `auth_provider`                                                                                                                                                                                                                                                                          |
+| `survey sent`       | User submits intentional feedback via `/feedback`                                   | `$survey_id`, `$survey_response`, `$survey_questions`, `turn_trace_id`                                                                                                                                                                                                                   |
 
 `compaction` is deliberately silent on the runs where the compactor decides
 there is nothing to compact — an event that also fires on no-ops makes its own
@@ -36,7 +36,11 @@ Common properties attached to every event: a random installation UUID
 (`distinct_id`), `session_id`, `$app_version` (PostHog's standard Version
 property, the running package version), `service_version` (same value, kept
 for existing custom-property dashboards), `os_type`, `os_arch`, and a
-`schema_version` for forward compatibility.
+`schema_version` for forward compatibility. Ambient product and AI events also
+carry `$process_person_profile: false` so PostHog treats them as anonymous
+(batch capture otherwise defaults to identified processing). Intentional
+`survey sent` omits that flag so `/feedback` can still join a person profile
+if one is ever created.
 
 Approximate country-level location is derived server-side by PostHog from the
 request IP; no location data is collected by the client.
@@ -62,10 +66,16 @@ So none of them are transmitted. Each is matched against a fixed list of names
 this project itself ships and reported as that name, or as `custom` when it
 matches nothing — with `mcp` as its own bucket for `permission_kind`, so the
 share of prompts driven by MCP stays visible without the server key coming
-with it. `skill_used` and `plugin_loaded` go further: there is no first-party
-list of skills or plugins to match against, so `skill_used` carries no name at
-all and `plugin_loaded` carries only `origin`, the discovery tier
-(`repo`, `user`, `project`, `path`).
+with it. `agent_name` on `subagent_*` is the same pattern: first-party
+director ids from `DIRECTOR_IDS` (and the legacy `worker` alias) are reported
+by id; project-defined or marketplace profile ids become `custom`.
+`skill_used` and `plugin_loaded` go further: there is no first-party list of
+skills or plugins to match against, so `skill_used` carries no name at all and
+`plugin_loaded` carries only `origin`, the discovery tier (`repo`, `user`,
+`project`, `path`). Enabled telemetry reports the same plugin identity at most
+once per runtime reporter, including across reloads. Disabled/no-op loads do not
+consume that identity, so enabling telemetry later can report the first real
+load.
 
 `error_class` is bucketed the same way: only the error types defined by the
 language are reported by name, because an error subclass defined in
@@ -84,21 +94,48 @@ the payload are in `tests/unit/telemetry-product-events.test.ts`.
 
 ## AI observability events
 
-`$ai_generation` and `$ai_span` are the two PostHog AI observability events,
-emitted from `src/telemetry/ai-observability.ts`. PostHog's LLM analytics
-views query the `$ai_`-prefixed properties and nothing else, which is why
-these names are not ours to choose. `$ai_latency` is a duration in **seconds**
-as a float, per PostHog's schema — the runtime measures milliseconds and
-converts.
+`$ai_generation` and (optionally) `$ai_span` are the PostHog AI observability
+events, emitted from `src/telemetry/ai-observability.ts`. PostHog's LLM
+analytics views query the `$ai_`-prefixed properties and nothing else, which
+is why these names are not ours to choose. `$ai_latency` is a duration in
+**seconds** as a float, per PostHog's schema — the runtime measures
+milliseconds and converts.
+
+**Default volume shape (CL-6816):** each completed primary turn emits **one**
+`$ai_generation` with tool/subagent aggregates folded onto it
+(`tool_call_count`, `tool_error_count`, `subagent_call_count`). Per-call
+`$ai_span` events are **off by default**. Set `CORBITS_TELEMETRY_AI_SPANS` to
+a truthy value (`1`, `true`, …) to restore per-call spans for debugging.
+Leaf `runSubAgent` workers do not emit `$ai_*`; worker rollups travel on
+`subagent_end` instead. Both TUI and exec install the same turn observer, so a
+worker ending during an active parent turn carries that turn's `parent_trace_id`.
+Pre-progress operator aborts settle with `status=cancelled` and
+`stop_reason=cancelled` even when the worker promise rejects. An interrupt that
+keeps a worker resumable settles with `status=interrupted` and the same
+`stop_reason=cancelled`; terminal events never report a still-running status.
+
+A deterministic synthetic fixture captures 10 parent generations, 80 parent
+tool spans, and 4 worker start/end pairs. The comparable former shape is 98
+billable events; the default aggregate shape is 18 (10 generations plus 8
+start/end events), removing 80 of 98 events, or 81.6%. This is synthetic test
+evidence, not a claim about production PostHog traffic.
+
+Successful `$ai_generation` events may be sampled with
+`CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE` (a float in `0`–`1`, default `1.0`
+= keep all). An empty env value is treated as unset (keep all), not as `0`.
+Errored generations (`$ai_is_error: true`), `crash`, and `auth_failure` always
+ship regardless of the sample rate. When a successful generation is sampled
+out, opt-in `$ai_span`s for that turn are skipped too — a span without its
+parent generation is not useful in PostHog traces.
 
 The trace is **flat**. Every turn gets one `$ai_trace_id` derived from the
 runtime's session id and the turn index; the turn's `$ai_generation` and each
-of its `$ai_span`s carry it, and every span's `$ai_parent_id` is that same
-trace id rather than another span. PostHog documents `$ai_parent_id` as
-accepting either a trace id or a span id, so this is a legal trace, and it is
-all the runtime can honestly describe: the turn record only exposes top-level
-tool calls. No `$ai_trace` event is emitted — PostHog synthesises the trace
-from its children.
+of its `$ai_span`s (when spans are enabled) carry it, and every span's
+`$ai_parent_id` is that same trace id rather than another span. PostHog
+documents `$ai_parent_id` as accepting either a trace id or a span id, so
+this is a legal trace, and it is all the runtime can honestly describe: the
+turn record only exposes top-level tool calls. No `$ai_trace` event is
+emitted — PostHog synthesises the trace from its children.
 
 `$ai_span_id` is the provider-generated opaque tool call id. It identifies
 the call within the trace and carries nothing else.
@@ -124,11 +161,19 @@ apart by `$ai_error`. A turn that never reaches inference at all — suspended
 at an approval prompt and never resumed — emits nothing, because the runtime
 raises no event for it.
 
-Exactly one `$ai_generation` is ever emitted per turn. A single give-up
-usually surfaces twice at the event stream (the failed inference, then the
-reactor terminating), and a turn that already reported completion is finished;
-`src/session/run-sink.ts` latches on both so neither can double-count a turn
-or append a phantom failure to a successful one.
+Terminal generation settlement belongs to `src/session/run-sink.ts`.
+`inference.error` records only a pending attempt failure: retry success or a
+completed message run discards it. `inference.done` settles success and only
+then applies successful-generation sampling. A failed `message.run.ended`
+settles an unresolved turn once as an unsampled terminal failure. Attribution
+uses the latest `inference.usage` source, the first lifecycle payload carrying
+the runtime-resolved provider/model pair for an attempt. Each `inference.start`
+clears that authoritative source and records the newly attempted model. If a
+fallback fails before usage exposes its source, telemetry retains that actual
+model but uses the fixed `unknown` provider/source bucket rather than attributing
+it to the previously selected provider. When the attempted model still matches
+the selected source, that full source remains valid. Therefore a parent turn
+emits at most one terminal `$ai_generation`, including retry and failover paths.
 
 ## What's never collected
 
@@ -159,6 +204,8 @@ is off (`settings.telemetry.enabled === false` or the Telemetry toggle Off),
 because the operator typed the text for that purpose. Hard env kill switches
 still win — `DO_NOT_TRACK=1` or `CORBITS_TELEMETRY=0/false/off/no` block
 `/feedback` as well. Sending also requires an installation id and API key.
+Unlike ambient events, `survey sent` does not stamp `$process_person_profile:
+false`, so the response can join a person profile if one is ever created.
 
 Survey id / question id are **baked into the client** (Corbits team survey
 `Corbits Code Feedback`). Same trust class as the public PostHog project key —

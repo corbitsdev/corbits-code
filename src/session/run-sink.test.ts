@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createRunSink } from "./run-sink.js";
 import type { LifecycleHookStatus } from "./hooks.js";
+import { createTurnObserver } from "../telemetry/ai-observability.js";
+import type { Telemetry } from "../telemetry/index.js";
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
   return { type, seq: 1, data } as ReactorEmittedEvent;
@@ -22,6 +24,42 @@ const enabledHook: LifecycleHookStatus = {
   path: "/hooks/log.ts",
   enabled: true,
 };
+
+function attributionHarness(selectedSource = { provider: "provider-a", model: "model-a" }) {
+  const captured: { event: string; properties: Record<string, unknown> }[] = [];
+  const telemetry: Telemetry = {
+    enabled: true,
+    installationId: "test",
+    capture: (capturedEvent, properties = {}) => {
+      captured.push({ event: capturedEvent, properties });
+    },
+    captureIntentional: () => false,
+    flush: async () => {},
+    discard: () => {},
+  };
+  const observer = createTurnObserver({
+    telemetry: () => telemetry,
+    getSessionId: () => "session-1",
+    getSource: () => selectedSource,
+  });
+  const runSink = createRunSink({
+    emitter: new EventEmitter(),
+    hookManager: stubHookManager([]),
+    ...observer,
+  });
+  return { captured, runSink };
+}
+
+function failMessageRun(runSink: ReturnType<typeof createRunSink>): void {
+  runSink.sink(event("inference.error", { error: { message: "attempt failed" } }));
+  runSink.sink(
+    event("message.run.ended", {
+      messageRunId: "run-1",
+      messageId: "message-1",
+      status: "failed",
+    }),
+  );
+}
 
 describe("createRunSink", () => {
   test("allocates no turn collector when no lifecycle hooks are configured", () => {
@@ -112,7 +150,7 @@ describe("createRunSink", () => {
     expect(runSink.getTurnCount()).toBe(1);
   });
 
-  test("reports the in-flight turn to onTurnFailed when a turn errors instead of completing", () => {
+  test("settles a pending inference failure only when the message run fails", () => {
     const failures: { turnIndex: number; error: string }[] = [];
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -122,26 +160,121 @@ describe("createRunSink", () => {
 
     runSink.sink(event("inference.start", {}));
     runSink.sink(event("inference.error", { error: { message: "429 rate limit" } }));
+    expect(failures).toEqual([]);
+
+    runSink.sink(
+      event("message.run.ended", {
+        messageRunId: "run-1",
+        messageId: "message-1",
+        status: "failed",
+        error: { message: "reactor gave up", kind: "inference_error" },
+      }),
+    );
 
     expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
   });
 
-  // Regression: one give-up reaches the sink twice — the director surfaces
-  // the failed inference, then the reactor terminates the run — and reporting
-  // both files two failed turns under a single turn's identity.
-  test("reports one failure per turn across both error paths, not one per error event", () => {
+  test("uses unknown attribution when a fallback model fails before usage", () => {
+    const { captured, runSink } = attributionHarness();
+
+    runSink.sink(event("inference.start", { model: "model-b" }));
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.event).toBe("$ai_generation");
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "unknown",
+      $ai_model: "model-b",
+      $ai_is_error: true,
+    });
+  });
+
+  test("uses the selected source when its model fails before usage", () => {
+    const { captured, runSink } = attributionHarness();
+
+    runSink.sink(event("inference.start", { model: "model-a" }));
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "provider-a",
+      $ai_model: "model-a",
+      $ai_is_error: true,
+    });
+  });
+
+  test("uses authoritative usage attribution for a failed fallback", () => {
+    const { captured, runSink } = attributionHarness();
+
+    runSink.sink(event("inference.start", { model: "model-b" }));
+    runSink.sink(
+      event("inference.usage", {
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { sourceId: "fallback", provider: "provider-b", model: "model-b" },
+      }),
+    );
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "provider-b",
+      $ai_model: "model-b",
+      $ai_is_error: true,
+    });
+  });
+
+  test("does not leak authoritative source attribution across retry attempts", () => {
+    const { captured, runSink } = attributionHarness();
+
+    runSink.sink(event("inference.start", { model: "model-a" }));
+    runSink.sink(
+      event("inference.usage", {
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { sourceId: "selected", provider: "provider-a", model: "model-a" },
+      }),
+    );
+    runSink.sink(event("inference.error", { error: { message: "retry" } }));
+    runSink.sink(event("inference.start", { model: "model-b" }));
+    failMessageRun(runSink);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.properties).toMatchObject({
+      $ai_provider: "unknown",
+      $ai_model: "model-b",
+      $ai_is_error: true,
+    });
+  });
+
+  test("discards a recoverable inference failure after retry success", () => {
     const failures: { turnIndex: number; error: string }[] = [];
+    const completions: number[] = [];
     const runSink = createRunSink({
       emitter: new EventEmitter(),
       hookManager: stubHookManager([]),
+      onTurnComplete: (ctx) => completions.push(ctx.turnIndex),
       onTurnFailed: (info) => failures.push(info),
     });
 
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.error", { error: { message: "429 rate limit" } }));
-    runSink.sink(event("reactor.error", { error: "reactor gave up" }));
+    runSink.sink(event("inference.error", { error: { message: "retry me" } }));
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
+    runSink.sink(
+      event("message.run.ended", {
+        messageRunId: "run-1",
+        messageId: "message-1",
+        status: "completed",
+      }),
+    );
 
-    expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
+    expect(completions).toEqual([0]);
+    expect(failures).toEqual([]);
   });
 
   test("reports no failure for a turn that already completed", () => {
@@ -168,9 +301,7 @@ describe("createRunSink", () => {
     expect(failures).toEqual([]);
   });
 
-  // A retry re-enters inference.start under the same turn index, so a second
-  // report would land on the trace id the first one already claimed.
-  test("reports one failure for a turn that fails, retries, and fails again", () => {
+  test("settles the latest failed retry exactly once", () => {
     const failures: { turnIndex: number; error: string }[] = [];
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -182,11 +313,18 @@ describe("createRunSink", () => {
     runSink.sink(event("inference.error", { error: { message: "500 upstream" } }));
     runSink.sink(event("inference.start", {}));
     runSink.sink(event("inference.error", { error: { message: "500 upstream again" } }));
+    runSink.sink(
+      event("message.run.ended", {
+        messageRunId: "run-1",
+        messageId: "message-1",
+        status: "failed",
+      }),
+    );
 
-    expect(failures).toEqual([{ turnIndex: 0, error: "500 upstream" }]);
+    expect(failures).toEqual([{ turnIndex: 0, error: "500 upstream again" }]);
   });
 
-  test("still reports a failure after reset clears the latch", () => {
+  test("reset discards an unresolved pending failure", () => {
     const failures: { turnIndex: number; error: string }[] = [];
     const runSink = createRunSink({
       emitter: new EventEmitter(),
@@ -199,11 +337,15 @@ describe("createRunSink", () => {
     runSink.reset();
     runSink.sink(event("inference.start", {}));
     runSink.sink(event("inference.error", { error: { message: "second session" } }));
+    runSink.sink(
+      event("message.run.ended", {
+        messageRunId: "run-2",
+        messageId: "message-2",
+        status: "failed",
+      }),
+    );
 
-    expect(failures).toEqual([
-      { turnIndex: 0, error: "first session" },
-      { turnIndex: 0, error: "second session" },
-    ]);
+    expect(failures).toEqual([{ turnIndex: 0, error: "second session" }]);
   });
 
   test("seeds the turn count from a resumed session's prior turnsUsed", () => {

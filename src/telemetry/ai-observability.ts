@@ -1,12 +1,28 @@
-// Emits PostHog AI observability events ($ai_generation, $ai_span) from a
-// completed turn, in the same privacy mode as product telemetry: only ids,
-// enums, and counts ever leave the process. TurnContext already carries tool
-// call arguments and results for lifecycle hooks — this module reads only
+// Emits PostHog AI observability events ($ai_generation, optionally $ai_span)
+// from a completed turn, in the same privacy mode as product telemetry: only
+// ids, enums, and counts ever leave the process. TurnContext already carries
+// tool call arguments and results for lifecycle hooks — this module reads only
 // the scalar/id fields off it and never the content fields.
+//
+// Default volume shape (CL-6816): one $ai_generation per turn with tool/subagent
+// aggregates folded onto it. Per-call $ai_span events are opt-in via
+// CORBITS_TELEMETRY_AI_SPANS for debugging.
 
 import type { TurnContext } from "../session/hooks.js";
-import { noteLastTurnTraceId } from "./feedback.js";
-import type { AiErrorKind, AiSpanKind, Telemetry } from "./index.js";
+import { isSubagentToolName } from "../subagent/tool-taxonomy.js";
+import {
+  noteLastTurnTraceId,
+  noteCurrentTurnTraceId,
+  clearCurrentTurnTraceId,
+} from "./feedback.js";
+
+import {
+  aiSpansEnabled,
+  generationSampleRate,
+  type AiErrorKind,
+  type AiSpanKind,
+  type Telemetry,
+} from "./index.js";
 
 // PostHog reports latency in seconds as a float; the runtime measures every
 // duration in milliseconds. Reporting milliseconds under the seconds-typed
@@ -29,8 +45,8 @@ export function turnTraceId(sessionId: string, turnIndex: number): string {
 // (e.g. the subagent task tool's registered name) rather than reaching into
 // subagent internals, so this module has no dependency on tool
 // implementations beyond the one identifier it needs to classify.
-export function classifySpanKind(toolName: string, subagentToolName: string): AiSpanKind {
-  return toolName === subagentToolName ? "subagent_call" : "tool_call";
+export function classifySpanKind(toolName: string): AiSpanKind {
+  return isSubagentToolName(toolName) ? "subagent_call" : "tool_call";
 }
 
 // Word-bounded so a status code is only read where one was actually written.
@@ -58,16 +74,50 @@ export function classifyErrorKind(message: string): AiErrorKind {
 export interface EmitAiObservabilityOptions {
   // The runtime's per-session id, which scopes the trace id.
   sessionId: string;
-  // Name of the tool that spawns a sub-agent, used to classify that call's
-  // span kind as "subagent_call" instead of the generic "tool_call".
-  subagentToolName: string;
+  /** Override process.env for tests. */
+  env?: NodeJS.ProcessEnv;
+  /** Override Math.random for generation sampling tests. */
+  random?: () => number;
+}
+
+export interface ToolCallAggregates {
+  tool_call_count: number;
+  tool_error_count: number;
+  subagent_call_count: number;
+}
+
+export function aggregateToolCalls(
+  ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
+): ToolCallAggregates {
+  const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
+  let tool_call_count = 0;
+  let tool_error_count = 0;
+  let subagent_call_count = 0;
+  for (const call of ctx.toolCalls) {
+    const kind = classifySpanKind(call.name);
+    if (kind === "subagent_call") {
+      subagent_call_count += 1;
+    } else {
+      tool_call_count += 1;
+    }
+    if (resultsByCallId.get(call.id)?.isError === true) {
+      tool_error_count += 1;
+    }
+  }
+  return { tool_call_count, tool_error_count, subagent_call_count };
+}
+
+function shouldSampleSuccessfulGeneration(env: NodeJS.ProcessEnv, random: () => number): boolean {
+  const rate = generationSampleRate(env);
+  if (rate >= 1) return true;
+  if (rate <= 0) return false;
+  return random() < rate;
 }
 
 // Called once per completed turn. Emits one $ai_generation for the model
-// call, then one $ai_span per tool call in the turn, all sharing the turn's
-// $ai_trace_id. The trace is flat by construction: every span's
-// $ai_parent_id is the trace id, which PostHog accepts, and TurnContext only
-// exposes top-level tool calls so there is no nesting to describe. PostHog
+// call with tool/subagent aggregates. Per-call $ai_span events are emitted
+// only when CORBITS_TELEMETRY_AI_SPANS is truthy. The trace is flat by
+// construction: every span's $ai_parent_id is the trace id. PostHog
 // synthesises the trace itself from these children, so no $ai_trace event is
 // emitted.
 export function emitAiObservability(
@@ -75,10 +125,20 @@ export function emitAiObservability(
   ctx: TurnContext,
   options: EmitAiObservabilityOptions,
 ): void {
+  const env = options.env ?? process.env;
+  const random = options.random ?? Math.random;
   const traceId = turnTraceId(options.sessionId, ctx.turnIndex);
   // Remember for intentional /feedback linking (works even when ambient capture
   // is a no-op because this call still computes the id).
   noteLastTurnTraceId(traceId);
+
+  if (!shouldSampleSuccessfulGeneration(env, random)) {
+    // Sampling drops the whole turn package, including opt-in `$ai_span`s —
+    // a span without its parent generation is not useful in PostHog traces.
+    return;
+  }
+
+  const aggregates = aggregateToolCalls(ctx);
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
@@ -94,7 +154,12 @@ export function emitAiObservability(
     $ai_cache_read_input_tokens: ctx.usage.cacheRead,
     $ai_cache_creation_input_tokens: ctx.usage.cacheWrite,
     $ai_reasoning_tokens: ctx.usage.thinking,
+    tool_call_count: aggregates.tool_call_count,
+    tool_error_count: aggregates.tool_error_count,
+    subagent_call_count: aggregates.subagent_call_count,
   });
+
+  if (!aiSpansEnabled(env)) return;
 
   const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
 
@@ -106,7 +171,7 @@ export function emitAiObservability(
       // send: it identifies the call within the trace and nothing else.
       $ai_span_id: call.id,
       $ai_parent_id: traceId,
-      $ai_span_name: classifySpanKind(call.name, options.subagentToolName),
+      $ai_span_name: classifySpanKind(call.name),
       $ai_is_error: result?.isError === true,
     });
   }
@@ -135,6 +200,7 @@ export interface EmitAiTurnFailureOptions {
 // observability earns its keep and where a completion-only emitter is
 // silent. Emits the $ai_generation the turn never got to emit, marked as an
 // error, with no token counts or latency because the turn produced none.
+// Errored generations always ship (no sampling).
 export function emitAiTurnFailure(telemetry: Telemetry, options: EmitAiTurnFailureOptions): void {
   telemetry.capture("$ai_generation", {
     $ai_trace_id: turnTraceId(options.sessionId, options.turnIndex),
@@ -153,30 +219,68 @@ export interface CreateTurnObserverOptions {
   // session id in this same process, and a trace id built from a captured
   // one would file the new session's turns under the old session's traces.
   getSessionId: () => string;
-  // The source the next inference will run against, which is the best
-  // available attribution for a turn that failed before producing one.
+  // The currently selected source. It is safe failure attribution only when
+  // its model matches the model named by the latest inference.start.
   getSource: () => TurnSource;
-  subagentToolName: string;
 }
 
-// Binds the emitters to the live session and source, giving the run sink two
-// plain callbacks and keeping the "read it now, do not capture it" rule in
-// one place instead of at each call site.
+const UNKNOWN_INFERENCE_PROVIDER = "unknown";
+
+function failedAttemptSource(
+  attemptedModel: string | undefined,
+  observedSource: TurnSource | undefined,
+  selectedSource: TurnSource,
+): TurnSource {
+  if (observedSource !== undefined) return observedSource;
+  if (attemptedModel === undefined || attemptedModel === selectedSource.model) {
+    return selectedSource;
+  }
+  return { provider: UNKNOWN_INFERENCE_PROVIDER, model: attemptedModel };
+}
+
+// Binds the emitters to the live session and source, keeping the "read it now,
+// do not capture it" rule in one place instead of at each call site.
 export function createTurnObserver(options: CreateTurnObserverOptions): {
+  onTurnStarted: (info: { turnIndex: number; model: string }) => void;
+  onTurnSourceObserved: (info: { turnIndex: number; source: TurnSource }) => void;
   onTurnComplete: (ctx: TurnContext) => void;
   onTurnFailed: (info: { turnIndex: number; error: string }) => void;
 } {
+  let latestAttemptModel: string | undefined;
+  let latestAttemptSource: TurnSource | undefined;
+
+  function clearAttempt(): void {
+    latestAttemptModel = undefined;
+    latestAttemptSource = undefined;
+  }
+
   return {
+    onTurnStarted: (info) => {
+      latestAttemptModel = info.model;
+      latestAttemptSource = undefined;
+      noteCurrentTurnTraceId(turnTraceId(options.getSessionId(), info.turnIndex));
+    },
+    onTurnSourceObserved: (info) => {
+      latestAttemptSource = { ...info.source };
+    },
     onTurnComplete: (ctx) => {
+      clearAttempt();
+      clearCurrentTurnTraceId();
       emitAiObservability(options.telemetry(), ctx, {
         sessionId: options.getSessionId(),
-        subagentToolName: options.subagentToolName,
       });
     },
     onTurnFailed: (info) => {
+      clearCurrentTurnTraceId();
+      const source = failedAttemptSource(
+        latestAttemptModel,
+        latestAttemptSource,
+        options.getSource(),
+      );
+      clearAttempt();
       emitAiTurnFailure(options.telemetry(), {
         sessionId: options.getSessionId(),
-        source: options.getSource(),
+        source,
         ...info,
       });
     },
