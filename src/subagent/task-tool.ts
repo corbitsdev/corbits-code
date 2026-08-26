@@ -59,6 +59,7 @@ import { classifyAgentName } from "../telemetry/classify.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { captureSubagentEnd } from "../telemetry/product-events.js";
 import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
+import { SPAWN_AGENT_TOOL_NAME, TASK_TOOL_NAME } from "./tool-taxonomy.js";
 
 import { join } from "node:path";
 import type {
@@ -91,7 +92,7 @@ export const TaskToolArgs = type({
 // much still routes through it — but new work should reach for the split
 // verbs first.
 export const taskToolDefinition: ToolDefinition = {
-  name: "task",
+  name: TASK_TOOL_NAME,
   description:
     'Deprecated: prefer spawn_agent + wait_agents for new call sites (this fused blocking form is kept for compatibility). Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).',
   inputSchema: {
@@ -330,7 +331,7 @@ async function runTaskViaFleet(input: {
   const started = await spawn.handler(
     {
       id: input.callId,
-      name: "spawn_agent",
+      name: SPAWN_AGENT_TOOL_NAME,
       arguments: {
         description: input.description,
         prompt: input.prompt,

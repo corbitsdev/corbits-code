@@ -9,6 +9,7 @@
 // CORBITS_TELEMETRY_AI_SPANS for debugging.
 
 import type { TurnContext } from "../session/hooks.js";
+import { isSubagentToolName } from "../subagent/tool-taxonomy.js";
 import {
   noteLastTurnTraceId,
   noteCurrentTurnTraceId,
@@ -44,8 +45,8 @@ export function turnTraceId(sessionId: string, turnIndex: number): string {
 // (e.g. the subagent task tool's registered name) rather than reaching into
 // subagent internals, so this module has no dependency on tool
 // implementations beyond the one identifier it needs to classify.
-export function classifySpanKind(toolName: string, subagentToolName: string): AiSpanKind {
-  return toolName === subagentToolName ? "subagent_call" : "tool_call";
+export function classifySpanKind(toolName: string): AiSpanKind {
+  return isSubagentToolName(toolName) ? "subagent_call" : "tool_call";
 }
 
 // Word-bounded so a status code is only read where one was actually written.
@@ -73,9 +74,6 @@ export function classifyErrorKind(message: string): AiErrorKind {
 export interface EmitAiObservabilityOptions {
   // The runtime's per-session id, which scopes the trace id.
   sessionId: string;
-  // Name of the tool that spawns a sub-agent, used to classify that call's
-  // span kind as "subagent_call" instead of the generic "tool_call".
-  subagentToolName: string;
   /** Override process.env for tests. */
   env?: NodeJS.ProcessEnv;
   /** Override Math.random for generation sampling tests. */
@@ -90,14 +88,13 @@ export interface ToolCallAggregates {
 
 export function aggregateToolCalls(
   ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
-  subagentToolName: string,
 ): ToolCallAggregates {
   const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
   let tool_call_count = 0;
   let tool_error_count = 0;
   let subagent_call_count = 0;
   for (const call of ctx.toolCalls) {
-    const kind = classifySpanKind(call.name, subagentToolName);
+    const kind = classifySpanKind(call.name);
     if (kind === "subagent_call") {
       subagent_call_count += 1;
     } else {
@@ -141,7 +138,7 @@ export function emitAiObservability(
     return;
   }
 
-  const aggregates = aggregateToolCalls(ctx, options.subagentToolName);
+  const aggregates = aggregateToolCalls(ctx);
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
@@ -174,7 +171,7 @@ export function emitAiObservability(
       // send: it identifies the call within the trace and nothing else.
       $ai_span_id: call.id,
       $ai_parent_id: traceId,
-      $ai_span_name: classifySpanKind(call.name, options.subagentToolName),
+      $ai_span_name: classifySpanKind(call.name),
       $ai_is_error: result?.isError === true,
     });
   }
@@ -225,7 +222,6 @@ export interface CreateTurnObserverOptions {
   // The source the next inference will run against, which is the best
   // available attribution for a turn that failed before producing one.
   getSource: () => TurnSource;
-  subagentToolName: string;
 }
 
 // Binds the emitters to the live session and source, giving the run sink two
@@ -244,7 +240,6 @@ export function createTurnObserver(options: CreateTurnObserverOptions): {
       clearCurrentTurnTraceId();
       emitAiObservability(options.telemetry(), ctx, {
         sessionId: options.getSessionId(),
-        subagentToolName: options.subagentToolName,
       });
     },
     onTurnFailed: (info) => {

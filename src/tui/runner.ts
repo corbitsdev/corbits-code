@@ -151,7 +151,6 @@ import {
   FLEET_STALL_POLL_MS,
   liveFleetCount,
   observeFleet,
-  taskToolDefinition,
 } from "../subagent/index.js";
 import type {
   ContextStore,
@@ -1584,7 +1583,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       telemetry: getTelemetry,
       getSessionId: () => sessionId,
       getSource: () => liveSource,
-      subagentToolName: taskToolDefinition.name,
     });
 
     const runSink = createRunSink({

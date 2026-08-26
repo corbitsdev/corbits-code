@@ -77,6 +77,7 @@ import { classifyAgentName } from "../telemetry/classify.js";
 import { captureSubagentEnd } from "../telemetry/product-events.js";
 import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
 import type { DirectorPackage } from "../agent/directors/types.js";
+import { SPAWN_AGENT_TOOL_NAME } from "./tool-taxonomy.js";
 
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import { isSubAgentCancelError } from "./dispose.js";
@@ -264,7 +265,7 @@ const SpawnAgentArgs = type({
 });
 
 export const spawnAgentToolDefinition: ToolDefinition = {
-  name: "spawn_agent",
+  name: SPAWN_AGENT_TOOL_NAME,
   description:
     "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them. task() is the deprecated fused spawn+wait fallback for a single blocking worker.",
   inputSchema: {
