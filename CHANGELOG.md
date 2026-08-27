@@ -13,6 +13,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-08-27
+
+### MCP
+
+- Exa is now a built-in MCP server enabled by default, connecting without an API
+  key to the external `https://mcp.exa.ai/mcp` service. Web requests handled by
+  this preset are sent to Exa and are subject to Exa's privacy practices, network
+  availability, and anonymous rate limits. Disable it with
+  `mcpServers.exa.enabled: false`, or override `mcpServers.exa` with a custom
+  transport-bearing server entry.
+
 ## [0.3.4] - 2026-08-26
 
 ### Telemetry
