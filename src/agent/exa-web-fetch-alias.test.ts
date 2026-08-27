@@ -168,8 +168,10 @@ describe("built-in Exa web_fetch alias", () => {
       await connect(toolset);
       const result = await runTool(toolset, "web_fetch", { url: "ftp://example.com/file" });
 
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("http or https");
+      expect(result).not.toHaveProperty("isError");
+      expect(result.content).toBe(
+        'Error: Unsupported protocol "ftp:"; only http and https are allowed.',
+      );
       expect(calls).toHaveLength(0);
     } finally {
       await toolset.dispose();
@@ -182,7 +184,7 @@ describe("built-in Exa web_fetch alias", () => {
     try {
       await connect(toolset);
       const result = await runTool(toolset, "web_fetch", { url: "https://example.com" });
-      expect(result.isError).toBe(true);
+      expect(result).not.toHaveProperty("isError");
       expect(result.content).toContain("Exa MCP");
       expect(result.content).toContain("web_fetch_exa");
       expect(calls).toHaveLength(0);
@@ -195,7 +197,7 @@ describe("built-in Exa web_fetch alias", () => {
     try {
       await connect(failed);
       const result = await runTool(failed, "web_fetch", { url: "https://example.com" });
-      expect(result.isError).toBe(true);
+      expect(result).not.toHaveProperty("isError");
       expect(result.content).toContain("Exa MCP");
       expect(result.content).toContain("connection exploded");
       expect(calls).toHaveLength(0);

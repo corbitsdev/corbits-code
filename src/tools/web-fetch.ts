@@ -234,7 +234,6 @@ export function createExaMCPWebFetchTool(args: {
           callId: call.id,
           content:
             "Error: web_fetch requires a non-empty url (http/https); format and timeout are optional.",
-          isError: true,
         };
       }
 
@@ -244,15 +243,13 @@ export function createExaMCPWebFetchTool(args: {
       } catch {
         return {
           callId: call.id,
-          content: "Error: web_fetch URL must use http or https.",
-          isError: true,
+          content: `Error: Invalid URL: ${parsed.url}`,
         };
       }
       if (url.protocol !== "http:" && url.protocol !== "https:") {
         return {
           callId: call.id,
-          content: "Error: web_fetch URL must use http or https.",
-          isError: true,
+          content: `Error: Unsupported protocol "${url.protocol}"; only http and https are allowed.`,
         };
       }
 
@@ -261,7 +258,7 @@ export function createExaMCPWebFetchTool(args: {
       if (format !== "markdown") {
         const outcome = await runWebFetch(parsed.url, format, timeout);
         if (!outcome.ok) {
-          return { callId: call.id, content: `Error: ${outcome.error}`, isError: true };
+          return { callId: call.id, content: `Error: ${outcome.error}` };
         }
         const suffix = outcome.truncated
           ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]`
@@ -288,7 +285,6 @@ export function createExaMCPWebFetchTool(args: {
               return {
                 callId: call.id,
                 content: `Error: Exa MCP web_fetch unavailable: ${connection.error}`,
-                isError: true,
               };
             }
             if (!connection.client.tools.some((tool) => tool.name === "web_fetch_exa")) {
@@ -296,7 +292,6 @@ export function createExaMCPWebFetchTool(args: {
                 callId: call.id,
                 content:
                   "Error: Exa MCP web_fetch unavailable: connected Exa server did not advertise web_fetch_exa.",
-                isError: true,
               };
             }
             const content = await connection.client.call(
@@ -313,13 +308,11 @@ export function createExaMCPWebFetchTool(args: {
           return {
             callId: call.id,
             content: `Error: Request to ${parsed.url} timed out after ${timeoutSeconds}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
-            isError: true,
           };
         }
         return {
           callId: call.id,
           content: `Error: Exa MCP web_fetch failed: ${err instanceof Error ? err.message : String(err)}`,
-          isError: true,
         };
       } finally {
         if (timer !== undefined) clearTimeout(timer);
