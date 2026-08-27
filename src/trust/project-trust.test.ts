@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 
 import {
   isPluginTrusted,
+  filterMcpServersForConnect,
   loadProjectTrust,
   projectTrustPath,
   readProjectTrustStore,
@@ -28,6 +29,28 @@ async function withTempHome(fn: (home: string, cwd: string) => Promise<void>): P
 const mcpServer = (name: string): MCPServerConfig => ({ name, command: "node", args: [name] });
 
 describe("project trust store", () => {
+  test("connects global MCP servers without local trust and fails closed for local lists", async () => {
+    const servers = [
+      { name: "exa", type: "http" as const, url: "https://mcp.exa.ai/mcp" },
+      { name: "global", command: "global-mcp" },
+    ];
+
+    await expect(
+      filterMcpServersForConnect(servers, {
+        source: "global",
+        cwd: "/repo/under/test",
+        store: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+      }),
+    ).resolves.toEqual(servers);
+    await expect(
+      filterMcpServersForConnect(servers, {
+        source: "local",
+        cwd: "/repo/under/test",
+        store: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test("concurrent plugin trust grants both survive without a corrupt file", async () => {
     await withTempHome(async (home, cwd) => {
       await Promise.all([

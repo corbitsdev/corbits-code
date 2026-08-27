@@ -25,6 +25,7 @@ import {
   setDefaultModel,
   listRecentModels,
   listFavoriteModels,
+  normalizeMcpServers,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -46,6 +47,39 @@ const twoProviders: Settings = {
     b: { baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"], defaultModel: "b-model" },
   },
 };
+
+describe("MCP settings validation", () => {
+  test("accepts the Exa preset enabled or disabled in object and array forms", () => {
+    expect(normalizeMcpServers({ exa: { enabled: true } })).toEqual([
+      { name: "exa", enabled: true },
+    ]);
+    expect(normalizeMcpServers({ exa: { enabled: false } })).toEqual([
+      { name: "exa", enabled: false },
+    ]);
+    expect(normalizeMcpServers([{ name: "exa", enabled: true }])).toEqual([
+      { name: "exa", enabled: true },
+    ]);
+    expect(normalizeMcpServers([{ name: "exa", enabled: false }])).toEqual([
+      { name: "exa", enabled: false },
+    ]);
+  });
+
+  test("rejects empty, unknown transport-less, and mixed preset entries", () => {
+    expect(normalizeMcpServers({ exa: {} })).toBeUndefined();
+    expect(normalizeMcpServers({ unknown: { enabled: true } })).toBeUndefined();
+    expect(normalizeMcpServers({ unknown: { enabled: false } })).toBeUndefined();
+    expect(
+      normalizeMcpServers({ exa: { enabled: true, url: "https://mcp.exa.ai/mcp" } }),
+    ).toBeUndefined();
+    expect(normalizeMcpServers({ exa: { enabled: false, command: "custom-exa" } })).toBeUndefined();
+  });
+
+  test("preserves a custom transport-bearing server named Exa", () => {
+    expect(normalizeMcpServers({ exa: { url: "https://example.test/custom" } })).toEqual([
+      { name: "exa", url: "https://example.test/custom" },
+    ]);
+  });
+});
 
 describe("normalizeOpenAICompatibleBaseURL", () => {
   test("preserves a plain base URL", () => {
