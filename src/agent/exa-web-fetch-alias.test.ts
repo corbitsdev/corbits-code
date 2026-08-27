@@ -134,7 +134,7 @@ describe("built-in Exa web_fetch alias", () => {
     }
   });
 
-  test("canonical web_fetch maps native args to Exa MCP fetch shape", async () => {
+  test("canonical web_fetch preserves markdown while mapping to Exa MCP fetch shape", async () => {
     const toolset = await makeToolset();
     try {
       const controller = new AbortController();
@@ -142,7 +142,7 @@ describe("built-in Exa web_fetch alias", () => {
       const result = await runTool(
         toolset,
         "web_fetch",
-        { url: "https://example.com", format: "html", timeout: 12 },
+        { url: "https://example.com", format: "markdown", timeout: 12 },
         controller.signal,
       );
       await connecting;
@@ -157,6 +157,20 @@ describe("built-in Exa web_fetch alias", () => {
       expect(calls[0]?.args).not.toHaveProperty("format");
       expect(calls[0]?.args).not.toHaveProperty("timeout");
       expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("canonical web_fetch rejects non-http URLs before invoking Exa MCP", async () => {
+    const toolset = await makeToolset();
+    try {
+      await connect(toolset);
+      const result = await runTool(toolset, "web_fetch", { url: "ftp://example.com/file" });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("http or https");
+      expect(calls).toHaveLength(0);
     } finally {
       await toolset.dispose();
     }

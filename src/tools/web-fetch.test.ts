@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
-import { runWebFetch, MAX_FETCH_BYTES } from "./web-fetch.js";
+import type { MCPClient } from "../mcp/client.js";
+import { createExaMCPWebFetchTool, runWebFetch, MAX_FETCH_BYTES } from "./web-fetch.js";
 
 let server: Server;
 let baseUrl: string;
@@ -115,5 +116,76 @@ describe("runWebFetch", () => {
   test("rejects a non-http(s) SSRF target before ever fetching", async () => {
     const outcome = await runWebFetch("ftp://example.com/", "text", 30);
     expect(outcome.ok).toBe(false);
+  });
+});
+
+describe("createExaMCPWebFetchTool", () => {
+  function createTool(call: MCPClient["call"]) {
+    return createExaMCPWebFetchTool({
+      connect: async () => ({
+        ok: true,
+        client: {
+          serverName: "exa",
+          tools: [{ name: "web_fetch_exa", description: "Fetch", inputSchema: {} }],
+          call,
+          close: async () => undefined,
+        },
+      }),
+    });
+  }
+
+  test("honors the per-call timeout with the native timeout error contract", async () => {
+    const tool = createTool(
+      async (_name, _args, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const result = await tool.handler(
+      {
+        id: "timeout-call",
+        name: "web_fetch",
+        arguments: { url: "https://example.com", timeout: 1 },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      callId: "timeout-call",
+      content:
+        "Error: Request to https://example.com timed out after 1s. Retry with a larger timeout parameter (up to 120s) if the site is slow.",
+      isError: true,
+    });
+  });
+
+  test("returns distinct markdown, text, and html representations", async () => {
+    handler = (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html><body><h1>Heading</h1><p>Body</p></body></html>");
+    };
+    const tool = createTool(async () => "# Heading\n\nBody");
+    const invoke = async (format: "markdown" | "text" | "html") => {
+      const result = await tool.handler(
+        {
+          id: `format-${format}`,
+          name: "web_fetch",
+          arguments: { url: `${baseUrl}/`, format },
+        },
+        new AbortController().signal,
+      );
+      if (typeof result === "string") throw new Error("expected a full tool result");
+      return result;
+    };
+
+    const [markdown, text, html] = await Promise.all([
+      invoke("markdown"),
+      invoke("text"),
+      invoke("html"),
+    ]);
+    expect(markdown.content).toBe("# Heading\n\nBody");
+    expect(text.content).toContain("Heading");
+    expect(text.content).not.toContain("# Heading");
+    expect(text.content).not.toContain("<h1>");
+    expect(html.content).toContain("<h1>Heading</h1>");
   });
 });
