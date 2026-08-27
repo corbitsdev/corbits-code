@@ -1,3 +1,12 @@
 {
-    "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "Gustav-Simonsson",
+      "id": 293096,
+      "comment_id": 5433345740,
+      "created_at": "2026-08-27T01:51:15Z",
+      "repoId": 1252558542,
+      "pullRequestNo": 696
+    }
+  ]
 }
