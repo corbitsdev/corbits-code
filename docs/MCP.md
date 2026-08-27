@@ -56,11 +56,12 @@ explicitly re-enable the preset or override it with a custom transport-bearing
 
 The preset overlaps with the native `web_search` and `web_fetch` tools. Native
 `web_search` remains lazy and unchanged. When the built-in Exa preset is active,
-the canonical `web_fetch` tool calls Exa MCP's `web_fetch_exa`; the raw
-`mcp__exa__web_fetch_exa` name is hidden to avoid duplicate fetch tools. If the
-built-in Exa connection fails or does not advertise `web_fetch_exa`, `web_fetch`
-returns an explicit Exa MCP error rather than falling back to direct fetch.
-Native direct `web_fetch` is available only when the built-in Exa preset is
+the canonical `web_fetch` tool uses Exa MCP's markdown-returning `web_fetch_exa`
+for markdown requests and the in-process fetcher for text or HTML requests. The
+raw `mcp__exa__web_fetch_exa` name is hidden to avoid duplicate fetch tools. If
+the built-in Exa connection fails or does not advertise `web_fetch_exa`, a
+markdown request returns an explicit Exa MCP error rather than falling back to
+direct fetch. Native direct `web_fetch` is available only when the built-in Exa preset is
 disabled or overridden by a custom `exa` MCP server. Other Exa MCP tools, such as
 `mcp__exa__web_search_exa`, remain exposed through MCP namespacing.
 
