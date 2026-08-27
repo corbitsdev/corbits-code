@@ -27,6 +27,12 @@ export interface CommandContext {
   getSkipPermissions?: () => boolean;
   /** Live-flip skip-permissions and persist `/yolo` as the user-global default. */
   setSkipPermissions?: (value: boolean) => void;
+  /**
+   * Set the context window for the current provider (local models only).
+   * Returns a user-facing status message. The implementation persists the
+   * change to the global settings file.
+   */
+  setContextWindow?: (tokens: number) => string;
 }
 
 export type CommandResult =

@@ -226,4 +226,21 @@ export function registerBuiltInCommands(): void {
       };
     },
   });
+
+  registerCommand({
+    name: "context-size",
+    description: "Set context window size for the current local model (tokens)",
+    argumentHint: "<tokens>",
+    handler: (args, ctx) => {
+      const tokens = Number(args.trim());
+      if (!Number.isFinite(tokens) || tokens <= 0) {
+        return { type: "message", text: "Usage: /context-size <positive-integer>" };
+      }
+      if (ctx.setContextWindow === undefined) {
+        return { type: "message", text: "Context size is not available in this mode." };
+      }
+      const msg = ctx.setContextWindow(tokens);
+      return { type: "message", text: msg };
+    },
+  });
 }

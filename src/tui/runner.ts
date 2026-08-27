@@ -133,7 +133,11 @@ import {
   maskContextMeterWhenNoTurns,
   type CostSummary,
 } from "../cost/cost-summary.js";
-import { contextTokensFromUsage } from "../provider/context-window.js";
+import {
+  contextTokensFromUsage,
+  setProviderContextWindow,
+  setProviderContextOverrides,
+} from "../provider/context-window.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -587,6 +591,17 @@ export function setUpCommandRegistry(
 
 export async function runTUI(initialConfig: Config): Promise<number> {
   let config = initialConfig;
+  // Seed provider context-window overrides from persisted settings so the
+  // model picker shows the user-set value after restart.
+  if (config.settings?.providers) {
+    const overrides: Record<string, number> = {};
+    for (const [providerName, p] of Object.entries(config.settings.providers)) {
+      if (typeof p.contextWindow === "number" && p.contextWindow > 0) {
+        overrides[providerName] = p.contextWindow;
+      }
+    }
+    setProviderContextOverrides(overrides);
+  }
   const inferenceDeps = await createInferenceDependencies();
 
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
@@ -2112,6 +2127,23 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
       beginFeedbackCapture: () => {
         armFeedbackCapture();
+      },
+      setContextWindow: (tokens: number) => {
+        const providerName = config.providerName;
+        const providerSettings = config.settings?.providers?.[providerName];
+        const isLocal = config.keyless || providerSettings?.keyless === true;
+        if (!isLocal) {
+          return "Context size can only be set for local models.";
+        }
+        void persistGlobalSettings("contextWindow", (base) => {
+          const prov = base.providers[providerName];
+          if (prov) {
+            prov.contextWindow = tokens;
+          }
+          return base;
+        });
+        setProviderContextWindow(providerName, tokens);
+        return `Context window set to ${tokens} tokens for ${providerName}.`;
       },
     };
 

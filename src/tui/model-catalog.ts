@@ -235,10 +235,11 @@ function pricingImpact(pricing: PricingCache | null, model: string): string {
   return `${formatPrice(price.inputPricePerToken)} / ${formatPrice(price.outputPricePerToken)} per Mtok${ratioText}.`;
 }
 
-function whatLine(model: string): string {
-  const reasoning = modelReasoningCapability(model);
-  const context = contextWindowFor(model);
-  const confident = hasContextWindowFor(model);
+function whatLine(modelId: string): string {
+  const bare = modelId.includes(":") ? modelId.slice(modelId.indexOf(":") + 1) : modelId;
+  const reasoning = modelReasoningCapability(bare);
+  const context = contextWindowFor(modelId);
+  const confident = hasContextWindowFor(modelId);
   const contextText =
     context > 0
       ? `${Math.round(context / 1000)}k context${confident ? "" : " (estimated)"}`
@@ -268,7 +269,7 @@ export function describeModelCatalogOption(
 
   if (option.warning !== undefined) {
     return {
-      what: whatLine(model),
+      what: whatLine(option.id),
       impact:
         "A Go model reached over the Zen path. Billed as Zen credits, not your Go subscription.",
       tone: "consequence",
@@ -276,7 +277,7 @@ export function describeModelCatalogOption(
   }
 
   return {
-    what: whatLine(model),
+    what: whatLine(option.id),
     impact: pricingImpact(pricing, model),
     tone: "plain",
   };

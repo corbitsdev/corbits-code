@@ -23,8 +23,24 @@ export function contextTokensFromUsage(usage: TokenUsage | undefined): number {
 // Exact model-id match wins over the family heuristics below.
 let contextWindowRegistry: Record<string, number> = {};
 
+// Provider-level overrides for local models set via /context-size.
+// Takes precedence over the model registry and heuristics.
+let providerContextOverrides: Record<string, number | undefined> = {};
+
 export function setModelContextWindows(windows: Record<string, number> | undefined): void {
   contextWindowRegistry = windows ?? {};
+}
+
+export function setProviderContextOverrides(overrides: Record<string, number> | undefined): void {
+  providerContextOverrides = overrides ?? {};
+}
+
+export function setProviderContextWindow(provider: string, tokens?: number): void {
+  if (tokens === undefined) {
+    providerContextOverrides[provider] = undefined;
+  } else {
+    providerContextOverrides[provider] = tokens;
+  }
 }
 
 function heuristicWindow(model: string): number {
@@ -45,6 +61,12 @@ function heuristicWindow(model: string): number {
 // full identity as given, the bare model id, and `canonicalProvider/model` —
 // so a custom-named provider still exact-matches the registry instead of
 // silently missing and falling through to the heuristic.
+function providerFromModel(model: string): string | undefined {
+  const colonIndex = model.indexOf(":");
+  if (colonIndex === -1) return undefined;
+  return model.slice(0, colonIndex);
+}
+
 function lookupCandidates(model: string): string[] {
   const colonIndex = model.indexOf(":");
   if (colonIndex === -1) return [model];
@@ -59,12 +81,20 @@ function lookupCandidates(model: string): string[] {
 /** True when the registry has an entry for `model` under any known form, so a
  * caller can distinguish a confident lookup from the heuristic fallback. */
 export function hasContextWindowFor(model: string): boolean {
+  const provider = providerFromModel(model);
+  if (provider !== undefined && providerContextOverrides[provider] !== undefined) {
+    return true;
+  }
   return lookupCandidates(model).some(
     (candidate) => contextWindowRegistry[candidate] !== undefined,
   );
 }
 
 export function contextWindowFor(model: string): number {
+  const provider = providerFromModel(model);
+  if (provider !== undefined && providerContextOverrides[provider] !== undefined) {
+    return providerContextOverrides[provider];
+  }
   for (const candidate of lookupCandidates(model)) {
     const exact = contextWindowRegistry[candidate];
     if (exact !== undefined) return exact;
