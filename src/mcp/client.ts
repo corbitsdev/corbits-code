@@ -4,9 +4,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { OAuthError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { MCPServerConfig } from "../config/settings.js";
 import { createOAuthProvider, type CorbitsOAuthProvider } from "./oauth-provider.js";
 import { startCallbackServer, type CallbackServer } from "./callback-server.js";
+import { normalizeMCPServerURL } from "./auth-store.js";
+import type { ResolvedMCPServerConfig } from "./exa.js";
 import type { McpToolAnnotations } from "./tool-permissions.js";
 import { buildStdioMcpProcessEnv } from "./stdio-env.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
@@ -37,7 +38,7 @@ export interface MCPConnectOptions {
   signal?: AbortSignal;
 }
 
-function isHttpServer(config: MCPServerConfig): boolean {
+function isHttpServer(config: ResolvedMCPServerConfig): boolean {
   return config.type === "http" || (config.type === undefined && config.url !== undefined);
 }
 
@@ -169,7 +170,7 @@ async function finishClient(
 }
 
 async function connectStdio(
-  config: MCPServerConfig,
+  config: ResolvedMCPServerConfig,
   options: MCPConnectOptions,
 ): Promise<MCPConnectResult> {
   if (config.command === undefined)
@@ -197,37 +198,45 @@ async function connectStdio(
 }
 
 async function connectHttp(
-  config: MCPServerConfig,
+  config: ResolvedMCPServerConfig,
   options: MCPConnectOptions,
 ): Promise<MCPConnectResult> {
   if (config.url === undefined)
     return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
-  const url = new URL(config.url);
-  const callback = await startCallbackServer(config.name);
-  const authProvider = await createOAuthProvider({
-    serverName: config.name,
-    redirectUrl: callback.redirectUrl,
-    onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
-    onAuthorizationState: callback.expectState,
-  });
-  const makeTransport = (): Transport =>
-    new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
+  const normalizedURL = normalizeMCPServerURL(config.url);
+  const url = new URL(normalizedURL);
+  let authContext: HTTPAuthContext | undefined;
+  let makeTransport: () => Transport;
+  if (config.oauth === false) {
+    makeTransport = () => new StreamableHTTPClientTransport(url) as unknown as Transport;
+  } else {
+    const callback = await startCallbackServer(config.name);
+    const authProvider = await createOAuthProvider({
+      serverName: config.name,
+      serverURL: normalizedURL,
+      redirectUrl: callback.redirectUrl,
+      onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
+      onAuthorizationState: callback.expectState,
+    });
+    makeTransport = () =>
+      new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
+    authContext = {
+      url,
+      authProvider,
+      callback,
+      interactive: options.onAuthURL !== undefined,
+      serverName: config.name,
+      ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    };
+  }
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
-  const authContext: HTTPAuthContext = {
-    url,
-    authProvider,
-    callback,
-    interactive: options.onAuthURL !== undefined,
-    serverName: config.name,
-    ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
-    ...(options.signal !== undefined ? { signal: options.signal } : {}),
-  };
   try {
     await withHTTPAuthorizationRecovery(authContext, () => client.connect(makeTransport()));
     return { ok: true, client: await finishClient(client, config.name, authContext) };
   } catch (err) {
     await client.close().catch(() => undefined);
-    callback.close();
+    authContext?.callback.close();
     return {
       ok: false,
       serverName: config.name,
@@ -237,14 +246,14 @@ async function connectHttp(
 }
 
 export async function connectMCPServer(
-  config: MCPServerConfig,
+  config: ResolvedMCPServerConfig,
   options: MCPConnectOptions = {},
 ): Promise<MCPConnectResult> {
   return isHttpServer(config) ? connectHttp(config, options) : connectStdio(config, options);
 }
 
 export async function connectMCPServers(
-  configs: MCPServerConfig[],
+  configs: ResolvedMCPServerConfig[],
   onWarning: (message: string) => void,
   options: MCPConnectOptions = {},
 ): Promise<MCPClient[]> {
