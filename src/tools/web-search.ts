@@ -5,10 +5,12 @@ import type { ToolDefinition } from "@intx/types/runtime";
 
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import type { MCPServerConfig } from "../config/settings.js";
+import { EXA_MCP_URL } from "../mcp/exa.js";
+
+export { EXA_MCP_URL } from "../mcp/exa.js";
 
 // Endpoint truth resolved from OpenCode's source (packages/opencode/src/tool/mcp-websearch.ts)
 // at implementation time: both are public, keyless-by-default hosted MCP servers.
-export const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 export const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
 
 export type WebSearchProviderId = "exa" | "parallel";

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -17,25 +18,44 @@ export interface MCPAuthState {
   codeVerifier?: string;
 }
 
+export interface MCPAuthIdentity {
+  serverName: string;
+  serverURL: string;
+}
+
 export function mcpAuthDir(home: string = homedir()): string {
   return join(home, SETTINGS_DIR_NAME, "mcp-auth");
 }
 
-// File names are derived from the server name, which is operator-controlled and
-// may contain path separators or other unsafe characters; reduce it to a flat
-// slug so it can never escape the auth directory.
-function authFilePath(serverName: string, home: string): string {
-  const slug = serverName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return join(mcpAuthDir(home), `${slug}.json`);
+function legacyServerSlug(serverName: string): string {
+  return serverName.replace(/[^a-zA-Z0-9_-]/g, "_") || "server";
+}
+
+function serverDisplaySlug(serverName: string): string {
+  return legacyServerSlug(serverName).slice(0, 48);
+}
+
+export function normalizeMCPServerURL(serverURL: string): string {
+  const url = new URL(serverURL);
+  url.hash = "";
+  return url.toString();
+}
+
+function authFilePath(identity: MCPAuthIdentity, home: string): string {
+  const normalizedURL = normalizeMCPServerURL(identity.serverURL);
+  const digest = createHash("sha256")
+    .update(JSON.stringify([identity.serverName, normalizedURL]))
+    .digest("hex");
+  return join(mcpAuthDir(home), `${serverDisplaySlug(identity.serverName)}-${digest}.json`);
 }
 
 export async function loadAuthState(
-  serverName: string,
+  identity: MCPAuthIdentity,
   home: string = homedir(),
 ): Promise<MCPAuthState> {
   let raw: string;
   try {
-    raw = await readFile(authFilePath(serverName, home), "utf8");
+    raw = await readFile(authFilePath(identity, home), "utf8");
   } catch (err) {
     if (
       typeof err === "object" &&
@@ -77,11 +97,11 @@ async function writeAuthFile(path: string, state: MCPAuthState): Promise<void> {
 // Full replace — prefer updateAuthState when mutating a single field so concurrent
 // writers merge instead of last-writer-wins on a stale snapshot.
 export async function saveAuthState(
-  serverName: string,
+  identity: MCPAuthIdentity,
   state: MCPAuthState,
   home: string = homedir(),
 ): Promise<void> {
-  const path = authFilePath(serverName, home);
+  const path = authFilePath(identity, home);
   const previous = updateChains.get(path) ?? Promise.resolve();
   const write = previous.then(
     () => writeAuthFile(path, state),
@@ -100,21 +120,21 @@ export async function saveAuthState(
 // Load → mutate → save under the per-file chain. Mutator receives a mutable
 // snapshot of the latest on-disk state; the returned object is what was written.
 export async function updateAuthState(
-  serverName: string,
+  identity: MCPAuthIdentity,
   mutator: (state: MCPAuthState) => void,
   home: string = homedir(),
 ): Promise<MCPAuthState> {
-  const path = authFilePath(serverName, home);
+  const path = authFilePath(identity, home);
   const previous = updateChains.get(path) ?? Promise.resolve();
   const run = previous.then(
     async () => {
-      const state = await loadAuthState(serverName, home);
+      const state = await loadAuthState(identity, home);
       mutator(state);
       await writeAuthFile(path, state);
       return state;
     },
     async () => {
-      const state = await loadAuthState(serverName, home);
+      const state = await loadAuthState(identity, home);
       mutator(state);
       await writeAuthFile(path, state);
       return state;

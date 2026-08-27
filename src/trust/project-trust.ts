@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { type } from "arktype";
 import { getLogger } from "@intx/log";
 import type { MCPServerConfig } from "../config/settings.js";
+import { isBuiltinExaMCPServer } from "../mcp/exa.js";
 import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
@@ -317,6 +318,10 @@ export async function filterMcpServersForConnect(
   const allowed: MCPServerConfig[] = [];
   let store = opts.store;
   for (const server of servers) {
+    if (isBuiltinExaMCPServer(server)) {
+      allowed.push(server);
+      continue;
+    }
     if (isMcpServerTrusted(store, server)) {
       allowed.push(server);
       continue;
