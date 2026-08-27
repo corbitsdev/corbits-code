@@ -13,6 +13,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-08-27
+
+### Fixed
+
+- `web_fetch` failures now return the same complete result shape and content
+  regardless of whether the default Exa provider or native fetch handles them.
+
 ## [0.3.6] - 2026-08-27
 
 ### Fixed
