@@ -27,6 +27,8 @@ const WebFetchArgs = type({
   "timeout?": "number",
 });
 
+type WebFetchFormat = "text" | "markdown" | "html";
+
 export const webFetchDefinition: ToolDefinition = {
   name: "web_fetch",
   description:
@@ -49,7 +51,7 @@ export const webFetchDefinition: ToolDefinition = {
   },
 };
 
-function acceptHeaderFor(format: "text" | "markdown" | "html"): string {
+function acceptHeaderFor(format: WebFetchFormat): string {
   if (format === "html") return "text/html,application/xhtml+xml";
   return "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,*/*;q=0.5";
 }
@@ -102,7 +104,7 @@ async function readCapped(
 async function fetchOnce(
   url: string,
   userAgent: string,
-  format: "text" | "markdown" | "html",
+  format: WebFetchFormat,
   timeoutMs: number,
 ): Promise<Response> {
   const controller = new AbortController();
@@ -126,7 +128,7 @@ export type WebFetchOutcome =
 
 export async function runWebFetch(
   rawUrl: string,
-  format: "text" | "markdown" | "html",
+  format: WebFetchFormat,
   timeoutSeconds: number,
 ): Promise<WebFetchOutcome> {
   const timeoutMs = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_S) * 1000;
@@ -235,35 +237,92 @@ export function createExaMCPWebFetchTool(args: {
           isError: true,
         };
       }
-      const connection = await args.connect(signal);
-      if (!connection.ok) {
-        return {
-          callId: call.id,
-          content: `Error: Exa MCP web_fetch unavailable: ${connection.error}`,
-          isError: true,
-        };
-      }
-      if (!connection.client.tools.some((tool) => tool.name === "web_fetch_exa")) {
-        return {
-          callId: call.id,
-          content:
-            "Error: Exa MCP web_fetch unavailable: connected Exa server did not advertise web_fetch_exa.",
-          isError: true,
-        };
-      }
+
+      let url: URL;
       try {
-        const content = await connection.client.call(
-          "web_fetch_exa",
-          { urls: [parsed.url] },
-          signal,
-        );
-        return { callId: call.id, content };
+        url = new URL(parsed.url);
+      } catch {
+        return {
+          callId: call.id,
+          content: "Error: web_fetch URL must use http or https.",
+          isError: true,
+        };
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return {
+          callId: call.id,
+          content: "Error: web_fetch URL must use http or https.",
+          isError: true,
+        };
+      }
+
+      const format = parsed.format ?? "markdown";
+      const timeout = parsed.timeout ?? DEFAULT_TIMEOUT_S;
+      if (format !== "markdown") {
+        const outcome = await runWebFetch(parsed.url, format, timeout);
+        if (!outcome.ok) {
+          return { callId: call.id, content: `Error: ${outcome.error}`, isError: true };
+        }
+        const suffix = outcome.truncated
+          ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]`
+          : "";
+        return { callId: call.id, content: outcome.content + suffix };
+      }
+
+      const timeoutSeconds = Math.min(Math.max(timeout, 1), MAX_TIMEOUT_S);
+      const timeoutController = new AbortController();
+      const timeoutError = new Error("web_fetch timed out");
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          timeoutController.abort();
+          reject(timeoutError);
+        }, timeoutSeconds * 1000);
+      });
+      const callSignal = AbortSignal.any([signal, timeoutController.signal]);
+      try {
+        return await Promise.race([
+          (async (): Promise<ToolResult> => {
+            const connection = await args.connect(callSignal);
+            if (!connection.ok) {
+              return {
+                callId: call.id,
+                content: `Error: Exa MCP web_fetch unavailable: ${connection.error}`,
+                isError: true,
+              };
+            }
+            if (!connection.client.tools.some((tool) => tool.name === "web_fetch_exa")) {
+              return {
+                callId: call.id,
+                content:
+                  "Error: Exa MCP web_fetch unavailable: connected Exa server did not advertise web_fetch_exa.",
+                isError: true,
+              };
+            }
+            const content = await connection.client.call(
+              "web_fetch_exa",
+              { urls: [parsed.url] },
+              callSignal,
+            );
+            return { callId: call.id, content };
+          })(),
+          timeoutPromise,
+        ]);
       } catch (err) {
+        if (err === timeoutError) {
+          return {
+            callId: call.id,
+            content: `Error: Request to ${parsed.url} timed out after ${timeoutSeconds}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
+            isError: true,
+          };
+        }
         return {
           callId: call.id,
           content: `Error: Exa MCP web_fetch failed: ${err instanceof Error ? err.message : String(err)}`,
           isError: true,
         };
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
       }
     },
   };
