@@ -1,11 +1,12 @@
 import { type } from "arktype";
 import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
-import type { ToolDefinition } from "@intx/types/runtime";
+import type { ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { checkUrlForSsrf } from "./ssrf-guard.js";
 import { htmlToMarkdown, htmlToText } from "./html-convert.js";
 import { COMMAND_NAME } from "../branding.js";
+import type { MCPClient } from "../mcp/client.js";
 import pkg from "../../package.json" with { type: "json" };
 
 export const MAX_FETCH_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -29,7 +30,7 @@ const WebFetchArgs = type({
 export const webFetchDefinition: ToolDefinition = {
   name: "web_fetch",
   description:
-    "Fetch a web page over HTTP(S) and return its content. Runs in-process with no subprocess or API key. Converts HTML to markdown by default. Use for documentation, articles, and other external references.",
+    "Fetch a web page over HTTP(S) and return its content. Uses built-in Exa MCP by default, or a direct in-process fetch when that built-in is disabled or overridden. Converts HTML to markdown by default. Use for documentation, articles, and other external references.",
   inputSchema: {
     type: "object",
     properties: {
@@ -214,4 +215,56 @@ export function createWebFetchTool(): AgentTool {
       return outcome.content + suffix;
     },
   });
+}
+
+type ExaMCPWebFetchConnection = { ok: true; client: MCPClient } | { ok: false; error: string };
+
+export function createExaMCPWebFetchTool(args: {
+  connect: (signal: AbortSignal) => Promise<ExaMCPWebFetchConnection>;
+}): AgentTool {
+  return {
+    kind: "full",
+    definition: webFetchDefinition,
+    handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
+      const parsed = WebFetchArgs(call.arguments);
+      if (parsed instanceof type.errors) {
+        return {
+          callId: call.id,
+          content:
+            "Error: web_fetch requires a non-empty url (http/https); format and timeout are optional.",
+          isError: true,
+        };
+      }
+      const connection = await args.connect(signal);
+      if (!connection.ok) {
+        return {
+          callId: call.id,
+          content: `Error: Exa MCP web_fetch unavailable: ${connection.error}`,
+          isError: true,
+        };
+      }
+      if (!connection.client.tools.some((tool) => tool.name === "web_fetch_exa")) {
+        return {
+          callId: call.id,
+          content:
+            "Error: Exa MCP web_fetch unavailable: connected Exa server did not advertise web_fetch_exa.",
+          isError: true,
+        };
+      }
+      try {
+        const content = await connection.client.call(
+          "web_fetch_exa",
+          { urls: [parsed.url] },
+          signal,
+        );
+        return { callId: call.id, content };
+      } catch (err) {
+        return {
+          callId: call.id,
+          content: `Error: Exa MCP web_fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+        };
+      }
+    },
+  };
 }

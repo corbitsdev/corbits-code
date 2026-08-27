@@ -13,6 +13,7 @@ import { mcpToolName } from "./tool-name.js";
 export interface McpSpillOptions {
   getBlobWriter?: () => SpillBlobWriter | undefined;
   getContextDir?: () => string | undefined;
+  excludeToolNames?: readonly string[];
 }
 
 // MCP results never reach the posix runner, so the secret-scrub and truncation
@@ -34,37 +35,40 @@ export function mcpClientToAgentTools(
   gate: PermissionGate,
   spillOptions: McpSpillOptions = {},
 ): AgentTool[] {
-  const { getBlobWriter, getContextDir } = spillOptions;
+  const { getBlobWriter, getContextDir, excludeToolNames = [] } = spillOptions;
+  const excluded = new Set(excludeToolNames);
 
-  return client.tools.map((tool) => ({
-    kind: "full" as const,
-    definition: {
-      name: mcpToolName(client.serverName, tool.name),
-      description: `[${client.serverName}] ${tool.description}`,
-      inputSchema: tool.inputSchema,
-    },
-    handler: (call: ToolCall, signal: AbortSignal): Promise<ToolResult> =>
-      gateToolCall(gate, call, signal, async () => {
-        try {
-          const content = await client.call(tool.name, call.arguments, signal);
-          const writeBlob = getBlobWriter?.();
-          const contextDir = getContextDir?.();
-          const spill =
-            writeBlob !== undefined
-              ? {
-                  callId: call.id,
-                  writeBlob,
-                  ...(contextDir !== undefined ? { contextDir } : {}),
-                }
-              : undefined;
-          return { callId: call.id, content: await sanitizeMcpResultContent(content, spill) };
-        } catch (err) {
-          return {
-            callId: call.id,
-            content: err instanceof Error ? err.message : String(err),
-            isError: true,
-          };
-        }
-      }),
-  }));
+  return client.tools
+    .filter((tool) => !excluded.has(tool.name))
+    .map((tool) => ({
+      kind: "full" as const,
+      definition: {
+        name: mcpToolName(client.serverName, tool.name),
+        description: `[${client.serverName}] ${tool.description}`,
+        inputSchema: tool.inputSchema,
+      },
+      handler: (call: ToolCall, signal: AbortSignal): Promise<ToolResult> =>
+        gateToolCall(gate, call, signal, async () => {
+          try {
+            const content = await client.call(tool.name, call.arguments, signal);
+            const writeBlob = getBlobWriter?.();
+            const contextDir = getContextDir?.();
+            const spill =
+              writeBlob !== undefined
+                ? {
+                    callId: call.id,
+                    writeBlob,
+                    ...(contextDir !== undefined ? { contextDir } : {}),
+                  }
+                : undefined;
+            return { callId: call.id, content: await sanitizeMcpResultContent(content, spill) };
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
+          }
+        }),
+    }));
 }

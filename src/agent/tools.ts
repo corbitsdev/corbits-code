@@ -22,7 +22,8 @@ import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
 import type { SpillBlobWriter } from "../plugins/result-truncation-plugin.js";
-import { connectMCPServer, type MCPClient } from "../mcp/client.js";
+import { connectMCPServer, type MCPClient, type MCPConnectResult } from "../mcp/client.js";
+import { createExaMCPServerConfig, isBuiltinExaMCPServer } from "../mcp/exa.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
@@ -54,7 +55,7 @@ import {
 } from "../subagent/lifecycle-tools.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
-import { createWebFetchTool } from "../tools/web-fetch.js";
+import { createExaMCPWebFetchTool, createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-search.js";
 import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
@@ -209,7 +210,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     cwd,
     permissionGate,
     onOperatorGate,
-    mcpServers = [],
+    mcpServers = [createExaMCPServerConfig()],
     mcpServersSource = "none",
     projectTrust,
     requestMcpTrust,
@@ -228,8 +229,45 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
   const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
+  const builtinExaEnabled = mcpServers.some(isBuiltinExaMCPServer);
+  let resolveBuiltinExaConnection: ((result: MCPConnectResult) => void) | undefined;
+  const builtinExaConnection = builtinExaEnabled
+    ? new Promise<MCPConnectResult>((resolve) => {
+        resolveBuiltinExaConnection = resolve;
+      })
+    : undefined;
+
+  const waitForBuiltinExaConnection = async (signal: AbortSignal): Promise<MCPConnectResult> => {
+    if (builtinExaConnection === undefined) {
+      return { ok: false, serverName: "exa", error: "built-in Exa MCP is not enabled" };
+    }
+    if (signal.aborted) {
+      return {
+        ok: false,
+        serverName: "exa",
+        error: "aborted while waiting for Exa MCP connection",
+      };
+    }
+    return new Promise<MCPConnectResult>((resolve) => {
+      const onAbort = (): void => {
+        resolve({
+          ok: false,
+          serverName: "exa",
+          error: "aborted while waiting for Exa MCP connection",
+        });
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      builtinExaConnection.then((result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      });
+    });
+  };
 
   const inheritedMcpTools: AgentTool[] = [];
+  if (builtinExaEnabled) {
+    inheritedMcpTools.push(createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection }));
+  }
 
   const posixTools = createPosixTools({
     cwd,
@@ -374,7 +412,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       allowOutside: () => permissionGate.getSkipPermissions(),
     }),
     createUseSkillTool(cwd, skillDirs, args.telemetry),
-    createWebFetchTool(),
+    builtinExaEnabled
+      ? createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection })
+      : createWebFetchTool(),
     createWebSearchTool(),
     ...orchestratorTools,
     stringTool({
@@ -491,7 +531,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     await Promise.all(
       toConnect.map(async (config) => {
         callbacks.onStatus({ name: config.name, state: "connecting" });
-        const result = await connectMCPServer(config, {
+        const connection = connectMCPServer(config, {
           stderr: "ignore",
           ...(callbacks.interactiveAuth
             ? {
@@ -513,6 +553,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           },
           ...(signal !== undefined ? { signal } : {}),
         });
+        if (isBuiltinExaMCPServer(config)) {
+          connection.then((result) => resolveBuiltinExaConnection?.(result));
+        }
+        const result = await connection;
         if (!result.ok) {
           callbacks.onStatus({ name: config.name, state: "failed", error: result.error });
           return;
@@ -522,6 +566,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const mcpTools = mcpClientToAgentTools(result.client, permissionGate, {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
+          ...(isBuiltinExaMCPServer(config) ? { excludeToolNames: ["web_fetch_exa"] } : {}),
         });
         inheritedMcpTools.push(...mcpTools);
         dynamicRunner.addTools(mcpTools);
