@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import type { MCPClient } from "../mcp/client.js";
-import { createExaMCPWebFetchTool, runWebFetch, MAX_FETCH_BYTES } from "./web-fetch.js";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import {
+  createExaMCPWebFetchTool,
+  createWebFetchTool,
+  runWebFetch,
+  MAX_FETCH_BYTES,
+} from "./web-fetch.js";
 
 let server: Server;
 let baseUrl: string;
@@ -154,8 +160,55 @@ describe("createExaMCPWebFetchTool", () => {
       callId: "timeout-call",
       content:
         "Error: Request to https://example.com timed out after 1s. Retry with a larger timeout parameter (up to 120s) if the site is slow.",
-      isError: true,
     });
+  });
+
+  test("matches the complete native dynamic-runner result for protocol failures", async () => {
+    const exa = createTool(async () => "unused");
+    const nativeRunner = createDynamicToolRunner([createWebFetchTool()]);
+    const exaRunner = createDynamicToolRunner([exa]);
+    const call = {
+      id: "protocol-call",
+      name: "web_fetch",
+      arguments: { url: "ftp://example.com/file" },
+    };
+
+    const nativeResult = await nativeRunner.run(call, new AbortController().signal);
+    const exaResult = await exaRunner.run(call, new AbortController().signal);
+
+    expect(nativeResult).toEqual({
+      callId: "protocol-call",
+      content: 'Error: Unsupported protocol "ftp:"; only http and https are allowed.',
+    });
+    expect(exaResult).toEqual(nativeResult);
+  });
+
+  test("matches the complete native dynamic-runner result for timeout failures", async () => {
+    handler = (_req, _res) => undefined;
+    const exa = createTool(
+      async (_name, _args, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const nativeRunner = createDynamicToolRunner([createWebFetchTool()]);
+    const exaRunner = createDynamicToolRunner([exa]);
+    const call = {
+      id: "timeout-call",
+      name: "web_fetch",
+      arguments: { url: `${baseUrl}/`, timeout: 1 },
+    };
+
+    const [nativeResult, exaResult] = await Promise.all([
+      nativeRunner.run(call, new AbortController().signal),
+      exaRunner.run(call, new AbortController().signal),
+    ]);
+
+    expect(nativeResult).toEqual({
+      callId: "timeout-call",
+      content: `Error: Request to ${baseUrl}/ timed out after 1s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
+    });
+    expect(exaResult).toEqual(nativeResult);
   });
 
   test("returns distinct markdown, text, and html representations", async () => {
