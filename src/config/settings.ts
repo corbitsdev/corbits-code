@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { SETTINGS_DIR_NAME } from "../branding.js";
+import { EXA_MCP_SERVER_NAME } from "../mcp/exa.js";
 import {
   REASONING_EFFORTS,
   isReasoningEffort,
@@ -73,7 +74,7 @@ export const DEFAULT_RECENT_MODELS_SHOWN = 5;
 export interface Settings {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
-  mcpServers?: MCPServerConfig[];
+  mcpServers?: MCPServerSettingsEntry[];
   // Per-phase model overrides for workflows. Keyed by profile name, then by
   // workflow step profile key. Example:
   //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
@@ -305,13 +306,20 @@ export interface MCPServerConfig {
   url?: string;
 }
 
+export interface ExaMCPPresetConfig {
+  name: typeof EXA_MCP_SERVER_NAME;
+  enabled: boolean;
+}
+
+export type MCPServerSettingsEntry = MCPServerConfig | ExaMCPPresetConfig;
+
 // Per-repo override. Selection only for provider/model, but may also declare
 // MCP servers to connect at session start.
 export interface LocalSettings {
   provider?: string;
   model?: string;
   reasoningEffort?: ReasoningEffort;
-  mcpServers?: MCPServerConfig[];
+  mcpServers?: MCPServerSettingsEntry[];
   sessionMode?: SessionMode;
   // Per-project env vars applied to the run_shell tool's spawn environment (in
   // addition to the process's own inherited environment). Configuration
@@ -456,6 +464,7 @@ const SettingsSchema = type({
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
 // a cross-field constraint enforced after the structural check.
 const McpEntrySchema = type({
+  "enabled?": "boolean",
   "type?": "'stdio' | 'http'",
   "command?": "string",
   "args?": "string[]",
@@ -492,21 +501,38 @@ export function isSettings(value: unknown): value is Settings {
   return true;
 }
 
-function isMCPServerConfigEntry(value: unknown): value is Omit<MCPServerConfig, "name"> {
+function isMCPServerConfigEntry(
+  name: string,
+  value: unknown,
+): value is Omit<MCPServerSettingsEntry, "name"> {
   if (!McpEntrySchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
+  if (s.enabled !== undefined) {
+    return (
+      name === EXA_MCP_SERVER_NAME &&
+      s.type === undefined &&
+      s.command === undefined &&
+      s.args === undefined &&
+      s.env === undefined &&
+      s.url === undefined
+    );
+  }
   // Exactly one transport must be specified.
   const isHttp = s.type === "http" || (s.type === undefined && typeof s.url === "string");
   return isHttp ? typeof s.url === "string" : typeof s.command === "string";
 }
 
-function isMCPServerConfigWithKey(value: unknown): value is MCPServerConfig {
+function isMCPServerConfigWithKey(value: unknown): value is MCPServerSettingsEntry {
   if (typeof value !== "object" || value === null) return false;
-  if (typeof (value as Record<string, unknown>).name !== "string") return false;
-  return isMCPServerConfigEntry(value);
+  const name = (value as Record<string, unknown>).name;
+  if (typeof name !== "string") return false;
+  return isMCPServerConfigEntry(name, value);
 }
 
-function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPServerConfig {
+function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPServerSettingsEntry {
+  if (entry.enabled !== undefined) {
+    return { name: EXA_MCP_SERVER_NAME, enabled: entry.enabled as boolean };
+  }
   return {
     name,
     ...(entry.type !== undefined ? { type: entry.type as "stdio" | "http" } : {}),
@@ -519,7 +545,7 @@ function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPSer
 
 // Accepts both array format [{ name, command, ... }] and object format
 // { "name": { command, ... } }. Returns the normalized array.
-export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefined {
+export function normalizeMcpServers(value: unknown): MCPServerSettingsEntry[] | undefined {
   if (value === undefined) return undefined;
   if (Array.isArray(value)) {
     if (!value.every(isMCPServerConfigWithKey)) return undefined;
@@ -530,10 +556,10 @@ export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefin
   }
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
-    const entries: MCPServerConfig[] = [];
+    const entries: MCPServerSettingsEntry[] = [];
     for (const [key, val] of Object.entries(obj)) {
       if (typeof key !== "string") return undefined;
-      if (!isMCPServerConfigEntry(val)) return undefined;
+      if (!isMCPServerConfigEntry(key, val)) return undefined;
       entries.push(normalizeMcpEntry(key, val as Record<string, unknown>));
     }
     return entries;

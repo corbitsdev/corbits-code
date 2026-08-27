@@ -207,8 +207,11 @@ export function buildSubAgentPrimarySource(
 // special-case: they pass through applyCapabilityFilter by name like any
 // other tool (an "explore" intent that wants a read-only leaf can still
 // exclude them explicitly via capabilities.tools).
-export function coreSubAgentWebTools(): AgentTool[] {
-  return [createWebFetchTool(), createWebSearchTool()];
+export function coreSubAgentWebTools(inherited: readonly AgentTool[] = []): AgentTool[] {
+  const inheritedNames = new Set(inherited.map((tool) => tool.definition.name));
+  return [createWebFetchTool(), createWebSearchTool()].filter(
+    (tool) => !inheritedNames.has(tool.definition.name),
+  );
 }
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
@@ -479,9 +482,9 @@ async function runSubAgentInner(
       ),
     }));
 
-    tools = [...tools, ...coreSubAgentWebTools()];
-
     const inherited = params.inheritMcpTools?.() ?? [];
+    tools = [...tools, ...coreSubAgentWebTools(inherited)];
+
     if (inherited.length > 0) {
       tools = [...tools, ...inherited];
     }

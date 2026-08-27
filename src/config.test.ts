@@ -14,6 +14,7 @@ import {
   KEYLESS_API_KEY,
   loadConfig,
   providerCatalogToSettings,
+  resolveMcpServers,
   runtimeSettingsWithCatalog,
   SOURCE_MAX_TOKENS,
 } from "./config/index.js";
@@ -27,6 +28,10 @@ import {
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
 import { generateSessionId, initSessionDir } from "./session/index.js";
 import { saveState } from "./session/state.js";
+import { filterMcpServersForConnect } from "./trust/project-trust.js";
+import { createExaMCPServerConfig } from "./mcp/exa.js";
+
+const BUILTIN_EXA_MCP = createExaMCPServerConfig();
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {
@@ -42,7 +47,7 @@ const NO_SETTINGS = join(tmpdir(), "corbits-tests-missing", ".corbits", "setting
 
 // Writes a minimal valid global settings file with a single provider and
 // returns its path. Provider resolution reads exclusively from such files.
-async function writeGlobalSettings(cwd: string): Promise<string> {
+async function writeGlobalSettings(cwd: string, mcpServers?: unknown): Promise<string> {
   const path = join(cwd, "global.json");
   await writeFile(
     path,
@@ -55,6 +60,7 @@ async function writeGlobalSettings(cwd: string): Promise<string> {
           models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
         },
       },
+      ...(mcpServers !== undefined ? { mcpServers } : {}),
     }),
   );
   return path;
@@ -85,6 +91,116 @@ describe("loadConfig", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("injects the built-in Exa MCP server when no list disables or overrides it", async () => {
+    expect(resolveMcpServers(undefined, undefined)).toEqual([BUILTIN_EXA_MCP]);
+
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["--cwd", cwd, "hello"], { globalSettingsPath: globalPath });
+      assertConfigured(config);
+      expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
+      expect(config.mcpServersSource).toBe("none");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("expands enabled Exa preset and honors explicit disable", () => {
+    expect(resolveMcpServers([{ name: "exa", enabled: true }], undefined)).toEqual([
+      BUILTIN_EXA_MCP,
+    ]);
+    expect(resolveMcpServers([{ name: "exa", enabled: false }], undefined)).toEqual([]);
+  });
+
+  test("keeps global and local MCP source at list level", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd, { exa: { enabled: true } });
+      const globalConfig = await loadConfig(["--cwd", cwd, "hello"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(globalConfig);
+      expect(globalConfig.mcpServers).toEqual([BUILTIN_EXA_MCP]);
+      expect(globalConfig.mcpServersSource).toBe("global");
+
+      await writeGlobalSettings(cwd, { exa: { enabled: false } });
+      const disabledConfig = await loadConfig(["--cwd", cwd, "hello"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(disabledConfig);
+      expect(disabledConfig.mcpServers).toEqual([]);
+      expect(disabledConfig.mcpServersSource).toBe("global");
+
+      await writeGlobalSettings(cwd, { exa: { enabled: true } });
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
+      await writeFile(
+        join(cwd, ".corbits", "settings.json"),
+        JSON.stringify({ mcpServers: { local: { command: "local-mcp" } } }),
+      );
+      const localConfig = await loadConfig(["--cwd", cwd, "hello"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(localConfig);
+      expect(localConfig.mcpServers).toEqual([
+        BUILTIN_EXA_MCP,
+        { name: "local", command: "local-mcp" },
+      ]);
+      expect(localConfig.mcpServersSource).toBe("local");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves custom Exa and lets local omission inherit global disable", () => {
+    expect(
+      resolveMcpServers(
+        [{ name: "exa", type: "http", url: "https://example.test/mcp" }],
+        undefined,
+      ),
+    ).toEqual([{ name: "exa", type: "http", url: "https://example.test/mcp" }]);
+    expect(
+      resolveMcpServers(
+        [{ name: "exa", type: "http", url: "https://example.test/mcp" }],
+        [{ name: "local", command: "local-mcp" }],
+      ),
+    ).toEqual([{ name: "local", command: "local-mcp" }]);
+    expect(
+      resolveMcpServers(
+        [{ name: "exa", enabled: false }],
+        [{ name: "local", command: "local-mcp" }],
+      ),
+    ).toEqual([{ name: "local", command: "local-mcp" }]);
+    expect(
+      resolveMcpServers([{ name: "exa", enabled: false }], [{ name: "exa", enabled: true }]),
+    ).toEqual([BUILTIN_EXA_MCP]);
+    expect(
+      resolveMcpServers(
+        [{ name: "exa", type: "http", url: "https://example.test/mcp" }],
+        [{ name: "exa", enabled: false }],
+      ),
+    ).toEqual([]);
+    expect(
+      resolveMcpServers(
+        [{ name: "exa", enabled: false }],
+        [{ name: "exa", type: "http", url: "https://local.example.test/mcp" }],
+      ),
+    ).toEqual([{ name: "exa", type: "http", url: "https://local.example.test/mcp" }]);
+  });
+
+  test("local custom MCP requires trust while built-in Exa bypasses project trust", async () => {
+    const servers = resolveMcpServers(undefined, [{ name: "local", command: "local-mcp" }]);
+
+    expect(servers).toEqual([BUILTIN_EXA_MCP, { name: "local", command: "local-mcp" }]);
+    await expect(
+      filterMcpServersForConnect(servers, {
+        source: "local",
+        cwd: "/repo/without-trust-grant",
+        store: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+      }),
+    ).resolves.toEqual([BUILTIN_EXA_MCP]);
   });
 
   test("throws when no provider can be resolved (allowUnconfigured false)", async () => {

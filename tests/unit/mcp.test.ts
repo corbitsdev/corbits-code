@@ -288,15 +288,20 @@ describe("normalizeMcpServers with http transport", () => {
   });
 });
 
+const acmeAuthIdentity = { serverName: "acme", serverURL: "https://mcp.acme.app/mcp" };
+
 describe("MCP auth store", () => {
   const tokens: OAuthTokens = { access_token: "tok", token_type: "Bearer" };
 
   test("round-trips state through disk", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      expect(await loadAuthState("acme", home)).toEqual({});
-      await saveAuthState("acme", { tokens, codeVerifier: "verifier" }, home);
-      expect(await loadAuthState("acme", home)).toEqual({ tokens, codeVerifier: "verifier" });
+      expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({});
+      await saveAuthState(acmeAuthIdentity, { tokens, codeVerifier: "verifier" }, home);
+      expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({
+        tokens,
+        codeVerifier: "verifier",
+      });
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -305,8 +310,13 @@ describe("MCP auth store", () => {
   test("isolates state per server name", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      await saveAuthState("acme", { tokens }, home);
-      expect(await loadAuthState("github", home)).toEqual({});
+      await saveAuthState(acmeAuthIdentity, { tokens }, home);
+      expect(
+        await loadAuthState(
+          { serverName: "github", serverURL: "https://mcp.github.example/mcp" },
+          home,
+        ),
+      ).toEqual({});
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -320,6 +330,7 @@ describe("OAuth provider", () => {
       const seen: { name: string; url: string }[] = [];
       const provider = await createOAuthProvider({
         serverName: "acme",
+        serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:5599/callback",
         onAuthURL: (name, url) => seen.push({ name, url }),
         home,
@@ -340,6 +351,7 @@ describe("OAuth provider", () => {
     try {
       const provider = await createOAuthProvider({
         serverName: "acme",
+        serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
         onAuthURL: () => {},
         home,
@@ -357,6 +369,7 @@ describe("OAuth provider", () => {
     try {
       const first = await createOAuthProvider({
         serverName: "acme",
+        serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
         onAuthURL: () => {},
         home,
@@ -364,6 +377,7 @@ describe("OAuth provider", () => {
       await first.saveTokens({ access_token: "abc", token_type: "Bearer" });
       const second = await createOAuthProvider({
         serverName: "acme",
+        serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
         onAuthURL: () => {},
         home,
@@ -379,6 +393,7 @@ describe("OAuth provider", () => {
     try {
       const provider = await createOAuthProvider({
         serverName: "acme",
+        serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
         onAuthURL: () => {},
         home,
@@ -396,7 +411,7 @@ describe("OAuth provider", () => {
       expect(provider.tokens()).toBeUndefined();
       expect(() => provider.codeVerifier()).toThrow("No PKCE code verifier saved");
       expect(await provider.state?.()).not.toBe(oldState);
-      expect(await loadAuthState("acme", home)).toEqual({});
+      expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({});
     } finally {
       await rm(home, { recursive: true, force: true });
     }

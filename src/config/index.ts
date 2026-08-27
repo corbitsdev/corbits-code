@@ -56,11 +56,16 @@ import {
   localSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
-  type MCPServerConfig,
+  type MCPServerSettingsEntry,
   type ResolvedProvider,
   type Settings,
   type ProviderSettings,
 } from "./settings.js";
+import {
+  EXA_MCP_SERVER_NAME,
+  createExaMCPServerConfig,
+  type ResolvedMCPServerConfig,
+} from "../mcp/exa.js";
 import { resolveProfile } from "./profiles.js";
 
 // The per-call token ceiling for the inference source. Lives here so agent
@@ -74,6 +79,46 @@ export const SOURCE_MAX_TOKENS = 16384;
 // apiKey string; the value is injected as `Bearer <key>` by the harness but
 // keyless servers ignore it entirely.
 export const KEYLESS_API_KEY = "keyless";
+
+function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
+  return servers?.some((server) => server.name === EXA_MCP_SERVER_NAME) === true;
+}
+
+function globalExaSuppressesBuiltin(servers: MCPServerSettingsEntry[] | undefined): boolean {
+  return (
+    servers?.some(
+      (server) =>
+        server.name === EXA_MCP_SERVER_NAME && (!("enabled" in server) || !server.enabled),
+    ) === true
+  );
+}
+
+function expandMcpServers(servers: MCPServerSettingsEntry[]): ResolvedMCPServerConfig[] {
+  return servers.flatMap((server) => {
+    if (!("enabled" in server)) return [server];
+    return server.enabled ? [createExaMCPServerConfig()] : [];
+  });
+}
+
+export function resolveMcpServers(
+  globalServers: MCPServerSettingsEntry[] | undefined,
+  localServers: MCPServerSettingsEntry[] | undefined,
+): ResolvedMCPServerConfig[] {
+  if (localServers !== undefined) {
+    const localResolved = expandMcpServers(localServers);
+    if (hasExaEntry(localServers) || globalExaSuppressesBuiltin(globalServers))
+      return localResolved;
+    return [createExaMCPServerConfig(), ...localResolved];
+  }
+
+  if (globalServers !== undefined) {
+    const globalResolved = expandMcpServers(globalServers);
+    if (hasExaEntry(globalServers)) return globalResolved;
+    return [createExaMCPServerConfig(), ...globalResolved];
+  }
+
+  return [createExaMCPServerConfig()];
+}
 
 // Build the OpenAI-compatible InferenceSource the runtime consumes. `id` is the
 // user-facing name for this source (e.g. "zen"); `provider` is always
@@ -329,11 +374,8 @@ export interface Config {
   // Per-call total wall-clock cap in ms (default 600_000 in the harness).
   totalTimeoutMs?: number;
   reasoningEffort?: ReasoningEffort;
-  mcpServers?: MCPServerConfig[];
-  /**
-   * Where `mcpServers` came from. Local project settings replace global MCP
-   * entirely; only `"local"` sources require project trust before connect.
-   */
+  mcpServers?: ResolvedMCPServerConfig[];
+  /** Local project MCP lists replace global lists and require project trust. */
   mcpServersSource?: "local" | "global" | "none";
   sessionId: string;
   /** When true, runTUI shows a session picker first (resume flow). */
@@ -773,10 +815,19 @@ export async function loadConfig(
     ...(profile.totalTimeoutMs !== undefined ? { totalTimeoutMs: profile.totalTimeoutMs } : {}),
     ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
     ...(local?.mcpServers !== undefined
-      ? { mcpServers: local.mcpServers, mcpServersSource: "local" as const }
+      ? {
+          mcpServers: resolveMcpServers(settings?.mcpServers, local.mcpServers),
+          mcpServersSource: "local" as const,
+        }
       : settings?.mcpServers !== undefined
-        ? { mcpServers: settings.mcpServers, mcpServersSource: "global" as const }
-        : { mcpServersSource: "none" as const }),
+        ? {
+            mcpServers: resolveMcpServers(settings.mcpServers, undefined),
+            mcpServersSource: "global" as const,
+          }
+        : {
+            mcpServers: resolveMcpServers(undefined, undefined),
+            mcpServersSource: "none" as const,
+          }),
     // Runtime view includes OAuth projections so inference resolution can see
     // Codex/xAI providers that are never written to settings.json. Not safe
     // to persist as-is — use providerCatalogToSettings or re-read disk.

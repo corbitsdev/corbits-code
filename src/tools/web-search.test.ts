@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import type { ResolvedMCPServerConfig } from "../mcp/exa.js";
 
 const calls: { toolName: string; args: Record<string, unknown> }[] = [];
-let connectConfigs: { name: string; url?: string }[] = [];
+let connectConfigs: ResolvedMCPServerConfig[] = [];
 
 // The mock needs to spread the real module rather than replace it outright,
 // or any other export (unwrapToolContent, connectMCPServers) disappears for
@@ -11,7 +12,7 @@ await withMockedModule(
   import.meta.resolve("../mcp/client.js"),
   (real: typeof import("../mcp/client.js")) => ({
     ...real,
-    connectMCPServer: async (config: { name: string; url?: string }) => {
+    connectMCPServer: async (config: ResolvedMCPServerConfig) => {
       connectConfigs.push(config);
       return {
         ok: true,
@@ -36,6 +37,34 @@ const {
   EXA_MCP_URL,
   PARALLEL_MCP_URL,
 } = await import("./web-search.js");
+const { createAgentToolset } = await import("../agent/tools.js");
+const { resolveMcpServers } = await import("../config/index.js");
+const { createExaMCPServerConfig } = await import("../mcp/exa.js");
+const { createPermissionGate } = await import("../permission/gate.js");
+
+const BUILTIN_EXA_MCP = createExaMCPServerConfig();
+
+async function connectConfiguredMCP(mcpServers?: ResolvedMCPServerConfig[]): Promise<void> {
+  const toolset = await createAgentToolset({
+    cwd: process.cwd(),
+    permissionGate: createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+    }),
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    ...(mcpServers !== undefined ? { mcpServers } : {}),
+  });
+  try {
+    await toolset.connectMCP({
+      interactiveAuth: false,
+      onStatus: () => undefined,
+      onToolsChanged: () => undefined,
+    });
+  } finally {
+    await toolset.dispose();
+  }
+}
 
 beforeEach(() => {
   calls.length = 0;
@@ -49,6 +78,20 @@ afterEach(async () => {
   // Leave no provider selection behind for whatever file runs next.
   delete process.env.CORBITS_WEB_SEARCH_PROVIDER;
   delete process.env.CORBITS_WEB_SEARCH_API_KEY;
+});
+
+describe("Exa MCP preset connection boundary", () => {
+  test("connects the default Exa preset unless it is explicitly disabled", async () => {
+    await connectConfiguredMCP();
+    expect(connectConfigs).toEqual([BUILTIN_EXA_MCP]);
+
+    connectConfigs = [];
+    await connectConfiguredMCP(resolveMcpServers([{ name: "exa", enabled: false }], undefined));
+    expect(connectConfigs).toHaveLength(0);
+
+    await connectConfiguredMCP(resolveMcpServers([{ name: "exa", enabled: true }], undefined));
+    expect(connectConfigs).toEqual([BUILTIN_EXA_MCP]);
+  });
 });
 
 describe("resolveWebSearchProvider", () => {
