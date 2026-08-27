@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-08-27
+
+### Fixed
+
+- The default Exa-backed `web_fetch` once again enforces HTTP(S)-only URLs and
+  per-call timeouts, returns the requested markdown, text, or HTML format, and
+  preserves the native tool's public result and error semantics.
+
 ## [0.3.5] - 2026-08-27
 
 ### MCP
