@@ -5,11 +5,12 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { updateAuthState, type MCPAuthState } from "./auth-store.js";
+import { updateAuthState, type MCPAuthIdentity, type MCPAuthState } from "./auth-store.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
 export interface OAuthProviderOptions {
   serverName: string;
+  serverURL: string;
   redirectUrl: string;
   onAuthURL: (serverName: string, authorizationUrl: string) => void;
   onAuthorizationState?: (state: string) => void;
@@ -49,11 +50,15 @@ function replaceStored(stored: MCPAuthState, next: MCPAuthState): void {
 export async function createOAuthProvider(
   opts: OAuthProviderOptions,
 ): Promise<CorbitsOAuthProvider> {
+  const identity: MCPAuthIdentity = {
+    serverName: opts.serverName,
+    serverURL: opts.serverURL,
+  };
   // Load + scrub stale DCR under the per-file chain so concurrent providers see
   // the same cleaned state. Mutations always re-read disk; this in-memory mirror
   // only serves the SDK's sync getters (tokens / clientInformation / codeVerifier).
   const stored: MCPAuthState = await updateAuthState(
-    opts.serverName,
+    identity,
     (state) => {
       dropStaleClientRegistration(state, opts.redirectUrl);
     },
@@ -61,7 +66,7 @@ export async function createOAuthProvider(
   );
 
   const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
-    const next = await updateAuthState(opts.serverName, mutator, opts.home);
+    const next = await updateAuthState(identity, mutator, opts.home);
     replaceStored(stored, next);
   };
 
