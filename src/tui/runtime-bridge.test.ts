@@ -905,7 +905,8 @@ describe("same-turn failover after inference.error", () => {
           wireKeys: false,
           run: "idle",
         });
-        const bridge = attachSessionBridge(shell, createRecordingPort());
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
         try {
           bridge.handle({ type: "inference.start", data: {} });
           bridge.handle({
@@ -927,6 +928,47 @@ describe("same-turn failover after inference.error", () => {
 
           expect(errorRows(shell)).toEqual([]);
           expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+          // Same-turn failover, not an operator stop — recovery must not borrow interrupt.
+          expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
+          expect(shell.streamLog.some((r) => r.meta === "stop")).toBe(false);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("interrupt then a new prompt keeps the prompt and the classified error", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.error",
+            data: {
+              error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+            },
+          });
+          bridge.interrupt();
+          bridge.submit("next prompt", "immediate");
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "next prompt" } },
+          });
+          bridge.handle({ type: "inference.start", data: {} });
+
+          const text = shell.streamLog.map((r) => r.text).join("\n");
+          expect(text).toContain("next prompt");
+          expect(errorRows(shell)).toContain("Session expired — re-authenticating…");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -995,7 +1037,7 @@ describe("same-turn failover after inference.error", () => {
             bridge.handle(event);
           }
 
-          expect(errorRows(shell).length).toBeGreaterThan(0);
+          expect(errorRows(shell)).toContain("Session expired — re-authenticating…");
         } finally {
           bridge.dispose();
           shell.dispose();

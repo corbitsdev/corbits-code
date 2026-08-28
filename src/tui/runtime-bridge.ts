@@ -1195,6 +1195,11 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     closeOpenRow(shell, bag);
     bag.pendingEchoes.length = 0;
+    // The stopped attempt is no longer in flight. Expire the error-recovery
+    // handoff so a later new-turn inference.start cannot roll back the
+    // classified error, the stop row, or the operator's next prompt.
+    bag.mapCtx.errorRollbackArmed = false;
+    bag.attemptRow = null;
     applyShellInterrupt(shell);
     bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to
