@@ -79,4 +79,13 @@ describe("inferenceErrorMessage", () => {
     expect(line.toLowerCase()).not.toContain("the usage limit has been reached");
     expect(line.toLowerCase()).not.toContain("usage limit reached");
   });
+
+  test("credential_failure tells the user to log in again", () => {
+    const line = inferenceErrorMessage({
+      category: "credential_failure",
+      message: '{"error":{"code":401}}',
+    });
+    expect(line.toLowerCase()).not.toContain("re-authenticating");
+    expect(line.toLowerCase()).toMatch(/log in again|sign in again/);
+  });
 });

@@ -21,9 +21,8 @@ import {
 } from "./inference-gateway-error.js";
 
 const FRIENDLY_BY_CATEGORY: Record<string, string> = {
-  // Re-authentication runs on its own; keep the transcript line short and free
-  // of the provider's raw 401 JSON.
-  credential_failure: "Session expired — re-authenticating…",
+  // Committed auth death — do not claim a refresh is in flight.
+  credential_failure: "Authentication failed — log in again.",
   quota_exhausted: "Quota exhausted — usage limit reached.",
   context_overflow:
     "Context window full — compaction could not keep up. Try /clear to start fresh.",
