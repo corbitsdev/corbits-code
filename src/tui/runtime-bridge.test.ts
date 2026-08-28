@@ -1024,7 +1024,7 @@ describe("same-turn failover after inference.error", () => {
 
           const text = shell.streamLog.map((r) => r.text).join("\n");
           expect(text).toContain("next prompt");
-          expect(errorRows(shell)).toContain("Session expired — re-authenticating…");
+          expect(errorRows(shell)).toContain("Authentication failed — log in again.");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1096,7 +1096,7 @@ describe("same-turn failover after inference.error", () => {
           const text = shell.streamLog.map((r) => r.text).join("\n");
           expect(text).toContain("restart from here");
           expect(text).toContain("stop — restarting from your message");
-          expect(errorRows(shell)).toContain("Session expired — re-authenticating…");
+          expect(errorRows(shell)).toContain("Authentication failed — log in again.");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1129,7 +1129,7 @@ describe("same-turn failover after inference.error", () => {
             bridge.handle(event);
           }
 
-          expect(errorRows(shell)).toContain("Session expired — re-authenticating…");
+          expect(errorRows(shell)).toContain("Authentication failed — log in again.");
         } finally {
           bridge.dispose();
           shell.dispose();

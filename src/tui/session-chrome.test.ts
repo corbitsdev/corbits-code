@@ -261,6 +261,12 @@ describe("sendFailureText", () => {
       authProvider: null,
     });
   });
+
+  test("a classified credential_failure line is not rewritten as generic other", () => {
+    expect(sendFailureText("Authentication failed — log in again.")).toBe(
+      "Authentication failed — log in again.",
+    );
+  });
 });
 
 describe("fleet state in the top-level indicator", () => {

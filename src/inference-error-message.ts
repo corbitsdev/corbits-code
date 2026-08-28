@@ -20,9 +20,11 @@ import {
   type InferenceErrorLike,
 } from "./inference-gateway-error.js";
 
+/** Committed auth death — do not claim a refresh is in flight. */
+export const CREDENTIAL_FAILURE_USER_MESSAGE = "Authentication failed — log in again.";
+
 const FRIENDLY_BY_CATEGORY: Record<string, string> = {
-  // Committed auth death — do not claim a refresh is in flight.
-  credential_failure: "Authentication failed — log in again.",
+  credential_failure: CREDENTIAL_FAILURE_USER_MESSAGE,
   quota_exhausted: "Quota exhausted — usage limit reached.",
   context_overflow:
     "Context window full — compaction could not keep up. Try /clear to start fresh.",
