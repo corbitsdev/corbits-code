@@ -55,6 +55,17 @@ describe("detectInstallMethod", () => {
     ).toBe("homebrew");
   });
 
+  test("detects legacy corbits Cellar installs", () => {
+    expect(
+      detectInstallMethod(
+        probe({
+          execPath: "/usr/local/bin/corbits",
+          resolvedPath: "/usr/local/Cellar/corbits/0.2.90/bin/corbits",
+        }),
+      ),
+    ).toBe("homebrew");
+  });
+
   test("detects Homebrew via HOMEBREW_PREFIX when the binary lives under it", () => {
     expect(
       detectInstallMethod(

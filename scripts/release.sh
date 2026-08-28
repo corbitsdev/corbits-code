@@ -257,7 +257,10 @@ if [ "$SKIP_TAP" != 1 ]; then
     brew tap "$TAP_SLUG" >/dev/null 2>&1 || \
       die "cannot tap $TAP_SLUG. Create https://github.com/$TAP_REPO then: brew tap $TAP_SLUG"
   fi
-  info "tap:  $TAP_DIR"
+  [ -z "$(git -C "$TAP_DIR" status --porcelain)" ] || \
+    die "tap has local changes; clean $TAP_DIR before releasing"
+  git -C "$TAP_DIR" pull --ff-only --quiet
+  info "tap:  $TAP_DIR (fast-forwarded)"
 fi
 info "repo: $ROOT"
 
@@ -480,80 +483,23 @@ else
   sha_for() {  # sha_for LABEL -> sha256 of that tarball
     cut -d' ' -f1 "$STAGE/$BINARY-$VERSION-$1.tar.gz.sha256"
   }
-  url_for() {  # url_for LABEL -> download URL for that tarball
-    echo "https://github.com/$MAIN_REPO/releases/download/$TAG/$BINARY-$VERSION-$1.tar.gz"
-  }
-  # Homebrew class: corbits-code -> CorbitsCode
-  class=$(echo "$BREW_FORMULA" | awk -F'[-_]' '{
-    s = ""
-    for (i = 1; i <= NF; i++) s = s toupper(substr($i, 1, 1)) substr($i, 2)
-    print s
-  }')
-  mkdir -p "$TAP_DIR/Formula"
-  # Drop the old single-name formula if we renamed (corbits -> corbits-code).
-  # git rm can remove the last file and drop the empty Formula/ directory —
-  # recreate it before writing the new formula.
-  if [ -f "$TAP_DIR/Formula/$BINARY.rb" ] && [ "$BINARY" != "$BREW_FORMULA" ]; then
-    git -C "$TAP_DIR" rm -f --quiet "Formula/$BINARY.rb" 2>/dev/null \
-      || rm -f "$TAP_DIR/Formula/$BINARY.rb"
-  fi
-  mkdir -p "$TAP_DIR/Formula"
-  cat > "$TAP_DIR/Formula/$BREW_FORMULA.rb" <<EOF
-class $class < Formula
-  desc "$DESC"
-  homepage "https://github.com/$MAIN_REPO"
-  version "$VERSION"
-  license "GPL-2.0-only"
+  MAIN_REPO="$MAIN_REPO" BINARY="$BINARY" BREW_FORMULA="$BREW_FORMULA" DESC="$DESC" \
+    bun "$ROOT/scripts/generate-homebrew-tap.ts" \
+    "$TAP_DIR" \
+    "$VERSION" \
+    "$(sha_for macos-arm64)" \
+    "$(sha_for macos-x64)" \
+    "$(sha_for linux-arm64)" \
+    "$(sha_for linux-x64)"
 
-  on_macos do
-    on_arm do
-      url "$(url_for macos-arm64)"
-      sha256 "$(sha_for macos-arm64)"
-    end
-    on_intel do
-      url "$(url_for macos-x64)"
-      sha256 "$(sha_for macos-x64)"
-    end
-  end
-
-  on_linux do
-    on_arm do
-      url "$(url_for linux-arm64)"
-      sha256 "$(sha_for linux-arm64)"
-    end
-    on_intel do
-      url "$(url_for linux-x64)"
-      sha256 "$(sha_for linux-x64)"
-    end
-  end
-
-  def install
-    bin.install "$BINARY"
-    if File.directory?("plugins")
-      (bin/"plugins").mkpath
-      cp_r "plugins/.", bin/"plugins"
-    end
-  end
-
-  test do
-    assert_predicate bin/"$BINARY", :executable?
-  end
-end
-EOF
-  if git -C "$TAP_DIR" rev-parse --verify HEAD >/dev/null 2>&1 \
-    && git -C "$TAP_DIR" ls-files --error-unmatch "Formula/$BREW_FORMULA.rb" >/dev/null 2>&1 \
-    && git -C "$TAP_DIR" diff --quiet -- "Formula/$BREW_FORMULA.rb" \
-    && ! git -C "$TAP_DIR" status --porcelain -- "Formula/" | grep -q .; then
-    skip "formula already at $VERSION"
-  else
-    # Untracked formula (empty or new tap) is invisible to `git diff`, so we
-    # require the file to be tracked before treating "no diff" as up-to-date.
-    git -C "$TAP_DIR" add "Formula/$BREW_FORMULA.rb"
-    git -C "$TAP_DIR" add -u "Formula/" 2>/dev/null || true
-    git -C "$TAP_DIR" commit -q -m "$BREW_FORMULA $VERSION"
-    info "committed formula bump"
-    git_push "$TAP_DIR"
-  fi
+  tap_status=$(bash "$ROOT/scripts/prepare-homebrew-tap-release.sh" "$TAP_DIR" "$VERSION")
+  case "$tap_status" in
+    push-required)
+      info "formula and rename metadata ready to push"
+      git_push "$TAP_DIR" ;;
+    current) skip "formula and rename metadata already at $VERSION" ;;
+    *) die "unexpected tap preparation status: $tap_status" ;;
+  esac
 fi
 
 # ---- done ------------------------------------------------------------------
