@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-08-28
+
 ### TUI
 
 - `ask_operator` is an inset overlay again so the transcript stays visible while
@@ -21,8 +23,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
-- Interrupted workers linger on the agents strip for 4s then drop, instead of
-  staying in the live list while leftover tools finish.
+- Homebrew release reruns preserve legacy formula rename mappings so old
+  `corbits` installs keep migrating to `corbits-code`.
+- First-run onboarding preserves OAuth profile projection when started with
+  CLI `--config`.
+- Settings paths no longer collide when Corbits starts from home or an aliased
+  config location; OAuth and model choices recover without writing credentials
+  into settings.
+- OpenAI OAuth credentials stay staged until setup validation succeeds;
+  definitive scope and credential failures are not saved, including via Ctrl+S.
+- Known Codex short HTTP 429s normalize to retryable rate limits, while true
+  `usage_limit_reached` responses keep quota copy with reset and profile hints;
+  terminal credential failures tell operators to log in again.
+- Same-turn failover retracts recovered inference error rows instead of leaving
+  quota or session-expired lines in the chat.
+- Interrupted workers linger on the agents strip for the normal window then
+  drop, and no longer inflate sticky clocks or fleet-running counts.
 
 ## [0.3.7] - 2026-08-27
 
