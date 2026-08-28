@@ -42,6 +42,15 @@ def build_settings(
     return settings
 
 
+def api_key_env_names(provider: str) -> tuple[str, str]:
+    """Env vars consulted for the API key, in priority order.
+
+    Deliberately no cross-provider fallback: a key for another provider is
+    never silently written into ``providers.<provider>.apiKey``.
+    """
+    return ("CORBITS_API_KEY", f"{provider.upper()}_API_KEY")
+
+
 def build_exec_argv(
     *,
     cwd: str,
@@ -53,8 +62,8 @@ def build_exec_argv(
 ) -> list[str]:
     """Build the exact ``corbits exec`` argv for a Harbor trial.
 
-    Always includes ``--dangerously-skip-permissions`` and ``--force`` so the
-    headless process cannot block on operator approval.
+    Always includes ``--dangerously-skip-permissions`` so the headless process
+    cannot block on operator approval.
     """
     return [
         binary,
@@ -68,6 +77,5 @@ def build_exec_argv(
         "--model",
         model,
         "--dangerously-skip-permissions",
-        "--force",
         prompt,
     ]

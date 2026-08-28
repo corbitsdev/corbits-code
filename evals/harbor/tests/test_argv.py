@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from evals.harbor.argv import build_exec_argv, build_settings
+from evals.harbor.argv import api_key_env_names, build_exec_argv, build_settings
 
 
 class BuildSettingsTests(unittest.TestCase):
@@ -61,7 +61,7 @@ class BuildSettingsTests(unittest.TestCase):
 
 
 class BuildExecArgvTests(unittest.TestCase):
-    def test_exact_order_includes_skip_permissions_and_force(self) -> None:
+    def test_exact_order_includes_skip_permissions(self) -> None:
         argv = build_exec_argv(
             cwd="/app",
             config_path="/tmp/corbits-settings.json",
@@ -83,7 +83,6 @@ class BuildExecArgvTests(unittest.TestCase):
                 "--model",
                 "grok-4.5",
                 "--dangerously-skip-permissions",
-                "--force",
                 "Write hello.txt",
             ],
         )
@@ -98,12 +97,20 @@ class BuildExecArgvTests(unittest.TestCase):
             binary="/usr/local/bin/corbits",
         )
         self.assertEqual(argv[0], "/usr/local/bin/corbits")
-        self.assertIn("--dangerously-skip-permissions", argv)
-        self.assertIn("--force", argv)
-        skip_idx = argv.index("--dangerously-skip-permissions")
-        force_idx = argv.index("--force")
-        self.assertEqual(force_idx, skip_idx + 1)
-        self.assertEqual(argv[-1], "hi")
+        self.assertEqual(argv[-2:], ["--dangerously-skip-permissions", "hi"])
+        self.assertNotIn("--force", argv)
+
+
+class ApiKeyEnvNamesTests(unittest.TestCase):
+    def test_only_generic_and_selected_provider(self) -> None:
+        self.assertEqual(
+            api_key_env_names("openai"), ("CORBITS_API_KEY", "OPENAI_API_KEY")
+        )
+
+    def test_no_cross_provider_fallback(self) -> None:
+        names = api_key_env_names("xai")
+        self.assertNotIn("OPENAI_API_KEY", names)
+        self.assertNotIn("ANTHROPIC_API_KEY", names)
 
 
 if __name__ == "__main__":

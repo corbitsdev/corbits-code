@@ -4,7 +4,7 @@ Thin Harbor `BaseInstalledAgent` that runs headless product Corbits:
 
 ```text
 corbits exec --cwd … --config … --provider … --model …
-  --dangerously-skip-permissions --force <instruction>
+  --dangerously-skip-permissions <instruction>
 ```
 
 No second agent loop. Credentials are translated from Harbor kwargs/env into a
@@ -38,12 +38,12 @@ not read API keys from the environment.
 Pass a key through Harbor agent kwargs or env. The adapter writes it into the
 temp settings file only:
 
-| Source                  | Notes                                    |
-| ----------------------- | ---------------------------------------- |
-| `api_key=` agent kwarg  | Preferred for one-off runs               |
-| `CORBITS_API_KEY`       | Generic adapter env                      |
-| `{PROVIDER}_API_KEY`    | e.g. `XAI_API_KEY`, `OPENAI_API_KEY`     |
-| Harbor model connection | Falls back to `model_connection.api_key` |
+| Source                  | Notes                                          |
+| ----------------------- | ---------------------------------------------- |
+| `api_key=` agent kwarg  | Preferred for one-off runs                     |
+| `CORBITS_API_KEY`       | Generic adapter env                            |
+| `{PROVIDER}_API_KEY`    | Only the selected provider, e.g. `XAI_API_KEY` |
+| Harbor model connection | Falls back to `model_connection.api_key`       |
 
 ### Required base URL
 

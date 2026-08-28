@@ -2,7 +2,7 @@
 
 Thin adapter: install a Linux Corbits binary + git, write a temporary
 settings.json from Harbor kwargs/env, then exec with
-``--dangerously-skip-permissions --force``. No second agent loop.
+``--dangerously-skip-permissions``. No second agent loop.
 
 Requires the Harbor package at import time (normal for Harbor plugins).
 Unit tests import ``evals.harbor.argv`` only.
@@ -23,7 +23,7 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 from harbor.models.trial.paths import EnvironmentPaths
 
-from evals.harbor.argv import build_exec_argv, build_settings
+from evals.harbor.argv import api_key_env_names, build_exec_argv, build_settings
 
 _REMOTE_BIN_DIR = PurePosixPath("/usr/local/bin")
 _REMOTE_CORBITS = _REMOTE_BIN_DIR / "corbits"
@@ -71,7 +71,9 @@ class Corbits(BaseInstalledAgent):
 
     @override
     def get_version_command(self) -> str | None:
-        return "corbits --version"
+        # The CLI has no --version flag; record the help banner as a best-effort
+        # identity string. Harbor ignores failures here.
+        return "corbits --help | head -n 1"
 
     def _resolve_provider_model(self) -> tuple[str, str]:
         if self._provider_override and self._model_override:
@@ -101,14 +103,7 @@ class Corbits(BaseInstalledAgent):
 
         # Adapter-only translation: Harbor env/kwargs → settings.json.
         # Product Corbits still sees credentials only via --config.
-        candidates = (
-            "CORBITS_API_KEY",
-            f"{provider.upper()}_API_KEY",
-            "XAI_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-        )
-        for name in candidates:
+        for name in api_key_env_names(provider):
             value = self._get_env(name)
             if value:
                 return value
@@ -119,7 +114,7 @@ class Corbits(BaseInstalledAgent):
 
         raise ValueError(
             "No API key for Corbits Harbor adapter. Pass api_key=… in agent "
-            "kwargs, set CORBITS_API_KEY (or a provider-specific *_API_KEY), "
+            "kwargs, set CORBITS_API_KEY or {PROVIDER}_API_KEY, "
             "or configure Harbor model credentials. Keys are written into a "
             "temporary settings.json for --config only."
         )
@@ -179,7 +174,7 @@ class Corbits(BaseInstalledAgent):
         await environment.upload_file(source, remote)
         await self.exec_as_root(
             environment,
-            command=f"chmod 755 {shlex.quote(remote)} && corbits --version",
+            command=f"chmod 755 {shlex.quote(remote)} && corbits --help >/dev/null",
         )
 
     async def _install_from_url(self, environment: BaseEnvironment, url: str) -> None:
@@ -199,14 +194,14 @@ class Corbits(BaseInstalledAgent):
                 "  echo 'tarball did not contain a corbits binary' >&2; exit 1; "
                 "fi; "
                 f"install -m 755 \"$bin\" {shlex.quote(remote)}; "
-                "corbits --version"
+                "corbits --help >/dev/null"
             )
         else:
             command = (
                 "set -euo pipefail; "
                 f"curl -fsSL {quoted_url} -o {shlex.quote(remote)}; "
                 f"chmod 755 {shlex.quote(remote)}; "
-                "corbits --version"
+                "corbits --help >/dev/null"
             )
         await self.exec_as_root(environment, command=command)
 
@@ -268,10 +263,9 @@ class Corbits(BaseInstalledAgent):
 
         (self.logs_dir / "command.txt").write_text(command + "\n")
 
-        try:
-            result = await self.exec_as_agent(environment, command=command)
-            self._last_exit_code = int(getattr(result, "return_code", 0) or 0)
-        except Exception:
-            if self._last_exit_code is None:
-                self._last_exit_code = 1
-            raise
+        # Bypass Harbor's _exec so the real exit code survives a failure; it
+        # raises NonZeroAgentExitCodeError without exposing the code.
+        result = await environment.exec(command=command)
+        self._last_exit_code = result.return_code
+        if result.return_code != 0:
+            raise self._classify_exec_error(command, result)
