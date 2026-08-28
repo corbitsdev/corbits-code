@@ -89,6 +89,8 @@ ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$ROOT"
 STAGE="$ROOT/dist/release"
 MACOS_RELEASE_HELPER="$ROOT/scripts/macos-sign-and-notarize.sh"
+MACOS_HOST_NATIVE_SMOKE="$ROOT/scripts/macos-host-native-smoke.sh"
+FETCH_OPENTUI_NATIVE="$ROOT/scripts/fetch-opentui-native.sh"
 MAINTAINER="$(git config user.name) <$(git config user.email)>"
 
 step()  { printf '\n\033[1;34m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
@@ -169,17 +171,6 @@ smoke_bin() {  # smoke_bin LABEL BINARY
   return 0
 }
 
-smoke_native_bin() {  # smoke_native_bin LABEL BINARY
-  local label=$1 bin=$2
-  local host; host=$(host_label)
-  [ -n "$host" ] || return 0
-  [ "$label" = "$host" ] || return 0
-  info "smoke-testing signed OpenTUI native library for $label"
-  [ -x "$bin" ] || die "native smoke: $label binary is not executable"
-  "$bin" --__release_native_smoke__ >/dev/null 2>&1 \
-    || die "native smoke: signed $label binary could not initialize OpenTUI native library"
-}
-
 # tar a tree with root ownership (for reproducible .deb payloads). GNU tar and
 # bsdtar spell the ownership override differently.
 tar_root() {  # tar_root OUTPUT.tgz DIR PATH...
@@ -233,9 +224,10 @@ EOF
 # Nothing is written to package.json: these are already declared there as
 # optionalDependencies, and this only makes the ones bun skipped present.
 fetch_native_modules() {
-  local version platform pkg dir url variants bun_target _label _kind _deb
+  local version platform pkg dir variants bun_target _label _kind _deb
   version=$(jq -r '.optionalDependencies["@opentui/core-darwin-arm64"] // empty' package.json)
   [ -n "$version" ] || die "no @opentui/core-* version in package.json optionalDependencies"
+  [ -x "$FETCH_OPENTUI_NATIVE" ] || die "OpenTUI native fetch helper is missing or not executable"
   for entry in "${TARGETS[@]}"; do
     IFS='|' read -r _label bun_target _kind _deb <<< "$entry"
     platform=${bun_target#bun-}
@@ -245,11 +237,8 @@ fetch_native_modules() {
     [ "$_kind" = linux ] && variants="$variants core-$platform-musl"
     for pkg in $variants; do
       dir="node_modules/@opentui/$pkg"
-      [ -d "$dir" ] && continue
-      url="https://registry.npmjs.org/@opentui/$pkg/-/$pkg-$version.tgz"
       info "fetching @opentui/$pkg@$version (cross-compile target)"
-      mkdir -p "$dir"
-      curl -fsSL "$url" | tar -xz -C "$dir" --strip-components=1 \
+      "$FETCH_OPENTUI_NATIVE" "$pkg" "$version" "$dir" "$ROOT/bun.lock" \
         || die "could not fetch @opentui/$pkg@$version from the registry"
     done
   done
@@ -258,9 +247,11 @@ fetch_native_modules() {
 # ---- preflight -------------------------------------------------------------
 step "Preflight for $TAG"
 [ "$(uname -s)" = Darwin ] || die "releases must run on macOS"
-for t in git gh bun jq ar tar shasum codesign ditto lipo plutil spctl xcrun; do command -v "$t" >/dev/null || die "missing tool: $t"; done
+for t in git gh bun jq ar tar shasum openssl curl codesign ditto lipo plutil spctl xcrun; do command -v "$t" >/dev/null || die "missing tool: $t"; done
 xcrun --find notarytool >/dev/null 2>&1 || die "missing tool: notarytool"
 [ -x "$MACOS_RELEASE_HELPER" ] || die "macOS signing helper is missing or not executable"
+[ -x "$MACOS_HOST_NATIVE_SMOKE" ] || die "macOS host-native smoke helper is missing or not executable"
+[ -x "$FETCH_OPENTUI_NATIVE" ] || die "OpenTUI native fetch helper is missing or not executable"
 : "${MACOS_SIGNING_IDENTITY:?set MACOS_SIGNING_IDENTITY to the Developer ID Application certificate name}"
 : "${MACOS_TEAM_ID:?set MACOS_TEAM_ID to the expected Apple Team ID}"
 : "${MACOS_NOTARY_PROFILE:?set MACOS_NOTARY_PROFILE to the notarytool Keychain profile name}"
@@ -358,6 +349,7 @@ fi
 step "Build standalone binaries and packages"
 mkdir -p "$STAGE"
 validated_macos=0
+native_smoked_macos=0
 for entry in "${TARGETS[@]}"; do
   IFS='|' read -r label target kind debarch <<< "$entry"
   pkg="$FORMULA-$VERSION-$label"
@@ -384,7 +376,20 @@ for entry in "${TARGETS[@]}"; do
         *) die "unknown macOS release architecture: $label" ;;
       esac
       "$MACOS_RELEASE_HELPER" sign "$STAGE/$pkg/$FORMULA" "$macos_arch"
-      smoke_native_bin "$label" "$STAGE/$pkg/$FORMULA"
+      smoke_rc=0
+      "$MACOS_HOST_NATIVE_SMOKE" "$label" "$STAGE/$pkg/$FORMULA" || smoke_rc=$?
+      case "$smoke_rc" in
+        0)
+          info "host-native OpenTUI smoke passed for $label"
+          native_smoked_macos=$((native_smoked_macos + 1))
+          ;;
+        2)
+          info "cross-compiled $label: signature and notarization gates only (no host-native smoke claim)"
+          ;;
+        *)
+          die "native smoke: signed $label binary could not initialize OpenTUI native library"
+          ;;
+      esac
       "$MACOS_RELEASE_HELPER" notarize "$STAGE/$pkg/$FORMULA" "$macos_arch"
     fi
     tar -C "$STAGE" -czf "$tarball" "$pkg"
@@ -421,6 +426,7 @@ for entry in "${TARGETS[@]}"; do
   rm -f "$STAGE/$FORMULA-$label.bin"
 done
 [ "$validated_macos" -eq 2 ] || die "both macOS architectures must rebuild and pass release validation"
+[ "$native_smoked_macos" -eq 1 ] || die "host-native signed OpenTUI smoke is required before publication"
 
 # ---- 4. land the release commit on main via PR, then tag ------------------
 # A direct push to main is rejected by the branch ruleset ("N of N required

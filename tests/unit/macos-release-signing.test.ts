@@ -127,7 +127,7 @@ describe("macOS release signing gate", () => {
     expect(release).toContain('[ "$kind" != macos ] && [ -f "$tarball" ]');
 
     const signing = release.indexOf('"$MACOS_RELEASE_HELPER" sign ');
-    const nativeSmoke = release.indexOf('smoke_native_bin "$label"');
+    const nativeSmoke = release.indexOf('"$MACOS_HOST_NATIVE_SMOKE" "$label"');
     const notarization = release.indexOf('"$MACOS_RELEASE_HELPER" notarize ');
     const extraction = release.indexOf('tar -xzf "$tarball"');
     const checksum = release.indexOf('shasum -a 256 "$pkg.tar.gz"');
@@ -140,6 +140,9 @@ describe("macOS release signing gate", () => {
     expect(publication).toBeGreaterThan(checksum);
     expect(release.slice(0, publication)).toContain(
       '[ "$validated_macos" -eq 2 ] || die "both macOS architectures must rebuild and pass release validation"',
+    );
+    expect(release.slice(0, publication)).toContain(
+      '[ "$native_smoked_macos" -eq 1 ] || die "host-native signed OpenTUI smoke is required before publication"',
     );
   });
 });

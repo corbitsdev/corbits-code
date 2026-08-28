@@ -3,8 +3,10 @@
 Releases are operator-run from macOS with `scripts/release.sh`. The script builds
 all four standalone targets and refuses to tag, publish a GitHub release, or
 update the Homebrew tap unless both macOS binaries are freshly built, signed,
-smoke-tested through the shipped OpenTUI native library, notarized, and validated
-from their final tarballs.
+host-native OpenTUI-smoked on the release Mac, notarized, and validated from their
+final tarballs. Cross-compiled opposite-arch macOS binaries still require signature,
+notarization, and final-tarball verification, but they are never counted as
+host-native smoke.
 
 ## Apple provisioning
 
@@ -40,10 +42,11 @@ scripts/release.sh X.Y.Z --no-push --skip-tap
 ```
 
 `--no-push` suppresses remote PR, tag, and GitHub release operations; it does not
-skip builds, signing, the post-sign OpenTUI native-library smoke, notarization,
+skip builds, signing, the post-sign host-native OpenTUI smoke, notarization,
 tarball extraction, signature checks, entitlement comparison, architecture checks,
-or Gatekeeper assessment. The
-script creates a local version commit and tag, so use a disposable branch and
+or Gatekeeper assessment. Opposite-arch macOS binaries still pass signature and
+notarization gates; only the host architecture may satisfy the native-smoke gate.
+The script creates a local version commit and tag, so use a disposable branch and
 remove it through the normal Git workflow after recording the result. Do not
 claim release readiness until this external rehearsal succeeds with the real
 Keychain identity and Apple notary service.
