@@ -119,7 +119,10 @@ describe("runOnboarding settings source", () => {
         providers?: Record<string, unknown>;
       };
       expect(persisted.defaultProvider).toBe("xai/work");
-      expect(persisted.providers).toEqual({});
+      expect(persisted.providers).toEqual({
+        "xai/work": { baseURL: "https://api.x.ai/v1", models: ["grok-4"], defaultModel: "grok-4" },
+      });
+      expect(JSON.stringify(persisted)).not.toContain("apiKey");
     } finally {
       await rm(testHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });

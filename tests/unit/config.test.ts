@@ -119,6 +119,25 @@ test("local settings target detects a symlink alias before the settings file exi
   }
 });
 
+test("symlink alias of the default global settings path is not a programmatic override", async () => {
+  const { globalSettingsPath, isProgrammaticSettingsOverride } =
+    await import("../../src/config/settings.js");
+  const root = await mkdtemp(join(tmpdir(), "ic-unit-config-global-symlink-"));
+  const home = join(root, "home");
+  try {
+    await mkdir(join(home, ".corbits"), { recursive: true });
+    const realPath = globalSettingsPath(home);
+    await writeFile(realPath, JSON.stringify({ providers: {} }));
+    const aliasPath = join(root, "alias-settings.json");
+    await symlink(realPath, aliasPath);
+
+    expect(isProgrammaticSettingsOverride(aliasPath, realPath)).toBe(false);
+    expect(isProgrammaticSettingsOverride(join(root, "other.json"), realPath)).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("loadSettings recovers only an exact clobbered local selection", async () => {
   const { loadSettings } = await import("../../src/config/settings.js");
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-recovery-"));

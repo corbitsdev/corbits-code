@@ -632,6 +632,41 @@ describe("loaders", () => {
     }
   });
 
+  test("loadSettings recovers a non-catalog OAuth model when the auth profile exists", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await writeFile(
+        path,
+        JSON.stringify({ provider: "codex/work", model: "gpt-special-custom" }),
+      );
+      const recovered = await loadSettings(path, {
+        recoverableOAuthProviders: {
+          "codex/work": {
+            baseURL: "https://chatgpt.com/backend-api",
+            apiKey: "oauth-token",
+            models: ["gpt-5.2-codex", "gpt-5.1-codex"],
+            defaultModel: "gpt-5.2-codex",
+          },
+        },
+      });
+      expect(recovered).toEqual({
+        defaultProvider: "codex/work",
+        providers: {
+          "codex/work": {
+            baseURL: "https://chatgpt.com/backend-api",
+            models: ["gpt-special-custom"],
+            defaultModel: "gpt-special-custom",
+          },
+        },
+      });
+      expect(JSON.stringify(recovered)).not.toContain("oauth-token");
+      expect(await loadSettings(path)).toEqual(recovered);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("loadSettings keeps malformed clobber documents strict", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {

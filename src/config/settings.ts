@@ -419,6 +419,16 @@ export function resolveLocalSettingsPath(cwd: string, globalPath: string): strin
   return physicalPathIdentity(localPath) === physicalPathIdentity(globalPath) ? null : localPath;
 }
 
+// True when `settingsPath` is a distinct settings file from the default home
+// path. Symlink and lexical aliases of the default path are not overrides —
+// treating them as such would suppress OAuth profile projection after setup.
+export function isProgrammaticSettingsOverride(
+  settingsPath: string,
+  defaultGlobalPath: string = globalSettingsPath(),
+): boolean {
+  return physicalPathIdentity(settingsPath) !== physicalPathIdentity(defaultGlobalPath);
+}
+
 function isENOENT(err: unknown): boolean {
   return (
     typeof err === "object" &&
@@ -758,7 +768,9 @@ function recoverClobberedOAuthSelection(
   projected: Record<string, ProviderSettings> | undefined,
 ): Settings | undefined {
   const provider = projected?.[selection.provider];
-  if (provider === undefined || !provider.models.includes(selection.model)) return undefined;
+  // Auth-profile presence is enough: the selected model may be outside the
+  // projected fallback catalog (CODEX_DEFAULT_MODELS / xAI equivalents).
+  if (provider === undefined) return undefined;
   return {
     defaultProvider: selection.provider,
     providers: {
