@@ -1,0 +1,63 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { generateHomebrewTap } from "../../scripts/generate-homebrew-tap.js";
+
+const release = {
+  version: "1.2.3",
+  checksums: {
+    "macos-arm64": "a".repeat(64),
+    "macos-x64": "b".repeat(64),
+    "linux-arm64": "c".repeat(64),
+    "linux-x64": "d".repeat(64),
+  },
+};
+
+describe("generateHomebrewTap", () => {
+  let tapDir: string;
+
+  beforeEach(async () => {
+    tapDir = await mkdtemp(join(tmpdir(), "corbits-homebrew-tap-"));
+  });
+
+  afterEach(async () => {
+    await rm(tapDir, { recursive: true, force: true });
+  });
+
+  test("replaces the legacy formula with corbits-code and installs corbits", async () => {
+    const formulaDir = join(tapDir, "Formula");
+    await mkdir(formulaDir);
+    await writeFile(join(formulaDir, "corbits.rb"), "class Corbits < Formula\nend\n");
+
+    await generateHomebrewTap(tapDir, release);
+
+    expect(await Array.fromAsync(new Bun.Glob("*.rb").scan(formulaDir))).toEqual([
+      "corbits-code.rb",
+    ]);
+    const formula = await readFile(join(formulaDir, "corbits-code.rb"), "utf8");
+    expect(formula).toContain("class CorbitsCode < Formula");
+    expect(formula).toContain('version "1.2.3"');
+    expect(formula).toContain('bin.install "corbits"');
+    expect(formula).not.toContain('bin.install "corbits-code"');
+  });
+
+  test("merges formula rename metadata without changing repeated output", async () => {
+    await writeFile(
+      join(tapDir, "formula_renames.json"),
+      `${JSON.stringify({ retained: "other-formula" }, null, 2)}\n`,
+    );
+
+    await generateHomebrewTap(tapDir, release);
+
+    const first = await readFile(join(tapDir, "formula_renames.json"), "utf8");
+    expect(JSON.parse(first)).toEqual({
+      retained: "other-formula",
+      corbits: "corbits-code",
+    });
+
+    await generateHomebrewTap(tapDir, release);
+    expect(await readFile(join(tapDir, "formula_renames.json"), "utf8")).toBe(first);
+  });
+});
