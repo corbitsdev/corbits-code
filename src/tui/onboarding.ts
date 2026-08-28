@@ -42,11 +42,9 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   if (config.force) argv.push("--force");
   if (config.task.length > 0) argv.push(config.task);
 
-  // Recreate the original source rather than comparing paths: CLI --config
-  // composes with home OAuth profiles, while a programmatic override is an
-  // isolated settings source even if it names the default settings path.
-  const loadOptions =
-    config.settingsSource === "programmatic" ? { globalSettingsPath: settingsPath } : {};
+  // Preserve programmatic isolation independently of the path that won settings
+  // precedence; CLI --config remains the write and reload target when both exist.
+  const loadOptions = config.programmaticSettingsPath ? { globalSettingsPath: settingsPath } : {};
   const newConfig = await loadConfig(argv, loadOptions);
   return runTUI(newConfig);
 }

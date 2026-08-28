@@ -59,6 +59,19 @@ async function unconfiguredProgrammaticConfig(
   return config;
 }
 
+async function unconfiguredCLIAndProgrammaticConfig(
+  cwd: string,
+  cliConfigPath: string,
+  programmaticConfigPath: string,
+): Promise<UnconfiguredConfig> {
+  const config = await loadConfig(["--cwd", cwd, "--config", cliConfigPath], {
+    globalSettingsPath: programmaticConfigPath,
+    allowUnconfigured: true,
+  });
+  if (config.configured) throw new Error("Expected onboarding config");
+  return config;
+}
+
 afterEach(() => {
   setup = async () => {};
   tuiConfig = undefined;
@@ -162,10 +175,67 @@ describe("runOnboarding settings source", () => {
     }
   });
 
-  test("keeps programmatic settings isolated from home OAuth profiles after reload", async () => {
+  test("keeps OAuth profiles isolated when CLI and programmatic paths are both supplied", async () => {
+    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-both-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-both-cwd-"));
+    const cliConfigPath = join(cwd, "cli-settings.json");
+    const programmaticConfigPath = join(cwd, "programmatic-settings.json");
+    try {
+      await mkdir(join(testHome, ".corbits"), { recursive: true });
+      await writeFile(
+        join(testHome, ".corbits", "xai-auth.json"),
+        JSON.stringify({
+          profiles: {
+            hidden: {
+              name: "hidden",
+              tokens: {
+                access: "hidden-access-token",
+                refresh: "hidden-refresh-token",
+                expiresAt: Date.now() + 3_600_000,
+              },
+              createdAt: Date.now(),
+            },
+          },
+        }),
+      );
+      await writeFile(cliConfigPath, JSON.stringify({ providers: {} }));
+      await writeFile(programmaticConfigPath, JSON.stringify({ providers: {} }));
+      const config = await unconfiguredCLIAndProgrammaticConfig(
+        cwd,
+        cliConfigPath,
+        programmaticConfigPath,
+      );
+      expect(config.settingsSource).toBe("cli");
+      expect(config.programmaticSettingsPath).toBe(true);
+
+      setup = async ({ onSubmit }) => {
+        await onSubmit(
+          {
+            name: "isolated",
+            baseURL: "https://isolated.example.com/v1",
+            apiKey: "isolated-key",
+            model: "isolated-model",
+            oauthProfile: "",
+          },
+          () => {},
+          { skipValidation: true },
+        );
+      };
+
+      expect(await runOnboarding(config)).toBe(0);
+      expect(tuiConfig?.providerName).toBe("isolated");
+      expect(tuiConfig?.providers.map((provider) => provider.name)).toEqual(["isolated"]);
+      expect(tuiConfig?.globalSettingsPath).toBe(cliConfigPath);
+    } finally {
+      await rm(testHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps a default-path programmatic override isolated after reload", async () => {
     testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-isolated-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-isolated-cwd-"));
-    const configPath = join(cwd, "isolated-settings.json");
+    const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
       await writeFile(

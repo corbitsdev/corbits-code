@@ -424,8 +424,10 @@ export interface UnconfiguredConfig {
   globalSettingsPath: string;
   /** Original CLI path, present only when --config selected the write target. */
   cliConfigPath?: string;
-  /** Provenance needed to preserve OAuth composition during onboarding reload. */
+  /** Source that selected the settings write target. */
   settingsSource: "default" | "cli" | "programmatic";
+  /** Whether the caller requested an OAuth-isolated programmatic settings load. */
+  programmaticSettingsPath: boolean;
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
   /**
@@ -751,6 +753,7 @@ export async function loadConfig(
       globalSettingsPath: effectiveSettingsPath,
       ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
       settingsSource,
+      programmaticSettingsPath: options.globalSettingsPath !== undefined,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics even when provider setup fails early so junk local
       // files still reach stderr (exec) / banner (TUI after onboarding).

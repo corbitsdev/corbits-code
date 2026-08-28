@@ -229,6 +229,7 @@ describe("loadConfig", () => {
         expect(result.globalSettingsPath).toBe(NO_SETTINGS);
         expect(result.cliConfigPath).toBeUndefined();
         expect(result.settingsSource).toBe("programmatic");
+        expect(result.programmaticSettingsPath).toBe(true);
       }
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -271,6 +272,7 @@ describe("loadConfig", () => {
         expect(result.globalSettingsPath).toBe(configPath);
         expect(result.cliConfigPath).toBe(configPath);
         expect(result.settingsSource).toBe("cli");
+        expect(result.programmaticSettingsPath).toBe(false);
       }
     } finally {
       await rm(cwd, { recursive: true, force: true });
