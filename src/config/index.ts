@@ -680,21 +680,6 @@ export async function loadConfig(
   // local schema must never be read from or written to that global target.
   const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
   const localSettingsFile = resolveLocalSettingsPath(cwd, effectiveSettingsPath);
-  const settings =
-    configPath !== undefined
-      ? await loadSettings(configPath).then((s) => {
-          if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
-          return s;
-        })
-      : await loadSettings(effectiveSettingsPath);
-
-  // Track whether the effective value came from the persisted global default
-  // rather than this invocation's --dangerously-skip-permissions flag, so the
-  // TUI/exec entry points can surface a startup notice for the silent case.
-  const skipPermissionsFromSettings =
-    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
-  dangerouslySkipPermissions =
-    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
 
   // OAuth profiles live in home-level auth stores (~/.corbits/codex-auth.json,
   // xai-auth.json), entirely separate from settings.json. --config only
@@ -710,6 +695,25 @@ export async function loadConfig(
     : [[], []];
   const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
   const xaiProviderSettings = xaiProvidersAsSettings(xaiProfiles);
+  const recoverableOAuthProviders = {
+    ...codexProviderSettings,
+    ...xaiProviderSettings,
+  };
+  const settings =
+    configPath !== undefined
+      ? await loadSettings(configPath, { recoverableOAuthProviders }).then((s) => {
+          if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
+          return s;
+        })
+      : await loadSettings(effectiveSettingsPath, { recoverableOAuthProviders });
+
+  // Track whether the effective value came from the persisted global default
+  // rather than this invocation's --dangerously-skip-permissions flag, so the
+  // TUI/exec entry points can surface a startup notice for the silent case.
+  const skipPermissionsFromSettings =
+    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
+  dangerouslySkipPermissions =
+    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
   const oauthProviderSettings = applyPersistedOAuthDefaults(settings, {
     ...codexProviderSettings,
     ...xaiProviderSettings,

@@ -276,6 +276,13 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
   return 0;
 }
 
+export function resolveTUILocalSettingsPath(args: {
+  cwd: string;
+  globalSettingsPath: string;
+}): string | null {
+  return resolveLocalSettingsPath(args.cwd, args.globalSettingsPath);
+}
+
 /** One-line transcript block when resume history fails to load. */
 export function resumeTranscriptLoadErrorBlock(err: unknown): {
   type: "error";
@@ -2140,7 +2147,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // listing, so revoke resolves against the same snapshot the operator saw.
     let listedGrants: readonly ScopedApproval[] = [];
 
-    const localSettingsFile = resolveLocalSettingsPath(config.cwd, trueGlobalSettingsPath);
+    const localSettingsFile = resolveTUILocalSettingsPath({
+      cwd: config.cwd,
+      globalSettingsPath: config.globalSettingsPath,
+    });
 
     const applyCommandResult = (result: CommandResult): void => {
       switch (result.type) {
@@ -2389,7 +2399,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
             providers: {},
           };
-          const next = setDefaultModel(onDisk, ref);
+          const next = setDefaultModel(
+            onDisk,
+            ref,
+            config.providers.find((provider) => provider.name === ref.provider),
+          );
           await saveGlobalSettings(trueGlobalSettingsPath, next);
           await persistConnectedSelection(localSettingsFile, ref.provider, ref.model);
           config = { ...config, settings: next };

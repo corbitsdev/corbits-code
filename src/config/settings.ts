@@ -213,20 +213,44 @@ export function toggleFavoriteModel(settings: Settings, ref: ModelRef): Settings
   };
 }
 
-export function setDefaultModel(settings: Settings, ref: ModelRef): Settings {
+function providerSelectionMetadata(provider: ProviderSettings, model: string): ProviderSettings {
+  return {
+    ...(provider.name !== undefined ? { name: provider.name } : {}),
+    baseURL: provider.baseURL,
+    models: [model],
+    defaultModel: model,
+    ...(provider.keyless === true ? { keyless: true } : {}),
+    ...(provider.free === true ? { free: true } : {}),
+    ...(provider.contextWindow !== undefined ? { contextWindow: provider.contextWindow } : {}),
+    ...(provider.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+    ...(provider.anthropic === true ? { anthropic: true } : {}),
+    ...(provider.opencodeGo === true ? { opencodeGo: true } : {}),
+    ...(provider.verified !== undefined ? { verified: provider.verified } : {}),
+  };
+}
+
+export function setDefaultModel(
+  settings: Settings,
+  ref: ModelRef,
+  projectedProvider?: ProviderSettings,
+): Settings {
   const next: ModelRef = { provider: ref.provider, model: ref.model };
   const existing = settings.providers[next.provider];
+  const provider = existing ?? projectedProvider;
+  if (provider === undefined) {
+    return { ...settings, defaultProvider: next.provider };
+  }
+  const persistedProvider =
+    existing !== undefined
+      ? { ...existing, defaultModel: next.model }
+      : providerSelectionMetadata(provider, next.model);
   return {
     ...settings,
     defaultProvider: next.provider,
-    ...(existing !== undefined
-      ? {
-          providers: {
-            ...settings.providers,
-            [next.provider]: { ...existing, defaultModel: next.model },
-          },
-        }
-      : {}),
+    providers: {
+      ...settings.providers,
+      [next.provider]: persistedProvider,
+    },
   };
 }
 
@@ -725,7 +749,28 @@ function isClobberedLocalSelection(value: unknown): value is { provider: string;
   );
 }
 
-export async function loadSettings(path: string): Promise<Settings | null> {
+interface LoadSettingsOptions {
+  recoverableOAuthProviders?: Record<string, ProviderSettings>;
+}
+
+function recoverClobberedOAuthSelection(
+  selection: { provider: string; model: string },
+  projected: Record<string, ProviderSettings> | undefined,
+): Settings | undefined {
+  const provider = projected?.[selection.provider];
+  if (provider === undefined || !provider.models.includes(selection.model)) return undefined;
+  return {
+    defaultProvider: selection.provider,
+    providers: {
+      [selection.provider]: providerSelectionMetadata(provider, selection.model),
+    },
+  };
+}
+
+export async function loadSettings(
+  path: string,
+  options: LoadSettingsOptions = {},
+): Promise<Settings | null> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -741,7 +786,10 @@ export async function loadSettings(path: string): Promise<Settings | null> {
   }
   if (!isSettings(parsed)) {
     if (isClobberedLocalSelection(parsed)) {
-      const recovered: Settings = { providers: {} };
+      const recovered = recoverClobberedOAuthSelection(
+        parsed,
+        options.recoverableOAuthProviders,
+      ) ?? { providers: {} };
       await saveGlobalSettings(path, recovered);
       return recovered;
     }
