@@ -921,6 +921,51 @@ describe("list_agents", () => {
     expect(parsed.agents[0]!.lifecycle).toBe("pending_init");
     gate.resolve({ report: "done" });
   });
+
+  test("after interrupt_agent wait-status is not running", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-list", name: "interrupt_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+    if (list.kind !== "full") throw new Error("expected full tool");
+    const raw = await list.handler(
+      { id: "list-int", name: "list_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const parsed = JSON.parse(content) as { agents: { agent_id: string; status: string }[] };
+    expect(parsed.agents).toHaveLength(1);
+    expect(parsed.agents[0]!.agent_id).toBe(id);
+    expect(parsed.agents[0]!.status).not.toBe("running");
+    gate.resolve({ report: "done", interrupted: true });
+  });
 });
 
 describe("spawn_agent parity with task", () => {

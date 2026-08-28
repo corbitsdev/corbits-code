@@ -173,6 +173,51 @@ describe("agentsChromeNeedsSticky / linger", () => {
     expect(agentsChromeNeedsSticky(undefined, NOW)).toBe(false);
     expect(agentsChromeNeedsSticky([], NOW)).toBe(false);
   });
+
+  test("interrupted running inside linger is sticky with interrupted tail, not cancelled or cream-live", () => {
+    const session = {
+      agentId: "a",
+      description: "looping",
+      status: "running" as const,
+      lifecycleStatus: "interrupted" as const,
+      currentToolName: "run_shell",
+      currentToolPreview: "bun test",
+      currentToolStartedAt: NOW - 2_000,
+      startedAt: NOW - 10_000,
+      lastActivityAt: NOW - 2_000,
+      finishedAt: NOW - 1_000,
+    };
+    expect(agentIsLingering(session, NOW)).toBe(true);
+    expect(agentsChromeNeedsSticky([session], NOW)).toBe(true);
+    const rows = formatAgentsPanel([session], undefined, NOW);
+    expect(rows).toEqual([
+      {
+        label: "● a  looping",
+        tail: " · interrupted · bun test still running",
+        stalled: false,
+        kind: "lane",
+        status: "interrupted",
+      },
+    ]);
+  });
+
+  test("interrupted running past linger drops even though status stays running", () => {
+    const session = {
+      agentId: "a",
+      description: "looping",
+      status: "running" as const,
+      lifecycleStatus: "interrupted" as const,
+      currentToolName: "run_shell",
+      currentToolPreview: "bun test",
+      currentToolStartedAt: NOW - 2_000,
+      startedAt: NOW - 10_000,
+      lastActivityAt: NOW - 2_000,
+      finishedAt: NOW - AGENTS_PANEL_LINGER_MS,
+    };
+    expect(agentIsLingering(session, NOW)).toBe(false);
+    expect(agentsChromeNeedsSticky([session], NOW)).toBe(false);
+    expect(formatAgentsPanel([session], undefined, NOW)).toBeNull();
+  });
 });
 
 describe("formatTasksPanel", () => {
@@ -323,6 +368,69 @@ describe("formatAgentsPanel", () => {
         NOW,
       ),
     ).toBeNull();
+  });
+
+  test("interrupted linger ranks with terminals, newest finishedAt first", () => {
+    const rows = formatAgentsPanel(
+      [
+        {
+          agentId: "live",
+          description: "still going",
+          status: "running",
+          currentToolStartedAt: null,
+          startedAt: NOW - 1_000,
+          lastActivityAt: NOW,
+        },
+        {
+          agentId: "done",
+          description: "finished",
+          status: "done",
+          currentToolStartedAt: null,
+          finishedAt: NOW - 2_000,
+        },
+        {
+          agentId: "stopped",
+          description: "cut short",
+          status: "running",
+          lifecycleStatus: "interrupted",
+          currentToolStartedAt: null,
+          startedAt: NOW - 5_000,
+          lastActivityAt: NOW - 500,
+          finishedAt: NOW - 500,
+        },
+      ],
+      undefined,
+      NOW,
+    );
+    expect(rows?.map((r) => r.status)).toEqual(["running", "interrupted", "done"]);
+    expect(rows?.[1]?.tail).toBe(" · interrupted");
+  });
+
+  test("cancelled linger with lifecycle interrupted paints cancelled, not interrupted", () => {
+    const session = {
+      agentId: "a",
+      description: "cut short",
+      status: "cancelled" as const,
+      lifecycleStatus: "interrupted" as const,
+      currentToolName: "run_shell",
+      currentToolPreview: "bun test",
+      currentToolStartedAt: NOW - 2_000,
+      startedAt: NOW - 10_000,
+      lastActivityAt: NOW - 2_000,
+      finishedAt: NOW - 1_000,
+    };
+    expect(agentIsLingering(session, NOW)).toBe(true);
+    expect(agentsChromeNeedsSticky([session], NOW)).toBe(true);
+    const rows = formatAgentsPanel([session], undefined, NOW);
+    expect(rows).toEqual([
+      {
+        label: "● a  cut short",
+        tail: " · cancelled",
+        stalled: false,
+        kind: "lane",
+        status: "cancelled",
+      },
+    ]);
   });
 
   test("a stalled lane uses ! marker and reports silence via the clock", () => {

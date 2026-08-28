@@ -519,3 +519,68 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(store.get(retained.id)).toBeUndefined();
   });
 });
+
+describe("interrupt stamps finishedAt once", () => {
+  test("interruptOne sets finishedAt, keeps status running, and preserves tools", () => {
+    let t = 1000;
+    const store = createSubAgentSessionStore({
+      now: () => t,
+      createId: () => "s-int",
+    });
+    const session = store.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
+    store.registerInterrupt(session.id, () => {});
+
+    t = 2000;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    const after = store.get(session.id);
+    expect(after?.status).toBe("running");
+    expect(after?.lifecycleStatus).toBe("interrupted");
+    expect(after?.finishedAt).toBe(2000);
+    expect(after?.outstandingTools).toHaveLength(1);
+    expect(after?.currentToolName).toBe("run_shell");
+
+    t = 3500;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.finishedAt).toBe(2000);
+    expect(store.get(session.id)?.status).toBe("running");
+    expect(store.get(session.id)?.outstandingTools).toHaveLength(1);
+  });
+
+  test("sendInputOne interrupt sets finishedAt once and keeps tools", () => {
+    let t = 1000;
+    const store = createSubAgentSessionStore({
+      now: () => t,
+      createId: () => "s-send",
+    });
+    const session = store.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, async () => "later");
+
+    t = 2500;
+    const outcome = store.sendInputOne(session.id, "stop that", { interrupt: true });
+    expect(outcome).toEqual({ ok: true, status: "interrupted" });
+    const after = store.get(session.id);
+    expect(after?.status).toBe("running");
+    expect(after?.lifecycleStatus).toBe("interrupted");
+    expect(after?.finishedAt).toBe(2500);
+    expect(after?.outstandingTools).toHaveLength(1);
+
+    t = 4000;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.finishedAt).toBe(2500);
+  });
+});

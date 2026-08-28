@@ -19,6 +19,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   the operator answers.
 - The `full_shell` overlay mode is removed; every overlay is inset.
 
+### Fixed
+
+- Interrupted workers linger on the agents strip for 4s then drop, instead of
+  staying in the live list while leftover tools finish.
+
 ## [0.3.7] - 2026-08-27
 
 ### Fixed

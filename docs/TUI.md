@@ -220,9 +220,10 @@ status / current tool) — Amp/Codex-style lanes without a FLEET header board:
 
 `formatChromeZones` → `formatAgentsPanel` owns that paint. Geometry stays
 stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is
-`AGENTS_PANEL_MAX_VISIBLE + 1` (lanes plus a trailing `+N more`). Terminal
-lanes (done / failed / cancelled) linger for `AGENTS_PANEL_LINGER_MS` (4s)
-after `finishedAt`, then drop. Product-host sticky poll uses
+`AGENTS_PANEL_MAX_VISIBLE + 1` (lanes plus a trailing `+N more`). Finished
+lanes (done / failed / cancelled / interrupted) linger for
+`AGENTS_PANEL_LINGER_MS` (4s) after `finishedAt`, then drop. Product-host sticky
+poll uses
 `agentsChromeNeedsSticky` so clocks and linger stay fresh; while sticky is
 needed it **does not** call `bridge.syncAgentProgress` — chrome owns the live
 clocks.

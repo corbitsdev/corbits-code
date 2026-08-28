@@ -79,6 +79,9 @@ export interface SubAgentSession {
   // start/end, a status change). Distinct from startedAt so the strip can
   // tell a worker mid-turn from one that has gone silent.
   lastActivityAt: number;
+  // Clock the live turn ended (complete/fail/cancel, and interrupt while TUI
+  // status may still be "running"). Drives chrome linger; leftover tools may
+  // still be outstanding after this stamp.
   finishedAt?: number;
   report?: string;
   error?: string;
@@ -974,6 +977,7 @@ export function createSubAgentSessionStore(
         interrupt();
         mutate(id, (s) => {
           s.lifecycleStatus = "interrupted";
+          s.finishedAt = s.finishedAt ?? now();
         });
         void followup(message)
           .then((reply) => {
@@ -1014,6 +1018,7 @@ export function createSubAgentSessionStore(
       interrupt();
       mutate(id, (s) => {
         s.lifecycleStatus = "interrupted";
+        s.finishedAt = s.finishedAt ?? now();
       });
       pruneRetained();
       return { ok: true };

@@ -4508,7 +4508,7 @@ function agentRowFg(row: AgentPanelRow): string {
   if (row.kind === "more" || row.kind === "header") return UI.textDim;
   if (row.stalled || row.status === "failed") return UI.action;
   if (row.status === "done") return UI.done;
-  if (row.status === "cancelled") return UI.textDim;
+  if (row.status === "cancelled" || row.status === "interrupted") return UI.textDim;
   return UI.text;
 }
 

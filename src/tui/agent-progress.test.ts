@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  agentLaneIsLive,
   agentProgress,
   clockLabel,
   fleetLabel,
@@ -217,6 +218,32 @@ describe("fleetProgress", () => {
       inTool: 0,
       stalled: 0,
     });
+  });
+
+  test("does not count interrupted running leftover tools", () => {
+    const fleet = fleetProgress(
+      [
+        lane({ lastActivityAt: 59_000 }),
+        lane({
+          lifecycleStatus: "interrupted",
+          currentToolName: "run_shell",
+          currentToolStartedAt: 0,
+          lastActivityAt: 0,
+        }),
+      ],
+      60_000,
+      30_000,
+    );
+    expect(fleet).toEqual({ running: 1, working: 1, inTool: 0, stalled: 0 });
+  });
+});
+
+describe("agentLaneIsLive", () => {
+  test("running without lifecycleStatus stays live; interrupted is not", () => {
+    expect(agentLaneIsLive({ status: "running" })).toBe(true);
+    expect(agentLaneIsLive({ status: "running", lifecycleStatus: "running" })).toBe(true);
+    expect(agentLaneIsLive({ status: "running", lifecycleStatus: "interrupted" })).toBe(false);
+    expect(agentLaneIsLive({ status: "done" })).toBe(false);
   });
 });
 
