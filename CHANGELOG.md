@@ -13,6 +13,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Security
+
+- Direct macOS release binaries are now signed with hardened-runtime Bun
+  entitlements and notarized for both architectures. Publication fails closed
+  unless the final tarballs pass signature, signer, Team ID, entitlement,
+  architecture, and Gatekeeper validation.
+
 ## [0.3.9] - 2026-08-29
 
 ### Fixed

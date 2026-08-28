@@ -35,7 +35,7 @@
 # failed release reads as success.
 #
 # Requirements: run on a Mac with git, gh (authenticated), bun, jq, ar, tar,
-# and shasum available. `bun build --compile` cross-compiles every target
+# shasum, and the Apple signing tools available. `bun build --compile` cross-compiles every target
 # from here; no Linux host is needed. For the tap step, the corbitsdev/tap
 # tap must be tapped (brew tap corbitsdev/tap) or reachable so it can clone.
 
@@ -88,6 +88,7 @@ RELEASE_BRANCH="release-$VERSION"
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$ROOT"
 STAGE="$ROOT/dist/release"
+MACOS_RELEASE_HELPER="$ROOT/scripts/macos-sign-and-notarize.sh"
 MAINTAINER="$(git config user.name) <$(git config user.email)>"
 
 step()  { printf '\n\033[1;34m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
@@ -245,7 +246,13 @@ fetch_native_modules() {
 
 # ---- preflight -------------------------------------------------------------
 step "Preflight for $TAG"
-for t in git gh bun jq ar tar shasum; do command -v "$t" >/dev/null || die "missing tool: $t"; done
+[ "$(uname -s)" = Darwin ] || die "releases must run on macOS"
+for t in git gh bun jq ar tar shasum codesign ditto lipo plutil spctl xcrun; do command -v "$t" >/dev/null || die "missing tool: $t"; done
+xcrun --find notarytool >/dev/null 2>&1 || die "missing tool: notarytool"
+[ -x "$MACOS_RELEASE_HELPER" ] || die "macOS signing helper is missing or not executable"
+: "${MACOS_SIGNING_IDENTITY:?set MACOS_SIGNING_IDENTITY to the Developer ID Application certificate name}"
+: "${MACOS_TEAM_ID:?set MACOS_TEAM_ID to the expected Apple Team ID}"
+: "${MACOS_NOTARY_PROFILE:?set MACOS_NOTARY_PROFILE to the notarytool Keychain profile name}"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated (run: gh auth login)"
 info "installing dependencies (bun install)"
 bun install >/dev/null 2>&1 || die "bun install failed"
@@ -339,11 +346,12 @@ fi
 # ---- 3. build binaries, smoke, tarballs, and debs --------------------------
 step "Build standalone binaries and packages"
 mkdir -p "$STAGE"
+validated_macos=0
 for entry in "${TARGETS[@]}"; do
   IFS='|' read -r label target kind debarch <<< "$entry"
   pkg="$FORMULA-$VERSION-$label"
   tarball="$STAGE/$pkg.tar.gz"
-  if [ -f "$tarball" ] && [ -f "$tarball.sha256" ]; then
+  if [ "$kind" != macos ] && [ -f "$tarball" ] && [ -f "$tarball.sha256" ]; then
     skip "$pkg.tar.gz already built"
   else
     info "compiling $label ($target)"
@@ -358,7 +366,22 @@ for entry in "${TARGETS[@]}"; do
     if [ -d "$ROOT/plugins" ]; then
       cp -R "$ROOT/plugins" "$STAGE/$pkg/plugins"
     fi
+    if [ "$kind" = macos ]; then
+      case "$label" in
+        macos-arm64) macos_arch=arm64 ;;
+        macos-x64) macos_arch=x86_64 ;;
+        *) die "unknown macOS release architecture: $label" ;;
+      esac
+      "$MACOS_RELEASE_HELPER" sign-and-notarize "$STAGE/$pkg/$FORMULA" "$macos_arch"
+    fi
     tar -C "$STAGE" -czf "$tarball" "$pkg"
+    if [ "$kind" = macos ]; then
+      verify_dir=$(mktemp -d)
+      tar -xzf "$tarball" -C "$verify_dir" || die "could not extract final $label tarball"
+      "$MACOS_RELEASE_HELPER" verify "$verify_dir/$pkg/$FORMULA" "$macos_arch"
+      rm -rf "$verify_dir"
+      validated_macos=$((validated_macos + 1))
+    fi
     ( cd "$STAGE" && shasum -a 256 "$pkg.tar.gz" > "$pkg.tar.gz.sha256" )
     rm -rf "$STAGE/$pkg"
     info "packaged $pkg.tar.gz ($(cd "$STAGE" && du -h "$pkg.tar.gz" | cut -f1))"
@@ -384,6 +407,7 @@ for entry in "${TARGETS[@]}"; do
   fi
   rm -f "$STAGE/$FORMULA-$label.bin"
 done
+[ "$validated_macos" -eq 2 ] || die "both macOS architectures must rebuild and pass release validation"
 
 # ---- 4. land the release commit on main via PR, then tag ------------------
 # A direct push to main is rejected by the branch ruleset ("N of N required
