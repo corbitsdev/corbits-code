@@ -1014,6 +1014,42 @@ describe("same-turn failover after inference.error", () => {
     );
   });
 
+  test("reinject interrupt keeps the prompt and the classified error", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.error",
+            data: {
+              error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+            },
+          });
+          bridge.submit("restart from here", "reinject");
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({ type: "inference.text.delta", data: { token: "recovered" } });
+          bridge.handle({ type: "inference.done", data: {} });
+          bridge.handle({ type: "reactor.done", data: {} });
+
+          const text = shell.streamLog.map((r) => r.text).join("\n");
+          expect(text).toContain("restart from here");
+          expect(text).toContain("stop — restarting from your message");
+          expect(errorRows(shell)).toContain("Session expired — re-authenticating…");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("a terminal inference.error with no recovery still surfaces", async () => {
     await withTestRenderer(
       async (h) => {

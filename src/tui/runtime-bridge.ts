@@ -704,21 +704,22 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   }
 }
 
-/**
- * Retract everything the failed attempt painted, then forget the row
- * bookkeeping that pointed into it — a rolled-back tool call has no row left
- * to resolve, and a rolled-back reasoning row is no longer there to fold into.
- */
 function isLocallyQueuedUserRow(row: StreamRow): boolean {
   return (
     row.role === "user" &&
     (row.meta === "queue" ||
       row.meta === "steer" ||
       row.meta === "steering" ||
-      row.meta === "following-up")
+      row.meta === "following-up" ||
+      row.meta === "reinject")
   );
 }
 
+/**
+ * Retract everything the failed attempt painted, then forget the row
+ * bookkeeping that pointed into it — a rolled-back tool call has no row left
+ * to resolve, and a rolled-back reasoning row is no longer there to fold into.
+ */
 function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   const boundary = bag.attemptRow;
   bag.attemptRow = null;
@@ -1138,6 +1139,8 @@ export function attachSessionBridge(
       if (shell.session.run !== "busy") return;
       closeOpenRow(shell, bag);
       bag.pendingEchoes.length = 0;
+      bag.mapCtx.errorRollbackArmed = false;
+      bag.attemptRow = null;
       shell.session = interrupt(shell.session);
       appendStreamRow(shell, {
         role: "system",
