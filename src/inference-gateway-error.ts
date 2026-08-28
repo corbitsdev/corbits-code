@@ -49,8 +49,8 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 /** User-visible line while the harness retries a transient gateway overload. */
 export const GATEWAY_OVERLOAD_USER_MESSAGE = "Inference gateway overloaded — retrying…";
 
-/** User-visible line while the harness retries a short known-xAI HTTP 429. */
-export const XAI_RATE_LIMIT_USER_MESSAGE = "Rate limited — retrying…";
+/** User-visible line while the harness retries a short known-provider HTTP 429. */
+export const RATE_LIMIT_USER_MESSAGE = "Rate limited — retrying…";
 
 /** Body markers that mean a real usage/quota window, not a short rate limit. */
 const XAI_QUOTA_BODY_MARKERS = [
@@ -246,7 +246,7 @@ export function normalizeXaiRateLimitError(error: InferenceErrorWithGoContext): 
 
   return {
     category: "retryable",
-    message: XAI_RATE_LIMIT_USER_MESSAGE,
+    message: RATE_LIMIT_USER_MESSAGE,
     statusCode: 429,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
     ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
@@ -306,7 +306,7 @@ export function normalizeCodexRateLimitError(error: InferenceErrorWithGoContext)
 
   return {
     category: "retryable",
-    message: XAI_RATE_LIMIT_USER_MESSAGE,
+    message: RATE_LIMIT_USER_MESSAGE,
     statusCode: 429,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
     ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),

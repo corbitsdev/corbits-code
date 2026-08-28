@@ -73,7 +73,7 @@ describe("createCorbitsRetryPolicy", () => {
     expect(decision).toEqual({ kind: "retry", delayMs: 500 });
   });
 
-  test("stamped Codex bare 429 retries as retryable, not long-quota abort", async () => {
+  test("stamped Codex usage-limit 429 retries as retryable, not long-quota abort", async () => {
     const policy = createCorbitsRetryPolicy({ providerId: "codex/abk-labs" });
     const decision = await policy({
       attempt: 1,
