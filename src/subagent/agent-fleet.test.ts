@@ -15,6 +15,8 @@ import {
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
+import { AGENTS_PANEL_LINGER_MS, formatAgentsPanel } from "../tui/chrome-state.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
@@ -922,7 +924,7 @@ describe("list_agents", () => {
     gate.resolve({ report: "done" });
   });
 
-  test("after interrupt_agent wait-status is not running", async () => {
+  test("interrupt_agent leaves the strip after the linger window", async () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async (params) => {
       params.onAgentReady?.({
@@ -934,10 +936,6 @@ describe("list_agents", () => {
       return gate.promise;
     });
     const spawn = createSpawnAgentTool(deps);
-    const list = createListAgentsTool({
-      sessions: deps.sessions,
-      fleetRecords: deps.fleetRecords,
-    });
     const interrupt = createInterruptAgentTool({
       sessions: deps.sessions,
       fleetRecords: deps.fleetRecords,
@@ -951,19 +949,20 @@ describe("list_agents", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     if (interrupt.kind !== "full") throw new Error("expected full tool");
     await interrupt.handler(
-      { id: "int-list", name: "interrupt_agent", arguments: { target: id } },
+      { id: "int-strip", name: "interrupt_agent", arguments: { target: id } },
       new AbortController().signal,
     );
-    if (list.kind !== "full") throw new Error("expected full tool");
-    const raw = await list.handler(
-      { id: "list-int", name: "list_agents", arguments: {} },
-      new AbortController().signal,
-    );
-    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
-    const parsed = JSON.parse(content) as { agents: { agent_id: string; status: string }[] };
-    expect(parsed.agents).toHaveLength(1);
-    expect(parsed.agents[0]!.agent_id).toBe(id);
-    expect(parsed.agents[0]!.status).not.toBe("running");
+    const agents = deps.sessions.list();
+    const session = agents[0]!;
+    expect(session.status).toBe("running");
+    expect(session.lifecycleStatus).toBe("interrupted");
+    expect(agentLaneIsLive(session)).toBe(false);
+    const finishedAt = session.finishedAt!;
+    expect(finishedAt).toBeNumber();
+    const inside = finishedAt + 1_000;
+    expect(fleetProgress(agents, inside).running).toBe(0);
+    expect(formatAgentsPanel(agents, undefined, inside)?.[0]?.status).toBe("interrupted");
+    expect(formatAgentsPanel(agents, undefined, finishedAt + AGENTS_PANEL_LINGER_MS)).toBeNull();
     gate.resolve({ report: "done", interrupted: true });
   });
 });

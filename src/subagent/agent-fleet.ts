@@ -546,6 +546,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const startedAt = Date.now();
       let settlement: Readonly<SubAgentRunSettlement> | undefined;
       let endFinalized = false;
+      let runInterrupted = false;
       const finalizeEnd = (setupFailed = false): void => {
         if (endFinalized) return;
         endFinalized = true;
@@ -553,7 +554,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         const status =
           terminalSession?.status === "cancelled"
             ? "cancelled"
-            : terminalSession?.lifecycleStatus === "interrupted"
+            : runInterrupted || terminalSession?.lifecycleStatus === "interrupted"
               ? "interrupted"
               : (terminalSession?.status ?? "completed");
         captureSubagentEnd(telemetry, {
@@ -731,14 +732,16 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       deps
         .run(params)
         .then((result) => {
-          // interrupt_agent already flipped this session to "interrupted"
-          // synchronously (session-store.interruptOne) — do not let the
-          // settling promise's normal bookkeeping overwrite that with a
-          // "completed" status. Still terminalize fleetRecords so a waiter
-          // that never saw interrupt_agent (or raced it) cannot hang.
+          // interrupt_agent / send_input already flipped this session
+          // synchronously (session-store.interruptOne / sendInputOne) — do not
+          // let the settling promise's normal bookkeeping overwrite that with
+          // a "completed" status, and do not re-stamp the interrupt either: a
+          // follow-up turn may already be live on this lane. Still terminalize
+          // fleetRecords so a waiter that never saw interrupt_agent (or raced
+          // it) cannot hang.
           if (result.interrupted === true) {
             keepWorktreeAlive = true;
-            deps.sessions.interruptOne(session.id);
+            runInterrupted = true;
             deps.fleetRecords.interrupt(session.id, result.report);
             return;
           }
