@@ -39,37 +39,41 @@ await withMockedModule(
 const { loadConfig } = await import("../config/index.js");
 const { runOnboarding } = await import("./onboarding.js");
 
-async function unconfiguredCLIConfig(cwd: string, configPath: string): Promise<UnconfiguredConfig> {
-  const config = await loadConfig(["--cwd", cwd, "--config", configPath], {
+async function unconfiguredConfig(
+  cwd: string,
+  paths: { cliConfigPath?: string; programmaticConfigPath?: string },
+): Promise<UnconfiguredConfig> {
+  const argv = ["--cwd", cwd];
+  if (paths.cliConfigPath !== undefined) argv.push("--config", paths.cliConfigPath);
+
+  const config = await loadConfig(argv, {
+    ...(paths.programmaticConfigPath !== undefined
+      ? { globalSettingsPath: paths.programmaticConfigPath }
+      : {}),
     allowUnconfigured: true,
   });
   if (config.configured) throw new Error("Expected onboarding config");
   return config;
 }
 
-async function unconfiguredProgrammaticConfig(
-  cwd: string,
-  configPath: string,
-): Promise<UnconfiguredConfig> {
-  const config = await loadConfig(["--cwd", cwd], {
-    globalSettingsPath: configPath,
-    allowUnconfigured: true,
-  });
-  if (config.configured) throw new Error("Expected onboarding config");
-  return config;
-}
-
-async function unconfiguredCLIAndProgrammaticConfig(
-  cwd: string,
-  cliConfigPath: string,
-  programmaticConfigPath: string,
-): Promise<UnconfiguredConfig> {
-  const config = await loadConfig(["--cwd", cwd, "--config", cliConfigPath], {
-    globalSettingsPath: programmaticConfigPath,
-    allowUnconfigured: true,
-  });
-  if (config.configured) throw new Error("Expected onboarding config");
-  return config;
+async function writeXAIAuthProfile(home: string, profile: string): Promise<void> {
+  await mkdir(join(home, ".corbits"), { recursive: true });
+  await writeFile(
+    join(home, ".corbits", "xai-auth.json"),
+    JSON.stringify({
+      profiles: {
+        [profile]: {
+          name: profile,
+          tokens: {
+            access: `${profile}-access-token`,
+            refresh: `${profile}-refresh-token`,
+            expiresAt: Date.now() + 3_600_000,
+          },
+          createdAt: Date.now(),
+        },
+      },
+    }),
+  );
 }
 
 afterEach(() => {
@@ -83,27 +87,11 @@ describe("runOnboarding settings source", () => {
     const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-oauth-cwd-"));
     const configPath = join(cwd, "custom-settings.json");
     try {
-      await mkdir(join(testHome, ".corbits"), { recursive: true });
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredCLIConfig(cwd, configPath);
+      const config = await unconfiguredConfig(cwd, { cliConfigPath: configPath });
 
       setup = async ({ onSubmit }) => {
-        await writeFile(
-          join(testHome, ".corbits", "xai-auth.json"),
-          JSON.stringify({
-            profiles: {
-              work: {
-                name: "work",
-                tokens: {
-                  access: "test-access-token",
-                  refresh: "test-refresh-token",
-                  expiresAt: Date.now() + 3_600_000,
-                },
-                createdAt: Date.now(),
-              },
-            },
-          }),
-        );
+        await writeXAIAuthProfile(testHome, "work");
         await onSubmit(
           {
             name: "xai/work",
@@ -144,7 +132,7 @@ describe("runOnboarding settings source", () => {
     const configPath = join(cwd, "custom-settings.json");
     try {
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredCLIConfig(cwd, configPath);
+      const config = await unconfiguredConfig(cwd, { cliConfigPath: configPath });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(
@@ -181,31 +169,14 @@ describe("runOnboarding settings source", () => {
     const cliConfigPath = join(cwd, "cli-settings.json");
     const programmaticConfigPath = join(cwd, "programmatic-settings.json");
     try {
-      await mkdir(join(testHome, ".corbits"), { recursive: true });
-      await writeFile(
-        join(testHome, ".corbits", "xai-auth.json"),
-        JSON.stringify({
-          profiles: {
-            hidden: {
-              name: "hidden",
-              tokens: {
-                access: "hidden-access-token",
-                refresh: "hidden-refresh-token",
-                expiresAt: Date.now() + 3_600_000,
-              },
-              createdAt: Date.now(),
-            },
-          },
-        }),
-      );
+      await writeXAIAuthProfile(testHome, "hidden");
       await writeFile(cliConfigPath, JSON.stringify({ providers: {} }));
       await writeFile(programmaticConfigPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredCLIAndProgrammaticConfig(
-        cwd,
+      const config = await unconfiguredConfig(cwd, {
         cliConfigPath,
         programmaticConfigPath,
-      );
-      expect(config.settingsSource).toBe("cli");
+      });
+      expect(config.cliConfigPath).toBe(cliConfigPath);
       expect(config.programmaticSettingsPath).toBe(true);
 
       setup = async ({ onSubmit }) => {
@@ -237,25 +208,9 @@ describe("runOnboarding settings source", () => {
     const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-isolated-cwd-"));
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
-      await mkdir(join(testHome, ".corbits"), { recursive: true });
-      await writeFile(
-        join(testHome, ".corbits", "xai-auth.json"),
-        JSON.stringify({
-          profiles: {
-            hidden: {
-              name: "hidden",
-              tokens: {
-                access: "hidden-access-token",
-                refresh: "hidden-refresh-token",
-                expiresAt: Date.now() + 3_600_000,
-              },
-              createdAt: Date.now(),
-            },
-          },
-        }),
-      );
+      await writeXAIAuthProfile(testHome, "hidden");
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredProgrammaticConfig(cwd, configPath);
+      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(

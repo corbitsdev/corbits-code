@@ -424,8 +424,6 @@ export interface UnconfiguredConfig {
   globalSettingsPath: string;
   /** Original CLI path, present only when --config selected the write target. */
   cliConfigPath?: string;
-  /** Source that selected the settings write target. */
-  settingsSource: "default" | "cli" | "programmatic";
   /** Whether the caller requested an OAuth-isolated programmatic settings load. */
   programmaticSettingsPath: boolean;
   // The original error message, used for non-TUI (exec) error output.
@@ -723,12 +721,6 @@ export async function loadConfig(
   // same file, not the global default. Prefer configPath, then the caller
   // override, then the real global default.
   const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
-  const settingsSource =
-    configPath !== undefined
-      ? "cli"
-      : options.globalSettingsPath !== undefined
-        ? "programmatic"
-        : "default";
   const task = positional.join(" ").trim();
 
   let resolved: ResolvedProvider;
@@ -752,7 +744,6 @@ export async function loadConfig(
       ...(director !== undefined ? { director } : {}),
       globalSettingsPath: effectiveSettingsPath,
       ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
-      settingsSource,
       programmaticSettingsPath: options.globalSettingsPath !== undefined,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics even when provider setup fails early so junk local

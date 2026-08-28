@@ -228,7 +228,6 @@ describe("loadConfig", () => {
         expect(result.providerError).toMatch(/missing/);
         expect(result.globalSettingsPath).toBe(NO_SETTINGS);
         expect(result.cliConfigPath).toBeUndefined();
-        expect(result.settingsSource).toBe("programmatic");
         expect(result.programmaticSettingsPath).toBe(true);
       }
     } finally {
@@ -271,7 +270,6 @@ describe("loadConfig", () => {
       if (result.configured === false) {
         expect(result.globalSettingsPath).toBe(configPath);
         expect(result.cliConfigPath).toBe(configPath);
-        expect(result.settingsSource).toBe("cli");
         expect(result.programmaticSettingsPath).toBe(false);
       }
     } finally {
