@@ -1078,7 +1078,13 @@ export function attachSessionBridge(
     const settled = noteEvent(event);
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
-      if (consumePendingEchoEvent(bag, event)) return;
+      if (consumePendingEchoEvent(bag, event)) {
+        // The echo skips the mapper so it cannot expire a recovery handoff,
+        // but it still starts a new turn: the next reasoning gets its own row.
+        closeOpenRow(shell, bag);
+        bag.turnThinking = null;
+        return;
+      }
       for (const mapped of mapProductionEvent(event as ReactorLikeEvent, bag.mapCtx)) {
         applyInbound(shell, bag, mapped);
       }

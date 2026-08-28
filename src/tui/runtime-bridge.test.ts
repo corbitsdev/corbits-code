@@ -908,6 +908,8 @@ describe("same-turn failover after inference.error", () => {
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port);
         try {
+          bridge.submit("retry this", "immediate");
+          bridge.handle({ type: "message.received", data: { message: { content: "retry this" } } });
           bridge.handle({ type: "inference.start", data: {} });
           bridge.handle({
             type: "inference.error",
@@ -928,9 +930,63 @@ describe("same-turn failover after inference.error", () => {
 
           expect(errorRows(shell)).toEqual([]);
           expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+          // The replay duplicates the operator's prompt; rollback drops the copy.
+          expect(shell.streamLog.filter((r) => r.role === "user").map((r) => r.text)).toEqual([
+            "retry this",
+          ]);
           // Same-turn failover, not an operator stop — recovery must not borrow interrupt.
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
           expect(shell.streamLog.some((r) => r.meta === "stop")).toBe(false);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a steer echo at a tool boundary opens a new thinking row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.submit("first prompt", "immediate");
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "first prompt" } },
+          });
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({ type: "inference.thinking.delta", data: { token: "planning" } });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "run_shell", callId: "c1", arguments: "{}" },
+          });
+          bridge.handle({ type: "inference.done", data: {} });
+          bridge.submit("steer this", "steer");
+          bridge.handle({
+            type: "tool.done",
+            data: { result: { callId: "c1", content: "ok", isError: false } },
+          });
+          bridge.handle({ type: "message.received", data: { message: { content: "steer this" } } });
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({ type: "inference.thinking.delta", data: { token: "after steer" } });
+          bridge.handle({ type: "inference.text.delta", data: { token: "done" } });
+
+          const rows = shell.streamLog.map((r) => `${r.meta ?? r.role}:${r.text}`);
+          expect(rows.indexOf("thinking:planning")).toBeGreaterThan(-1);
+          expect(rows.indexOf("steering:steer this")).toBeGreaterThan(
+            rows.indexOf("thinking:planning"),
+          );
+          expect(rows.indexOf("thinking:after steer")).toBeGreaterThan(
+            rows.indexOf("steering:steer this"),
+          );
+          expect(shell.streamLog.filter((r) => r.meta === "thinking")).toHaveLength(2);
         } finally {
           bridge.dispose();
           shell.dispose();
