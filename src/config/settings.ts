@@ -405,7 +405,9 @@ function physicalPathIdentity(path: string): string {
     try {
       return join(realpathSync.native(candidate), ...missingSegments.reverse());
     } catch (err) {
-      if (!isENOENT(err)) throw err;
+      // Anything but a missing segment (ENOTDIR, EACCES, ...) is not aliasable;
+      // fall back to the lexical path so the fail-open loader sees it.
+      if (!isENOENT(err)) return resolve(path);
       const parent = dirname(candidate);
       if (parent === candidate) return resolve(path);
       missingSegments.push(basename(candidate));

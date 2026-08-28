@@ -103,6 +103,20 @@ test("local settings target is omitted when it aliases global settings", async (
   }
 });
 
+test("local settings target falls back to the lexical path when .corbits is a regular file", async () => {
+  const { globalSettingsPath, resolveLocalSettingsPath } =
+    await import("../../src/config/settings.js");
+  const root = await mkdtemp(join(tmpdir(), "ic-unit-config-notdir-"));
+  try {
+    await writeFile(join(root, ".corbits"), "");
+    expect(resolveLocalSettingsPath(root, globalSettingsPath(join(root, "home")))).toBe(
+      join(root, ".corbits", "settings.json"),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("local settings target detects a symlink alias before the settings file exists", async () => {
   const { globalSettingsPath, resolveLocalSettingsPath } =
     await import("../../src/config/settings.js");
