@@ -262,6 +262,8 @@ export interface CallbackPage {
   readonly subject?: string;
   /** Why it failed. Omit for the success page. */
   readonly error?: string;
+  /** Authorization succeeded, but the native setup flow still has work to do. */
+  readonly pendingSetup?: boolean;
 }
 
 /**
@@ -276,19 +278,26 @@ export function callbackPageHtml(page: CallbackPage = {}): string {
   const failed = page.error !== undefined;
   const subject =
     page.subject === undefined ? undefined : escapeHtml(humanizeIdentifier(page.subject));
+  const pendingSetup = !failed && page.pendingSetup === true;
   const tone = failed ? "var(--accent)" : "var(--ok)";
-  const label = failed ? "not connected" : "connected";
+  const label = failed ? "not connected" : pendingSetup ? "authorization received" : "connected";
   const heading = failed
     ? subject === undefined
       ? "Authorization did not complete"
       : `${subject} failed to connect`
-    : subject === undefined
-      ? "Authorization complete"
-      : `${subject} connected successfully`;
+    : pendingSetup
+      ? subject === undefined
+        ? "Authorization received"
+        : `${subject} authorization received`
+      : subject === undefined
+        ? "Authorization complete"
+        : `${subject} connected successfully`;
   const reason = escapeHtml(humanizeIdentifier(page.error ?? ""));
   const body = failed
     ? `${reason}. Close this tab and try again from ${PRODUCT_NAME}.`
-    : `You can close this tab and return to ${PRODUCT_NAME}.`;
+    : pendingSetup
+      ? `Return to ${PRODUCT_NAME} to finish setup.`
+      : `You can close this tab and return to ${PRODUCT_NAME}.`;
   return [
     "<!doctype html>",
     '<html lang="en">',

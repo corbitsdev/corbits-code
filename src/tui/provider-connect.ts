@@ -12,8 +12,8 @@ import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js"
 export interface ConnectProviderInput {
   readonly providerId: string;
   readonly settingsPath: string;
-  /** Project-local selection file; written after a successful connect. */
-  readonly localSettingsPath: string;
+  /** Project-local selection file, or null when it aliases global settings. */
+  readonly localSettingsPath: string | null;
   readonly existing: Settings | null;
   readonly createRenderer?: ProviderSetupConfig["createRenderer"];
   readonly startLogin?: ProviderSetupConfig["startLogin"];

@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { resolveLocalSettingsPath } from "../config/settings.js";
 import { resolveExitCode } from "./runner.js";
 
 describe("resolveExitCode", () => {
@@ -63,5 +64,17 @@ describe("resolveExitCode", () => {
       status: "done",
     });
     expect(code).toBe(0);
+  });
+});
+
+describe("resolveLocalSettingsPath", () => {
+  test("treats an aliased --config path as the global settings target", () => {
+    expect(resolveLocalSettingsPath("/repo", "/repo/.corbits/settings.json")).toBeNull();
+  });
+
+  test("preserves the normal distinct global and project settings paths", () => {
+    expect(resolveLocalSettingsPath("/tmp/repo", "/tmp/home/user/.corbits/settings.json")).toBe(
+      "/tmp/repo/.corbits/settings.json",
+    );
   });
 });

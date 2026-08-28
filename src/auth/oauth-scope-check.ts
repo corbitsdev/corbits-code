@@ -11,15 +11,20 @@
 // status is inspected to classify the result.
 
 import { CODEX_BASE_URL, CODEX_MODELS_PATH, CODEX_CLIENT_VERSION } from "./codex/constants.js";
-import { codexAuthHeaders } from "./codex/usage.js";
+import { refreshStagedCodexTokens } from "./codex/session.js";
+import type { CodexTokens } from "./codex/store.js";
+import { codexAuthHeadersForToken } from "./codex/usage.js";
 import { XAI_BASE_URL, XAI_TOKEN_TIMEOUT_MS } from "./xai/constants.js";
-import { xaiAuthHeaders } from "./xai/usage.js";
+import { refreshStagedXaiTokens } from "./xai/session.js";
+import type { XaiTokens } from "./xai/store.js";
+import { xaiAuthHeadersForToken } from "./xai/usage.js";
+import { OAuthTokenEndpointError } from "./oauth/client.js";
 
 export type OAuthScopeCheckKind = "codex" | "xai";
 
 export type OAuthScopeCheckResult =
   | { status: "ok" }
-  | { status: "insufficient-scope"; message: string }
+  | { status: "blocked"; message: string }
   // The probe could not run to completion (network blip, timeout, rate
   // limit, provider hiccup). This must never be treated the same as a
   // definitive scope failure — a transient failure must not lock a
@@ -30,7 +35,7 @@ const SCOPE_CHECK_TIMEOUT_MS = 10_000;
 
 function insufficientScope(providerLabel: string): OAuthScopeCheckResult {
   return {
-    status: "insufficient-scope",
+    status: "blocked",
     message:
       `Your ${providerLabel} sign-in doesn't carry API access (it looks like a chat-only plan). ` +
       `Reconnect ${providerLabel} with an account/plan that includes API access, then try again.`,
@@ -44,6 +49,36 @@ function unavailable(providerLabel: string): OAuthScopeCheckResult {
   };
 }
 
+function invalidCredentials(providerLabel: string): OAuthScopeCheckResult {
+  return {
+    status: "blocked",
+    message: `${providerLabel} sign-in expired or was revoked. Reconnect ${providerLabel}, then try again.`,
+  };
+}
+
+export class OAuthProviderScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OAuthProviderScopeError";
+  }
+}
+
+export function isOAuthProviderScopeError(err: unknown): err is OAuthProviderScopeError {
+  return err instanceof OAuthProviderScopeError;
+}
+
+export function isBlockingOAuthScopeCheckResult(
+  result: OAuthScopeCheckResult,
+): result is Extract<OAuthScopeCheckResult, { status: "blocked" }> {
+  return result.status === "blocked";
+}
+
+function isDefinitiveRefreshAuthRejection(err: unknown): boolean {
+  if (!(err instanceof OAuthTokenEndpointError)) return false;
+  if (err.status === 401 || err.status === 403) return true;
+  return /invalid_grant|revoked/i.test(err.detail);
+}
+
 // 401/403 is the provider definitively rejecting the token for this surface —
 // treated as a real scope failure. Anything else (429, 5xx, a malformed
 // response) is inconclusive: it says nothing about whether the token has
@@ -53,10 +88,10 @@ function classifyStatus(status: number, providerLabel: string): OAuthScopeCheckR
   return unavailable(providerLabel);
 }
 
-async function checkCodexScope(profile: string): Promise<OAuthScopeCheckResult> {
+async function checkCodexScope(tokens: CodexTokens): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Codex";
   try {
-    const headers = await codexAuthHeaders(profile);
+    const headers = codexAuthHeadersForToken(await refreshStagedCodexTokens(tokens));
     const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
     const res = await fetch(url, {
       headers,
@@ -64,22 +99,24 @@ async function checkCodexScope(profile: string): Promise<OAuthScopeCheckResult> 
     });
     if (res.ok) return { status: "ok" };
     return classifyStatus(res.status, providerLabel);
-  } catch {
+  } catch (err) {
+    if (isDefinitiveRefreshAuthRejection(err)) return invalidCredentials(providerLabel);
     return unavailable(providerLabel);
   }
 }
 
-async function checkXaiScope(profile: string): Promise<OAuthScopeCheckResult> {
+async function checkXaiScope(tokens: XaiTokens): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Grok";
   try {
-    const headers = await xaiAuthHeaders(profile);
+    const headers = xaiAuthHeadersForToken(await refreshStagedXaiTokens(tokens));
     const res = await fetch(`${XAI_BASE_URL}/models`, {
       headers,
       signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
     });
     if (res.ok) return { status: "ok" };
     return classifyStatus(res.status, providerLabel);
-  } catch {
+  } catch (err) {
+    if (isDefinitiveRefreshAuthRejection(err)) return invalidCredentials(providerLabel);
     return unavailable(providerLabel);
   }
 }
@@ -89,7 +126,7 @@ async function checkXaiScope(profile: string): Promise<OAuthScopeCheckResult> {
 // login result alone.
 export async function checkOAuthProviderScope(
   kind: OAuthScopeCheckKind,
-  profile: string,
+  tokens: CodexTokens | XaiTokens,
 ): Promise<OAuthScopeCheckResult> {
-  return kind === "codex" ? checkCodexScope(profile) : checkXaiScope(profile);
+  return kind === "codex" ? checkCodexScope(tokens) : checkXaiScope(tokens);
 }

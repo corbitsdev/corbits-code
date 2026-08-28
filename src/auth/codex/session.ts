@@ -52,3 +52,13 @@ const session = createTokenSession<CodexTokens, CodexAccess>({
 
 export const isCodexTokenExpired = session.isExpired;
 export const getValidCodexToken = session.getValidToken;
+
+export async function refreshStagedCodexTokens(
+  tokens: CodexTokens,
+  now: number = Date.now(),
+): Promise<CodexTokens> {
+  if (!isCodexTokenExpired(tokens, now)) return tokens;
+  const refreshed = await refreshTokens(tokens.refresh, now);
+  Object.assign(tokens, refreshed);
+  return tokens;
+}

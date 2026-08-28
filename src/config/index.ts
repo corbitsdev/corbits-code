@@ -52,8 +52,8 @@ import {
   globalSettingsPath,
   loadLocalSettingsResult,
   type SettingsLoadDiagnostic,
-  loadSettings,
-  localSettingsPath,
+  loadSettingsRecoveringClobberedOAuthSelection,
+  resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerSettingsEntry,
@@ -79,6 +79,51 @@ export const SOURCE_MAX_TOKENS = 16384;
 // apiKey string; the value is injected as `Bearer <key>` by the harness but
 // keyless servers ignore it entirely.
 export const KEYLESS_API_KEY = "keyless";
+
+function applyPersistedOAuthDefaults(
+  settings: Settings | null,
+  projected: Record<string, ProviderSettings>,
+): Record<string, ProviderSettings> {
+  const merged: Record<string, ProviderSettings> = {};
+  for (const [name, provider] of Object.entries(projected)) {
+    const defaultModel = settings?.providers[name]?.defaultModel;
+    merged[name] =
+      defaultModel !== undefined && defaultModel.length > 0
+        ? {
+            ...provider,
+            models: provider.models.includes(defaultModel)
+              ? provider.models
+              : [defaultModel, ...provider.models],
+            defaultModel,
+          }
+        : provider;
+  }
+  return merged;
+}
+
+// OAuth entries in settings.json carry no credentials; they are only usable
+// while a matching auth-store profile exists. Drop orphans in memory so a
+// removed profile does not pin resolution to an unauthenticatable provider.
+function dropOrphanedOAuthEntries(
+  settings: Settings | null,
+  projected: Record<string, ProviderSettings>,
+): Settings | null {
+  if (settings === null) return null;
+  const providers = Object.fromEntries(
+    Object.entries(settings.providers).filter(
+      ([name]) =>
+        (!isCodexProviderName(name) && !isXaiProviderName(name)) || projected[name] !== undefined,
+    ),
+  );
+  const { defaultProvider, ...rest } = settings;
+  return {
+    ...rest,
+    providers,
+    ...(defaultProvider !== undefined && providers[defaultProvider] !== undefined
+      ? { defaultProvider }
+      : {}),
+  };
+}
 
 function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
   return servers?.some((server) => server.name === EXA_MCP_SERVER_NAME) === true;
@@ -422,6 +467,10 @@ export interface UnconfiguredConfig {
   director?: DirectorId;
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
+  /** Original CLI path, present only when --config selected the write target. */
+  cliConfigPath?: string;
+  /** Whether the caller requested an OAuth-isolated programmatic settings load. */
+  programmaticSettingsPath: boolean;
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
   /**
@@ -651,21 +700,10 @@ export async function loadConfig(
 
   await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
-  const settings =
-    configPath !== undefined
-      ? await loadSettings(configPath).then((s) => {
-          if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
-          return s;
-        })
-      : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
-
-  // Track whether the effective value came from the persisted global default
-  // rather than this invocation's --dangerously-skip-permissions flag, so the
-  // TUI/exec entry points can surface a startup notice for the silent case.
-  const skipPermissionsFromSettings =
-    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
-  dangerouslySkipPermissions =
-    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
+  // Resolve both settings targets from the same effective global path. The
+  // local schema must never be read from or written to that global target.
+  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
+  const localSettingsFile = resolveLocalSettingsPath(cwd, effectiveSettingsPath);
 
   // OAuth profiles live in home-level auth stores (~/.corbits/codex-auth.json,
   // xai-auth.json), entirely separate from settings.json. --config only
@@ -679,22 +717,51 @@ export async function loadConfig(
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] = useOAuthProfiles
     ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
     : [[], []];
-  const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
-  const xaiProviderSettings = xaiProvidersAsSettings(xaiProfiles);
-  const oauthProviderSettings = { ...codexProviderSettings, ...xaiProviderSettings };
+  let projectedOAuthProviders = {
+    ...codexProvidersAsSettings(codexProfiles),
+    ...xaiProvidersAsSettings(xaiProfiles),
+  };
+  const settings =
+    configPath !== undefined
+      ? await loadSettingsRecoveringClobberedOAuthSelection(configPath, projectedOAuthProviders, {
+          persist: false,
+        }).then((s) => {
+          if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
+          return s;
+        })
+      : await loadSettingsRecoveringClobberedOAuthSelection(
+          effectiveSettingsPath,
+          projectedOAuthProviders,
+          { persist: true },
+        );
+
+  // Track whether the effective value came from the persisted global default
+  // rather than this invocation's --dangerously-skip-permissions flag, so the
+  // TUI/exec entry points can surface a startup notice for the silent case.
+  const skipPermissionsFromSettings =
+    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
+  dangerouslySkipPermissions =
+    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
+  projectedOAuthProviders = applyPersistedOAuthDefaults(settings, projectedOAuthProviders);
+  const liveSettings = useOAuthProfiles
+    ? dropOrphanedOAuthEntries(settings, projectedOAuthProviders)
+    : settings;
   const settingsForResolution: Settings | null =
-    Object.keys(oauthProviderSettings).length > 0
+    Object.keys(projectedOAuthProviders).length > 0
       ? {
-          ...(settings ?? { providers: {} }),
-          providers: { ...(settings?.providers ?? {}), ...oauthProviderSettings },
+          ...(liveSettings ?? { providers: {} }),
+          providers: { ...(liveSettings?.providers ?? {}), ...projectedOAuthProviders },
         }
-      : settings;
+      : liveSettings;
 
   // The per-repo selection file still applies on top of a --config source: that
   // file supplies provider definitions, while .corbits/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
   // Fail open on unknown/invalid local keys — never crash startup.
-  const localResult = await loadLocalSettingsResult(localSettingsPath(cwd));
+  const localResult =
+    localSettingsFile === null
+      ? { settings: null, diagnostics: [] }
+      : await loadLocalSettingsResult(localSettingsFile);
   const local = localResult.settings;
   const settingsDiagnostics = localResult.diagnostics;
 
@@ -713,10 +780,6 @@ export async function loadConfig(
   if (provider !== undefined) cli.provider = provider;
   if (model !== undefined) cli.model = model;
 
-  // When --config is given, onboarding must write to and reload from that
-  // same file, not the global default. Prefer configPath, then the caller
-  // override, then the real global default.
-  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
   const task = positional.join(" ").trim();
 
   let resolved: ResolvedProvider;
@@ -739,6 +802,8 @@ export async function loadConfig(
       command,
       ...(director !== undefined ? { director } : {}),
       globalSettingsPath: effectiveSettingsPath,
+      ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
+      programmaticSettingsPath: options.globalSettingsPath !== undefined,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics even when provider setup fails early so junk local
       // files still reach stderr (exec) / banner (TUI after onboarding).

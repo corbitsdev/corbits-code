@@ -59,17 +59,20 @@ function parseXaiUsage(payload: unknown): XaiUsage {
   };
 }
 
-export async function xaiAuthHeaders(profileName: string): Promise<Record<string, string>> {
-  const { access } = await getValidXaiToken(profileName);
+export function xaiAuthHeadersForToken(token: { readonly access: string }): Record<string, string> {
   const headers: Record<string, string> = {
-    authorization: `Bearer ${access}`,
+    authorization: `Bearer ${token.access}`,
     "user-agent": XAI_USER_AGENT,
     "x-grok-client-identifier": XAI_CLIENT_IDENTIFIER,
     "x-grok-client-version": XAI_CLIENT_VERSION,
   };
-  const userId = xaiUserIdFromAccessToken(access);
+  const userId = xaiUserIdFromAccessToken(token.access);
   if (userId !== undefined) headers["x-grok-user-id"] = userId;
   return headers;
+}
+
+export async function xaiAuthHeaders(profileName: string): Promise<Record<string, string>> {
+  return xaiAuthHeadersForToken(await getValidXaiToken(profileName));
 }
 
 // Fetch the live usage/quota snapshot for an xAI/Grok profile.

@@ -1,7 +1,7 @@
 import { runTUI } from "./runner.js";
 import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
-import { globalSettingsPath, loadSettings, localSettingsPath } from "../config/settings.js";
+import { globalSettingsPath, loadSettings, resolveLocalSettingsPath } from "../config/settings.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { runProviderSetup } from "./provider-setup.js";
 
@@ -20,7 +20,11 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   const submitted = await runProviderSetup({
     showTelemetryNotice,
     existingProviderNames: Object.keys(existing?.providers ?? {}),
-    onSubmit: buildProviderSubmitHandler(settingsPath, existing, localSettingsPath(config.cwd)),
+    onSubmit: buildProviderSubmitHandler(
+      settingsPath,
+      existing,
+      resolveLocalSettingsPath(config.cwd, settingsPath),
+    ),
   });
 
   // If the user cancelled (Ctrl+C) onSubmit was never called and settings were
@@ -37,18 +41,14 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   }
 
   const argv: string[] = ["--cwd", config.cwd];
+  if (config.cliConfigPath !== undefined) argv.push("--config", config.cliConfigPath);
   if (config.dangerouslySkipPermissions) argv.push("--dangerously-skip-permissions");
   if (config.force) argv.push("--force");
   if (config.task.length > 0) argv.push(config.task);
 
-  // An explicit globalSettingsPath tells loadConfig it is on a controlled
-  // settings source and suppresses the home-level OAuth profile projection.
-  // Passing the default path would therefore hide a provider the operator just
-  // signed into, so it is only forwarded when it really is an override.
-  const overridesSettingsPath = settingsPath !== globalSettingsPath();
-  const newConfig = await loadConfig(
-    argv,
-    overridesSettingsPath ? { globalSettingsPath: settingsPath } : {},
-  );
+  // Preserve programmatic isolation independently of the path that won settings
+  // precedence; CLI --config remains the write and reload target when both exist.
+  const loadOptions = config.programmaticSettingsPath ? { globalSettingsPath: settingsPath } : {};
+  const newConfig = await loadConfig(argv, loadOptions);
   return runTUI(newConfig);
 }

@@ -27,7 +27,11 @@ import {
   type FirstClassProviderDef,
 } from "../../packages/first-class-providers/src/index.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import { isOAuthProviderScopeError } from "../auth/oauth-scope-check.js";
+import type { CodexTokens } from "../auth/codex/store.js";
+import type { AuthProfile } from "../auth/oauth/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
+import type { XaiTokens } from "../auth/xai/store.js";
 import { PRODUCT_NAME } from "../branding.js";
 import { codexProviderName } from "../config/codex-providers.js";
 import { xaiProviderName } from "../config/xai-providers.js";
@@ -595,9 +599,18 @@ export function summaryColor(row: SummaryRow): string {
  * What the operator should do about a failure. A bare error message leaves a
  * first-run user stuck, so every failure names the field to fix.
  */
-export function failureGuidance(phase: SubmitPhase, choice: ProviderChoice | null): string {
+export function failureGuidance(
+  phase: SubmitPhase,
+  choice: ProviderChoice | null,
+  offerSaveAnyway = true,
+): string {
   if (phase === "saving") {
     return "settings could not be written — check disk permissions, enter to retry";
+  }
+  if (!offerSaveAnyway) {
+    return choice !== null && !choice.custom
+      ? "the account cannot be saved — esc to reconnect or enter to retry"
+      : "check the base url and key — esc to go back, enter to retry";
   }
   return choice !== null && !choice.custom
     ? "the key was rejected or unreachable — esc to re-enter it, enter to retry, ctrl+s to save anyway"
@@ -636,17 +649,14 @@ export interface SubmitOpts {
    * four form values cannot express.
    */
   readonly preset?: ProviderPreset;
-  /**
-   * Present when the operator signed in rather than pasting a key. The token
-   * is already on disk in the auth store by then, so the caller persists the
-   * selection only — never a credential.
-   */
+  /** Present when the operator exchanged OAuth credentials during setup. */
   readonly oauth?: OAuthResult;
 }
 
 export interface OAuthResult {
   readonly kind: OAuthKind;
-  readonly profile: string;
+  readonly tokens: CodexTokens | XaiTokens;
+  readonly commit: () => Promise<void>;
   /** Settings/catalog name the stored profile projects to. */
   readonly providerName: string;
 }
@@ -667,7 +677,10 @@ export type ProviderSetupSubmit = (
 /** A login in flight: where to authorize, when it finished, how to abandon it. */
 export interface OAuthLoginStart {
   readonly authorizeUrl: string;
-  readonly completed: Promise<{ profile: string }>;
+  readonly completed: Promise<{
+    readonly profile: AuthProfile<CodexTokens | XaiTokens>;
+    readonly commit: () => Promise<void>;
+  }>;
   readonly cancel: () => void;
 }
 
@@ -1177,7 +1190,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       const ramp = rampFor({ phase: "blocked", nowMs: 0 });
       statusLine.content = rampLine(ramp, submitError.toLowerCase());
       statusLine.fg = ramp.fg;
-      guidance.content = failureGuidance(submitPhase, choice);
+      guidance.content = failureGuidance(submitPhase, choice, saveAnywayOffered);
       guidance.fg = UI.textDim;
       return;
     }
@@ -1351,7 +1364,11 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     paint();
   };
 
-  const finishLogin = (attempt: number, kind: OAuthKind, profile: string): void => {
+  const finishLogin = (
+    attempt: number,
+    kind: OAuthKind,
+    staged: Awaited<OAuthLoginStart["completed"]>,
+  ): void => {
     if (attempt !== loginAttempt) return;
     clearLoginTimer();
     loginHandle = null;
@@ -1359,9 +1376,12 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     stopRamp();
     loginStatus = "done";
     loginError = null;
-    // The token is already on disk in the auth store; from here the surface
-    // carries only the selection.
-    const result = { kind, profile, providerName: oauthProviderName(kind, profile) };
+    const result: OAuthResult = {
+      kind,
+      tokens: staged.profile.tokens,
+      commit: staged.commit,
+      providerName: oauthProviderName(kind, staged.profile.name),
+    };
     loginResult = result;
     values.name = result.providerName;
     values.apiKey = "";
@@ -1401,7 +1421,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
         paint();
         handle.completed.then(
           (result) => {
-            finishLogin(attempt, kind, result.profile);
+            finishLogin(attempt, kind, result);
           },
           (err: unknown) => {
             failLogin(attempt, err instanceof Error ? err.message : String(err));
@@ -1469,7 +1489,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
           submitting = false;
           submitPhase = phase;
           submitError = err instanceof Error ? err.message : String(err);
-          saveAnywayOffered = phase === "testing";
+          saveAnywayOffered = phase === "testing" && !isOAuthProviderScopeError(err);
           paint();
         },
       );

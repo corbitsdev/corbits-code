@@ -1,4 +1,8 @@
-import { checkOAuthProviderScope } from "../auth/oauth-scope-check.js";
+import {
+  OAuthProviderScopeError,
+  checkOAuthProviderScope,
+  isBlockingOAuthScopeCheckResult,
+} from "../auth/oauth-scope-check.js";
 import {
   mergeProviderIntoSettings,
   saveGlobalSettings,
@@ -15,10 +19,11 @@ import type { ProviderSetupSubmit } from "./provider-setup.js";
  * local selection only (never secrets).
  */
 export async function persistConnectedSelection(
-  localSettingsFile: string,
+  localSettingsFile: string | null,
   provider: string,
   model: string,
 ): Promise<void> {
+  if (localSettingsFile === null) return;
   await saveLocalSettings(localSettingsFile, {
     provider,
     model,
@@ -38,7 +43,7 @@ export async function persistConnectedSelection(
 export function buildProviderSubmitHandler(
   settingsPath: string,
   existing: Settings | null,
-  localSettingsFile: string,
+  localSettingsFile: string | null,
 ): ProviderSetupSubmit {
   return async (values, setPhase, { skipValidation, preset, oauth }) => {
     const { name, baseURL, apiKey, model } = values;
@@ -47,33 +52,32 @@ export function buildProviderSubmitHandler(
     const trimmedKey = apiKey.trim();
     const selectedModel = model.trim();
 
-    // A signed-in subscription provider has no key to test or store: the
-    // tokens are already in the home-level auth store, and config load
-    // projects that store into the provider catalog. Only the selection is
-    // persisted here — the same two files /model writes when switching.
-    //
-    // Unlike a pasted key, this credential was just issued by the real
-    // provider's own OAuth server completing a PKCE round-trip — so the
-    // token is real. That still doesn't confirm it carries usable API scope
-    // (vs. e.g. a chat-only subscription), which would otherwise surface as
-    // a confusing first-send auth error with no setup-attributable hint.
-    // Probe the provider's own catalog endpoint with the issued token before
-    // treating onboarding as complete: a definitive scope rejection blocks
-    // the submit with an actionable message (mirrors the API-key path's
-    // connection test); a check that could not run at all (network blip,
-    // timeout, rate limit) never blocks — only a proven scope failure does.
+    // OAuth credentials stay staged until setup validation authorizes durable
+    // persistence. Definitive API-scope or credential failures block the save;
+    // inconclusive probe failures do not. Once committed to the home-level auth
+    // store, config load projects it into the provider catalog, so only
+    // non-secret provider/model metadata is persisted globally.
     if (oauth !== undefined) {
       if (!skipValidation) {
-        const scopeCheck = await checkOAuthProviderScope(oauth.kind, oauth.profile);
-        if (scopeCheck.status === "insufficient-scope") {
-          throw new Error(scopeCheck.message);
+        const scopeCheck = await checkOAuthProviderScope(oauth.kind, oauth.tokens);
+        if (isBlockingOAuthScopeCheckResult(scopeCheck)) {
+          throw new OAuthProviderScopeError(scopeCheck.message);
         }
       }
       setPhase("saving");
+      await oauth.commit();
       const base = existing ?? { providers: {} };
       await saveGlobalSettings(settingsPath, {
         ...base,
         defaultProvider: oauth.providerName,
+        providers: {
+          ...base.providers,
+          [oauth.providerName]: {
+            baseURL: trimmedBaseURL,
+            models: [selectedModel],
+            defaultModel: selectedModel,
+          },
+        },
       });
       await persistConnectedSelection(localSettingsFile, oauth.providerName, selectedModel);
       return;

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { type } from "arktype";
 
@@ -212,20 +213,44 @@ export function toggleFavoriteModel(settings: Settings, ref: ModelRef): Settings
   };
 }
 
-export function setDefaultModel(settings: Settings, ref: ModelRef): Settings {
+function providerSelectionMetadata(provider: ProviderSettings, model: string): ProviderSettings {
+  return {
+    ...(provider.name !== undefined ? { name: provider.name } : {}),
+    baseURL: provider.baseURL,
+    models: [model],
+    defaultModel: model,
+    ...(provider.keyless === true ? { keyless: true } : {}),
+    ...(provider.free === true ? { free: true } : {}),
+    ...(provider.contextWindow !== undefined ? { contextWindow: provider.contextWindow } : {}),
+    ...(provider.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+    ...(provider.anthropic === true ? { anthropic: true } : {}),
+    ...(provider.opencodeGo === true ? { opencodeGo: true } : {}),
+    ...(provider.verified !== undefined ? { verified: provider.verified } : {}),
+  };
+}
+
+export function setDefaultModel(
+  settings: Settings,
+  ref: ModelRef,
+  projectedProvider?: ProviderSettings,
+): Settings {
   const next: ModelRef = { provider: ref.provider, model: ref.model };
   const existing = settings.providers[next.provider];
+  const provider = existing ?? projectedProvider;
+  if (provider === undefined) {
+    return { ...settings, defaultProvider: next.provider };
+  }
+  const persistedProvider =
+    existing !== undefined
+      ? { ...existing, defaultModel: next.model }
+      : providerSelectionMetadata(provider, next.model);
   return {
     ...settings,
     defaultProvider: next.provider,
-    ...(existing !== undefined
-      ? {
-          providers: {
-            ...settings.providers,
-            [next.provider]: { ...existing, defaultModel: next.model },
-          },
-        }
-      : {}),
+    providers: {
+      ...settings.providers,
+      [next.provider]: persistedProvider,
+    },
   };
 }
 
@@ -370,6 +395,40 @@ export function globalSettingsPath(home: string = homedir()): string {
 
 export function localSettingsPath(cwd: string): string {
   return join(cwd, SETTINGS_DIR_NAME, "settings.json");
+}
+
+function physicalPathIdentity(path: string): string {
+  let candidate = resolve(path);
+  const missingSegments: string[] = [];
+
+  while (true) {
+    try {
+      return join(realpathSync.native(candidate), ...missingSegments.reverse());
+    } catch (err) {
+      // Anything but a missing segment (ENOTDIR, EACCES, ...) is not aliasable;
+      // fall back to the lexical path so the fail-open loader sees it.
+      if (!isENOENT(err)) return resolve(path);
+      const parent = dirname(candidate);
+      if (parent === candidate) return resolve(path);
+      missingSegments.push(basename(candidate));
+      candidate = parent;
+    }
+  }
+}
+
+export function resolveLocalSettingsPath(cwd: string, globalPath: string): string | null {
+  const localPath = localSettingsPath(cwd);
+  return physicalPathIdentity(localPath) === physicalPathIdentity(globalPath) ? null : localPath;
+}
+
+// True when `settingsPath` is a distinct settings file from the default home
+// path. Symlink and lexical aliases of the default path are not overrides —
+// treating them as such would suppress OAuth profile projection after setup.
+export function isProgrammaticSettingsOverride(
+  settingsPath: string,
+  defaultGlobalPath: string = globalSettingsPath(),
+): boolean {
+  return physicalPathIdentity(settingsPath) !== physicalPathIdentity(defaultGlobalPath);
 }
 
 function isENOENT(err: unknown): boolean {
@@ -688,7 +747,33 @@ export function healOpenCodeGoProviders(settings: Settings): string[] {
   return healed;
 }
 
-export async function loadSettings(path: string): Promise<Settings | null> {
+const ClobberedLocalSelectionSchema = type({
+  provider: "string>0",
+  model: "string>0",
+  "+": "reject",
+});
+
+function isClobberedLocalSelection(value: unknown): value is { provider: string; model: string } {
+  return ClobberedLocalSelectionSchema.allows(value);
+}
+
+function recoverClobberedOAuthSelection(
+  selection: { provider: string; model: string },
+  projected: Record<string, ProviderSettings>,
+): Settings | undefined {
+  const provider = projected[selection.provider];
+  // Auth-profile presence is enough: the selected model may be outside the
+  // projected fallback catalog (CODEX_DEFAULT_MODELS / xAI equivalents).
+  if (provider === undefined) return undefined;
+  return {
+    defaultProvider: selection.provider,
+    providers: {
+      [selection.provider]: providerSelectionMetadata(provider, selection.model),
+    },
+  };
+}
+
+async function loadSettingsJSON(path: string): Promise<unknown | null> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -696,16 +781,22 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     if (isENOENT(err)) return null;
     throw err;
   }
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
     throw new Error(`Invalid JSON in settings file: ${path}`);
   }
+}
+
+function settingsSchemaError(path: string): Error {
+  return new Error(
+    `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
+  );
+}
+
+function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   if (!isSettings(parsed)) {
-    throw new Error(
-      `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
-    );
+    throw settingsSchemaError(path);
   }
   const s = parsed as unknown as Record<string, unknown>;
   // These keys were removed when plugins moved to discovery; they are now
@@ -759,10 +850,14 @@ export async function loadSettings(path: string): Promise<Settings | null> {
         ? Boolean(s.dangerouslySkipPermissions)
         : undefined,
   };
-  const settings: Settings = {
+  return {
     providers: s.providers as Settings["providers"],
     ...pickDefined(optional),
   };
+}
+
+async function loadStrictSettings(path: string, parsed: unknown): Promise<Settings> {
+  const settings = normalizeParsedSettings(path, parsed);
   // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
   // Only rewrite disk when heal actually mutates (no write-on-read for no-op reloads).
   // Fail open on save: keep the in-memory heal so startup is not bricked by a
@@ -781,6 +876,27 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     }
   }
   return settings;
+}
+
+export async function loadSettings(path: string): Promise<Settings | null> {
+  const parsed = await loadSettingsJSON(path);
+  return parsed === null ? null : await loadStrictSettings(path, parsed);
+}
+
+export async function loadSettingsRecoveringClobberedOAuthSelection(
+  path: string,
+  recoverableOAuthProviders: Record<string, ProviderSettings>,
+  options: { persist: boolean },
+): Promise<Settings | null> {
+  const parsed = await loadSettingsJSON(path);
+  if (parsed === null) return null;
+  if (isClobberedLocalSelection(parsed)) {
+    const recovered = recoverClobberedOAuthSelection(parsed, recoverableOAuthProviders);
+    if (recovered === undefined) throw settingsSchemaError(path);
+    if (options.persist) await saveGlobalSettings(path, recovered);
+    return recovered;
+  }
+  return loadStrictSettings(path, parsed);
 }
 
 /** Diagnostic produced when settings fail open instead of crashing startup. */

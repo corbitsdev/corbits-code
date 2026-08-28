@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
@@ -80,6 +80,133 @@ test("loadConfig uses the injected pricing fetchImpl instead of the network", as
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls()).toBeGreaterThan(0);
   });
+});
+
+test("local settings target is omitted when it aliases global settings", async () => {
+  const { globalSettingsPath, resolveLocalSettingsPath } =
+    await import("../../src/config/settings.js");
+  const home = await mkdtemp(join(tmpdir(), "ic-unit-config-home-alias-"));
+  try {
+    const globalPath = globalSettingsPath(home);
+    expect(resolveLocalSettingsPath(home, globalPath)).toBeNull();
+    expect(
+      resolveLocalSettingsPath(home, join(home, "nested", "..", ".corbits", "settings.json")),
+    ).toBeNull();
+    expect(resolveLocalSettingsPath(home, join(home, "explicit.json"))).toBe(
+      join(home, ".corbits", "settings.json"),
+    );
+    expect(resolveLocalSettingsPath(join(home, "repo"), globalPath)).toBe(
+      join(home, "repo", ".corbits", "settings.json"),
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("local settings target falls back to the lexical path when .corbits is a regular file", async () => {
+  const { globalSettingsPath, resolveLocalSettingsPath } =
+    await import("../../src/config/settings.js");
+  const root = await mkdtemp(join(tmpdir(), "ic-unit-config-notdir-"));
+  try {
+    await writeFile(join(root, ".corbits"), "");
+    expect(resolveLocalSettingsPath(root, globalSettingsPath(join(root, "home")))).toBe(
+      join(root, ".corbits", "settings.json"),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("local settings target detects a symlink alias before the settings file exists", async () => {
+  const { globalSettingsPath, resolveLocalSettingsPath } =
+    await import("../../src/config/settings.js");
+  const root = await mkdtemp(join(tmpdir(), "ic-unit-config-symlink-alias-"));
+  const home = join(root, "home");
+  const linkedHome = join(root, "linked-home");
+  try {
+    await mkdir(home);
+    await symlink(home, linkedHome, "dir");
+    const globalPath = globalSettingsPath(home);
+    expect(resolveLocalSettingsPath(linkedHome, globalPath)).toBeNull();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("symlink alias of the default global settings path is not a programmatic override", async () => {
+  const { globalSettingsPath, isProgrammaticSettingsOverride } =
+    await import("../../src/config/settings.js");
+  const root = await mkdtemp(join(tmpdir(), "ic-unit-config-global-symlink-"));
+  const home = join(root, "home");
+  try {
+    await mkdir(join(home, ".corbits"), { recursive: true });
+    const realPath = globalSettingsPath(home);
+    await writeFile(realPath, JSON.stringify({ providers: {} }));
+    const aliasPath = join(root, "alias-settings.json");
+    await symlink(realPath, aliasPath);
+
+    expect(isProgrammaticSettingsOverride(aliasPath, realPath)).toBe(false);
+    expect(isProgrammaticSettingsOverride(join(root, "other.json"), realPath)).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadSettings recovery helper recovers only an exact clobbered local selection", async () => {
+  const { loadSettingsRecoveringClobberedOAuthSelection } =
+    await import("../../src/config/settings.js");
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-recovery-"));
+  try {
+    const clobberedPath = join(cwd, "clobbered.json");
+    const clobbered = JSON.stringify({ provider: "openai", model: "gpt-5" });
+    await writeFile(clobberedPath, clobbered);
+    await expect(
+      loadSettingsRecoveringClobberedOAuthSelection(clobberedPath, {}, { persist: true }),
+    ).rejects.toThrow(/Invalid settings schema/);
+    expect(await readFile(clobberedPath, "utf8")).toBe(clobbered);
+
+    const malformedPath = join(cwd, "malformed.json");
+    await writeFile(
+      malformedPath,
+      JSON.stringify({ provider: "openai", model: "gpt-5", apiKey: "not-recoverable" }),
+    );
+    await expect(
+      loadSettingsRecoveringClobberedOAuthSelection(malformedPath, {}, { persist: true }),
+    ).rejects.toThrow(/Invalid settings schema/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig does not load an aliased global file as local settings", async () => {
+  const { globalSettingsPath } = await import("../../src/config/settings.js");
+  const home = await mkdtemp(join(tmpdir(), "ic-unit-config-load-alias-"));
+  const path = globalSettingsPath(home);
+  try {
+    await mkdir(join(home, ".corbits"), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        defaultProvider: "openai",
+        providers: {
+          openai: {
+            baseURL: "https://api.openai.com/v1",
+            apiKey: "test-key",
+            models: ["gpt-5"],
+          },
+        },
+      }),
+    );
+    const { impl } = offlineFetch();
+    const config = await loadConfig(["--cwd", home, "hello"], {
+      globalSettingsPath: path,
+      pricing: { fetchImpl: impl },
+    });
+    expect(config.settingsDiagnostics).toBeUndefined();
+    expect(config.providerName).toBe("openai");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("global settings round-trip the telemetry block", async () => {
@@ -192,8 +319,108 @@ test("loadSettings cannot silently drop a known optional key", async () => {
   }
 });
 
-// Regression: an OAuth-profile provider (xai/<profile>) is never written to
-// settings.json — home-level auth stores are the source of truth, and
+test("aliased-home restart preserves a non-default OAuth model", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-alias-home-"));
+  try {
+    const { XAI_DEFAULT_MODELS } = await import("../../src/auth/xai/constants.js");
+    const selectedModel = XAI_DEFAULT_MODELS[1];
+    if (selectedModel === undefined) throw new Error("Expected a non-default xAI model fixture");
+    await mkdir(join(fakeHome, ".corbits"), { recursive: true });
+    await writeFile(
+      join(fakeHome, ".corbits", "settings.json"),
+      JSON.stringify({
+        defaultProvider: "xai/synthetic",
+        providers: {
+          "xai/synthetic": {
+            baseURL: "https://api.x.ai/v1",
+            models: [selectedModel],
+            defaultModel: selectedModel,
+          },
+        },
+      }),
+    );
+    await writeFile(
+      join(fakeHome, ".corbits", "xai-auth.json"),
+      JSON.stringify({
+        profiles: {
+          synthetic: {
+            name: "synthetic",
+            tokens: {
+              access: "test-access-token",
+              refresh: "test-refresh",
+              expiresAt: Date.now() + 3_600_000,
+            },
+            createdAt: Date.now(),
+          },
+        },
+      }),
+    );
+
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(["--cwd", fakeHome, "do something"], {
+          pricing: { fetchImpl: impl },
+        });
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("xai/synthetic");
+          expect(config.model).toBe(selectedModel);
+        }
+      },
+    );
+  } finally {
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-orphan-home-"));
+  try {
+    await mkdir(join(fakeHome, ".corbits"), { recursive: true });
+    const settingsPath = join(fakeHome, ".corbits", "settings.json");
+    const original = JSON.stringify({
+      defaultProvider: "xai/gone",
+      providers: {
+        "xai/gone": {
+          baseURL: "https://api.x.ai/v1",
+          models: ["grok-4"],
+          defaultModel: "grok-4",
+        },
+        openai: {
+          baseURL: "https://api.openai.com/v1",
+          apiKey: "test-key",
+          models: ["gpt-5"],
+        },
+      },
+    });
+    await writeFile(settingsPath, original);
+
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(["--cwd", fakeHome, "do something"], {
+          pricing: { fetchImpl: impl },
+        });
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("openai");
+          expect(config.providers.some((p) => p.name === "xai/gone")).toBe(false);
+        }
+      },
+    );
+    expect(await readFile(settingsPath, "utf8")).toBe(original);
+  } finally {
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
+// Regression: OAuth credentials for an xai/<profile> provider are never read
+// from settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see
 // "OAuth profiles live in home-level auth stores" in src/config/index.ts).
 // --config only overrides where provider *definitions* come from (CL-6973);

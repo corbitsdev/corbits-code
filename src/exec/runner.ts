@@ -21,7 +21,7 @@ import {
 } from "../config/index.js";
 import {
   loadLocalSettings,
-  localSettingsPath,
+  resolveLocalSettingsPath,
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
 } from "../config/settings.js";
@@ -341,14 +341,19 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const liveAgentProfiles = await loadAgentProfiles(profilesDir);
 
     // loadLocalSettings maps ENOENT → null; a throw is real I/O or schema failure.
-    const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(
-      (err: unknown) => {
-        logger.warn("Failed to load local settings: {error}", {
-          error: formatCaughtError(err),
-        });
-        return null;
-      },
+    const localSettingsForModePath = resolveLocalSettingsPath(
+      config.cwd,
+      config.globalSettingsPath,
     );
+    const localSettingsForMode =
+      localSettingsForModePath === null
+        ? null
+        : await loadLocalSettings(localSettingsForModePath).catch((err: unknown) => {
+            logger.warn("Failed to load local settings: {error}", {
+              error: formatCaughtError(err),
+            });
+            return null;
+          });
     const sessionMode: SessionMode =
       resolveSessionMode(config.settings, localSettingsForMode) ?? "orchestrator";
 

@@ -6,9 +6,9 @@ import {
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "./constants.js";
 import { startXaiCallbackServer } from "./callback-server.js";
 import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";
-import { saveXaiProfile } from "./store.js";
+import { saveXaiProfile, type XaiTokens } from "./store.js";
 
-export type XaiLoginHandle = OAuthLoginHandle;
+export type XaiLoginHandle = OAuthLoginHandle<XaiTokens>;
 export type StartXaiLoginOptions = StartOAuthLoginOptions;
 
 export async function startXaiLogin(opts: StartXaiLoginOptions): Promise<XaiLoginHandle> {

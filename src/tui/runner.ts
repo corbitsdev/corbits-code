@@ -30,7 +30,7 @@ import {
   listFavoriteModels,
   listRecentModels,
   loadSettings,
-  localSettingsPath,
+  resolveLocalSettingsPath,
   markTelemetryNoticeShown,
   persistSkipPermissionsDefault,
   pushRecentModel,
@@ -1239,9 +1239,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // CL-5814: orchestrator is the only product path — no first-run mode picker.
     const liveSessionMode: SessionMode = "orchestrator";
     // Local settings still supply shell env; sessionMode is ignored if present.
-    const localSettingsForEnv = await loadLocalSettings(localSettingsPath(config.cwd)).catch(
-      () => null,
-    );
+    const localSettingsForEnvPath = resolveLocalSettingsPath(config.cwd, config.globalSettingsPath);
+    const localSettingsForEnv =
+      localSettingsForEnvPath === null
+        ? null
+        : await loadLocalSettings(localSettingsForEnvPath).catch(() => null);
     const toolAvailability: ToolAvailability = {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
     };
@@ -2138,7 +2140,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // listing, so revoke resolves against the same snapshot the operator saw.
     let listedGrants: readonly ScopedApproval[] = [];
 
-    const localSettingsFile = localSettingsPath(config.cwd);
+    const localSettingsFile = resolveLocalSettingsPath(config.cwd, config.globalSettingsPath);
 
     const applyCommandResult = (result: CommandResult): void => {
       switch (result.type) {
@@ -2387,7 +2389,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
             providers: {},
           };
-          const next = setDefaultModel(onDisk, ref);
+          const next = setDefaultModel(
+            onDisk,
+            ref,
+            config.providers.find((provider) => provider.name === ref.provider),
+          );
           await saveGlobalSettings(trueGlobalSettingsPath, next);
           await persistConnectedSelection(localSettingsFile, ref.provider, ref.model);
           config = { ...config, settings: next };

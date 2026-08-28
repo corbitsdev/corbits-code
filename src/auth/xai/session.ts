@@ -53,3 +53,13 @@ const session = createTokenSession<XaiTokens, XaiAccess>({
 
 export const isXaiTokenExpired = session.isExpired;
 export const getValidXaiToken = session.getValidToken;
+
+export async function refreshStagedXaiTokens(
+  tokens: XaiTokens,
+  now: number = Date.now(),
+): Promise<XaiTokens> {
+  if (!isXaiTokenExpired(tokens, now)) return tokens;
+  const refreshed = await refreshTokens(tokens.refresh, now);
+  Object.assign(tokens, refreshed);
+  return tokens;
+}
