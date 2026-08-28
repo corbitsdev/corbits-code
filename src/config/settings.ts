@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { type } from "arktype";
 
@@ -372,9 +373,26 @@ export function localSettingsPath(cwd: string): string {
   return join(cwd, SETTINGS_DIR_NAME, "settings.json");
 }
 
+function physicalPathIdentity(path: string): string {
+  let candidate = resolve(path);
+  const missingSegments: string[] = [];
+
+  while (true) {
+    try {
+      return join(realpathSync.native(candidate), ...missingSegments.reverse());
+    } catch (err) {
+      if (!isENOENT(err)) throw err;
+      const parent = dirname(candidate);
+      if (parent === candidate) return resolve(path);
+      missingSegments.push(basename(candidate));
+      candidate = parent;
+    }
+  }
+}
+
 export function resolveLocalSettingsPath(cwd: string, globalPath: string): string | null {
   const localPath = localSettingsPath(cwd);
-  return resolve(localPath) === resolve(globalPath) ? null : localPath;
+  return physicalPathIdentity(localPath) === physicalPathIdentity(globalPath) ? null : localPath;
 }
 
 function isENOENT(err: unknown): boolean {

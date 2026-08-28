@@ -50,8 +50,9 @@ export function buildProviderSubmitHandler(
 
     // A signed-in subscription provider has no key to test or store: the
     // tokens are already in the home-level auth store, and config load
-    // projects that store into the provider catalog. Only the selection is
-    // persisted here — the same two files /model writes when switching.
+    // projects that store into the provider catalog. Persist only non-secret
+    // provider/model metadata globally so the selection survives when a local
+    // settings target would alias this file.
     //
     // Unlike a pasted key, this credential was just issued by the real
     // provider's own OAuth server completing a PKCE round-trip — so the
@@ -75,6 +76,14 @@ export function buildProviderSubmitHandler(
       await saveGlobalSettings(settingsPath, {
         ...base,
         defaultProvider: oauth.providerName,
+        providers: {
+          ...base.providers,
+          [oauth.providerName]: {
+            baseURL: trimmedBaseURL,
+            models: [selectedModel],
+            defaultModel: selectedModel,
+          },
+        },
       });
       await persistConnectedSelection(localSettingsFile, oauth.providerName, selectedModel);
       return;

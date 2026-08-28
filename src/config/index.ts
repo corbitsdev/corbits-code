@@ -80,6 +80,27 @@ export const SOURCE_MAX_TOKENS = 16384;
 // keyless servers ignore it entirely.
 export const KEYLESS_API_KEY = "keyless";
 
+function applyPersistedOAuthDefaults(
+  settings: Settings | null,
+  projected: Record<string, ProviderSettings>,
+): Record<string, ProviderSettings> {
+  const merged: Record<string, ProviderSettings> = {};
+  for (const [name, provider] of Object.entries(projected)) {
+    const defaultModel = settings?.providers[name]?.defaultModel;
+    merged[name] =
+      defaultModel !== undefined && defaultModel.length > 0
+        ? {
+            ...provider,
+            models: provider.models.includes(defaultModel)
+              ? provider.models
+              : [defaultModel, ...provider.models],
+            defaultModel,
+          }
+        : provider;
+  }
+  return merged;
+}
+
 function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
   return servers?.some((server) => server.name === EXA_MCP_SERVER_NAME) === true;
 }
@@ -689,7 +710,10 @@ export async function loadConfig(
     : [[], []];
   const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
   const xaiProviderSettings = xaiProvidersAsSettings(xaiProfiles);
-  const oauthProviderSettings = { ...codexProviderSettings, ...xaiProviderSettings };
+  const oauthProviderSettings = applyPersistedOAuthDefaults(settings, {
+    ...codexProviderSettings,
+    ...xaiProviderSettings,
+  });
   const settingsForResolution: Settings | null =
     Object.keys(oauthProviderSettings).length > 0
       ? {

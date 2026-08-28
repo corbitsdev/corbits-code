@@ -162,7 +162,10 @@ describe("buildProviderSubmitHandler", () => {
       const settings = await loadSettings(settingsPath);
       expect(settings?.defaultProvider).toBe(testCase.provider);
       expect(settings?.providers.existing?.apiKey).toBe("existing-key");
-      if (testCase.provider !== "codex/work") {
+      if (testCase.provider === "codex/work") {
+        expect(settings?.providers[testCase.provider]?.defaultModel).toBe(testCase.values.model);
+        expect(settings?.providers[testCase.provider]?.apiKey).toBeUndefined();
+      } else {
         expect(settings?.providers[testCase.provider]).toBeDefined();
       }
     });

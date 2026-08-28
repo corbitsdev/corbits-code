@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
@@ -100,6 +100,22 @@ test("local settings target is omitted when it aliases global settings", async (
     );
   } finally {
     await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("local settings target detects a symlink alias before the settings file exists", async () => {
+  const { globalSettingsPath, resolveLocalSettingsPath } =
+    await import("../../src/config/settings.js");
+  const root = await mkdtemp(join(tmpdir(), "ic-unit-config-symlink-alias-"));
+  const home = join(root, "home");
+  const linkedHome = join(root, "linked-home");
+  try {
+    await mkdir(home);
+    await symlink(home, linkedHome, "dir");
+    const globalPath = globalSettingsPath(home);
+    expect(resolveLocalSettingsPath(linkedHome, globalPath)).toBeNull();
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -264,8 +280,65 @@ test("loadSettings cannot silently drop a known optional key", async () => {
   }
 });
 
-// Regression: an OAuth-profile provider (xai/<profile>) is never written to
-// settings.json — home-level auth stores are the source of truth, and
+test("aliased-home restart preserves a non-default OAuth model", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-alias-home-"));
+  try {
+    const { XAI_DEFAULT_MODELS } = await import("../../src/auth/xai/constants.js");
+    const selectedModel = XAI_DEFAULT_MODELS[1];
+    if (selectedModel === undefined) throw new Error("Expected a non-default xAI model fixture");
+    await mkdir(join(fakeHome, ".corbits"), { recursive: true });
+    await writeFile(
+      join(fakeHome, ".corbits", "settings.json"),
+      JSON.stringify({
+        defaultProvider: "xai/synthetic",
+        providers: {
+          "xai/synthetic": {
+            baseURL: "https://api.x.ai/v1",
+            models: [selectedModel],
+            defaultModel: selectedModel,
+          },
+        },
+      }),
+    );
+    await writeFile(
+      join(fakeHome, ".corbits", "xai-auth.json"),
+      JSON.stringify({
+        profiles: {
+          synthetic: {
+            name: "synthetic",
+            tokens: {
+              access: "test-access-token",
+              refresh: "test-refresh",
+              expiresAt: Date.now() + 3_600_000,
+            },
+            createdAt: Date.now(),
+          },
+        },
+      }),
+    );
+
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(["--cwd", fakeHome, "do something"], {
+          pricing: { fetchImpl: impl },
+        });
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("xai/synthetic");
+          expect(config.model).toBe(selectedModel);
+        }
+      },
+    );
+  } finally {
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
+// Regression: OAuth credentials for an xai/<profile> provider are never read
+// from settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see
 // "OAuth profiles live in home-level auth stores" in src/config/index.ts).
 // --config only overrides where provider *definitions* come from (CL-6973);
