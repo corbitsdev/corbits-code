@@ -432,8 +432,7 @@ describe("landing screen", () => {
           // Heavy inset permission overlay: many choices plus a multi-line body
           // so the float must take real headroom from the landing split. A
           // three-item empty body leaves message delta 0 and would pass even if
-          // the split never slid. Operator asks use full_shell (CL-7067) and
-          // hide the landing instead — that path is covered in overlays.test.ts.
+          // the split never slid.
           const heavyBody = [
             "run_shell",
             "Run shell command",
@@ -479,8 +478,6 @@ describe("landing screen", () => {
   // float only asked the split for one choice row of headroom. It now asks for
   // the overlay's real, already fraction-capped content height, so a terminal
   // tall enough for that content shows every choice without scrolling.
-  // Operator full_shell hides the landing (CL-7067); this coverage stays on
-  // the inset permission path that still floats over landing.
   test("a landing overlay with many choices shows them all when there is room", async () => {
     await withTestRenderer(
       async (h) => {

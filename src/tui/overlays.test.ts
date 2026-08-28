@@ -192,7 +192,8 @@ describe("operator question overlay", () => {
         try {
           openOperatorOverlay(shell);
           expect(shell.overlayKind).toBe("operator");
-          expect(shell.layout.overlayMode).toBe("full_shell");
+          expect(shell.layout.overlayMode).toBe("inset");
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
           expect(shell.overlayBodyLines.length).toBeGreaterThan(0);
           expect(shell.overlayItems.length).toBeGreaterThan(3);
           expect(focusOwner(shell.focus)).toBe("overlay");
@@ -226,9 +227,8 @@ describe("operator question overlay", () => {
 
   test("full_shell decisionContext budget shows more body rows than inset", async () => {
     // Same long body under both modes: inset stays capped at DECISION_CONTEXT_ROWS
-    // (8), while full_shell raises the cap with terminal height so a long ask
-    // stays readable (CL-7067). Mode-only asserts are not enough — pin the
-    // budget branch that actually shapes overlayBodyLines.
+    // (8), while full_shell raises the cap with terminal height. Mode-only asserts
+    // are not enough — pin the budget branch that actually shapes overlayBodyLines.
     const longBody = [
       "Should we proceed with the destructive reset of the working tree?",
       ...Array.from({ length: 24 }, (_, i) => `Context line ${i + 1}.`),

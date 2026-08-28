@@ -13,6 +13,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### TUI
+
+- `ask_operator` is an inset overlay again so the transcript stays visible while
+  the operator answers.
+
 ## [0.3.7] - 2026-08-27
 
 ### Fixed

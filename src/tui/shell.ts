@@ -1282,7 +1282,7 @@ function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   const perItem = overlayRowsPerItem(shell.overlayKind);
   const hostRows = overlayHostRows(shell, shell.overlayBodyLines.length, itemCount * perItem);
   const minHostRows = overlayMinHostRows(shell, shell.overlayBodyLines.length, itemCount > 0);
-  // Preserve the mode the open chose (operator uses full_shell; others inset).
+  // Preserve the mode the open chose.
   // Hardcoding inset here would collapse a full_shell ask on every list refresh.
   const bag = internals.get(shell);
   const mode: OverlayMode = bag?.overlayMode === "full_shell" ? "full_shell" : "inset";
@@ -3571,9 +3571,8 @@ export interface OpenListOverlayOpts {
    */
   readonly echoChoice?: boolean;
   /**
-   * Geometry mode for this open. Defaults to inset. Operator asks use
-   * full_shell so long questions and option lists stay readable; permission
-   * gates stay inset unless a caller opts in.
+   * Geometry mode for this open. Defaults to inset. Pass `full_shell` to hide
+   * the transcript and give residual rows to the overlay host.
    */
   readonly overlayMode?: "inset" | "full_shell";
   /**
