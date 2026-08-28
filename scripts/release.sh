@@ -491,14 +491,14 @@ else
     "$(sha_for linux-arm64)" \
     "$(sha_for linux-x64)"
 
-  git -C "$TAP_DIR" add -A -- "Formula/" formula_renames.json
-  if git -C "$TAP_DIR" diff --cached --quiet -- "Formula/" formula_renames.json; then
-    skip "formula and rename metadata already at $VERSION"
-  else
-    git -C "$TAP_DIR" commit -q -m "$BREW_FORMULA $VERSION"
-    info "committed formula and rename metadata bump"
-    git_push "$TAP_DIR"
-  fi
+  tap_status=$(bash "$ROOT/scripts/prepare-homebrew-tap-release.sh" "$TAP_DIR" "$VERSION")
+  case "$tap_status" in
+    push-required)
+      info "formula and rename metadata ready to push"
+      git_push "$TAP_DIR" ;;
+    current) skip "formula and rename metadata already at $VERSION" ;;
+    *) die "unexpected tap preparation status: $tap_status" ;;
+  esac
 fi
 
 # ---- done ------------------------------------------------------------------

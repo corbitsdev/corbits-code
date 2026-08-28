@@ -43,6 +43,31 @@ describe("generateHomebrewTap", () => {
     expect(formula).not.toContain('bin.install "corbits-code"');
   });
 
+  test("rejects array-shaped rename metadata", async () => {
+    await writeFile(join(tapDir, "formula_renames.json"), "[]\n");
+
+    await expect(generateHomebrewTap(tapDir, release)).rejects.toThrow(
+      "Invalid formula rename metadata",
+    );
+  });
+
+  test("leaves formulas unchanged when rename metadata is invalid", async () => {
+    const formulaDir = join(tapDir, "Formula");
+    const legacyFormula = "class Corbits < Formula\nend\n";
+    const currentFormula = "class CorbitsCode < Formula\nend\n";
+    await mkdir(formulaDir);
+    await writeFile(join(formulaDir, "corbits.rb"), legacyFormula);
+    await writeFile(join(formulaDir, "corbits-code.rb"), currentFormula);
+    await writeFile(join(tapDir, "formula_renames.json"), '{"other": 42}\n');
+
+    await expect(generateHomebrewTap(tapDir, release)).rejects.toThrow(
+      "Invalid formula rename metadata",
+    );
+
+    expect(await readFile(join(formulaDir, "corbits.rb"), "utf8")).toBe(legacyFormula);
+    expect(await readFile(join(formulaDir, "corbits-code.rb"), "utf8")).toBe(currentFormula);
+  });
+
   test("merges formula rename metadata without changing repeated output", async () => {
     await writeFile(
       join(tapDir, "formula_renames.json"),

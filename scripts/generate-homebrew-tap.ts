@@ -69,6 +69,9 @@ async function readFormulaRenames(path: string): Promise<Record<string, string>>
   }
 
   const parsed: unknown = JSON.parse(raw);
+  if (Array.isArray(parsed)) {
+    throw new Error("Invalid formula rename metadata: expected an object");
+  }
   const renames = FormulaRenames(parsed);
   if (renames instanceof type.errors) {
     throw new Error(`Invalid formula rename metadata: ${renames.summary}`);
@@ -79,14 +82,15 @@ async function readFormulaRenames(path: string): Promise<Record<string, string>>
 export async function generateHomebrewTap(tapDir: string, release: HomebrewRelease): Promise<void> {
   const formulaDir = join(tapDir, "Formula");
   const renamesPath = join(tapDir, "formula_renames.json");
-  await mkdir(formulaDir, { recursive: true });
-
-  await rm(join(formulaDir, "corbits.rb"), { force: true });
-  await writeFile(join(formulaDir, "corbits-code.rb"), renderFormula(release));
-
+  const formula = renderFormula(release);
   const renames = await readFormulaRenames(renamesPath);
   renames.corbits = "corbits-code";
-  await writeFile(renamesPath, `${JSON.stringify(renames, null, 2)}\n`);
+  const renameMetadata = `${JSON.stringify(renames, null, 2)}\n`;
+
+  await mkdir(formulaDir, { recursive: true });
+  await rm(join(formulaDir, "corbits.rb"), { force: true });
+  await writeFile(join(formulaDir, "corbits-code.rb"), formula);
+  await writeFile(renamesPath, renameMetadata);
 }
 
 function parseRelease(args: string[]): { tapDir: string; release: HomebrewRelease } {
