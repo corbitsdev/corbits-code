@@ -376,6 +376,49 @@ test("aliased-home restart preserves a non-default OAuth model", async () => {
   }
 });
 
+test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-orphan-home-"));
+  try {
+    await mkdir(join(fakeHome, ".corbits"), { recursive: true });
+    const settingsPath = join(fakeHome, ".corbits", "settings.json");
+    const original = JSON.stringify({
+      defaultProvider: "xai/gone",
+      providers: {
+        "xai/gone": {
+          baseURL: "https://api.x.ai/v1",
+          models: ["grok-4"],
+          defaultModel: "grok-4",
+        },
+        openai: {
+          baseURL: "https://api.openai.com/v1",
+          apiKey: "test-key",
+          models: ["gpt-5"],
+        },
+      },
+    });
+    await writeFile(settingsPath, original);
+
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(["--cwd", fakeHome, "do something"], {
+          pricing: { fetchImpl: impl },
+        });
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("openai");
+          expect(config.providers.some((p) => p.name === "xai/gone")).toBe(false);
+        }
+      },
+    );
+    expect(await readFile(settingsPath, "utf8")).toBe(original);
+  } finally {
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
 // Regression: OAuth credentials for an xai/<profile> provider are never read
 // from settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see

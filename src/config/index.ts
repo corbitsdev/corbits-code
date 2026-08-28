@@ -101,6 +101,30 @@ function applyPersistedOAuthDefaults(
   return merged;
 }
 
+// OAuth entries in settings.json carry no credentials; they are only usable
+// while a matching auth-store profile exists. Drop orphans in memory so a
+// removed profile does not pin resolution to an unauthenticatable provider.
+function dropOrphanedOAuthEntries(
+  settings: Settings | null,
+  projected: Record<string, ProviderSettings>,
+): Settings | null {
+  if (settings === null) return null;
+  const providers = Object.fromEntries(
+    Object.entries(settings.providers).filter(
+      ([name]) =>
+        (!isCodexProviderName(name) && !isXaiProviderName(name)) || projected[name] !== undefined,
+    ),
+  );
+  const { defaultProvider, ...rest } = settings;
+  return {
+    ...rest,
+    providers,
+    ...(defaultProvider !== undefined && providers[defaultProvider] !== undefined
+      ? { defaultProvider }
+      : {}),
+  };
+}
+
 function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
   return servers?.some((server) => server.name === EXA_MCP_SERVER_NAME) === true;
 }
@@ -719,13 +743,16 @@ export async function loadConfig(
   dangerouslySkipPermissions =
     dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
   projectedOAuthProviders = applyPersistedOAuthDefaults(settings, projectedOAuthProviders);
+  const liveSettings = useOAuthProfiles
+    ? dropOrphanedOAuthEntries(settings, projectedOAuthProviders)
+    : settings;
   const settingsForResolution: Settings | null =
     Object.keys(projectedOAuthProviders).length > 0
       ? {
-          ...(settings ?? { providers: {} }),
-          providers: { ...(settings?.providers ?? {}), ...projectedOAuthProviders },
+          ...(liveSettings ?? { providers: {} }),
+          providers: { ...(liveSettings?.providers ?? {}), ...projectedOAuthProviders },
         }
-      : settings;
+      : liveSettings;
 
   // The per-repo selection file still applies on top of a --config source: that
   // file supplies provider definitions, while .corbits/settings.json supplies
