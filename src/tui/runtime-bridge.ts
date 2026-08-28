@@ -417,6 +417,24 @@ function consumeEcho(bag: BridgeBag, text: string): boolean {
   return true;
 }
 
+function messageReceivedContent(event: { readonly data?: unknown }): string | undefined {
+  const data = event.data;
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const message = (data as { readonly message?: unknown }).message;
+  if (message === null || typeof message !== "object" || Array.isArray(message)) return undefined;
+  const content = (message as { readonly content?: unknown }).content;
+  return typeof content === "string" ? content : undefined;
+}
+
+function consumePendingEchoEvent(
+  bag: BridgeBag,
+  event: { readonly type: string; readonly data?: unknown },
+): boolean {
+  if (event.type !== "message.received") return false;
+  const content = messageReceivedContent(event);
+  return content !== undefined && consumeEcho(bag, content);
+}
+
 function openRowContent(
   kind: OpenRowKind,
   text: string,
@@ -691,11 +709,25 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
  * bookkeeping that pointed into it — a rolled-back tool call has no row left
  * to resolve, and a rolled-back reasoning row is no longer there to fold into.
  */
+function isLocallyQueuedUserRow(row: StreamRow): boolean {
+  return (
+    row.role === "user" &&
+    (row.meta === "queue" ||
+      row.meta === "steer" ||
+      row.meta === "steering" ||
+      row.meta === "following-up")
+  );
+}
+
 function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   const boundary = bag.attemptRow;
   bag.attemptRow = null;
   if (boundary === null || boundary >= streamRowCount(shell)) return;
+  const localRows = Array.from({ length: streamRowCount(shell) - boundary }, (_, i) =>
+    streamRowAt(shell, boundary + i),
+  ).filter((row): row is StreamRow => row !== undefined && isLocallyQueuedUserRow(row));
   truncateStreamRows(shell, boundary);
+  for (const row of localRows) appendStreamRow(shell, row);
   for (const [callId, index] of [...bag.toolRows]) {
     if (index >= boundary) {
       bag.toolRows.delete(callId);
@@ -1045,6 +1077,7 @@ export function attachSessionBridge(
     const settled = noteEvent(event);
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
+      if (consumePendingEchoEvent(bag, event)) return;
       for (const mapped of mapProductionEvent(event as ReactorLikeEvent, bag.mapCtx)) {
         applyInbound(shell, bag, mapped);
       }

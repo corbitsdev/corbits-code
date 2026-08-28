@@ -814,6 +814,198 @@ describe("committed inference retry", () => {
   });
 });
 
+describe("same-turn failover after inference.error", () => {
+  const errorRows = (shell: {
+    streamLog: readonly { role: string; meta?: string; text: string }[];
+  }) => shell.streamLog.filter((r) => r.meta === "error").map((r) => r.text);
+
+  test("a recovered quota error does not stay in the transcript", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          for (const event of [
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.error",
+              data: {
+                error: {
+                  category: "quota_exhausted",
+                  message: "The usage limit has been reached",
+                  statusCode: 429,
+                },
+              },
+            },
+            { type: "inference.start", data: {} },
+            { type: "inference.text.delta", data: { token: "recovered" } },
+            { type: "inference.done", data: {} },
+            { type: "reactor.done", data: {} },
+          ] as const) {
+            bridge.handle(event);
+          }
+
+          expect(errorRows(shell)).toEqual([]);
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a recovered credential error does not stay in the transcript", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          for (const event of [
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.error",
+              data: {
+                error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+              },
+            },
+            { type: "inference.start", data: {} },
+            { type: "inference.text.delta", data: { token: "recovered" } },
+            { type: "inference.done", data: {} },
+            { type: "reactor.done", data: {} },
+          ] as const) {
+            bridge.handle(event);
+          }
+
+          expect(errorRows(shell)).toEqual([]);
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("an echoed auto-retry prompt does not expire recovery", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.error",
+            data: {
+              error: {
+                category: "quota_exhausted",
+                message: "The usage limit has been reached",
+                statusCode: 429,
+              },
+            },
+          });
+          bridge.submit("retry this", "immediate");
+          bridge.handle({ type: "message.received", data: { message: { content: "retry this" } } });
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({ type: "inference.text.delta", data: { token: "recovered" } });
+          bridge.handle({ type: "inference.done", data: {} });
+          bridge.handle({ type: "reactor.done", data: {} });
+
+          expect(errorRows(shell)).toEqual([]);
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a queued steer row survives failover rollback", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.error",
+            data: {
+              error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+            },
+          });
+          bridge.submit("steer this", "steer");
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({ type: "inference.text.delta", data: { token: "recovered" } });
+          bridge.handle({ type: "inference.done", data: {} });
+          bridge.handle({ type: "reactor.done", data: {} });
+
+          const text = shell.streamLog.map((r) => r.text).join("\n");
+          expect(errorRows(shell)).toEqual([]);
+          expect(text).toContain("recovered");
+          expect(text).toContain("steer this");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a terminal inference.error with no recovery still surfaces", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          for (const event of [
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.error",
+              data: {
+                error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+              },
+            },
+            { type: "reactor.error", data: { error: "failed" } },
+          ] as const) {
+            bridge.handle(event);
+          }
+
+          expect(errorRows(shell).length).toBeGreaterThan(0);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
 describe("parallel sub-agent dispatch on the live session bridge", () => {
   // The live main-session path tracks a call's row by callId in its own map
   // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
