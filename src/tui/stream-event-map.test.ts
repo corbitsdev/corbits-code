@@ -314,7 +314,7 @@ describe("inference.error text", () => {
 
   test("a classified failure gets its written line, not the provider body", () => {
     expect(message({ category: "credential_failure", message: '{"error":{"code":401}}' })).toBe(
-      "Session expired — re-authenticating…",
+      "Authentication failed — log in again.",
     );
     expect(message({ category: "quota_exhausted", message: "429" })).toBe(
       "Quota exhausted — usage limit reached.",
@@ -369,6 +369,29 @@ describe("inference.error text", () => {
     if (event?.type !== "error") return;
     expect(event.message.toLowerCase()).toMatch(/rate limit/);
     expect(event.message).not.toContain("Quota exhausted");
+  });
+
+  test("ctx.providerId Codex + ChatGPT usage-limit 429 shows rate-limit copy", () => {
+    const ctx = createStreamMapContext({ providerId: "codex/abk-labs" });
+    const [event] = mapProductionEvent(
+      {
+        type: "inference.error",
+        data: {
+          error: {
+            category: "quota_exhausted",
+            message: "You have hit your ChatGPT usage limit",
+            statusCode: 429,
+            raw: "You have hit your ChatGPT usage limit",
+          },
+        },
+      },
+      ctx,
+    );
+    expect(event?.type).toBe("error");
+    if (event?.type !== "error") return;
+    expect(event.message.toLowerCase()).toMatch(/rate limit/);
+    expect(event.message).not.toContain("Quota exhausted");
+    expect(event.message.toLowerCase()).not.toContain("usage limit reached");
   });
 
   test("bare quota_exhausted 429 without ctx/provider still shows Quota exhausted", () => {

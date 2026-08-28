@@ -49,8 +49,8 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 /** User-visible line while the harness retries a transient gateway overload. */
 export const GATEWAY_OVERLOAD_USER_MESSAGE = "Inference gateway overloaded — retrying…";
 
-/** User-visible line while the harness retries a short known-xAI HTTP 429. */
-export const XAI_RATE_LIMIT_USER_MESSAGE = "Rate limited — retrying…";
+/** User-visible line while the harness retries a short known-provider HTTP 429. */
+export const RATE_LIMIT_USER_MESSAGE = "Rate limited — retrying…";
 
 /** Body markers that mean a real usage/quota window, not a short rate limit. */
 const XAI_QUOTA_BODY_MARKERS = [
@@ -246,7 +246,67 @@ export function normalizeXaiRateLimitError(error: InferenceErrorWithGoContext): 
 
   return {
     category: "retryable",
-    message: XAI_RATE_LIMIT_USER_MESSAGE,
+    message: RATE_LIMIT_USER_MESSAGE,
+    statusCode: 429,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+  };
+}
+
+function parseCodexUsageLimitFromError(
+  error: InferenceErrorLike,
+): ReturnType<typeof parseCodexUsageLimitError> {
+  const candidates: unknown[] = [];
+  if (error.raw !== undefined) candidates.push(error.raw);
+  if (typeof error.message === "string" && error.message.trim().startsWith("{")) {
+    candidates.push(error.message);
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseCodexUsageLimitError(candidate);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
+}
+
+function isKnownCodexProviderId(providerId: string | undefined): boolean {
+  return providerId !== undefined && isCodexProviderName(providerId);
+}
+
+/**
+ * True when a known-Codex HTTP 429 looks like a short rate limit rather than a
+ * `usage_limit_reached` window. Used by both retry normalization and transcript
+ * copy — FRIENDLY_BY_CATEGORY would otherwise paint every quota_exhausted 429 as
+ * "Quota exhausted" even when the policy remaps it to retryable.
+ *
+ * Discrimination is the existing Codex usage-limit parser, not Retry-After length
+ * and not ChatGPT usage-limit prose without `usage_limit_reached`.
+ */
+export function isCodexShortRateLimitInferenceError(error: InferenceErrorLike): boolean {
+  if (!isKnownCodexProviderId(error.providerId)) return false;
+  if (error.statusCode !== 429) return false;
+  if (error.category !== "quota_exhausted" && error.category !== "retryable") return false;
+  if (parseCodexUsageLimitFromError(error) !== undefined) return false;
+  return true;
+}
+
+/**
+ * intx defaults bare 429 → quota_exhausted. For known-Codex contexts a bare 429
+ * (or usage-limit prose without `usage_limit_reached`) reclassifies as retryable
+ * so short ChatGPT 429s are not painted as a committed usage-limit window.
+ *
+ * Nested `detail.error.code === usage_limit_reached` stays quota_exhausted via
+ * `normalizeCodexUsageLimitError`. Unknown / non-Codex providers are never remapped.
+ */
+export function normalizeCodexRateLimitError(error: InferenceErrorWithGoContext): InferenceError {
+  if (error.statusCode !== 429) return error;
+  if (error.category !== "quota_exhausted") return error;
+  if (!isKnownCodexProviderId(error.providerId)) return error;
+  if (parseCodexUsageLimitFromError(error) !== undefined) return error;
+
+  return {
+    category: "retryable",
+    message: RATE_LIMIT_USER_MESSAGE,
     statusCode: 429,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
     ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
@@ -266,17 +326,7 @@ function normalizeCodexUsageLimitError(error: InferenceErrorWithGoContext): Infe
     return error;
   }
 
-  const candidates: unknown[] = [];
-  if (error.raw !== undefined) candidates.push(error.raw);
-  if (typeof error.message === "string" && error.message.trim().startsWith("{")) {
-    candidates.push(error.message);
-  }
-
-  let parsed = undefined as ReturnType<typeof parseCodexUsageLimitError>;
-  for (const candidate of candidates) {
-    parsed = parseCodexUsageLimitError(candidate);
-    if (parsed !== undefined) break;
-  }
+  const parsed = parseCodexUsageLimitFromError(error);
   if (parsed === undefined) return error;
 
   const profile =
@@ -298,7 +348,8 @@ function normalizeCodexUsageLimitError(error: InferenceErrorWithGoContext): Infe
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
  * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
- * 429s, and Codex usage limits (nested detail.error with resets_in_seconds).
+ * 429s, Codex usage limits (nested detail.error with resets_in_seconds), and
+ * known-Codex short 429s that are not usage_limit_reached.
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
@@ -311,6 +362,9 @@ export function normalizeInferenceErrorForRetry(
 
   const codexNormalized = normalizeCodexUsageLimitError(error);
   if (codexNormalized !== error) return codexNormalized;
+
+  const codexRateLimit = normalizeCodexRateLimitError(error);
+  if (codexRateLimit !== error) return codexRateLimit;
 
   if (!isGatewayOverloadInferenceError(error)) return error;
   if (error.category === "retryable" || error.category === "timeout") return error;

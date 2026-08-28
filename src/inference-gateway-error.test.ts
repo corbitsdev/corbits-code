@@ -318,4 +318,70 @@ describe("normalizeInferenceErrorForRetry", () => {
     };
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
+
+  test("known-Codex bare 429 without usage_limit_reached remaps to retryable", () => {
+    const bare = {
+      category: "quota_exhausted" as const,
+      message: "Too Many Requests",
+      statusCode: 429,
+      retryAfterMs: 5_000,
+      raw: { error: { message: "Too Many Requests" } },
+    };
+
+    expect(normalizeInferenceErrorForRetry(bare)).toEqual(bare);
+
+    const viaProviderId = normalizeInferenceErrorForRetry({
+      ...bare,
+      providerId: "codex/abk-labs",
+    });
+    expect(viaProviderId.category).toBe("retryable");
+    expect(viaProviderId.retryAfterMs).toBe(5_000);
+    expect(viaProviderId.message.toLowerCase()).toMatch(/rate limit/);
+    expect(viaProviderId.message.toLowerCase()).not.toMatch(/quota exhausted|usage limit reached/);
+  });
+
+  test("known-Codex 429 with ChatGPT usage-limit prose remaps to retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "quota_exhausted",
+      message: "You have hit your ChatGPT usage limit",
+      statusCode: 429,
+      providerId: "codex/abk-labs",
+      raw: "You have hit your ChatGPT usage limit",
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.message.toLowerCase()).toMatch(/rate limit/);
+    expect(normalized.message.toLowerCase()).not.toMatch(/quota exhausted|usage limit reached/);
+  });
+
+  test("known-Codex 429 with empty body remaps to retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "codex/abk-labs",
+    });
+    expect(normalized.category).toBe("retryable");
+  });
+
+  test("known-Codex usage_limit_reached 429 stays quota_exhausted", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "codex/abk-labs",
+      raw: {
+        detail: {
+          error: {
+            code: "usage_limit_reached",
+            message: "You have reached your usage limit. Try again later.",
+            plan_type: "workspace_member",
+            resets_in_seconds: 3435,
+          },
+        },
+      },
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.retryAfterMs).toBe(3_435_000);
+    expect(normalized.message).toContain('Codex profile "abk-labs"');
+  });
 });

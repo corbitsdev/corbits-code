@@ -13,16 +13,16 @@ import {
 import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
 import {
   gatewayOverloadUserMessage,
+  isCodexShortRateLimitInferenceError,
   isGatewayOverloadInferenceError,
   isXaiShortRateLimitInferenceError,
-  XAI_RATE_LIMIT_USER_MESSAGE,
+  RATE_LIMIT_USER_MESSAGE,
   type InferenceErrorLike,
 } from "./inference-gateway-error.js";
 
 const FRIENDLY_BY_CATEGORY: Record<string, string> = {
-  // Re-authentication runs on its own; keep the transcript line short and free
-  // of the provider's raw 401 JSON.
-  credential_failure: "Session expired — re-authenticating…",
+  // Committed auth death — do not claim a refresh is in flight.
+  credential_failure: "Authentication failed — log in again.",
   quota_exhausted: "Quota exhausted — usage limit reached.",
   context_overflow:
     "Context window full — compaction could not keep up. Try /clear to start fresh.",
@@ -93,8 +93,10 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
 export function inferenceErrorMessage(error: InferenceErrorLike): string {
   if (isGatewayOverloadInferenceError(error)) return gatewayOverloadUserMessage(error);
   // Dual-path: harness may still emit intx's quota_exhausted for a known-xAI
-  // short 429; FRIENDLY_BY_CATEGORY would otherwise say "Quota exhausted".
-  if (isXaiShortRateLimitInferenceError(error)) return XAI_RATE_LIMIT_USER_MESSAGE;
+  // or known-Codex short 429; FRIENDLY_BY_CATEGORY would otherwise say
+  // "Quota exhausted".
+  if (isXaiShortRateLimitInferenceError(error) || isCodexShortRateLimitInferenceError(error))
+    return RATE_LIMIT_USER_MESSAGE;
 
   const category = classifyInferenceErrorCategory(error);
   if (category === "quota_exhausted") {

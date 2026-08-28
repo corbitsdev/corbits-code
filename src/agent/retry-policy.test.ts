@@ -69,7 +69,23 @@ describe("createCorbitsRetryPolicy", () => {
         raw: { error: { message: "Too Many Requests" } },
       },
     });
-    // Remapped to retryable → default backoff, not abort on moderate Retry-After.
+    // Remapped to retryable -> default backoff, not abort on moderate Retry-After.
+    expect(decision).toEqual({ kind: "retry", delayMs: 500 });
+  });
+
+  test("stamped Codex usage-limit 429 retries as retryable, not long-quota abort", async () => {
+    const policy = createCorbitsRetryPolicy({ providerId: "codex/abk-labs" });
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "You have hit your ChatGPT usage limit",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: "You have hit your ChatGPT usage limit",
+      },
+    });
     expect(decision).toEqual({ kind: "retry", delayMs: 500 });
   });
 
