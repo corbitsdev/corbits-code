@@ -11,18 +11,26 @@ export interface HomebrewRelease {
   checksums: Record<Platform, string>;
 }
 
-const releaseURL = (version: string, platform: Platform): string =>
-  `https://github.com/corbitsdev/corbits-code/releases/download/v${version}/corbits-${version}-${platform}.tar.gz`;
+/** Release facts owned by scripts/release.sh; passed in so they live in one place. */
+export interface HomebrewPackage {
+  repo: string; // GitHub owner/name
+  binary: string; // CLI binary, tarball stem, and legacy formula name
+  formula: string; // `brew install` name
+  description: string;
+}
 
-function renderFormula(release: HomebrewRelease): string {
+const formulaClass = (formula: string): string =>
+  formula.replace(/(?:^|-)([a-z])/g, (_, c: string) => c.toUpperCase());
+
+function renderFormula(pkg: HomebrewPackage, release: HomebrewRelease): string {
   const source = (
     platform: Platform,
-  ): string => `      url "${releaseURL(release.version, platform)}"
+  ): string => `      url "https://github.com/${pkg.repo}/releases/download/v${release.version}/${pkg.binary}-${release.version}-${platform}.tar.gz"
       sha256 "${release.checksums[platform]}"`;
 
-  return `class CorbitsCode < Formula
-  desc "Single-process coding agent CLI built on the Interchange runtime"
-  homepage "https://github.com/corbitsdev/corbits-code"
+  return `class ${formulaClass(pkg.formula)} < Formula
+  desc "${pkg.description}"
+  homepage "https://github.com/${pkg.repo}"
   version "${release.version}"
   license "GPL-2.0-only"
 
@@ -45,7 +53,7 @@ ${source("linux-x64")}
   end
 
   def install
-    bin.install "corbits"
+    bin.install "${pkg.binary}"
     if File.directory?("plugins")
       (bin/"plugins").mkpath
       cp_r "plugins/.", bin/"plugins"
@@ -53,7 +61,7 @@ ${source("linux-x64")}
   end
 
   test do
-    assert_predicate bin/"corbits", :executable?
+    assert_predicate bin/"${pkg.binary}", :executable?
   end
 end
 `;
@@ -79,17 +87,21 @@ async function readFormulaRenames(path: string): Promise<Record<string, string>>
   return renames;
 }
 
-export async function generateHomebrewTap(tapDir: string, release: HomebrewRelease): Promise<void> {
+export async function generateHomebrewTap(
+  tapDir: string,
+  pkg: HomebrewPackage,
+  release: HomebrewRelease,
+): Promise<void> {
   const formulaDir = join(tapDir, "Formula");
   const renamesPath = join(tapDir, "formula_renames.json");
-  const formula = renderFormula(release);
+  const formula = renderFormula(pkg, release);
   const renames = await readFormulaRenames(renamesPath);
-  renames.corbits = "corbits-code";
+  renames[pkg.binary] = pkg.formula;
   const renameMetadata = `${JSON.stringify(renames, null, 2)}\n`;
 
   await mkdir(formulaDir, { recursive: true });
-  await rm(join(formulaDir, "corbits.rb"), { force: true });
-  await writeFile(join(formulaDir, "corbits-code.rb"), formula);
+  await rm(join(formulaDir, `${pkg.binary}.rb`), { force: true });
+  await writeFile(join(formulaDir, `${pkg.formula}.rb`), formula);
   await writeFile(renamesPath, renameMetadata);
 }
 
@@ -128,7 +140,22 @@ function parseRelease(args: string[]): { tapDir: string; release: HomebrewReleas
   };
 }
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`missing ${name} (set by scripts/release.sh)`);
+  return value;
+}
+
 if (import.meta.main) {
   const { tapDir, release } = parseRelease(process.argv.slice(2));
-  await generateHomebrewTap(tapDir, release);
+  await generateHomebrewTap(
+    tapDir,
+    {
+      repo: requireEnv("MAIN_REPO"),
+      binary: requireEnv("BINARY"),
+      formula: requireEnv("BREW_FORMULA"),
+      description: requireEnv("DESC"),
+    },
+    release,
+  );
 }

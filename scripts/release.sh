@@ -483,7 +483,8 @@ else
   sha_for() {  # sha_for LABEL -> sha256 of that tarball
     cut -d' ' -f1 "$STAGE/$BINARY-$VERSION-$1.tar.gz.sha256"
   }
-  bun "$ROOT/scripts/generate-homebrew-tap.ts" \
+  MAIN_REPO="$MAIN_REPO" BINARY="$BINARY" BREW_FORMULA="$BREW_FORMULA" DESC="$DESC" \
+    bun "$ROOT/scripts/generate-homebrew-tap.ts" \
     "$TAP_DIR" \
     "$VERSION" \
     "$(sha_for macos-arm64)" \

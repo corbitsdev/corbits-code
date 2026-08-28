@@ -5,6 +5,13 @@ import { join } from "node:path";
 
 import { generateHomebrewTap } from "../../scripts/generate-homebrew-tap.js";
 
+const pkg = {
+  repo: "corbitsdev/corbits-code",
+  binary: "corbits",
+  formula: "corbits-code",
+  description: "Single-process coding agent CLI built on the Interchange runtime",
+};
+
 const release = {
   version: "1.2.3",
   checksums: {
@@ -31,7 +38,7 @@ describe("generateHomebrewTap", () => {
     await mkdir(formulaDir);
     await writeFile(join(formulaDir, "corbits.rb"), "class Corbits < Formula\nend\n");
 
-    await generateHomebrewTap(tapDir, release);
+    await generateHomebrewTap(tapDir, pkg, release);
 
     expect((await readdir(formulaDir)).sort()).toEqual(["corbits-code.rb"]);
     const formula = await readFile(join(formulaDir, "corbits-code.rb"), "utf8");
@@ -54,7 +61,7 @@ describe("generateHomebrewTap", () => {
       await writeFile(join(formulaDir, "corbits-code.rb"), currentFormula);
       await writeFile(join(caseDir, "formula_renames.json"), metadata);
 
-      await expect(generateHomebrewTap(caseDir, release)).rejects.toThrow(
+      await expect(generateHomebrewTap(caseDir, pkg, release)).rejects.toThrow(
         "Invalid formula rename metadata",
       );
 
@@ -69,7 +76,7 @@ describe("generateHomebrewTap", () => {
       `${JSON.stringify({ retained: "other-formula" }, null, 2)}\n`,
     );
 
-    await generateHomebrewTap(tapDir, release);
+    await generateHomebrewTap(tapDir, pkg, release);
 
     const first = await readFile(join(tapDir, "formula_renames.json"), "utf8");
     expect(JSON.parse(first)).toEqual({
@@ -77,7 +84,7 @@ describe("generateHomebrewTap", () => {
       corbits: "corbits-code",
     });
 
-    await generateHomebrewTap(tapDir, release);
+    await generateHomebrewTap(tapDir, pkg, release);
     expect(await readFile(join(tapDir, "formula_renames.json"), "utf8")).toBe(first);
   });
 });
