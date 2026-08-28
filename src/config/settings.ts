@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { type } from "arktype";
 
@@ -372,6 +372,11 @@ export function localSettingsPath(cwd: string): string {
   return join(cwd, SETTINGS_DIR_NAME, "settings.json");
 }
 
+export function resolveLocalSettingsPath(cwd: string, globalPath: string): string | null {
+  const localPath = localSettingsPath(cwd);
+  return resolve(localPath) === resolve(globalPath) ? null : localPath;
+}
+
 function isENOENT(err: unknown): boolean {
   return (
     typeof err === "object" &&
@@ -688,6 +693,20 @@ export function healOpenCodeGoProviders(settings: Settings): string[] {
   return healed;
 }
 
+function isClobberedLocalSelection(value: unknown): value is { provider: string; model: string } {
+  if (!LocalSettingsSchema.allows(value) || typeof value !== "object" || value === null) {
+    return false;
+  }
+  const selection = value as Record<string, unknown>;
+  return (
+    Object.keys(selection).length === 2 &&
+    typeof selection.provider === "string" &&
+    selection.provider.length > 0 &&
+    typeof selection.model === "string" &&
+    selection.model.length > 0
+  );
+}
+
 export async function loadSettings(path: string): Promise<Settings | null> {
   let raw: string;
   try {
@@ -703,6 +722,11 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     throw new Error(`Invalid JSON in settings file: ${path}`);
   }
   if (!isSettings(parsed)) {
+    if (isClobberedLocalSelection(parsed)) {
+      const recovered: Settings = { providers: {} };
+      await saveGlobalSettings(path, recovered);
+      return recovered;
+    }
     throw new Error(
       `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
     );

@@ -1,7 +1,7 @@
 import { runTUI } from "./runner.js";
 import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
-import { globalSettingsPath, loadSettings, localSettingsPath } from "../config/settings.js";
+import { globalSettingsPath, loadSettings, resolveLocalSettingsPath } from "../config/settings.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { runProviderSetup } from "./provider-setup.js";
 
@@ -20,7 +20,11 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   const submitted = await runProviderSetup({
     showTelemetryNotice,
     existingProviderNames: Object.keys(existing?.providers ?? {}),
-    onSubmit: buildProviderSubmitHandler(settingsPath, existing, localSettingsPath(config.cwd)),
+    onSubmit: buildProviderSubmitHandler(
+      settingsPath,
+      existing,
+      resolveLocalSettingsPath(config.cwd, settingsPath),
+    ),
   });
 
   // If the user cancelled (Ctrl+C) onSubmit was never called and settings were

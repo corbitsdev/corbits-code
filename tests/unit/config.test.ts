@@ -82,6 +82,78 @@ test("loadConfig uses the injected pricing fetchImpl instead of the network", as
   });
 });
 
+test("local settings target is omitted when it aliases global settings", async () => {
+  const { globalSettingsPath, resolveLocalSettingsPath } =
+    await import("../../src/config/settings.js");
+  const home = await mkdtemp(join(tmpdir(), "ic-unit-config-home-alias-"));
+  try {
+    const globalPath = globalSettingsPath(home);
+    expect(resolveLocalSettingsPath(home, globalPath)).toBeNull();
+    expect(
+      resolveLocalSettingsPath(home, join(home, "nested", "..", ".corbits", "settings.json")),
+    ).toBeNull();
+    expect(resolveLocalSettingsPath(home, join(home, "explicit.json"))).toBe(
+      join(home, ".corbits", "settings.json"),
+    );
+    expect(resolveLocalSettingsPath(join(home, "repo"), globalPath)).toBe(
+      join(home, "repo", ".corbits", "settings.json"),
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("loadSettings recovers only an exact clobbered local selection", async () => {
+  const { loadSettings } = await import("../../src/config/settings.js");
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-recovery-"));
+  try {
+    const clobberedPath = join(cwd, "clobbered.json");
+    await writeFile(clobberedPath, JSON.stringify({ provider: "openai", model: "gpt-5" }));
+    expect(await loadSettings(clobberedPath)).toEqual({ providers: {} });
+    expect(await loadSettings(clobberedPath)).toEqual({ providers: {} });
+
+    const malformedPath = join(cwd, "malformed.json");
+    await writeFile(
+      malformedPath,
+      JSON.stringify({ provider: "openai", model: "gpt-5", apiKey: "not-recoverable" }),
+    );
+    await expect(loadSettings(malformedPath)).rejects.toThrow(/Invalid settings schema/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig does not load an aliased global file as local settings", async () => {
+  const { globalSettingsPath } = await import("../../src/config/settings.js");
+  const home = await mkdtemp(join(tmpdir(), "ic-unit-config-load-alias-"));
+  const path = globalSettingsPath(home);
+  try {
+    await mkdir(join(home, ".corbits"), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        defaultProvider: "openai",
+        providers: {
+          openai: {
+            baseURL: "https://api.openai.com/v1",
+            apiKey: "test-key",
+            models: ["gpt-5"],
+          },
+        },
+      }),
+    );
+    const { impl } = offlineFetch();
+    const config = await loadConfig(["--cwd", home, "hello"], {
+      globalSettingsPath: path,
+      pricing: { fetchImpl: impl },
+    });
+    expect(config.settingsDiagnostics).toBeUndefined();
+    expect(config.providerName).toBe("openai");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("global settings round-trip the telemetry block", async () => {
   const { loadSettings, saveGlobalSettings } = await import("../../src/config/settings.js");
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-telemetry-"));

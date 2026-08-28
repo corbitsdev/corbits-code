@@ -15,10 +15,11 @@ import type { ProviderSetupSubmit } from "./provider-setup.js";
  * local selection only (never secrets).
  */
 export async function persistConnectedSelection(
-  localSettingsFile: string,
+  localSettingsFile: string | null,
   provider: string,
   model: string,
 ): Promise<void> {
+  if (localSettingsFile === null) return;
   await saveLocalSettings(localSettingsFile, {
     provider,
     model,
@@ -38,7 +39,7 @@ export async function persistConnectedSelection(
 export function buildProviderSubmitHandler(
   settingsPath: string,
   existing: Settings | null,
-  localSettingsFile: string,
+  localSettingsFile: string | null,
 ): ProviderSetupSubmit {
   return async (values, setPhase, { skipValidation, preset, oauth }) => {
     const { name, baseURL, apiKey, model } = values;

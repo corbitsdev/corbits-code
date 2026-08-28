@@ -53,7 +53,7 @@ import {
   loadLocalSettingsResult,
   type SettingsLoadDiagnostic,
   loadSettings,
-  localSettingsPath,
+  resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerSettingsEntry,
@@ -655,13 +655,17 @@ export async function loadConfig(
 
   await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
+  // Resolve both settings targets from the same effective global path. The
+  // local schema must never be read from or written to that global target.
+  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
+  const localSettingsFile = resolveLocalSettingsPath(cwd, effectiveSettingsPath);
   const settings =
     configPath !== undefined
       ? await loadSettings(configPath).then((s) => {
           if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
           return s;
         })
-      : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
+      : await loadSettings(effectiveSettingsPath);
 
   // Track whether the effective value came from the persisted global default
   // rather than this invocation's --dangerously-skip-permissions flag, so the
@@ -698,7 +702,10 @@ export async function loadConfig(
   // file supplies provider definitions, while .corbits/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
   // Fail open on unknown/invalid local keys — never crash startup.
-  const localResult = await loadLocalSettingsResult(localSettingsPath(cwd));
+  const localResult =
+    localSettingsFile === null
+      ? { settings: null, diagnostics: [] }
+      : await loadLocalSettingsResult(localSettingsFile);
   const local = localResult.settings;
   const settingsDiagnostics = localResult.diagnostics;
 
@@ -717,10 +724,6 @@ export async function loadConfig(
   if (provider !== undefined) cli.provider = provider;
   if (model !== undefined) cli.model = model;
 
-  // When --config is given, onboarding must write to and reload from that
-  // same file, not the global default. Prefer configPath, then the caller
-  // override, then the real global default.
-  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
   const task = positional.join(" ").trim();
 
   let resolved: ResolvedProvider;

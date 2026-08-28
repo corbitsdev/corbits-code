@@ -19,7 +19,7 @@ await withMockedModule(
 );
 
 const { buildProviderSubmitHandler } = await import("./provider-setup-submit.js");
-const { loadLocalSettings, loadSettings, localSettingsPath } =
+const { loadLocalSettings, loadSettings, localSettingsPath, resolveLocalSettingsPath } =
   await import("../config/settings.js");
 import type { ProviderFormValues, SubmitPhase } from "./provider-setup.js";
 
@@ -95,6 +95,76 @@ describe("buildProviderSubmitHandler", () => {
 
       const settings = await loadSettings(path);
       expect(settings?.providers.openai?.verified).toBe(false);
+    });
+  });
+
+  test.each([
+    {
+      name: "API-key preset",
+      values: {
+        name: "openai",
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "sk-test-fake",
+        model: "gpt-5",
+        oauthProfile: "",
+      },
+      options: {
+        skipValidation: true,
+        preset: { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false },
+      },
+      provider: "openai",
+    },
+    {
+      name: "custom provider",
+      values: {
+        name: "ollama",
+        baseURL: "http://localhost:11434/v1",
+        apiKey: "",
+        model: "llama3",
+        oauthProfile: "",
+      },
+      options: { skipValidation: true },
+      provider: "ollama",
+    },
+    {
+      name: "OAuth provider",
+      values: {
+        name: "",
+        baseURL: "https://chatgpt.com/backend-api",
+        apiKey: "",
+        model: "gpt-5",
+        oauthProfile: "work",
+      },
+      options: {
+        skipValidation: true,
+        oauth: { kind: "codex" as const, providerName: "codex/work", profile: "work" },
+      },
+      provider: "codex/work",
+    },
+  ])("$name setup preserves global settings when local path aliases it", async (testCase) => {
+    await withTempDir(async (home) => {
+      const settingsPath = localSettingsPath(home);
+      const localTarget = resolveLocalSettingsPath(home, settingsPath);
+      const existing = {
+        defaultProvider: "existing",
+        providers: {
+          existing: {
+            baseURL: "https://example.test/v1",
+            apiKey: "existing-key",
+            models: ["existing-model"],
+          },
+        },
+      };
+      const submit = buildProviderSubmitHandler(settingsPath, existing, localTarget);
+
+      await submit(testCase.values, noopSetPhase, testCase.options);
+
+      const settings = await loadSettings(settingsPath);
+      expect(settings?.defaultProvider).toBe(testCase.provider);
+      expect(settings?.providers.existing?.apiKey).toBe("existing-key");
+      if (testCase.provider !== "codex/work") {
+        expect(settings?.providers[testCase.provider]).toBeDefined();
+      }
     });
   });
 
