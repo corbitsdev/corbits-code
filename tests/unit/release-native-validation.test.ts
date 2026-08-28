@@ -30,6 +30,23 @@ async function createStubBinDirectory() {
   return { directory, binDirectory, command };
 }
 
+async function stubCurlDownload(
+  command: (name: string, body: string) => Promise<void>,
+  tarball: string,
+) {
+  await command(
+    "curl",
+    `out=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$arg"; fi
+  prev="$arg"
+done
+[ -n "$out" ]
+cp "${tarball}" "$out"`,
+  );
+}
+
 describe("host-native signed OpenTUI smoke counting", () => {
   test("release gate separates host-native smoke from opposite-arch signature validation", async () => {
     const source = await readFile(release, "utf8");
@@ -40,10 +57,15 @@ describe("host-native signed OpenTUI smoke counting", () => {
     expect(source).toContain(
       '[ "$validated_macos" -eq 2 ] || die "both macOS architectures must rebuild and pass release validation"',
     );
+    expect(source).toContain('"macos-arm64|bun-darwin-arm64|macos|-"');
+    expect(source).toContain('"macos-x64|bun-darwin-x64|macos|-"');
+    expect(source).toContain('[ "$kind" != macos ] && [ -f "$tarball" ]');
 
     const sign = source.indexOf('"$MACOS_RELEASE_HELPER" sign ');
     const smoke = source.indexOf('"$MACOS_HOST_NATIVE_SMOKE" "$label"');
     const notarize = source.indexOf('"$MACOS_RELEASE_HELPER" notarize ');
+    const extraction = source.indexOf('tar -xzf "$tarball"');
+    const checksum = source.indexOf('shasum -a 256 "$pkg.tar.gz"');
     const validated = source.indexOf("validated_macos=$((validated_macos + 1))");
     const nativeGate = source.indexOf(
       '[ "$native_smoked_macos" -eq 1 ] || die "host-native signed OpenTUI smoke is required before publication"',
@@ -52,8 +74,10 @@ describe("host-native signed OpenTUI smoke counting", () => {
     expect(sign).toBeGreaterThan(0);
     expect(smoke).toBeGreaterThan(sign);
     expect(notarize).toBeGreaterThan(smoke);
-    expect(validated).toBeGreaterThan(notarize);
-    expect(nativeGate).toBeGreaterThan(validated);
+    expect(extraction).toBeGreaterThan(notarize);
+    expect(validated).toBeGreaterThan(extraction);
+    expect(checksum).toBeGreaterThan(validated);
+    expect(nativeGate).toBeGreaterThan(checksum);
     expect(publication).toBeGreaterThan(nativeGate);
   });
 
@@ -113,7 +137,7 @@ describe("OpenTUI native package lockfile integrity", () => {
   });
 
   test("mismatched checksum fails before unpack", async () => {
-    const { directory, binDirectory } = await createStubBinDirectory();
+    const { directory, binDirectory, command } = await createStubBinDirectory();
     const lockfile = join(directory, "bun.lock");
     const dest = join(directory, "node_modules/@opentui/core-darwin-arm64");
     const tarball = join(directory, "payload.tgz");
@@ -122,21 +146,7 @@ describe("OpenTUI native package lockfile integrity", () => {
       lockfile,
       `{\n  "packages": {\n    "@opentui/core-darwin-arm64": ["@opentui/core-darwin-arm64@0.5.1", "", {}, "sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="],\n  }\n}\n`,
     );
-    await writeFile(
-      join(binDirectory, "curl"),
-      `#!/bin/sh
-set -eu
-out=""
-prev=""
-for arg in "$@"; do
-  if [ "$prev" = "-o" ]; then out="$arg"; fi
-  prev="$arg"
-done
-[ -n "$out" ]
-cp "${tarball}" "$out"
-`,
-    );
-    await chmod(join(binDirectory, "curl"), 0o755);
+    await stubCurlDownload(command, tarball);
 
     const result = Bun.spawnSync({
       cmd: ["bash", fetchOpentui, "core-darwin-arm64", "0.5.1", dest, lockfile],
@@ -154,7 +164,7 @@ cp "${tarball}" "$out"
   });
 
   test("packages-array hash wins over nested optionalDependencies false match", async () => {
-    const { directory, binDirectory } = await createStubBinDirectory();
+    const { directory, binDirectory, command } = await createStubBinDirectory();
     const lockfile = join(directory, "bun.lock");
     const dest = join(directory, "node_modules/@opentui/core-darwin-arm64");
     const packageRoot = join(directory, "package");
@@ -193,21 +203,7 @@ cp "${tarball}" "$out"
 }
 `,
     );
-    await writeFile(
-      join(binDirectory, "curl"),
-      `#!/bin/sh
-set -eu
-out=""
-prev=""
-for arg in "$@"; do
-  if [ "$prev" = "-o" ]; then out="$arg"; fi
-  prev="$arg"
-done
-[ -n "$out" ]
-cp "${tarball}" "$out"
-`,
-    );
-    await chmod(join(binDirectory, "curl"), 0o755);
+    await stubCurlDownload(command, tarball);
 
     const accept = Bun.spawnSync({
       cmd: ["bash", fetchOpentui, "core-darwin-arm64", "0.5.1", dest, lockfile],

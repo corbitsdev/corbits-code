@@ -45,7 +45,7 @@ printf '%s\\n' "$STUB_NOTARY_JSON"`,
   await command("ditto", `: > "$5"`);
   await command("plutil", `cp "$5" "$4"`);
 
-  const run = (operation = "sign-and-notarize", architecture = "arm64", overrides = {}) =>
+  const run = (operation = "sign", architecture = "arm64", overrides = {}) =>
     Bun.spawnSync({
       cmd: ["bash", helper, operation, artifact, architecture],
       cwd: root,
@@ -81,7 +81,7 @@ describe("macOS release signing gate", () => {
 
   test("signs, notarizes, and validates an accepted artifact", async () => {
     const { run } = await createFixture();
-    const signed = run("sign");
+    const signed = run();
     expect({ exitCode: signed.exitCode, stderr: signed.stderr.toString() }).toEqual({
       exitCode: 0,
       stderr: "",
@@ -118,31 +118,5 @@ describe("macOS release signing gate", () => {
   test("rejects an artifact with the wrong architecture", async () => {
     const { run } = await createFixture();
     expect(run("verify", "x86_64", { STUB_ARCHES: "arm64" }).exitCode).not.toBe(0);
-  });
-
-  test("keeps both macOS architectures on the mandatory pre-publication path", async () => {
-    const release = await readFile(join(root, "scripts/release.sh"), "utf8");
-    expect(release).toContain('"macos-arm64|bun-darwin-arm64|macos|-"');
-    expect(release).toContain('"macos-x64|bun-darwin-x64|macos|-"');
-    expect(release).toContain('[ "$kind" != macos ] && [ -f "$tarball" ]');
-
-    const signing = release.indexOf('"$MACOS_RELEASE_HELPER" sign ');
-    const nativeSmoke = release.indexOf('"$MACOS_HOST_NATIVE_SMOKE" "$label"');
-    const notarization = release.indexOf('"$MACOS_RELEASE_HELPER" notarize ');
-    const extraction = release.indexOf('tar -xzf "$tarball"');
-    const checksum = release.indexOf('shasum -a 256 "$pkg.tar.gz"');
-    const publication = release.indexOf('step "Land release commit');
-    expect(signing).toBeGreaterThan(0);
-    expect(nativeSmoke).toBeGreaterThan(signing);
-    expect(notarization).toBeGreaterThan(nativeSmoke);
-    expect(extraction).toBeGreaterThan(notarization);
-    expect(checksum).toBeGreaterThan(extraction);
-    expect(publication).toBeGreaterThan(checksum);
-    expect(release.slice(0, publication)).toContain(
-      '[ "$validated_macos" -eq 2 ] || die "both macOS architectures must rebuild and pass release validation"',
-    );
-    expect(release.slice(0, publication)).toContain(
-      '[ "$native_smoked_macos" -eq 1 ] || die "host-native signed OpenTUI smoke is required before publication"',
-    );
   });
 });
