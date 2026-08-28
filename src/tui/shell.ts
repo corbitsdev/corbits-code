@@ -1282,12 +1282,8 @@ function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   const perItem = overlayRowsPerItem(shell.overlayKind);
   const hostRows = overlayHostRows(shell, shell.overlayBodyLines.length, itemCount * perItem);
   const minHostRows = overlayMinHostRows(shell, shell.overlayBodyLines.length, itemCount > 0);
-  // Preserve the mode the open chose (operator uses full_shell; others inset).
-  // Hardcoding inset here would collapse a full_shell ask on every list refresh.
-  const bag = internals.get(shell);
-  const mode: OverlayMode = bag?.overlayMode === "full_shell" ? "full_shell" : "inset";
   relayout(shell, {
-    overlayMode: mode,
+    overlayMode: "inset",
     overlayBodyRows: hostRows,
     overlayMinBodyRows: minHostRows,
   });
@@ -1941,8 +1937,6 @@ interface PriorOverlaySnapshot {
   readonly onCancel: (() => void) | null;
   readonly addProviderHint: boolean;
   readonly setDefaultHint: boolean;
-  /** Geometry mode the primary used before the palette stacked over it. */
-  readonly overlayMode: OverlayMode;
 }
 
 interface ShellInternals {
@@ -3435,16 +3429,6 @@ function decisionContextBudget(
 ): number {
   const fixedChrome =
     OVERLAY_HOST_BORDER_ROWS + overlayTitleRows(kind) + DECISION_HEADER_AND_TRAILER_ROWS;
-  // full_shell owns residual after chrome — drop the inset fraction cap so a
-  // longer question can use the extra rows instead of staying clipped at eight.
-  const bag = internals.get(shell);
-  if (bag?.overlayMode === "full_shell") {
-    const maxOverlayRows = Math.max(0, terminalHeight - PROMPT_BASE_ROWS);
-    const baseline =
-      maxOverlayRows - DECISION_CHOICE_ROWS - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
-    const fullCap = Math.max(DECISION_CONTEXT_ROWS, Math.floor(terminalHeight / 2));
-    return Math.max(0, Math.min(fullCap, baseline));
-  }
   // The resolver never lets the overlay host past the fraction cap even when
   // the transcript floor and every other zone have already given up their
   // rows, so that cap — not just the prompt floor — bounds how much context
@@ -3571,12 +3555,6 @@ export interface OpenListOverlayOpts {
    */
   readonly echoChoice?: boolean;
   /**
-   * Geometry mode for this open. Defaults to inset. Operator asks use
-   * full_shell so long questions and option lists stay readable; permission
-   * gates stay inset unless a caller opts in.
-   */
-  readonly overlayMode?: "inset" | "full_shell";
-  /**
    * Claim printable keys for a `>` filter row so the list narrows as you type.
    * Opt-in per open (model picker, palette). Overlays without it keep j/k
    * navigation; with it, j/k type into the filter and arrows still navigate.
@@ -3630,7 +3608,6 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
           onCancel: bag.overlayOnCancel,
           addProviderHint: bag.overlayAddProviderHint,
           setDefaultHint: bag.overlaySetDefaultHint,
-          overlayMode: bag.overlayMode === "full_shell" ? "full_shell" : "inset",
         };
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -3650,9 +3627,6 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
 
   const bag = internals.get(shell);
   if (bag) {
-    // Mode must land before applyOverlayBodyText so decisionContextBudget can
-    // size the body against full_shell vs inset. Palette is always inset.
-    bag.overlayMode = !isPalette && opts?.overlayMode === "full_shell" ? "full_shell" : "inset";
     // Palette open does not own primary accept; leave prior snapshot's callback.
     if (!isPalette) {
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : [];
@@ -4131,7 +4105,6 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCancel = prior.onCancel;
     bag.overlayAddProviderHint = prior.addProviderHint;
     bag.overlaySetDefaultHint = prior.setDefaultHint;
-    bag.overlayMode = prior.overlayMode === "full_shell" ? "full_shell" : "inset";
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -4143,7 +4116,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     const hostRows = overlayHostRows(shell, prior.bodyLines.length, listH);
     const minHostRows = overlayMinHostRows(shell, prior.bodyLines.length, prior.list.count > 0);
     relayout(shell, {
-      overlayMode: bag.overlayMode,
+      overlayMode: "inset",
       overlayBodyRows: hostRows,
       overlayMinBodyRows: minHostRows,
     });
@@ -4252,10 +4225,8 @@ export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): voi
     shell.overlayBodyLines.length,
     shell.overlayItems.length > 0,
   );
-  const bag = internals.get(shell);
-  const mode: OverlayMode = bag?.overlayMode === "full_shell" ? "full_shell" : "inset";
   relayout(shell, {
-    overlayMode: mode,
+    overlayMode: "inset",
     overlayBodyRows: hostRows,
     overlayMinBodyRows: minHostRows,
   });

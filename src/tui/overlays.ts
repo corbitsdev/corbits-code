@@ -148,9 +148,7 @@ export function openOperatorOverlay(shell: AppShell, opts?: OpenOperatorOpts): v
     items: choices,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-operator",
-    // Full shell so long questions and option lists stay readable (CL-7067).
-    // Permission gates keep the default inset path.
-    overlayMode: "full_shell",
+    // Chat-first: keep the transcript visible while the operator answers.
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.onTextAnswer !== undefined ? { onTextAnswer: opts.onTextAnswer } : {}),
