@@ -65,4 +65,18 @@ describe("inferenceErrorMessage", () => {
     });
     expect(line).toBe("Quota exhausted — usage limit reached.");
   });
+
+  test("known-Codex short 429 shows rate-limit line, not usage-limit copy", () => {
+    const line = inferenceErrorMessage({
+      category: "quota_exhausted",
+      message: "You have hit your ChatGPT usage limit",
+      statusCode: 429,
+      providerId: "codex/abk-labs",
+      raw: "You have hit your ChatGPT usage limit",
+    });
+    expect(line.toLowerCase()).toMatch(/rate limit/);
+    expect(line).not.toContain("Quota exhausted");
+    expect(line.toLowerCase()).not.toContain("the usage limit has been reached");
+    expect(line.toLowerCase()).not.toContain("usage limit reached");
+  });
 });
