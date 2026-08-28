@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
+import {
+  loadLocalSettings,
+  loadSettings,
+  localSettingsPath,
+  saveGlobalSettings,
+  saveLocalSettings,
+} from "../config/settings.js";
 import { createHarness as createRawHarness, type Harness } from "./harness.js";
 import {
   addProviderSelectorChoices,
@@ -289,6 +300,9 @@ describe("provider setup pure helpers", () => {
   test("failures say what to fix", () => {
     expect(failureGuidance("testing", null)).toContain("base url");
     expect(failureGuidance("saving", null)).toContain("settings could not be written");
+    expect(failureGuidance("testing", providerChoiceById("codex") ?? null, false)).not.toContain(
+      "save anyway",
+    );
   });
 });
 
@@ -371,6 +385,15 @@ async function flush(harness: Harness): Promise<void> {
  * injects a profile lister so no test touches the real auth-store files;
  * it defaults to reporting no existing profiles.
  */
+async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "provider-setup-"));
+  try {
+    await run(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function mountLogin(opts: {
   start: OAuthLoginStarter;
   onSubmit?: ProviderSetupSubmit;
@@ -475,11 +498,66 @@ describe("runProviderSetup sign-in", () => {
     expect(seen[0]?.apiKey).toBe("");
     expect(opts[0]?.oauth).toMatchObject({
       kind: "codex",
-      profile: "default",
       providerName: "codex/default",
       tokens: { access: "test-access", refresh: "test-refresh", expiresAt: 10_000 },
     });
     expect(opts[0]?.oauth?.commit).toBeFunction();
+  });
+
+  test("definitive OAuth scope failure cannot be saved anyway", async () => {
+    await withTempDir(async (dir) => {
+      const settingsPath = join(dir, "settings.json");
+      const localPath = localSettingsPath(dir);
+      let commits = 0;
+      let complete: (result: LoginCompletion) => void = () => {};
+      const { done, harness } = await mountLogin({
+        start: async () => ({
+          authorizeUrl: AUTHORIZE_URL,
+          completed: new Promise<LoginCompletion>((resolve) => {
+            complete = resolve;
+          }),
+          cancel: () => {},
+        }),
+        onSubmit: async (values, _setPhase, opts) => {
+          if (opts.oauth === undefined) throw new Error("expected staged OAuth credentials");
+          if (!opts.skipValidation) {
+            throw new OAuthProviderScopeError("Reconnect Codex with API access.");
+          }
+          await opts.oauth.commit();
+          await saveGlobalSettings(settingsPath, {
+            providers: {},
+            defaultProvider: opts.oauth.providerName,
+          });
+          await saveLocalSettings(localPath, {
+            provider: opts.oauth.providerName,
+            model: values.model,
+          });
+        },
+      });
+
+      await pickRow(harness, PROVIDER_IDS, "codex");
+      await nameOAuthAccount(harness);
+      complete({
+        ...stagedLogin("default"),
+        commit: async () => {
+          commits += 1;
+        },
+      });
+      await flush(harness);
+      harness.pressKey("Enter");
+      await flush(harness);
+
+      const frame = harness.captureCharFrame();
+      expect(frame).toContain("reconnect codex");
+      expect(frame).not.toContain("save anyway");
+      harness.pressKey("s", { ctrl: true });
+      await flush(harness);
+      expect(commits).toBe(0);
+      expect(await loadSettings(settingsPath)).toBeNull();
+      expect(await loadLocalSettings(localPath)).toBeNull();
+      harness.pressKey("Ctrl+C");
+      expect(await done).toBe(false);
+    });
   });
 
   test("the entered account name reaches startLogin as the profile slug", async () => {

@@ -49,6 +49,18 @@ export const TokenResponseSchema = type({
 });
 export type TokenResponse = typeof TokenResponseSchema.infer;
 
+export class OAuthTokenEndpointError extends Error {
+  readonly status: number;
+  readonly detail: string;
+
+  constructor(label: string, status: number, detail: string) {
+    super(`${label} token endpoint returned ${String(status)}${detail ? `: ${detail}` : ""}`);
+    this.name = "OAuthTokenEndpointError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 // Default access-token lifetime when the server omits expires_in. Conservative
 // so the refresh path engages sooner rather than trusting a stale token.
 const DEFAULT_EXPIRES_IN_S = 3600;
@@ -92,9 +104,7 @@ export async function postToken(
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(
-      `${config.label} token endpoint returned ${String(res.status)}${detail ? `: ${detail}` : ""}`,
-    );
+    throw new OAuthTokenEndpointError(config.label, res.status, detail);
   }
   // AbortSignal.timeout throws a DOMException (name "TimeoutError") when it
   // fires; its message ("The operation timed out") is what callers report.

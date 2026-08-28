@@ -8,7 +8,7 @@ import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 // The oauth branch probes real provider scope over the network; stub the
 // check so these tests exercise buildProviderSubmitHandler's own branching
-// (ok / insufficient-scope / unavailable) without a live call.
+// (ok / blocked / unavailable) without a live call.
 let scopeCheckResult: OAuthScopeCheckResult = { status: "ok" };
 const scopeCheckCalls: unknown[][] = [];
 await withMockedModule(
@@ -39,10 +39,9 @@ function stagedCodexOAuth(commit: () => Promise<void> = async () => {}): OAuthRe
   return {
     kind: "codex",
     providerName: "codex/work",
-    profile: "work",
     tokens: stagedCodexTokens,
     commit,
-  } as OAuthResult;
+  };
 }
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -345,7 +344,7 @@ describe("buildProviderSubmitHandler", () => {
     test("fresh insufficient scope persists no credential or restart selection", async () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = {
-          status: "insufficient-scope",
+          status: "blocked",
           message: "Your Codex sign-in doesn't carry API access. Reconnect Codex and try again.",
         };
         const path = join(dir, "settings.json");
@@ -378,9 +377,45 @@ describe("buildProviderSubmitHandler", () => {
       });
     });
 
+    test("invalid staged OAuth credentials persist no credential or restart selection", async () => {
+      await withTempDir(async (dir) => {
+        scopeCheckResult = {
+          status: "blocked",
+          message: "Codex sign-in expired or was revoked. Reconnect Codex, then try again.",
+        };
+        const path = join(dir, "settings.json");
+        const localPath = localSettingsPath(dir);
+        const submit = buildProviderSubmitHandler(path, null, localPath);
+        let commits = 0;
+
+        await expect(
+          submit(
+            {
+              name: "",
+              baseURL: "https://chatgpt.com/backend-api",
+              apiKey: "",
+              model: "gpt-5",
+              oauthProfile: "work",
+            },
+            noopSetPhase,
+            {
+              skipValidation: false,
+              oauth: stagedCodexOAuth(async () => {
+                commits += 1;
+              }),
+            },
+          ),
+        ).rejects.toThrow(/reconnect codex/i);
+
+        expect(commits).toBe(0);
+        expect(await loadSettings(path)).toBeNull();
+        expect(await loadLocalSettings(localPath)).toBeNull();
+      });
+    });
+
     test("failed same-name reauthorization preserves the exact durable profile", async () => {
       await withTempDir(async (dir) => {
-        scopeCheckResult = { status: "insufficient-scope", message: "Reconnect Codex." };
+        scopeCheckResult = { status: "blocked", message: "Reconnect Codex." };
         const oldProfile = {
           name: "work",
           tokens: { access: "old-access", refresh: "old-refresh", expiresAt: 500 },
@@ -457,7 +492,7 @@ describe("buildProviderSubmitHandler", () => {
 
     test("explicit save-anyway skips the scope probe and commits exactly once", async () => {
       await withTempDir(async (dir) => {
-        scopeCheckResult = { status: "insufficient-scope", message: "should never be thrown" };
+        scopeCheckResult = { status: "blocked", message: "should never be thrown" };
         const localPath = localSettingsPath(dir);
         const submit = buildProviderSubmitHandler(join(dir, "settings.json"), null, localPath);
         let commits = 0;

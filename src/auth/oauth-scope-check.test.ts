@@ -62,30 +62,43 @@ describe("checkOAuthProviderScope", () => {
     expect(expired.access).toBe("refreshed-codex");
   });
 
-  test("codex: reports an expired staged token refresh failure as unavailable", async () => {
+  test("codex: blocks a definitive staged refresh rejection", async () => {
     const expired = { ...codexTokens, expiresAt: 0 };
-    stubFetch(() => new Response("refresh rejected", { status: 401 }));
+    stubFetch(() => new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }));
+
+    const result = await checkOAuthProviderScope("codex", expired);
+
+    expect(result.status).toBe("blocked");
+    if (result.status === "blocked") {
+      expect(result.message).toMatch(/expired|revoked/i);
+    }
+  });
+
+  test("codex: reports a transient staged refresh failure as unavailable", async () => {
+    const expired = { ...codexTokens, expiresAt: 0 };
+    stubFetch(() => {
+      throw new Error("network down");
+    });
 
     const result = await checkOAuthProviderScope("codex", expired);
 
     expect(result.status).toBe("unavailable");
   });
 
-  test("codex: insufficient-scope on a definitive 403", async () => {
+  test("codex: blocks a definitive 403 without surfacing the raw body", async () => {
     stubFetch(() => new Response("forbidden", { status: 403 }));
     const result = await checkOAuthProviderScope("codex", codexTokens);
-    expect(result.status).toBe("insufficient-scope");
-    if (result.status === "insufficient-scope") {
+    expect(result.status).toBe("blocked");
+    if (result.status === "blocked") {
       expect(result.message).toMatch(/reconnect/i);
-      // Must never surface the raw response body.
       expect(result.message).not.toContain("forbidden");
     }
   });
 
-  test("codex: insufficient-scope on a definitive 401", async () => {
+  test("codex: blocks a definitive 401", async () => {
     stubFetch(() => new Response("nope", { status: 401 }));
     const result = await checkOAuthProviderScope("codex", codexTokens);
-    expect(result.status).toBe("insufficient-scope");
+    expect(result.status).toBe("blocked");
   });
 
   test("codex: unavailable on a network failure, not blocked", async () => {
@@ -133,19 +146,33 @@ describe("checkOAuthProviderScope", () => {
     expect(expired.access).toBe("refreshed-xai");
   });
 
-  test("xai: reports an expired staged token refresh failure as unavailable", async () => {
+  test("xai: blocks a definitive staged refresh rejection", async () => {
     const expired = { ...xaiTokens, expiresAt: 0 };
-    stubFetch(() => new Response("refresh rejected", { status: 401 }));
+    stubFetch(() => new Response(JSON.stringify({ error: "revoked" }), { status: 401 }));
+
+    const result = await checkOAuthProviderScope("xai", expired);
+
+    expect(result.status).toBe("blocked");
+    if (result.status === "blocked") {
+      expect(result.message).toMatch(/expired|revoked/i);
+    }
+  });
+
+  test("xai: reports a transient staged refresh failure as unavailable", async () => {
+    const expired = { ...xaiTokens, expiresAt: 0 };
+    stubFetch(() => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
 
     const result = await checkOAuthProviderScope("xai", expired);
 
     expect(result.status).toBe("unavailable");
   });
 
-  test("xai: insufficient-scope on a definitive 403", async () => {
+  test("xai: blocks a definitive 403", async () => {
     stubFetch(() => new Response("forbidden", { status: 403 }));
     const result = await checkOAuthProviderScope("xai", xaiTokens);
-    expect(result.status).toBe("insufficient-scope");
+    expect(result.status).toBe("blocked");
   });
 
   test("xai: unavailable on a timeout-style abort", async () => {

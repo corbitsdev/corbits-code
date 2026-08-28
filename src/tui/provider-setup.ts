@@ -27,6 +27,7 @@ import {
   type FirstClassProviderDef,
 } from "../../packages/first-class-providers/src/index.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import { isOAuthProviderScopeError } from "../auth/oauth-scope-check.js";
 import type { CodexTokens } from "../auth/codex/store.js";
 import type { AuthProfile } from "../auth/oauth/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
@@ -598,9 +599,18 @@ export function summaryColor(row: SummaryRow): string {
  * What the operator should do about a failure. A bare error message leaves a
  * first-run user stuck, so every failure names the field to fix.
  */
-export function failureGuidance(phase: SubmitPhase, choice: ProviderChoice | null): string {
+export function failureGuidance(
+  phase: SubmitPhase,
+  choice: ProviderChoice | null,
+  offerSaveAnyway = true,
+): string {
   if (phase === "saving") {
     return "settings could not be written — check disk permissions, enter to retry";
+  }
+  if (!offerSaveAnyway) {
+    return choice !== null && !choice.custom
+      ? "the account cannot be saved — esc to reconnect or enter to retry"
+      : "check the base url and key — esc to go back, enter to retry";
   }
   return choice !== null && !choice.custom
     ? "the key was rejected or unreachable — esc to re-enter it, enter to retry, ctrl+s to save anyway"
@@ -645,7 +655,6 @@ export interface SubmitOpts {
 
 export interface OAuthResult {
   readonly kind: OAuthKind;
-  readonly profile: string;
   readonly tokens: CodexTokens | XaiTokens;
   readonly commit: () => Promise<void>;
   /** Settings/catalog name the stored profile projects to. */
@@ -1181,7 +1190,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       const ramp = rampFor({ phase: "blocked", nowMs: 0 });
       statusLine.content = rampLine(ramp, submitError.toLowerCase());
       statusLine.fg = ramp.fg;
-      guidance.content = failureGuidance(submitPhase, choice);
+      guidance.content = failureGuidance(submitPhase, choice, saveAnywayOffered);
       guidance.fg = UI.textDim;
       return;
     }
@@ -1369,7 +1378,6 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     loginError = null;
     const result: OAuthResult = {
       kind,
-      profile: staged.profile.name,
       tokens: staged.profile.tokens,
       commit: staged.commit,
       providerName: oauthProviderName(kind, staged.profile.name),
@@ -1481,7 +1489,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
           submitting = false;
           submitPhase = phase;
           submitError = err instanceof Error ? err.message : String(err);
-          saveAnywayOffered = phase === "testing";
+          saveAnywayOffered = phase === "testing" && !isOAuthProviderScopeError(err);
           paint();
         },
       );
