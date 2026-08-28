@@ -121,6 +121,18 @@ export function laneState(
 }
 
 /**
+ * Live on the agents strip: TUI status is still "running" and the reusable
+ * lifecycle has not been interrupted. Missing lifecycleStatus stays live.
+ * Interrupted leftovers may still have in-flight tools; they are not live lanes.
+ */
+export function agentLaneIsLive(session: {
+  readonly status: AgentProgressSession["status"];
+  readonly lifecycleStatus?: AgentProgressSession["lifecycleStatus"] | undefined;
+}): boolean {
+  return session.status === "running" && session.lifecycleStatus !== "interrupted";
+}
+
+/**
  * Progress for a running session's pending row, or null once it has finished —
  * a terminal session resolves its row through the tool-result path instead.
  *
@@ -200,7 +212,7 @@ export function fleetProgress(
   let inTool = 0;
   let stalled = 0;
   for (const session of sessions) {
-    if (session.status !== "running") continue;
+    if (!agentLaneIsLive(session)) continue;
     switch (laneState(session, nowMs, stallMs)) {
       case "working":
         working += 1;

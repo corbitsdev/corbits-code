@@ -347,6 +347,8 @@ describe("spawn_agent worktree isolation", () => {
     const content = typeof spawned.content === "string" ? spawned.content : "";
     const agentId = (JSON.parse(content) as { agent_id: string }).agent_id;
 
+    await waitFor(() => sessions.get(agentId)?.lifecycleStatus === "running");
+    expect(sessions.interruptOne(agentId).ok).toBe(true);
     settle.resolve({
       report: "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
       stopReason: "cancelled",

@@ -330,7 +330,8 @@ describe("send_input", () => {
     expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
     expect(interrupted).toBe(true);
     expect(followupStarted).toBe(true);
-    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("interrupted");
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+    expect(sessions.get(worker.id)?.finishedAt).toBeUndefined();
 
     const missing = sessions.start({
       description: "no-followup",

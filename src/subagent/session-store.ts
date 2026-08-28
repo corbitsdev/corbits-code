@@ -79,6 +79,9 @@ export interface SubAgentSession {
   // start/end, a status change). Distinct from startedAt so the strip can
   // tell a worker mid-turn from one that has gone silent.
   lastActivityAt: number;
+  // Clock the live turn ended (complete/fail/cancel, and interrupt while TUI
+  // status may still be "running"). Drives chrome linger; leftover tools may
+  // still be outstanding after this stamp.
   finishedAt?: number;
   report?: string;
   error?: string;
@@ -594,6 +597,23 @@ export function createSubAgentSessionStore(
     notify();
   };
 
+  // A follow-up turn takes the lane back over: the worker is live again, so
+  // the interrupt's linger stamp must not outlive the new turn. Completion
+  // re-stamps through the caller's own mutate; a rejected turn restores the
+  // addressable state it started from so followup_task can retry.
+  const beginFollowupTurn = (id: string): void => {
+    mutate(id, (s) => {
+      s.lifecycleStatus = "running";
+      delete s.finishedAt;
+    });
+  };
+  const endFollowupTurn = (id: string, lifecycleStatus: AgentLifecycleStatus): void => {
+    mutate(id, (s) => {
+      s.lifecycleStatus = lifecycleStatus;
+      s.finishedAt = now();
+    });
+  };
+
   return {
     list(): readonly SubAgentSession[] {
       return [...sessions.values()].map(snapshotOf);
@@ -972,9 +992,7 @@ export function createSubAgentSessionStore(
           return { ok: false, status: session.lifecycleStatus };
         }
         interrupt();
-        mutate(id, (s) => {
-          s.lifecycleStatus = "interrupted";
-        });
+        beginFollowupTurn(id);
         void followup(message)
           .then((reply) => {
             const still = sessions.get(id);
@@ -990,6 +1008,7 @@ export function createSubAgentSessionStore(
             pruneRetained();
           })
           .catch((err: unknown) => {
+            endFollowupTurn(id, "interrupted");
             log.error("send_input followup failed for {id}: {error}", {
               id,
               error: err instanceof Error ? err.message : String(err),
@@ -1014,6 +1033,7 @@ export function createSubAgentSessionStore(
       interrupt();
       mutate(id, (s) => {
         s.lifecycleStatus = "interrupted";
+        s.finishedAt = s.finishedAt ?? now();
       });
       pruneRetained();
       return { ok: true };
@@ -1041,7 +1061,15 @@ export function createSubAgentSessionStore(
       }
       const followup = followupHandles.get(id);
       if (followup === undefined) return { ok: false, status: session.lifecycleStatus };
-      const reply = await followup(message);
+      const priorLifecycle = session.lifecycleStatus;
+      beginFollowupTurn(id);
+      let reply: string;
+      try {
+        reply = await followup(message);
+      } catch (err) {
+        endFollowupTurn(id, priorLifecycle);
+        throw err;
+      }
       mutate(id, (s) => {
         s.status = "done";
         s.lifecycleStatus = "completed";

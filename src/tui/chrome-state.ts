@@ -28,11 +28,12 @@
  * Always pass the full snapshot so absent zones clear (`null` hides the zone).
  * Partial object fields mean “no data” → that zone line is null, not left
  * stale. Observe mode can override the agents line via `state.observe`.
- * Sticky poll continues while any agent is running or still inside the
- * post-terminal linger window (`finishedAt` + `AGENTS_PANEL_LINGER_MS`).
+ * Sticky poll continues while any agent is live or still inside the
+ * post-finish linger window (`finishedAt` + `AGENTS_PANEL_LINGER_MS`).
  */
 
 import {
+  agentLaneIsLive,
   agentProgress,
   laneState,
   DEFAULT_STALL_MS,
@@ -43,9 +44,9 @@ import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zo
 import type { ChromeZoneContent } from "./shell.js";
 
 /**
- * How long a terminal agent row (done / failed / cancelled) stays on the strip
- * after `finishedAt` before dropping. Mid of the 3–5s hold window so success
- * and failure share the same glanceable linger.
+ * How long a finished agent row (done / failed / cancelled / interrupted) stays
+ * on the strip after `finishedAt` before dropping. Mid of the 3–5s hold window
+ * so success, failure, and interrupt share the same glanceable linger.
  */
 export const AGENTS_PANEL_LINGER_MS = 4_000;
 
@@ -69,8 +70,10 @@ export interface ChromeAgentSession {
   /** Clock the oldest outstanding tool call began; separates a long tool from silence. */
   readonly currentToolStartedAt: number | null;
   /**
-   * When the worker reached a terminal status. Drives the post-finish linger
-   * window on the strip (`AGENTS_PANEL_LINGER_MS`); absent → no linger paint.
+   * When the live turn ended. Drives the post-finish linger window on the strip
+   * (`AGENTS_PANEL_LINGER_MS`); absent → no linger paint. Set on interrupt while
+   * TUI `status` may still be `"running"` — the live turn is over even if leftover
+   * tools keep running.
    */
   readonly finishedAt?: number;
 }
@@ -131,9 +134,10 @@ export interface AgentPanelRow {
   readonly kind?: "header" | "lane" | "more";
   /**
    * Lane lifecycle for paint tone. Live running uses primary `UI.text`;
-   * terminal linger uses done/error/dim. Absent ⇒ treat as live running.
+   * terminal linger uses done/error/dim. Interrupted linger is dim, not cream
+   * live. Absent ⇒ treat as live running.
    */
-  readonly status?: "running" | "done" | "failed" | "cancelled";
+  readonly status?: "running" | "done" | "failed" | "cancelled" | "interrupted";
 }
 
 /**
@@ -178,8 +182,8 @@ export function chromeZonesContent(state: ChromeLiveState): ChromeZoneContent {
 }
 
 /**
- * True while the agents strip still needs wall-clock ticks: any running worker,
- * or any terminal row still inside the post-finish linger window. Product-host
+ * True while the agents strip still needs wall-clock ticks: any live worker,
+ * or any finished row still inside the post-finish linger window. Product-host
  * sticky poll uses this both to keep clocks/linger fresh and to freeze
  * transcript `syncAgentProgress` rewrites while chrome owns live status.
  */
@@ -190,19 +194,19 @@ export function agentsChromeNeedsSticky(
 ): boolean {
   if (agents === null || agents === undefined) return false;
   for (const session of agents) {
-    if (session.status === "running") return true;
+    if (agentLaneIsLive(session)) return true;
     if (agentIsLingering(session, nowMs, lingerMs)) return true;
   }
   return false;
 }
 
-/** Terminal session still inside the glanceable linger window. */
+/** Finished session still inside the glanceable linger window. */
 export function agentIsLingering(
   session: ChromeAgentSession,
   nowMs: number,
   lingerMs: number = AGENTS_PANEL_LINGER_MS,
 ): boolean {
-  if (session.status === "running") return false;
+  if (agentLaneIsLive(session)) return false;
   if (session.finishedAt === undefined) return false;
   return nowMs - session.finishedAt < lingerMs;
 }
@@ -247,10 +251,10 @@ export function formatTasksPanel(
  * bounded to `maxVisible` with a trailing "+N more" row.
  *
  * No FLEET header — a roll-up board fought the Amp/Codex-style lane list the
- * strip is meant to be. Running lanes sort trouble-first via `laneState`;
- * terminal sessions linger for `AGENTS_PANEL_LINGER_MS` after `finishedAt`
- * (success / fail / cancel share the same window) then drop. Observe mode
- * still replaces the whole strip with a single observe row.
+ * strip is meant to be. Live lanes sort trouble-first via `laneState`;
+ * finished sessions linger for `AGENTS_PANEL_LINGER_MS` after `finishedAt`
+ * (success / fail / cancel / interrupt share the same window) then drop. Observe
+ * mode still replaces the whole strip with a single observe row.
  */
 export function formatAgentsPanel(
   agents: readonly ChromeAgentSession[] | null | undefined,
@@ -265,7 +269,7 @@ export function formatAgentsPanel(
 
   if (agents === null || agents === undefined || agents.length === 0) return null;
 
-  const running = agents.filter((s) => s.status === "running");
+  const running = agents.filter((s) => agentLaneIsLive(s));
   const lingering = agents.filter((s) => agentIsLingering(s, nowMs, lingerMs));
   if (running.length === 0 && lingering.length === 0) return null;
 
@@ -290,7 +294,11 @@ export function formatAgentsPanel(
 
   const ranked: AgentPanelRow[] = [
     ...rankedRunning.map(({ session, state }) => formatAgentRow(session, state, nowMs, stallMs)),
-    ...rankedLingering.map((session) => formatTerminalRow(session)),
+    ...rankedLingering.map((session) =>
+      session.status === "running" && session.lifecycleStatus === "interrupted"
+        ? formatInterruptedLingerRow(session, nowMs, stallMs)
+        : formatTerminalRow(session),
+    ),
   ];
 
   const shown = ranked.slice(0, maxVisible);
@@ -437,6 +445,23 @@ function formatAgentRow(
     stalled,
     kind: "lane",
     status: "running",
+  };
+}
+
+function formatInterruptedLingerRow(
+  session: ChromeAgentSession,
+  nowMs: number,
+  stallMs: number,
+): AgentPanelRow {
+  const label = `● ${session.agentId}  ${session.description}`.trim();
+  const progressSession = toProgressSession(session);
+  const progress = progressSession !== null ? agentProgress(progressSession, nowMs, stallMs) : null;
+  return {
+    label,
+    tail: progress !== null ? ` · ${progress.stat}` : " · interrupted",
+    stalled: false,
+    kind: "lane",
+    status: "interrupted",
   };
 }
 

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { createSubAgentSessionStore } from "./session-store.js";
 import { forcedStopReport } from "./stop-policy.js";
+import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
+import { formatAgentsPanel } from "../tui/chrome-state.js";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -517,5 +519,134 @@ describe("CL-6943 reusable worker sessions", () => {
 
     // No longer exempt — the cap may have evicted it like any other record.
     expect(store.get(retained.id)).toBeUndefined();
+  });
+});
+
+describe("interrupt stamps finishedAt once", () => {
+  test("interruptOne sets finishedAt, keeps status running, and preserves tools", () => {
+    let t = 1000;
+    const store = createSubAgentSessionStore({
+      now: () => t,
+      createId: () => "s-int",
+    });
+    const session = store.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
+    store.registerInterrupt(session.id, () => {});
+
+    t = 2000;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    const after = store.get(session.id);
+    expect(after?.status).toBe("running");
+    expect(after?.lifecycleStatus).toBe("interrupted");
+    expect(after?.finishedAt).toBe(2000);
+    expect(after?.outstandingTools).toHaveLength(1);
+    expect(after?.currentToolName).toBe("run_shell");
+
+    t = 3500;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.finishedAt).toBe(2000);
+    expect(store.get(session.id)?.status).toBe("running");
+    expect(store.get(session.id)?.outstandingTools).toHaveLength(1);
+  });
+
+  test("sendInputOne interrupt starts a live follow-up turn and keeps tools", async () => {
+    let t = 1000;
+    let finish: (reply: string) => void = () => {};
+    const store = createSubAgentSessionStore({
+      now: () => t,
+      createId: () => "s-send",
+    });
+    const session = store.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+
+    t = 2500;
+    const outcome = store.sendInputOne(session.id, "stop that", { interrupt: true });
+    expect(outcome).toEqual({ ok: true, status: "interrupted" });
+    const after = store.get(session.id);
+    expect(after?.status).toBe("running");
+    expect(after?.lifecycleStatus).toBe("running");
+    expect(after?.finishedAt).toBeUndefined();
+    expect(after?.outstandingTools).toHaveLength(1);
+
+    t = 4000;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.finishedAt).toBe(4000);
+
+    t = 5000;
+    finish("later");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.get(session.id)?.status).toBe("done");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+    expect(store.get(session.id)?.finishedAt).toBe(5000);
+  });
+
+  test("a follow-up turn keeps the lane live past the linger window until it completes", async () => {
+    let t = 1000;
+    let finish: (reply: string) => void = () => {};
+    const store = createSubAgentSessionStore({
+      now: () => t,
+      createId: () => "s-followup",
+    });
+    const session = store.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+
+    t = 2000;
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.finishedAt).toBe(2000);
+
+    t = 3000;
+    const pending = store.followupOne(session.id, "keep going");
+
+    t = 11_000;
+    store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
+    const live = store.list();
+    expect(live[0]?.lifecycleStatus).toBe("running");
+    expect(live[0]?.finishedAt).toBeUndefined();
+    expect(agentLaneIsLive(live[0]!)).toBe(true);
+    expect(formatAgentsPanel(live, undefined, t)?.[0]?.status).toBe("running");
+    expect(fleetProgress(live, t).running).toBe(1);
+
+    t = 12_000;
+    finish("done");
+    expect(await pending).toEqual({ ok: true, reply: "done" });
+    const terminal = store.list();
+    expect(terminal[0]?.status).toBe("done");
+    expect(terminal[0]?.lifecycleStatus).toBe("completed");
+    expect(terminal[0]?.finishedAt).toBe(12_000);
+    expect(agentLaneIsLive(terminal[0]!)).toBe(false);
+    expect(fleetProgress(terminal, t).running).toBe(0);
   });
 });

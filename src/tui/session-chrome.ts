@@ -5,6 +5,7 @@
  * duplicating the state machine that produces it.
  */
 
+import { CREDENTIAL_FAILURE_USER_MESSAGE } from "../inference-error-message.js";
 import type { Telemetry } from "../telemetry/index.js";
 import type { FleetProgress } from "./agent-progress.js";
 import type { RampPhase } from "./ramp.js";
@@ -204,6 +205,10 @@ const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
  * the only detail the operator has.
  */
 export function sendFailureText(message: string): string {
+  // Classified inference.error lines are already operator-facing. Rematching
+  // them against raw-provider auth patterns rewrites intentional copy
+  // (e.g. "Authentication failed — log in again." → generic other).
+  if (message === CREDENTIAL_FAILURE_USER_MESSAGE) return message;
   const failure = classifySendFailureMessage(message);
   if (failure.kind === "auth" && failure.authProvider !== null) {
     return AUTH_FAILURE_TEXT[failure.authProvider];

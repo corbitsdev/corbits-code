@@ -15,6 +15,8 @@ import {
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
+import { AGENTS_PANEL_LINGER_MS, formatAgentsPanel } from "../tui/chrome-state.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
@@ -920,6 +922,48 @@ describe("list_agents", () => {
     expect(parsed.agents[0]!.description).toBe("mine");
     expect(parsed.agents[0]!.lifecycle).toBe("pending_init");
     gate.resolve({ report: "done" });
+  });
+
+  test("interrupt_agent leaves the strip after the linger window", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-strip", name: "interrupt_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+    const agents = deps.sessions.list();
+    const session = agents[0]!;
+    expect(session.status).toBe("running");
+    expect(session.lifecycleStatus).toBe("interrupted");
+    expect(agentLaneIsLive(session)).toBe(false);
+    const finishedAt = session.finishedAt!;
+    expect(finishedAt).toBeNumber();
+    const inside = finishedAt + 1_000;
+    expect(fleetProgress(agents, inside).running).toBe(0);
+    expect(formatAgentsPanel(agents, undefined, inside)?.[0]?.status).toBe("interrupted");
+    expect(formatAgentsPanel(agents, undefined, finishedAt + AGENTS_PANEL_LINGER_MS)).toBeNull();
+    gate.resolve({ report: "done", interrupted: true });
   });
 });
 
