@@ -138,13 +138,16 @@ test("symlink alias of the default global settings path is not a programmatic ov
   }
 });
 
-test("loadSettings recovers only an exact clobbered local selection", async () => {
-  const { loadSettings } = await import("../../src/config/settings.js");
+test("loadSettings recovery helper recovers only an exact clobbered local selection", async () => {
+  const { loadSettings, loadSettingsRecoveringClobberedOAuthSelection } =
+    await import("../../src/config/settings.js");
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-recovery-"));
   try {
     const clobberedPath = join(cwd, "clobbered.json");
     await writeFile(clobberedPath, JSON.stringify({ provider: "openai", model: "gpt-5" }));
-    expect(await loadSettings(clobberedPath)).toEqual({ providers: {} });
+    expect(await loadSettingsRecoveringClobberedOAuthSelection(clobberedPath, {})).toEqual({
+      providers: {},
+    });
     expect(await loadSettings(clobberedPath)).toEqual({ providers: {} });
 
     const malformedPath = join(cwd, "malformed.json");
@@ -152,7 +155,9 @@ test("loadSettings recovers only an exact clobbered local selection", async () =
       malformedPath,
       JSON.stringify({ provider: "openai", model: "gpt-5", apiKey: "not-recoverable" }),
     );
-    await expect(loadSettings(malformedPath)).rejects.toThrow(/Invalid settings schema/);
+    await expect(loadSettingsRecoveringClobberedOAuthSelection(malformedPath, {})).rejects.toThrow(
+      /Invalid settings schema/,
+    );
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

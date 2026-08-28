@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { resolveExitCode, resolveTUILocalSettingsPath } from "./runner.js";
+import { resolveLocalSettingsPath } from "../config/settings.js";
+import { resolveExitCode } from "./runner.js";
 
 describe("resolveExitCode", () => {
   test("returns 0 when run completes successfully with no errors", () => {
@@ -66,22 +67,14 @@ describe("resolveExitCode", () => {
   });
 });
 
-describe("resolveTUILocalSettingsPath", () => {
+describe("resolveLocalSettingsPath", () => {
   test("treats an aliased --config path as the global settings target", () => {
-    expect(
-      resolveTUILocalSettingsPath({
-        cwd: "/repo",
-        globalSettingsPath: "/repo/.corbits/settings.json",
-      }),
-    ).toBeNull();
+    expect(resolveLocalSettingsPath("/repo", "/repo/.corbits/settings.json")).toBeNull();
   });
 
   test("preserves the normal distinct global and project settings paths", () => {
-    expect(
-      resolveTUILocalSettingsPath({
-        cwd: "/tmp/repo",
-        globalSettingsPath: "/tmp/home/user/.corbits/settings.json",
-      }),
-    ).toBe("/tmp/repo/.corbits/settings.json");
+    expect(resolveLocalSettingsPath("/tmp/repo", "/tmp/home/user/.corbits/settings.json")).toBe(
+      "/tmp/repo/.corbits/settings.json",
+    );
   });
 });

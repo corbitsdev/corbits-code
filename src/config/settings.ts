@@ -745,29 +745,21 @@ export function healOpenCodeGoProviders(settings: Settings): string[] {
   return healed;
 }
 
-function isClobberedLocalSelection(value: unknown): value is { provider: string; model: string } {
-  if (!LocalSettingsSchema.allows(value) || typeof value !== "object" || value === null) {
-    return false;
-  }
-  const selection = value as Record<string, unknown>;
-  return (
-    Object.keys(selection).length === 2 &&
-    typeof selection.provider === "string" &&
-    selection.provider.length > 0 &&
-    typeof selection.model === "string" &&
-    selection.model.length > 0
-  );
-}
+const ClobberedLocalSelectionSchema = type({
+  provider: "string>0",
+  model: "string>0",
+  "+": "reject",
+});
 
-interface LoadSettingsOptions {
-  recoverableOAuthProviders?: Record<string, ProviderSettings>;
+function isClobberedLocalSelection(value: unknown): value is { provider: string; model: string } {
+  return ClobberedLocalSelectionSchema.allows(value);
 }
 
 function recoverClobberedOAuthSelection(
   selection: { provider: string; model: string },
-  projected: Record<string, ProviderSettings> | undefined,
+  projected: Record<string, ProviderSettings>,
 ): Settings | undefined {
-  const provider = projected?.[selection.provider];
+  const provider = projected[selection.provider];
   // Auth-profile presence is enough: the selected model may be outside the
   // projected fallback catalog (CODEX_DEFAULT_MODELS / xAI equivalents).
   if (provider === undefined) return undefined;
@@ -779,10 +771,7 @@ function recoverClobberedOAuthSelection(
   };
 }
 
-export async function loadSettings(
-  path: string,
-  options: LoadSettingsOptions = {},
-): Promise<Settings | null> {
+async function loadSettingsJSON(path: string): Promise<unknown | null> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -790,24 +779,22 @@ export async function loadSettings(
     if (isENOENT(err)) return null;
     throw err;
   }
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
     throw new Error(`Invalid JSON in settings file: ${path}`);
   }
+}
+
+function settingsSchemaError(path: string): Error {
+  return new Error(
+    `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
+  );
+}
+
+function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   if (!isSettings(parsed)) {
-    if (isClobberedLocalSelection(parsed)) {
-      const recovered = recoverClobberedOAuthSelection(
-        parsed,
-        options.recoverableOAuthProviders,
-      ) ?? { providers: {} };
-      await saveGlobalSettings(path, recovered);
-      return recovered;
-    }
-    throw new Error(
-      `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
-    );
+    throw settingsSchemaError(path);
   }
   const s = parsed as unknown as Record<string, unknown>;
   // These keys were removed when plugins moved to discovery; they are now
@@ -861,10 +848,14 @@ export async function loadSettings(
         ? Boolean(s.dangerouslySkipPermissions)
         : undefined,
   };
-  const settings: Settings = {
+  return {
     providers: s.providers as Settings["providers"],
     ...pickDefined(optional),
   };
+}
+
+async function loadStrictSettings(path: string, parsed: unknown): Promise<Settings> {
+  const settings = normalizeParsedSettings(path, parsed);
   // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
   // Only rewrite disk when heal actually mutates (no write-on-read for no-op reloads).
   // Fail open on save: keep the in-memory heal so startup is not bricked by a
@@ -883,6 +874,27 @@ export async function loadSettings(
     }
   }
   return settings;
+}
+
+export async function loadSettings(path: string): Promise<Settings | null> {
+  const parsed = await loadSettingsJSON(path);
+  return parsed === null ? null : await loadStrictSettings(path, parsed);
+}
+
+export async function loadSettingsRecoveringClobberedOAuthSelection(
+  path: string,
+  recoverableOAuthProviders: Record<string, ProviderSettings>,
+): Promise<Settings | null> {
+  const parsed = await loadSettingsJSON(path);
+  if (parsed === null) return null;
+  if (isClobberedLocalSelection(parsed)) {
+    const recovered = recoverClobberedOAuthSelection(parsed, recoverableOAuthProviders) ?? {
+      providers: {},
+    };
+    await saveGlobalSettings(path, recovered);
+    return recovered;
+  }
+  return loadStrictSettings(path, parsed);
 }
 
 /** Diagnostic produced when settings fail open instead of crashing startup. */

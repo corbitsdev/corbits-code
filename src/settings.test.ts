@@ -11,6 +11,7 @@ import {
   loadLocalSettings,
   loadLocalSettingsWriteBase,
   loadSettings,
+  loadSettingsRecoveringClobberedOAuthSelection,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   saveGlobalSettings,
@@ -594,45 +595,59 @@ describe("loaders", () => {
     }
   });
 
-  test.each([
-    ["one profile", ["codex/work"]],
-    ["multiple profiles", ["codex/personal", "codex/work"]],
-  ])("loadSettings recovers an exact OAuth selection with %s", async (_name, providerNames) => {
+  test("loadSettings keeps local selection recovery out of the strict loader", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
       await writeFile(path, JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }));
-      const projected = Object.fromEntries(
-        providerNames.map((name) => [
-          name,
-          {
-            baseURL: "https://chatgpt.com/backend-api",
-            apiKey: "oauth-token",
-            models: ["gpt-5.2-codex", "gpt-5.1-codex"],
-            defaultModel: "gpt-5.2-codex",
-          } satisfies ProviderSettings,
-        ]),
-      );
-
-      const recovered = await loadSettings(path, { recoverableOAuthProviders: projected });
-      expect(recovered).toEqual({
-        defaultProvider: "codex/work",
-        providers: {
-          "codex/work": {
-            baseURL: "https://chatgpt.com/backend-api",
-            models: ["gpt-5.1-codex"],
-            defaultModel: "gpt-5.1-codex",
-          },
-        },
-      });
-      expect(JSON.stringify(recovered)).not.toContain("oauth-token");
-      expect(await loadSettings(path)).toEqual(recovered);
+      await expect(loadSettings(path)).rejects.toThrow(/Invalid settings schema/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("loadSettings recovers a non-catalog OAuth model when the auth profile exists", async () => {
+  test.each([
+    ["one profile", ["codex/work"]],
+    ["multiple profiles", ["codex/personal", "codex/work"]],
+  ])(
+    "loadSettingsRecoveringClobberedOAuthSelection recovers an exact OAuth selection with %s",
+    async (_name, providerNames) => {
+      const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+      try {
+        const path = join(dir, "settings.json");
+        await writeFile(path, JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }));
+        const projected = Object.fromEntries(
+          providerNames.map((name) => [
+            name,
+            {
+              baseURL: "https://chatgpt.com/backend-api",
+              apiKey: "oauth-token",
+              models: ["gpt-5.2-codex", "gpt-5.1-codex"],
+              defaultModel: "gpt-5.2-codex",
+            } satisfies ProviderSettings,
+          ]),
+        );
+
+        const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, projected);
+        expect(recovered).toEqual({
+          defaultProvider: "codex/work",
+          providers: {
+            "codex/work": {
+              baseURL: "https://chatgpt.com/backend-api",
+              models: ["gpt-5.1-codex"],
+              defaultModel: "gpt-5.1-codex",
+            },
+          },
+        });
+        expect(JSON.stringify(recovered)).not.toContain("oauth-token");
+        expect(await loadSettings(path)).toEqual(recovered);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("loadSettingsRecoveringClobberedOAuthSelection recovers a non-catalog OAuth model when the auth profile exists", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
@@ -640,14 +655,12 @@ describe("loaders", () => {
         path,
         JSON.stringify({ provider: "codex/work", model: "gpt-special-custom" }),
       );
-      const recovered = await loadSettings(path, {
-        recoverableOAuthProviders: {
-          "codex/work": {
-            baseURL: "https://chatgpt.com/backend-api",
-            apiKey: "oauth-token",
-            models: ["gpt-5.2-codex", "gpt-5.1-codex"],
-            defaultModel: "gpt-5.2-codex",
-          },
+      const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, {
+        "codex/work": {
+          baseURL: "https://chatgpt.com/backend-api",
+          apiKey: "oauth-token",
+          models: ["gpt-5.2-codex", "gpt-5.1-codex"],
+          defaultModel: "gpt-5.2-codex",
         },
       });
       expect(recovered).toEqual({
@@ -676,13 +689,11 @@ describe("loaders", () => {
         JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex", apiKey: "nope" }),
       );
       await expect(
-        loadSettings(path, {
-          recoverableOAuthProviders: {
-            "codex/work": {
-              baseURL: "https://chatgpt.com/backend-api",
-              apiKey: "oauth-token",
-              models: ["gpt-5.1-codex"],
-            },
+        loadSettingsRecoveringClobberedOAuthSelection(path, {
+          "codex/work": {
+            baseURL: "https://chatgpt.com/backend-api",
+            apiKey: "oauth-token",
+            models: ["gpt-5.1-codex"],
           },
         }),
       ).rejects.toThrow(/Invalid settings schema/);
@@ -696,13 +707,11 @@ describe("loaders", () => {
     try {
       const path = join(dir, "settings.json");
       await writeFile(path, JSON.stringify({ provider: "codex/missing", model: "gpt-5.1-codex" }));
-      const recovered = await loadSettings(path, {
-        recoverableOAuthProviders: {
-          "codex/work": {
-            baseURL: "https://chatgpt.com/backend-api",
-            apiKey: "oauth-token",
-            models: ["gpt-5.1-codex"],
-          },
+      const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, {
+        "codex/work": {
+          baseURL: "https://chatgpt.com/backend-api",
+          apiKey: "oauth-token",
+          models: ["gpt-5.1-codex"],
         },
       });
       expect(recovered).toEqual({ providers: {} });

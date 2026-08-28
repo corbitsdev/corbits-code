@@ -52,7 +52,7 @@ import {
   globalSettingsPath,
   loadLocalSettingsResult,
   type SettingsLoadDiagnostic,
-  loadSettings,
+  loadSettingsRecoveringClobberedOAuthSelection,
   resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
@@ -693,19 +693,23 @@ export async function loadConfig(
   const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] = useOAuthProfiles
     ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
     : [[], []];
-  const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
-  const xaiProviderSettings = xaiProvidersAsSettings(xaiProfiles);
-  const recoverableOAuthProviders = {
-    ...codexProviderSettings,
-    ...xaiProviderSettings,
+  let projectedOAuthProviders = {
+    ...codexProvidersAsSettings(codexProfiles),
+    ...xaiProvidersAsSettings(xaiProfiles),
   };
   const settings =
     configPath !== undefined
-      ? await loadSettings(configPath, { recoverableOAuthProviders }).then((s) => {
+      ? await loadSettingsRecoveringClobberedOAuthSelection(
+          configPath,
+          projectedOAuthProviders,
+        ).then((s) => {
           if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
           return s;
         })
-      : await loadSettings(effectiveSettingsPath, { recoverableOAuthProviders });
+      : await loadSettingsRecoveringClobberedOAuthSelection(
+          effectiveSettingsPath,
+          projectedOAuthProviders,
+        );
 
   // Track whether the effective value came from the persisted global default
   // rather than this invocation's --dangerously-skip-permissions flag, so the
@@ -714,15 +718,12 @@ export async function loadConfig(
     !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
   dangerouslySkipPermissions =
     dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
-  const oauthProviderSettings = applyPersistedOAuthDefaults(settings, {
-    ...codexProviderSettings,
-    ...xaiProviderSettings,
-  });
+  projectedOAuthProviders = applyPersistedOAuthDefaults(settings, projectedOAuthProviders);
   const settingsForResolution: Settings | null =
-    Object.keys(oauthProviderSettings).length > 0
+    Object.keys(projectedOAuthProviders).length > 0
       ? {
           ...(settings ?? { providers: {} }),
-          providers: { ...(settings?.providers ?? {}), ...oauthProviderSettings },
+          providers: { ...(settings?.providers ?? {}), ...projectedOAuthProviders },
         }
       : settings;
 

@@ -276,13 +276,6 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
   return 0;
 }
 
-export function resolveTUILocalSettingsPath(args: {
-  cwd: string;
-  globalSettingsPath: string;
-}): string | null {
-  return resolveLocalSettingsPath(args.cwd, args.globalSettingsPath);
-}
-
 /** One-line transcript block when resume history fails to load. */
 export function resumeTranscriptLoadErrorBlock(err: unknown): {
   type: "error";
@@ -2147,10 +2140,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // listing, so revoke resolves against the same snapshot the operator saw.
     let listedGrants: readonly ScopedApproval[] = [];
 
-    const localSettingsFile = resolveTUILocalSettingsPath({
-      cwd: config.cwd,
-      globalSettingsPath: config.globalSettingsPath,
-    });
+    const localSettingsFile = resolveLocalSettingsPath(config.cwd, config.globalSettingsPath);
 
     const applyCommandResult = (result: CommandResult): void => {
       switch (result.type) {
