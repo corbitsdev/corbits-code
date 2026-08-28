@@ -14,6 +14,7 @@ import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import { runExec } from "./exec/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import { runTUI } from "./tui/runner.js";
+import { smokeOpenTUINativeLibrary } from "./release-native-smoke.js";
 
 export interface Runners {
   runTUI: (config: import("./config/index.js").Config) => Promise<number>;
@@ -287,6 +288,11 @@ export function installSignalHandlers(): void {
 }
 
 if (import.meta.main) {
+  if (process.argv[2] === "--__release_native_smoke__") {
+    smokeOpenTUINativeLibrary();
+    process.exit(0);
+  }
+
   installCrashHandlers();
   installSignalHandlers();
 

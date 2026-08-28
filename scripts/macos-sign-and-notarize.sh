@@ -7,13 +7,13 @@ fail() {
   exit 1
 }
 
-[ "$#" -eq 3 ] || fail "usage: $0 sign-and-notarize|verify ARTIFACT arm64|x86_64"
+[ "$#" -eq 3 ] || fail "usage: $0 sign|notarize|verify ARTIFACT arm64|x86_64"
 operation=$1
 artifact=$2
 expected_arch=$3
 
 case "$operation" in
-  sign-and-notarize|verify) ;;
+  sign|notarize|verify) ;;
   *) fail "unknown operation: $operation" ;;
 esac
 case "$expected_arch" in
@@ -70,11 +70,12 @@ verify_artifact() {
   fi
 }
 
-if [ "$operation" = sign-and-notarize ]; then
+if [ "$operation" = sign ]; then
   codesign --force --options runtime --timestamp --entitlements "$entitlements" \
     --sign "$MACOS_SIGNING_IDENTITY" "$artifact" >/dev/null || fail "code signing failed"
   verify_artifact 0
-
+elif [ "$operation" = notarize ]; then
+  verify_artifact 0
   archive="$temporary_directory/notarization.zip"
   result="$temporary_directory/notary-result.json"
   ditto -c -k --keepParent "$artifact" "$archive" || fail "could not create notarization archive"

@@ -72,10 +72,22 @@ afterEach(async () => {
 });
 
 describe("macOS release signing gate", () => {
+  test("permits OpenTUI's shipped native library under hardened runtime", async () => {
+    const releaseEntitlements = await readFile(entitlements, "utf8");
+    expect(releaseEntitlements).toContain(
+      "<key>com.apple.security.cs.disable-library-validation</key>\n\t<true/>",
+    );
+  });
+
   test("signs, notarizes, and validates an accepted artifact", async () => {
     const { run } = await createFixture();
-    const result = run();
-    expect({ exitCode: result.exitCode, stderr: result.stderr.toString() }).toEqual({
+    const signed = run("sign");
+    expect({ exitCode: signed.exitCode, stderr: signed.stderr.toString() }).toEqual({
+      exitCode: 0,
+      stderr: "",
+    });
+    const notarized = run("notarize");
+    expect({ exitCode: notarized.exitCode, stderr: notarized.stderr.toString() }).toEqual({
       exitCode: 0,
       stderr: "",
     });
@@ -84,15 +96,13 @@ describe("macOS release signing gate", () => {
   test("rejects a non-Accepted notarization status", async () => {
     const { run } = await createFixture();
     expect(
-      run("sign-and-notarize", "arm64", { STUB_NOTARY_JSON: '{"status":"Rejected"}' }).exitCode,
+      run("notarize", "arm64", { STUB_NOTARY_JSON: '{"status":"Rejected"}' }).exitCode,
     ).not.toBe(0);
   });
 
   test("rejects malformed notarization output", async () => {
     const { run } = await createFixture();
-    expect(run("sign-and-notarize", "arm64", { STUB_NOTARY_JSON: "not-json" }).exitCode).not.toBe(
-      0,
-    );
+    expect(run("notarize", "arm64", { STUB_NOTARY_JSON: "not-json" }).exitCode).not.toBe(0);
   });
 
   test("rejects an artifact without a valid signature", async () => {
@@ -116,12 +126,16 @@ describe("macOS release signing gate", () => {
     expect(release).toContain('"macos-x64|bun-darwin-x64|macos|-"');
     expect(release).toContain('[ "$kind" != macos ] && [ -f "$tarball" ]');
 
-    const signing = release.indexOf('"$MACOS_RELEASE_HELPER" sign-and-notarize');
+    const signing = release.indexOf('"$MACOS_RELEASE_HELPER" sign ');
+    const nativeSmoke = release.indexOf('smoke_native_bin "$label"');
+    const notarization = release.indexOf('"$MACOS_RELEASE_HELPER" notarize ');
     const extraction = release.indexOf('tar -xzf "$tarball"');
     const checksum = release.indexOf('shasum -a 256 "$pkg.tar.gz"');
     const publication = release.indexOf('step "Land release commit');
     expect(signing).toBeGreaterThan(0);
-    expect(extraction).toBeGreaterThan(signing);
+    expect(nativeSmoke).toBeGreaterThan(signing);
+    expect(notarization).toBeGreaterThan(nativeSmoke);
+    expect(extraction).toBeGreaterThan(notarization);
     expect(checksum).toBeGreaterThan(extraction);
     expect(publication).toBeGreaterThan(checksum);
     expect(release.slice(0, publication)).toContain(

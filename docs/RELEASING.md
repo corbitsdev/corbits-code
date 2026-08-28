@@ -3,7 +3,8 @@
 Releases are operator-run from macOS with `scripts/release.sh`. The script builds
 all four standalone targets and refuses to tag, publish a GitHub release, or
 update the Homebrew tap unless both macOS binaries are freshly built, signed,
-notarized, and validated from their final tarballs.
+smoke-tested through the shipped OpenTUI native library, notarized, and validated
+from their final tarballs.
 
 ## Apple provisioning
 
@@ -39,8 +40,9 @@ scripts/release.sh X.Y.Z --no-push --skip-tap
 ```
 
 `--no-push` suppresses remote PR, tag, and GitHub release operations; it does not
-skip builds, signing, notarization, tarball extraction, signature checks,
-entitlement comparison, architecture checks, or Gatekeeper assessment. The
+skip builds, signing, the post-sign OpenTUI native-library smoke, notarization,
+tarball extraction, signature checks, entitlement comparison, architecture checks,
+or Gatekeeper assessment. The
 script creates a local version commit and tag, so use a disposable branch and
 remove it through the normal Git workflow after recording the result. Do not
 claim release readiness until this external rehearsal succeeds with the real

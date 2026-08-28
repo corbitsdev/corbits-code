@@ -169,6 +169,17 @@ smoke_bin() {  # smoke_bin LABEL BINARY
   return 0
 }
 
+smoke_native_bin() {  # smoke_native_bin LABEL BINARY
+  local label=$1 bin=$2
+  local host; host=$(host_label)
+  [ -n "$host" ] || return 0
+  [ "$label" = "$host" ] || return 0
+  info "smoke-testing signed OpenTUI native library for $label"
+  [ -x "$bin" ] || die "native smoke: $label binary is not executable"
+  "$bin" --__release_native_smoke__ >/dev/null 2>&1 \
+    || die "native smoke: signed $label binary could not initialize OpenTUI native library"
+}
+
 # tar a tree with root ownership (for reproducible .deb payloads). GNU tar and
 # bsdtar spell the ownership override differently.
 tar_root() {  # tar_root OUTPUT.tgz DIR PATH...
@@ -372,7 +383,9 @@ for entry in "${TARGETS[@]}"; do
         macos-x64) macos_arch=x86_64 ;;
         *) die "unknown macOS release architecture: $label" ;;
       esac
-      "$MACOS_RELEASE_HELPER" sign-and-notarize "$STAGE/$pkg/$FORMULA" "$macos_arch"
+      "$MACOS_RELEASE_HELPER" sign "$STAGE/$pkg/$FORMULA" "$macos_arch"
+      smoke_native_bin "$label" "$STAGE/$pkg/$FORMULA"
+      "$MACOS_RELEASE_HELPER" notarize "$STAGE/$pkg/$FORMULA" "$macos_arch"
     fi
     tar -C "$STAGE" -czf "$tarball" "$pkg"
     if [ "$kind" = macos ]; then
