@@ -37,18 +37,16 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   }
 
   const argv: string[] = ["--cwd", config.cwd];
+  if (config.cliConfigPath !== undefined) argv.push("--config", config.cliConfigPath);
   if (config.dangerouslySkipPermissions) argv.push("--dangerously-skip-permissions");
   if (config.force) argv.push("--force");
   if (config.task.length > 0) argv.push(config.task);
 
-  // An explicit globalSettingsPath tells loadConfig it is on a controlled
-  // settings source and suppresses the home-level OAuth profile projection.
-  // Passing the default path would therefore hide a provider the operator just
-  // signed into, so it is only forwarded when it really is an override.
-  const overridesSettingsPath = settingsPath !== globalSettingsPath();
-  const newConfig = await loadConfig(
-    argv,
-    overridesSettingsPath ? { globalSettingsPath: settingsPath } : {},
-  );
+  // Recreate the original source rather than comparing paths: CLI --config
+  // composes with home OAuth profiles, while a programmatic override is an
+  // isolated settings source even if it names the default settings path.
+  const loadOptions =
+    config.settingsSource === "programmatic" ? { globalSettingsPath: settingsPath } : {};
+  const newConfig = await loadConfig(argv, loadOptions);
   return runTUI(newConfig);
 }

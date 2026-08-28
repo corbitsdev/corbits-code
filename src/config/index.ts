@@ -422,6 +422,10 @@ export interface UnconfiguredConfig {
   director?: DirectorId;
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
+  /** Original CLI path, present only when --config selected the write target. */
+  cliConfigPath?: string;
+  /** Provenance needed to preserve OAuth composition during onboarding reload. */
+  settingsSource: "default" | "cli" | "programmatic";
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
   /**
@@ -717,6 +721,12 @@ export async function loadConfig(
   // same file, not the global default. Prefer configPath, then the caller
   // override, then the real global default.
   const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
+  const settingsSource =
+    configPath !== undefined
+      ? "cli"
+      : options.globalSettingsPath !== undefined
+        ? "programmatic"
+        : "default";
   const task = positional.join(" ").trim();
 
   let resolved: ResolvedProvider;
@@ -739,6 +749,8 @@ export async function loadConfig(
       command,
       ...(director !== undefined ? { director } : {}),
       globalSettingsPath: effectiveSettingsPath,
+      ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
+      settingsSource,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics even when provider setup fails early so junk local
       // files still reach stderr (exec) / banner (TUI after onboarding).

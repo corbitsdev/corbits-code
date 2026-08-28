@@ -227,6 +227,8 @@ describe("loadConfig", () => {
         expect(result.task).toBe("do it");
         expect(result.providerError).toMatch(/missing/);
         expect(result.globalSettingsPath).toBe(NO_SETTINGS);
+        expect(result.cliConfigPath).toBeUndefined();
+        expect(result.settingsSource).toBe("programmatic");
       }
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -267,6 +269,8 @@ describe("loadConfig", () => {
       expect(result.configured).toBe(false);
       if (result.configured === false) {
         expect(result.globalSettingsPath).toBe(configPath);
+        expect(result.cliConfigPath).toBe(configPath);
+        expect(result.settingsSource).toBe("cli");
       }
     } finally {
       await rm(cwd, { recursive: true, force: true });
