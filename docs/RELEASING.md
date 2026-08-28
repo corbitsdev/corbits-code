@@ -6,7 +6,9 @@ update the Homebrew tap unless both macOS binaries are freshly built, signed,
 host-native OpenTUI-smoked on the release Mac, notarized, and validated from their
 final tarballs. Cross-compiled opposite-arch macOS binaries still require signature,
 notarization, and final-tarball verification, but they are never counted as
-host-native smoke.
+host-native smoke. Cross-compile OpenTUI native package fetches must match the
+bun.lock packages-array integrity hash before unpack; nested optionalDependencies
+pins are ignored for that check.
 
 ## Apple provisioning
 

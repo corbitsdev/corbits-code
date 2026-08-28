@@ -152,4 +152,101 @@ cp "${tarball}" "$out"
     expect(result.stderr.toString()).toMatch(/integrity|checksum|sha512/i);
     expect(await Bun.file(join(dest, "package.json")).exists()).toBe(false);
   });
+
+  test("packages-array hash wins over nested optionalDependencies false match", async () => {
+    const { directory, binDirectory } = await createStubBinDirectory();
+    const lockfile = join(directory, "bun.lock");
+    const dest = join(directory, "node_modules/@opentui/core-darwin-arm64");
+    const packageRoot = join(directory, "package");
+    const tarball = join(directory, "core-darwin-arm64-0.5.1.tgz");
+    await mkdir(packageRoot);
+    await writeFile(
+      join(packageRoot, "package.json"),
+      JSON.stringify({ name: "@opentui/core-darwin-arm64", version: "0.5.1" }),
+    );
+    const packed = Bun.spawnSync({
+      cmd: ["tar", "-czf", tarball, "-C", directory, "package"],
+      cwd: directory,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(packed.exitCode).toBe(0);
+
+    const digest = Bun.spawnSync({
+      cmd: ["openssl", "dgst", "-sha512", "-binary", tarball],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(digest.exitCode).toBe(0);
+    const packagesHash = `sha512-${Buffer.from(digest.stdout).toString("base64")}`;
+    const coreFalseMatchHash =
+      "sha512-mIBFyqIP4rkhQ35uldLXWawWQ6S9tvNWvmxGmDJ7W9cLXjegG6gKEfZ/4NyIMma755ERs/sqO/pIh3Ytf3DDFg==";
+    expect(packagesHash).not.toBe(coreFalseMatchHash);
+
+    await writeFile(
+      lockfile,
+      `{
+  "packages": {
+    "@opentui/core": ["@opentui/core@0.5.1", "", { "optionalDependencies": { "@opentui/core-darwin-arm64": "0.5.1", "@opentui/core-darwin-x64": "0.5.1" } }, "${coreFalseMatchHash}"],
+    "@opentui/core-darwin-arm64": ["@opentui/core-darwin-arm64@0.5.1", "", { "os": "darwin", "cpu": "arm64" }, "${packagesHash}"],
+  }
+}
+`,
+    );
+    await writeFile(
+      join(binDirectory, "curl"),
+      `#!/bin/sh
+set -eu
+out=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$arg"; fi
+  prev="$arg"
+done
+[ -n "$out" ]
+cp "${tarball}" "$out"
+`,
+    );
+    await chmod(join(binDirectory, "curl"), 0o755);
+
+    const accept = Bun.spawnSync({
+      cmd: ["bash", fetchOpentui, "core-darwin-arm64", "0.5.1", dest, lockfile],
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(accept.exitCode).toBe(0);
+    expect(await Bun.file(join(dest, "package.json")).exists()).toBe(true);
+
+    await rm(dest, { recursive: true, force: true });
+    const wrongPackagesHash =
+      "sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+    await writeFile(
+      lockfile,
+      `{
+  "packages": {
+    "@opentui/core": ["@opentui/core@0.5.1", "", { "optionalDependencies": { "@opentui/core-darwin-arm64": "0.5.1" } }, "${packagesHash}"],
+    "@opentui/core-darwin-arm64": ["@opentui/core-darwin-arm64@0.5.1", "", { "os": "darwin", "cpu": "arm64" }, "${wrongPackagesHash}"],
+  }
+}
+`,
+    );
+    const reject = Bun.spawnSync({
+      cmd: ["bash", fetchOpentui, "core-darwin-arm64", "0.5.1", dest, lockfile],
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(reject.exitCode).not.toBe(0);
+    expect(reject.stderr.toString()).toMatch(/integrity|checksum|sha512/i);
+    expect(await Bun.file(join(dest, "package.json")).exists()).toBe(false);
+  });
 });

@@ -28,7 +28,10 @@ for tool in curl openssl tar awk mkdir rm; do
   command -v "$tool" >/dev/null 2>&1 || fail "missing tool: $tool"
 done
 
-integrity=$(awk -v key="\"@opentui/${pkg}\":" '
+# Match the packages-array entry ("@opentui/pkg": [ ... "sha512-..." ]), not a
+# nested optionalDependencies version pin that shares the same package name on
+# @opentui/core's line and would otherwise yield core's integrity hash.
+integrity=$(awk -v key="\"@opentui/${pkg}\": [" '
   index($0, key) && match($0, /"sha512-[^"]+"/) {
     print substr($0, RSTART + 1, RLENGTH - 2)
     exit

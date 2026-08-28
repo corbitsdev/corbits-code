@@ -18,7 +18,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Direct macOS release binaries are now signed with hardened-runtime Bun
   entitlements and notarized for both architectures. Publication fails closed
   unless the final tarballs pass signature, signer, Team ID, entitlement,
-  architecture, and Gatekeeper validation.
+  architecture, and Gatekeeper validation, the release Mac completes a
+  host-native signed OpenTUI smoke, and cross-compiled OpenTUI native packages
+  match their bun.lock packages-array integrity before unpack.
 
 ## [0.3.9] - 2026-08-29
 
