@@ -886,14 +886,14 @@ export async function loadSettings(path: string): Promise<Settings | null> {
 export async function loadSettingsRecoveringClobberedOAuthSelection(
   path: string,
   recoverableOAuthProviders: Record<string, ProviderSettings>,
+  options: { persist: boolean },
 ): Promise<Settings | null> {
   const parsed = await loadSettingsJSON(path);
   if (parsed === null) return null;
   if (isClobberedLocalSelection(parsed)) {
-    const recovered = recoverClobberedOAuthSelection(parsed, recoverableOAuthProviders) ?? {
-      providers: {},
-    };
-    await saveGlobalSettings(path, recovered);
+    const recovered = recoverClobberedOAuthSelection(parsed, recoverableOAuthProviders);
+    if (recovered === undefined) throw settingsSchemaError(path);
+    if (options.persist) await saveGlobalSettings(path, recovered);
     return recovered;
   }
   return loadStrictSettings(path, parsed);

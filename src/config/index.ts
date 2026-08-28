@@ -699,16 +699,16 @@ export async function loadConfig(
   };
   const settings =
     configPath !== undefined
-      ? await loadSettingsRecoveringClobberedOAuthSelection(
-          configPath,
-          projectedOAuthProviders,
-        ).then((s) => {
+      ? await loadSettingsRecoveringClobberedOAuthSelection(configPath, projectedOAuthProviders, {
+          persist: false,
+        }).then((s) => {
           if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
           return s;
         })
       : await loadSettingsRecoveringClobberedOAuthSelection(
           effectiveSettingsPath,
           projectedOAuthProviders,
+          { persist: true },
         );
 
   // Track whether the effective value came from the persisted global default

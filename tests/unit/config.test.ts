@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
@@ -153,25 +153,26 @@ test("symlink alias of the default global settings path is not a programmatic ov
 });
 
 test("loadSettings recovery helper recovers only an exact clobbered local selection", async () => {
-  const { loadSettings, loadSettingsRecoveringClobberedOAuthSelection } =
+  const { loadSettingsRecoveringClobberedOAuthSelection } =
     await import("../../src/config/settings.js");
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-recovery-"));
   try {
     const clobberedPath = join(cwd, "clobbered.json");
-    await writeFile(clobberedPath, JSON.stringify({ provider: "openai", model: "gpt-5" }));
-    expect(await loadSettingsRecoveringClobberedOAuthSelection(clobberedPath, {})).toEqual({
-      providers: {},
-    });
-    expect(await loadSettings(clobberedPath)).toEqual({ providers: {} });
+    const clobbered = JSON.stringify({ provider: "openai", model: "gpt-5" });
+    await writeFile(clobberedPath, clobbered);
+    await expect(
+      loadSettingsRecoveringClobberedOAuthSelection(clobberedPath, {}, { persist: true }),
+    ).rejects.toThrow(/Invalid settings schema/);
+    expect(await readFile(clobberedPath, "utf8")).toBe(clobbered);
 
     const malformedPath = join(cwd, "malformed.json");
     await writeFile(
       malformedPath,
       JSON.stringify({ provider: "openai", model: "gpt-5", apiKey: "not-recoverable" }),
     );
-    await expect(loadSettingsRecoveringClobberedOAuthSelection(malformedPath, {})).rejects.toThrow(
-      /Invalid settings schema/,
-    );
+    await expect(
+      loadSettingsRecoveringClobberedOAuthSelection(malformedPath, {}, { persist: true }),
+    ).rejects.toThrow(/Invalid settings schema/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

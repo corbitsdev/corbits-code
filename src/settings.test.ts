@@ -628,7 +628,9 @@ describe("loaders", () => {
           ]),
         );
 
-        const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, projected);
+        const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, projected, {
+          persist: true,
+        });
         expect(recovered).toEqual({
           defaultProvider: "codex/work",
           providers: {
@@ -655,14 +657,18 @@ describe("loaders", () => {
         path,
         JSON.stringify({ provider: "codex/work", model: "gpt-special-custom" }),
       );
-      const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, {
-        "codex/work": {
-          baseURL: "https://chatgpt.com/backend-api",
-          apiKey: "oauth-token",
-          models: ["gpt-5.2-codex", "gpt-5.1-codex"],
-          defaultModel: "gpt-5.2-codex",
+      const recovered = await loadSettingsRecoveringClobberedOAuthSelection(
+        path,
+        {
+          "codex/work": {
+            baseURL: "https://chatgpt.com/backend-api",
+            apiKey: "oauth-token",
+            models: ["gpt-5.2-codex", "gpt-5.1-codex"],
+            defaultModel: "gpt-5.2-codex",
+          },
         },
-      });
+        { persist: true },
+      );
       expect(recovered).toEqual({
         defaultProvider: "codex/work",
         providers: {
@@ -689,32 +695,67 @@ describe("loaders", () => {
         JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex", apiKey: "nope" }),
       );
       await expect(
-        loadSettingsRecoveringClobberedOAuthSelection(path, {
-          "codex/work": {
-            baseURL: "https://chatgpt.com/backend-api",
-            apiKey: "oauth-token",
-            models: ["gpt-5.1-codex"],
+        loadSettingsRecoveringClobberedOAuthSelection(
+          path,
+          {
+            "codex/work": {
+              baseURL: "https://chatgpt.com/backend-api",
+              apiKey: "oauth-token",
+              models: ["gpt-5.1-codex"],
+            },
           },
-        }),
+          { persist: true },
+        ),
       ).rejects.toThrow(/Invalid settings schema/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("loadSettings does not recover unmatched OAuth selections", async () => {
+  test("loadSettings fails closed on unmatched OAuth selections without touching the file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
-      await writeFile(path, JSON.stringify({ provider: "codex/missing", model: "gpt-5.1-codex" }));
-      const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, {
-        "codex/work": {
-          baseURL: "https://chatgpt.com/backend-api",
-          apiKey: "oauth-token",
-          models: ["gpt-5.1-codex"],
+      const original = JSON.stringify({ provider: "codex/missing", model: "gpt-5.1-codex" });
+      await writeFile(path, original);
+      await expect(
+        loadSettingsRecoveringClobberedOAuthSelection(
+          path,
+          {
+            "codex/work": {
+              baseURL: "https://chatgpt.com/backend-api",
+              apiKey: "oauth-token",
+              models: ["gpt-5.1-codex"],
+            },
+          },
+          { persist: true },
+        ),
+      ).rejects.toThrow(/Invalid settings schema/);
+      expect(await readFile(path, "utf8")).toBe(original);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadSettingsRecoveringClobberedOAuthSelection leaves the file unchanged when persist is false", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      const original = JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" });
+      await writeFile(path, original);
+      const recovered = await loadSettingsRecoveringClobberedOAuthSelection(
+        path,
+        {
+          "codex/work": {
+            baseURL: "https://chatgpt.com/backend-api",
+            apiKey: "oauth-token",
+            models: ["gpt-5.1-codex"],
+          },
         },
-      });
-      expect(recovered).toEqual({ providers: {} });
+        { persist: false },
+      );
+      expect(recovered?.defaultProvider).toBe("codex/work");
+      expect(await readFile(path, "utf8")).toBe(original);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
