@@ -17,6 +17,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - `ask_operator` is an inset overlay again so the transcript stays visible while
   the operator answers.
+- The `full_shell` overlay mode is removed; every overlay is inset.
 
 ## [0.3.7] - 2026-08-27
 

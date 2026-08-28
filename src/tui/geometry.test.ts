@@ -438,18 +438,6 @@ describe("resolveGeometry — overlay modes", () => {
     });
     expect(layout.overlayHeight).toBeGreaterThanOrEqual(5);
   });
-
-  test("full_shell hides transcript and gives residual to overlay_host", () => {
-    const layout = idle80x24({
-      overlay: { mode: "full_shell", bodyRows: 20 },
-    });
-    expect(layout.overlayMode).toBe("full_shell");
-    expect(layout.transcriptHeight).toBe(0);
-    expect(layout.heights.prompt).toBe(0);
-    expect(layout.heights.notice).toBe(0);
-    expect(layout.overlayHeight).toBeGreaterThan(0);
-    expect(layout.overlayHeight + layout.chromeHeight).toBe(24);
-  });
 });
 
 describe("resolveGeometry — resize / residual", () => {

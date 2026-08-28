@@ -22,7 +22,7 @@ export interface TerminalSize {
   readonly rows: number;
 }
 
-export type OverlayMode = "closed" | "inset" | "full_shell";
+export type OverlayMode = "closed" | "inset";
 
 export interface OverlayInput {
   readonly mode: OverlayMode;
@@ -173,7 +173,6 @@ function sumChrome(heights: MutableHeights): number {
 }
 
 function transcriptFloorFor(mode: OverlayMode, terminalRows: number): number {
-  if (mode === "full_shell") return 0;
   if (mode === "inset") {
     // Proposed ≥ 8 on 24-row; scale gently on shorter terminals.
     if (terminalRows < 24)
@@ -198,11 +197,6 @@ function desiredOverlayHeight(
   const rows = input.terminal.rows;
   const requested = input.overlay?.bodyRows ?? Math.floor(rows * 0.4);
   const fracCap = Math.floor(rows * OVERLAY_MAX_FRACTION);
-
-  if (mode === "full_shell") {
-    // Overlay owns residual after any remaining chrome (usually 0 after hide).
-    return Math.max(0, rows - chrome);
-  }
 
   // inset: leave transcript floor; never exceed fraction cap
   const floorSafe = Math.max(0, rows - chrome - floor);
@@ -325,40 +319,6 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const contentWidth = resolveContentWidth(terminal.columns);
   const sideMargin = resolveSideMargin(terminal.columns);
   const layoutMode: LayoutMode = "stack";
-
-  // Full-shell modal: hide transcript and bottom chrome; overlay owns residual.
-  if (mode === "full_shell") {
-    heights.transcript = 0;
-    heights.task = 0;
-    heights.agents = 0;
-    heights.plugin_banner = 0;
-    heights.command_banner = 0;
-    heights.settings_notice = 0;
-    heights.progress = 0;
-    heights.progress_divider = 0;
-    heights.notice = 0;
-    heights.prompt = 0;
-    const chrome = sumChrome(heights);
-    heights.overlay_host = Math.max(0, terminal.rows - chrome);
-    const regions = assignRects(heights, terminal);
-    return {
-      terminal,
-      transcriptHeight: 0,
-      chromeHeight: chrome,
-      overlayHeight: heights.overlay_host,
-      regions,
-      heights,
-      collapsed,
-      overlayMode: mode,
-      transcriptFloor: floor,
-      sideMargin,
-      contentWidth,
-      layoutMode,
-      chatWidth: contentWidth,
-      railWidth: 0,
-      railGutter: 0,
-    };
-  }
 
   // Cap prompt growth against floor before overlay allocation.
   const promptCap = Math.max(PROMPT_BASE_ROWS, Math.floor(terminal.rows * PROMPT_CAP_FRACTION));
