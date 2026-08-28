@@ -11,9 +11,13 @@
 // status is inspected to classify the result.
 
 import { CODEX_BASE_URL, CODEX_MODELS_PATH, CODEX_CLIENT_VERSION } from "./codex/constants.js";
-import { codexAuthHeaders } from "./codex/usage.js";
+import { refreshStagedCodexTokens } from "./codex/session.js";
+import type { CodexTokens } from "./codex/store.js";
+import { codexAuthHeadersForToken } from "./codex/usage.js";
 import { XAI_BASE_URL, XAI_TOKEN_TIMEOUT_MS } from "./xai/constants.js";
-import { xaiAuthHeaders } from "./xai/usage.js";
+import { refreshStagedXaiTokens } from "./xai/session.js";
+import type { XaiTokens } from "./xai/store.js";
+import { xaiAuthHeadersForToken } from "./xai/usage.js";
 
 export type OAuthScopeCheckKind = "codex" | "xai";
 
@@ -53,10 +57,10 @@ function classifyStatus(status: number, providerLabel: string): OAuthScopeCheckR
   return unavailable(providerLabel);
 }
 
-async function checkCodexScope(profile: string): Promise<OAuthScopeCheckResult> {
+async function checkCodexScope(tokens: CodexTokens): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Codex";
   try {
-    const headers = await codexAuthHeaders(profile);
+    const headers = codexAuthHeadersForToken(await refreshStagedCodexTokens(tokens));
     const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
     const res = await fetch(url, {
       headers,
@@ -69,10 +73,10 @@ async function checkCodexScope(profile: string): Promise<OAuthScopeCheckResult> 
   }
 }
 
-async function checkXaiScope(profile: string): Promise<OAuthScopeCheckResult> {
+async function checkXaiScope(tokens: XaiTokens): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Grok";
   try {
-    const headers = await xaiAuthHeaders(profile);
+    const headers = xaiAuthHeadersForToken(await refreshStagedXaiTokens(tokens));
     const res = await fetch(`${XAI_BASE_URL}/models`, {
       headers,
       signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
@@ -89,7 +93,7 @@ async function checkXaiScope(profile: string): Promise<OAuthScopeCheckResult> {
 // login result alone.
 export async function checkOAuthProviderScope(
   kind: OAuthScopeCheckKind,
-  profile: string,
+  tokens: CodexTokens | XaiTokens,
 ): Promise<OAuthScopeCheckResult> {
-  return kind === "codex" ? checkCodexScope(profile) : checkXaiScope(profile);
+  return kind === "codex" ? checkCodexScope(tokens) : checkXaiScope(tokens);
 }

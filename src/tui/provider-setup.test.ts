@@ -26,6 +26,7 @@ import {
   summaryRows,
   TYPE_MODEL_ID,
   validateOAuthProfileSlug,
+  type OAuthLoginStart,
   type OAuthLoginStarter,
   type OAuthProfileLister,
   type ProviderFormValues,
@@ -40,6 +41,19 @@ const EMPTY: ProviderFormValues = {
   model: "",
   oauthProfile: "",
 };
+
+type LoginCompletion = Awaited<OAuthLoginStart["completed"]>;
+
+function stagedLogin(profile: string): LoginCompletion {
+  return {
+    profile: {
+      name: profile,
+      tokens: { access: "test-access", refresh: "test-refresh", expiresAt: 10_000 },
+      createdAt: 1,
+    },
+    commit: async () => {},
+  };
+}
 
 // This file mounts a fresh renderer per test; track every one so a single
 // afterEach can free them regardless of which assertion in a test fails.
@@ -422,14 +436,14 @@ describe("runProviderSetup sign-in", () => {
   test("a subscription provider signs in in place and persists the selection", async () => {
     const seen: ProviderFormValues[] = [];
     const opts: SubmitOpts[] = [];
-    let complete: (result: { profile: string }) => void = () => {};
+    let complete: (result: LoginCompletion) => void = () => {};
     const { done, harness } = await mountLogin({
       start: async ({ kind, profile }) => {
         expect(kind).toBe("codex");
         expect(profile).toBe("default");
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>((resolve) => {
+          completed: new Promise<LoginCompletion>((resolve) => {
             complete = resolve;
           }),
           cancel: () => {},
@@ -449,7 +463,7 @@ describe("runProviderSetup sign-in", () => {
     expect(waiting).toContain("auth.example.com/authorize");
     expect(waiting).toContain("waiting for browser sign-in");
 
-    complete({ profile: "default" });
+    complete(stagedLogin("default"));
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("step 4 of 4");
 
@@ -459,11 +473,13 @@ describe("runProviderSetup sign-in", () => {
     expect(seen[0]?.name).toBe("codex/default");
     // A signed-in provider never carries a key through the form.
     expect(seen[0]?.apiKey).toBe("");
-    expect(opts[0]?.oauth).toEqual({
+    expect(opts[0]?.oauth).toMatchObject({
       kind: "codex",
       profile: "default",
       providerName: "codex/default",
+      tokens: { access: "test-access", refresh: "test-refresh", expiresAt: 10_000 },
     });
+    expect(opts[0]?.oauth?.commit).toBeFunction();
   });
 
   test("the entered account name reaches startLogin as the profile slug", async () => {
@@ -473,7 +489,7 @@ describe("runProviderSetup sign-in", () => {
         seenProfiles.push(profile);
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>(() => {}),
+          completed: new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -493,7 +509,7 @@ describe("runProviderSetup sign-in", () => {
         seenProfiles.push(profile);
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>(() => {}),
+          completed: new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -518,7 +534,7 @@ describe("runProviderSetup sign-in", () => {
         seenProfiles.push(profile);
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>(() => {}),
+          completed: new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -552,7 +568,7 @@ describe("runProviderSetup sign-in", () => {
         starts += 1;
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>(() => {}),
+          completed: new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -583,7 +599,7 @@ describe("runProviderSetup sign-in", () => {
         starts += 1;
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>(() => {}),
+          completed: new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -610,7 +626,7 @@ describe("runProviderSetup sign-in", () => {
           completed:
             starts === 1
               ? Promise.reject(new Error("access denied by the user"))
-              : new Promise<{ profile: string }>(() => {}),
+              : new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -635,7 +651,7 @@ describe("runProviderSetup sign-in", () => {
       loginTimeoutMs: 5,
       start: async () => ({
         authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<{ profile: string }>(() => {}),
+        completed: new Promise<LoginCompletion>(() => {}),
         cancel: () => {
           cancelled += 1;
         },
@@ -663,7 +679,7 @@ describe("runProviderSetup sign-in", () => {
         });
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<{ profile: string }>(() => {}),
+          completed: new Promise<LoginCompletion>(() => {}),
           cancel: () => {
             cancelled += 1;
           },
@@ -693,7 +709,7 @@ describe("runProviderSetup sign-in", () => {
           completed:
             seenProfiles.length === 1
               ? Promise.reject(new Error("access denied by the user"))
-              : new Promise<{ profile: string }>(() => {}),
+              : new Promise<LoginCompletion>(() => {}),
           cancel: () => {},
         };
       },
@@ -715,11 +731,11 @@ describe("runProviderSetup sign-in", () => {
   });
 
   test("a late resolution from an abandoned attempt cannot move the screen", async () => {
-    let complete: (result: { profile: string }) => void = () => {};
+    let complete: (result: LoginCompletion) => void = () => {};
     const { done, harness } = await mountLogin({
       start: async () => ({
         authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<{ profile: string }>((resolve) => {
+        completed: new Promise<LoginCompletion>((resolve) => {
           complete = resolve;
         }),
         cancel: () => {},
@@ -728,7 +744,7 @@ describe("runProviderSetup sign-in", () => {
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness);
     await pressEscape(harness);
-    complete({ profile: "default" });
+    complete(stagedLogin("default"));
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
     harness.pressKey("Ctrl+C");
@@ -962,7 +978,7 @@ describe("runProviderSetup", () => {
     const { done, harness } = await mountLogin({
       start: async () => ({
         authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<{ profile: string }>(() => {}),
+        completed: new Promise<LoginCompletion>(() => {}),
         cancel: () => {
           cancelled += 1;
         },

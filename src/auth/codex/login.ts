@@ -7,11 +7,11 @@ import {
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "./constants.js";
 import { startCodexCallbackServer } from "./callback-server.js";
 import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";
-import { saveCodexProfile } from "./store.js";
+import { saveCodexProfile, type CodexTokens } from "./store.js";
 
 export { openInBrowser };
 
-export type CodexLoginHandle = OAuthLoginHandle;
+export type CodexLoginHandle = OAuthLoginHandle<CodexTokens>;
 export type StartCodexLoginOptions = StartOAuthLoginOptions;
 
 // Drive the loopback PKCE login for a Codex profile.

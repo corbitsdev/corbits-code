@@ -121,5 +121,5 @@ export async function startCallbackServer(
 }
 
 export function authorizationDoneHtml(providerName: string): string {
-  return callbackPageHtml({ subject: providerName });
+  return callbackPageHtml({ subject: providerName, pendingSetup: true });
 }

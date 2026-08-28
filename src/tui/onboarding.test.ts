@@ -91,7 +91,6 @@ describe("runOnboarding settings source", () => {
       const config = await unconfiguredConfig(cwd, { cliConfigPath: configPath });
 
       setup = async ({ onSubmit }) => {
-        await writeXAIAuthProfile(testHome, "work");
         await onSubmit(
           {
             name: "xai/work",
@@ -103,7 +102,12 @@ describe("runOnboarding settings source", () => {
           () => {},
           {
             skipValidation: true,
-            oauth: { kind: "xai", profile: "work", providerName: "xai/work" },
+            oauth: {
+              kind: "xai",
+              providerName: "xai/work",
+              tokens: { access: "work-access-token", refresh: "work-refresh-token", expiresAt: 0 },
+              commit: () => writeXAIAuthProfile(testHome, "work"),
+            },
           },
         );
       };

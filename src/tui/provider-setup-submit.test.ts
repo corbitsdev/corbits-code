@@ -10,20 +10,40 @@ import { withMockedModule } from "../../tests/helpers/mock-module.js";
 // check so these tests exercise buildProviderSubmitHandler's own branching
 // (ok / insufficient-scope / unavailable) without a live call.
 let scopeCheckResult: OAuthScopeCheckResult = { status: "ok" };
+const scopeCheckCalls: unknown[][] = [];
 await withMockedModule(
   import.meta.resolve("../auth/oauth-scope-check.js"),
   (real: typeof import("../auth/oauth-scope-check.js")) => ({
     ...real,
-    checkOAuthProviderScope: async () => scopeCheckResult,
+    checkOAuthProviderScope: async (...args: unknown[]) => {
+      scopeCheckCalls.push(args);
+      return scopeCheckResult;
+    },
   }),
 );
 
 const { buildProviderSubmitHandler } = await import("./provider-setup-submit.js");
 const { loadLocalSettings, loadSettings, localSettingsPath, resolveLocalSettingsPath } =
   await import("../config/settings.js");
-import type { ProviderFormValues, SubmitPhase } from "./provider-setup.js";
+import type { OAuthResult, ProviderFormValues, SubmitPhase } from "./provider-setup.js";
 
 const noopSetPhase = (_phase: SubmitPhase): void => {};
+const stagedCodexTokens = {
+  access: "staged-access",
+  refresh: "staged-refresh",
+  expiresAt: 10_000,
+  accountId: "staged-account",
+};
+
+function stagedCodexOAuth(commit: () => Promise<void> = async () => {}): OAuthResult {
+  return {
+    kind: "codex",
+    providerName: "codex/work",
+    profile: "work",
+    tokens: stagedCodexTokens,
+    commit,
+  } as OAuthResult;
+}
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "provider-setup-submit-"));
@@ -137,7 +157,7 @@ describe("buildProviderSubmitHandler", () => {
       },
       options: {
         skipValidation: true,
-        oauth: { kind: "codex" as const, providerName: "codex/work", profile: "work" },
+        oauth: stagedCodexOAuth(),
       },
       provider: "codex/work",
     },
@@ -233,7 +253,7 @@ describe("buildProviderSubmitHandler", () => {
 
       await submit(values, noopSetPhase, {
         skipValidation: true,
-        oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+        oauth: stagedCodexOAuth(),
       });
 
       const local = await loadLocalSettings(localPath);
@@ -285,14 +305,16 @@ describe("buildProviderSubmitHandler", () => {
   describe("OAuth-issued token scope validation (CL-5710)", () => {
     afterEach(() => {
       scopeCheckResult = { status: "ok" };
+      scopeCheckCalls.length = 0;
     });
 
-    test("valid scope: onboarding completes", async () => {
+    test("valid scope: onboarding commits staged credentials exactly once", async () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = { status: "ok" };
         const path = join(dir, "settings.json");
         const localPath = localSettingsPath(dir);
         const submit = buildProviderSubmitHandler(path, null, localPath);
+        let commits = 0;
 
         await submit(
           {
@@ -305,16 +327,22 @@ describe("buildProviderSubmitHandler", () => {
           noopSetPhase,
           {
             skipValidation: false,
-            oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+            oauth: stagedCodexOAuth(async () => {
+              commits += 1;
+            }),
           },
         );
 
-        const local = await loadLocalSettings(localPath);
-        expect(local).toEqual({ provider: "codex/work", model: "gpt-5" });
+        expect(commits).toBe(1);
+        expect(scopeCheckCalls).toEqual([["codex", stagedCodexTokens]]);
+        expect(await loadLocalSettings(localPath)).toEqual({
+          provider: "codex/work",
+          model: "gpt-5",
+        });
       });
     });
 
-    test("definitively insufficient scope: onboarding is rejected with a setup-attributable message, not a raw adapter error", async () => {
+    test("fresh insufficient scope persists no credential or restart selection", async () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = {
           status: "insufficient-scope",
@@ -323,6 +351,7 @@ describe("buildProviderSubmitHandler", () => {
         const path = join(dir, "settings.json");
         const localPath = localSettingsPath(dir);
         const submit = buildProviderSubmitHandler(path, null, localPath);
+        let committedProfile: string | undefined;
 
         await expect(
           submit(
@@ -336,26 +365,70 @@ describe("buildProviderSubmitHandler", () => {
             noopSetPhase,
             {
               skipValidation: false,
-              oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+              oauth: stagedCodexOAuth(async () => {
+                committedProfile = "work";
+              }),
             },
           ),
         ).rejects.toThrow(/reconnect codex/i);
 
-        // Nothing is persisted on a proven scope failure.
+        expect(committedProfile).toBeUndefined();
         expect(await loadSettings(path)).toBeNull();
         expect(await loadLocalSettings(localPath)).toBeNull();
       });
     });
 
-    test("check-unavailable (network blip): onboarding still completes, not blocked", async () => {
+    test("failed same-name reauthorization preserves the exact durable profile", async () => {
+      await withTempDir(async (dir) => {
+        scopeCheckResult = { status: "insufficient-scope", message: "Reconnect Codex." };
+        const oldProfile = {
+          name: "work",
+          tokens: { access: "old-access", refresh: "old-refresh", expiresAt: 500 },
+          createdAt: 10,
+        };
+        let durableProfile = structuredClone(oldProfile);
+        const submit = buildProviderSubmitHandler(
+          join(dir, "settings.json"),
+          null,
+          localSettingsPath(dir),
+        );
+
+        await expect(
+          submit(
+            {
+              name: "",
+              baseURL: "https://chatgpt.com/backend-api",
+              apiKey: "",
+              model: "gpt-5",
+              oauthProfile: "work",
+            },
+            noopSetPhase,
+            {
+              skipValidation: false,
+              oauth: stagedCodexOAuth(async () => {
+                durableProfile = {
+                  name: "work",
+                  tokens: stagedCodexTokens,
+                  createdAt: 20,
+                };
+              }),
+            },
+          ),
+        ).rejects.toThrow(/reconnect codex/i);
+
+        expect(durableProfile).toEqual(oldProfile);
+      });
+    });
+
+    test("check-unavailable commits staged credentials exactly once", async () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = {
           status: "unavailable",
           message: "Couldn't confirm Codex API access right now.",
         };
-        const path = join(dir, "settings.json");
         const localPath = localSettingsPath(dir);
-        const submit = buildProviderSubmitHandler(path, null, localPath);
+        const submit = buildProviderSubmitHandler(join(dir, "settings.json"), null, localPath);
+        let commits = 0;
 
         await submit(
           {
@@ -368,21 +441,26 @@ describe("buildProviderSubmitHandler", () => {
           noopSetPhase,
           {
             skipValidation: false,
-            oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+            oauth: stagedCodexOAuth(async () => {
+              commits += 1;
+            }),
           },
         );
 
-        const local = await loadLocalSettings(localPath);
-        expect(local).toEqual({ provider: "codex/work", model: "gpt-5" });
+        expect(commits).toBe(1);
+        expect(await loadLocalSettings(localPath)).toEqual({
+          provider: "codex/work",
+          model: "gpt-5",
+        });
       });
     });
 
-    test("skipValidation bypasses the scope probe entirely", async () => {
+    test("explicit save-anyway skips the scope probe and commits exactly once", async () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = { status: "insufficient-scope", message: "should never be thrown" };
-        const path = join(dir, "settings.json");
         const localPath = localSettingsPath(dir);
-        const submit = buildProviderSubmitHandler(path, null, localPath);
+        const submit = buildProviderSubmitHandler(join(dir, "settings.json"), null, localPath);
+        let commits = 0;
 
         await submit(
           {
@@ -395,12 +473,18 @@ describe("buildProviderSubmitHandler", () => {
           noopSetPhase,
           {
             skipValidation: true,
-            oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+            oauth: stagedCodexOAuth(async () => {
+              commits += 1;
+            }),
           },
         );
 
-        const local = await loadLocalSettings(localPath);
-        expect(local).toEqual({ provider: "codex/work", model: "gpt-5" });
+        expect(scopeCheckCalls).toEqual([]);
+        expect(commits).toBe(1);
+        expect(await loadLocalSettings(localPath)).toEqual({
+          provider: "codex/work",
+          model: "gpt-5",
+        });
       });
     });
   });

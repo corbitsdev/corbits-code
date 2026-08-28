@@ -7,6 +7,7 @@ import {
   PRODUCT_SITE_URL,
 } from "../branding.js";
 import { callbackPageHtml, humanizeIdentifier } from "./callback-page.js";
+import { authorizationDoneHtml } from "./oauth/callback-server.js";
 
 describe("humanizeIdentifier", () => {
   test("machine identifiers lose their separators and lead with a capital", () => {
@@ -26,6 +27,13 @@ describe("callbackPageHtml", () => {
     const html = callbackPageHtml({ subject: "linear" });
     expect(html).toContain("Linear connected successfully");
     expect(html).not.toContain("access_denied");
+  });
+
+  test("provider authorization waits for native setup before claiming connection", () => {
+    const html = authorizationDoneHtml("Codex");
+    expect(html).toContain("Codex authorization received");
+    expect(html).toContain("finish setup");
+    expect(html).not.toContain("connected successfully");
   });
 
   test("failure names the server and the humanized reason", () => {

@@ -48,11 +48,12 @@ export function buildProviderSubmitHandler(
     const trimmedKey = apiKey.trim();
     const selectedModel = model.trim();
 
-    // A signed-in subscription provider has no key to test or store: the
-    // tokens are already in the home-level auth store, and config load
-    // projects that store into the provider catalog. Persist only non-secret
-    // provider/model metadata globally so the selection survives when a local
-    // settings target would alias this file.
+    // A signed-in subscription provider has no key to test or store in
+    // settings. Its exchanged credentials remain staged until this path has
+    // authorized persistence; once committed to the home-level auth store,
+    // config load projects that store into the provider catalog. Persist only
+    // non-secret provider/model metadata globally so the selection survives
+    // when a local settings target would alias this file.
     //
     // Unlike a pasted key, this credential was just issued by the real
     // provider's own OAuth server completing a PKCE round-trip — so the
@@ -66,12 +67,13 @@ export function buildProviderSubmitHandler(
     // timeout, rate limit) never blocks — only a proven scope failure does.
     if (oauth !== undefined) {
       if (!skipValidation) {
-        const scopeCheck = await checkOAuthProviderScope(oauth.kind, oauth.profile);
+        const scopeCheck = await checkOAuthProviderScope(oauth.kind, oauth.tokens);
         if (scopeCheck.status === "insufficient-scope") {
           throw new Error(scopeCheck.message);
         }
       }
       setPhase("saving");
+      await oauth.commit();
       const base = existing ?? { providers: {} };
       await saveGlobalSettings(settingsPath, {
         ...base,

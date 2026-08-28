@@ -73,15 +73,21 @@ function parseUsage(payload: unknown): CodexUsage {
   };
 }
 
-export async function codexAuthHeaders(profileName: string): Promise<Record<string, string>> {
-  const { access, accountId } = await getValidCodexToken(profileName);
+export function codexAuthHeadersForToken(token: {
+  readonly access: string;
+  readonly accountId?: string | undefined;
+}): Record<string, string> {
   const headers: Record<string, string> = {
-    authorization: `Bearer ${access}`,
+    authorization: `Bearer ${token.access}`,
     originator: CODEX_AUTHORIZE_EXTRA_PARAMS["originator"] ?? "codex_cli_rs",
     "user-agent": `${COMMAND_NAME} (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
   };
-  if (accountId !== undefined) headers["chatgpt-account-id"] = accountId;
+  if (token.accountId !== undefined) headers["chatgpt-account-id"] = token.accountId;
   return headers;
+}
+
+export async function codexAuthHeaders(profileName: string): Promise<Record<string, string>> {
+  return codexAuthHeadersForToken(await getValidCodexToken(profileName));
 }
 
 // Fetch the live usage/quota snapshot for a Codex profile.

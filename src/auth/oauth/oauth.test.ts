@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { baseTokensFromResponse, postToken, type OAuthClientConfig } from "./client.js";
+import { startOAuthLogin } from "./login.js";
 import { createTokenSession } from "./session.js";
-import { createAuthStore, type BaseTokens } from "./store.js";
+import { createAuthStore, type AuthProfile, type BaseTokens } from "./store.js";
 
 const config: OAuthClientConfig = {
   clientId: "client-id",
@@ -154,6 +155,72 @@ describe("createAuthStore", () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("startOAuthLogin", () => {
+  test("stages the exchanged profile until commit is invoked", async () => {
+    const saved: AuthProfile<TestTokens>[] = [];
+    let closed = 0;
+    const tokens = { access: "new-access", refresh: "new-refresh", expiresAt: 10_000 };
+    const handle = await startOAuthLogin(
+      {
+        profile: "work",
+        signal: new AbortController().signal,
+        now: () => 123,
+        openBrowser: false,
+      },
+      {
+        startCallbackServer: async () => ({
+          waitForCode: async () => "authorization-code",
+          close: () => {
+            closed += 1;
+          },
+        }),
+        buildAuthorizeUrl: () => "https://auth.example.com/authorize",
+        exchangeCode: async () => tokens,
+        saveProfile: async (profile) => {
+          saved.push(profile);
+        },
+      },
+    );
+
+    const staged = await handle.completed;
+    expect(saved).toEqual([]);
+    expect(staged.profile).toEqual({ name: "work", tokens, createdAt: 123 });
+    expect(closed).toBe(1);
+
+    await Promise.all([staged.commit(), staged.commit()]);
+    expect(saved).toEqual([staged.profile]);
+  });
+
+  test("allows a failed profile commit to be retried", async () => {
+    let saveAttempts = 0;
+    const handle = await startOAuthLogin(
+      {
+        profile: "work",
+        signal: new AbortController().signal,
+        now: () => 123,
+        openBrowser: false,
+      },
+      {
+        startCallbackServer: async () => ({
+          waitForCode: async () => "authorization-code",
+          close: () => undefined,
+        }),
+        buildAuthorizeUrl: () => "https://auth.example.com/authorize",
+        exchangeCode: async () => ({ access: "new", refresh: "refresh", expiresAt: 10_000 }),
+        saveProfile: async () => {
+          saveAttempts += 1;
+          if (saveAttempts === 1) throw new Error("transient save failure");
+        },
+      },
+    );
+
+    const staged = await handle.completed;
+    await expect(staged.commit()).rejects.toThrow("transient save failure");
+    await expect(staged.commit()).resolves.toBeUndefined();
+    expect(saveAttempts).toBe(2);
   });
 });
 

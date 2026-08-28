@@ -31,6 +31,7 @@ export {
   startOAuthLogin,
   type OAuthLoginDeps,
   type OAuthLoginHandle,
+  type StagedOAuthProfile,
   type StartOAuthLoginOptions,
 } from "./login.js";
 export {

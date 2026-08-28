@@ -27,7 +27,10 @@ import {
   type FirstClassProviderDef,
 } from "../../packages/first-class-providers/src/index.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import type { CodexTokens } from "../auth/codex/store.js";
+import type { AuthProfile } from "../auth/oauth/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
+import type { XaiTokens } from "../auth/xai/store.js";
 import { PRODUCT_NAME } from "../branding.js";
 import { codexProviderName } from "../config/codex-providers.js";
 import { xaiProviderName } from "../config/xai-providers.js";
@@ -636,17 +639,15 @@ export interface SubmitOpts {
    * four form values cannot express.
    */
   readonly preset?: ProviderPreset;
-  /**
-   * Present when the operator signed in rather than pasting a key. The token
-   * is already on disk in the auth store by then, so the caller persists the
-   * selection only — never a credential.
-   */
+  /** Present when the operator exchanged OAuth credentials during setup. */
   readonly oauth?: OAuthResult;
 }
 
 export interface OAuthResult {
   readonly kind: OAuthKind;
   readonly profile: string;
+  readonly tokens: CodexTokens | XaiTokens;
+  readonly commit: () => Promise<void>;
   /** Settings/catalog name the stored profile projects to. */
   readonly providerName: string;
 }
@@ -667,7 +668,10 @@ export type ProviderSetupSubmit = (
 /** A login in flight: where to authorize, when it finished, how to abandon it. */
 export interface OAuthLoginStart {
   readonly authorizeUrl: string;
-  readonly completed: Promise<{ profile: string }>;
+  readonly completed: Promise<{
+    readonly profile: AuthProfile<CodexTokens | XaiTokens>;
+    readonly commit: () => Promise<void>;
+  }>;
   readonly cancel: () => void;
 }
 
@@ -1351,7 +1355,11 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     paint();
   };
 
-  const finishLogin = (attempt: number, kind: OAuthKind, profile: string): void => {
+  const finishLogin = (
+    attempt: number,
+    kind: OAuthKind,
+    staged: Awaited<OAuthLoginStart["completed"]>,
+  ): void => {
     if (attempt !== loginAttempt) return;
     clearLoginTimer();
     loginHandle = null;
@@ -1359,9 +1367,13 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     stopRamp();
     loginStatus = "done";
     loginError = null;
-    // The token is already on disk in the auth store; from here the surface
-    // carries only the selection.
-    const result = { kind, profile, providerName: oauthProviderName(kind, profile) };
+    const result: OAuthResult = {
+      kind,
+      profile: staged.profile.name,
+      tokens: staged.profile.tokens,
+      commit: staged.commit,
+      providerName: oauthProviderName(kind, staged.profile.name),
+    };
     loginResult = result;
     values.name = result.providerName;
     values.apiKey = "";
@@ -1401,7 +1413,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
         paint();
         handle.completed.then(
           (result) => {
-            finishLogin(attempt, kind, result.profile);
+            finishLogin(attempt, kind, result);
           },
           (err: unknown) => {
             failLogin(attempt, err instanceof Error ? err.message : String(err));
