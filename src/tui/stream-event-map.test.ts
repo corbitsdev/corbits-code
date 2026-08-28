@@ -258,6 +258,33 @@ describe("inference.retry", () => {
     expect(actions(out)).toEqual(["mark", "rollback"]);
   });
 
+  test("a same-turn failover start consumes the boundary handed off by inference.error", () => {
+    const out = mapProductionSequence([
+      { type: "inference.start" },
+      { type: "inference.text.delta", data: { token: "partial" } },
+      {
+        type: "inference.error",
+        data: {
+          error: { category: "quota_exhausted", message: "The usage limit has been reached" },
+        },
+      },
+      { type: "inference.start" },
+    ]);
+    expect(actions(out)).toEqual(["mark", "rollback", "mark"]);
+  });
+
+  test("a same-turn failover start after credential_failure also rolls back", () => {
+    const out = mapProductionSequence([
+      { type: "inference.start" },
+      {
+        type: "inference.error",
+        data: { error: { category: "credential_failure", message: "Forbidden" } },
+      },
+      { type: "inference.start" },
+    ]);
+    expect(actions(out)).toEqual(["mark", "rollback", "mark"]);
+  });
+
   test("a settled cycle disarms, so the next cycle's pre-commit retry is inert", () => {
     const out = mapProductionSequence([
       { type: "inference.start" },
@@ -268,7 +295,7 @@ describe("inference.retry", () => {
     expect(actions(out)).toEqual(["mark", "clear"]);
   });
 
-  test("any event other than the retry expires the error handoff", () => {
+  test("any event other than retry or start expires the error handoff", () => {
     const out = mapProductionSequence([
       { type: "inference.start" },
       { type: "inference.text.delta", data: { token: "partial" } },

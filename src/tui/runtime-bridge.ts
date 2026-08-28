@@ -417,6 +417,24 @@ function consumeEcho(bag: BridgeBag, text: string): boolean {
   return true;
 }
 
+function messageReceivedContent(event: { readonly data?: unknown }): string | undefined {
+  const data = event.data;
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const message = (data as { readonly message?: unknown }).message;
+  if (message === null || typeof message !== "object" || Array.isArray(message)) return undefined;
+  const content = (message as { readonly content?: unknown }).content;
+  return typeof content === "string" ? content : undefined;
+}
+
+function consumePendingEchoEvent(
+  bag: BridgeBag,
+  event: { readonly type: string; readonly data?: unknown },
+): boolean {
+  if (event.type !== "message.received") return false;
+  const content = messageReceivedContent(event);
+  return content !== undefined && consumeEcho(bag, content);
+}
+
 function openRowContent(
   kind: OpenRowKind,
   text: string,
@@ -686,6 +704,17 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   }
 }
 
+function isLocallyQueuedUserRow(row: StreamRow): boolean {
+  return (
+    row.role === "user" &&
+    (row.meta === "queue" ||
+      row.meta === "steer" ||
+      row.meta === "steering" ||
+      row.meta === "following-up" ||
+      row.meta === "reinject")
+  );
+}
+
 /**
  * Retract everything the failed attempt painted, then forget the row
  * bookkeeping that pointed into it — a rolled-back tool call has no row left
@@ -695,7 +724,11 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   const boundary = bag.attemptRow;
   bag.attemptRow = null;
   if (boundary === null || boundary >= streamRowCount(shell)) return;
+  const localRows = Array.from({ length: streamRowCount(shell) - boundary }, (_, i) =>
+    streamRowAt(shell, boundary + i),
+  ).filter((row): row is StreamRow => row !== undefined && isLocallyQueuedUserRow(row));
   truncateStreamRows(shell, boundary);
+  for (const row of localRows) appendStreamRow(shell, row);
   for (const [callId, index] of [...bag.toolRows]) {
     if (index >= boundary) {
       bag.toolRows.delete(callId);
@@ -1045,6 +1078,13 @@ export function attachSessionBridge(
     const settled = noteEvent(event);
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
+      if (consumePendingEchoEvent(bag, event)) {
+        // The echo skips the mapper so it cannot expire a recovery handoff,
+        // but it still starts a new turn: the next reasoning gets its own row.
+        closeOpenRow(shell, bag);
+        bag.turnThinking = null;
+        return;
+      }
       for (const mapped of mapProductionEvent(event as ReactorLikeEvent, bag.mapCtx)) {
         applyInbound(shell, bag, mapped);
       }
@@ -1105,6 +1145,8 @@ export function attachSessionBridge(
       if (shell.session.run !== "busy") return;
       closeOpenRow(shell, bag);
       bag.pendingEchoes.length = 0;
+      bag.mapCtx.errorRollbackArmed = false;
+      bag.attemptRow = null;
       shell.session = interrupt(shell.session);
       appendStreamRow(shell, {
         role: "system",
@@ -1162,6 +1204,11 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     closeOpenRow(shell, bag);
     bag.pendingEchoes.length = 0;
+    // The stopped attempt is no longer in flight. Expire the error-recovery
+    // handoff so a later new-turn inference.start cannot roll back the
+    // classified error, the stop row, or the operator's next prompt.
+    bag.mapCtx.errorRollbackArmed = false;
+    bag.attemptRow = null;
     applyShellInterrupt(shell);
     bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to

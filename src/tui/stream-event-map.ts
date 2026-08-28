@@ -109,10 +109,11 @@ export interface StreamMapContext {
   attemptCallIds: Set<string>;
   /**
    * A committed attempt can also end in `inference.error` with no
-   * `inference.done`, and the reactor's committed-retry follows that error
-   * immediately. The boundary must not stay armed across a terminal error, so
-   * the error hands it off here: the very next event either is the retry that
-   * consumes it, or expires it.
+   * `inference.done`. Recovery follows that error as either the reactor's
+   * committed-retry or a same-turn failover `inference.start`. The boundary
+   * must not stay armed across a terminal error, so the error hands it off
+   * here: the very next event either consumes it (retry or start) and
+   * retracts the failed attempt, or expires it and keeps the error row.
    */
   errorRollbackArmed: boolean;
   /**
@@ -149,6 +150,23 @@ function disarmAttempt(ctx: StreamMapContext | undefined): readonly BridgeInboun
   if (!ctx || !ctx.attemptArmed) return [];
   ctx.attemptArmed = false;
   return [ATTEMPT_CLEAR];
+}
+
+/** Drop call bookkeeping and held deltas that belonged only to the failed attempt. */
+function forgetAttemptLocalState(ctx: StreamMapContext): void {
+  for (const callId of [...ctx.callIdToName.keys()]) {
+    if (ctx.attemptCallIds.has(callId)) continue;
+    ctx.callIdToName.delete(callId);
+    ctx.callIdToArgs.delete(callId);
+    ctx.emittedToolCalls.delete(callId);
+  }
+  ctx.hadTextDelta = false;
+  ctx.pendingDelta.assistant = "";
+  ctx.pendingDelta.thinking = "";
+}
+
+function recoversErrorHandoff(type: string): boolean {
+  return type === "inference.retry" || type === "inference.start";
 }
 
 type DeltaChannel = "assistant" | "thinking";
@@ -276,10 +294,11 @@ export function mapProductionEvent(
     flushed.push(...flushDelta(ctx, "thinking"));
   }
   // The error handoff only survives to the very next event; consume it here so
-  // anything other than the retry it was meant for expires the boundary.
+  // anything other than the retry or failover start it was meant for expires
+  // the boundary and keeps the error row.
   const handoff = ctx?.errorRollbackArmed === true;
   if (ctx) ctx.errorRollbackArmed = false;
-  const expired = handoff && event.type !== "inference.retry" ? [ATTEMPT_CLEAR] : [];
+  const expired = handoff && !recoversErrorHandoff(event.type) ? [ATTEMPT_CLEAR] : [];
   const mapped = mapEvent(event, ctx, handoff);
   return [...flushed, ...expired, ...mapped];
 }
@@ -311,13 +330,20 @@ function mapEvent(
       return [...disarmed, { type: "user", text: full }];
     }
 
-    case "inference.start":
+    case "inference.start": {
+      const recovered = errorRollbackHandoff;
       if (ctx) {
+        if (recovered) forgetAttemptLocalState(ctx);
         ctx.hadTextDelta = false;
         ctx.attemptArmed = true;
         ctx.attemptCallIds = new Set(ctx.callIdToName.keys());
       }
-      return [ATTEMPT_MARK, { type: "run", state: "busy" }];
+      return [
+        ...(recovered ? [ATTEMPT_ROLLBACK] : []),
+        ATTEMPT_MARK,
+        { type: "run", state: "busy" },
+      ];
+    }
 
     case "inference.done":
       // Cycle settled: disarm so a pre-commit retry belonging to the *next*
@@ -330,17 +356,7 @@ function mapEvent(
       // A retry that arrives with nothing armed is the harness's pre-commit
       // kind: the failed attempt never streamed, so there is nothing to undo.
       if (!armed && !errorRollbackHandoff) return [];
-      if (ctx) {
-        for (const callId of [...ctx.callIdToName.keys()]) {
-          if (ctx.attemptCallIds.has(callId)) continue;
-          ctx.callIdToName.delete(callId);
-          ctx.callIdToArgs.delete(callId);
-          ctx.emittedToolCalls.delete(callId);
-        }
-        ctx.hadTextDelta = false;
-        ctx.pendingDelta.assistant = "";
-        ctx.pendingDelta.thinking = "";
-      }
+      if (ctx) forgetAttemptLocalState(ctx);
       return [ATTEMPT_ROLLBACK];
     }
 
@@ -484,9 +500,9 @@ function mapEvent(
               ...(typeof err.retryAfterMs === "number" ? { retryAfterMs: err.retryAfterMs } : {}),
             })
           : rawMessage;
-      // Hand the armed boundary to the next event rather than disarming: the
-      // reactor's committed-retry follows this error and must still retract
-      // the failed attempt, including the error row painted here.
+      // Hand the armed boundary to the next event rather than disarming: a
+      // committed retry or same-turn failover start must still retract the
+      // failed attempt, including the error row painted here.
       if (ctx?.attemptArmed === true) {
         ctx.attemptArmed = false;
         ctx.errorRollbackArmed = true;
