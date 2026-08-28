@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -33,9 +33,7 @@ describe("generateHomebrewTap", () => {
 
     await generateHomebrewTap(tapDir, release);
 
-    expect(await Array.fromAsync(new Bun.Glob("*.rb").scan(formulaDir))).toEqual([
-      "corbits-code.rb",
-    ]);
+    expect((await readdir(formulaDir)).sort()).toEqual(["corbits-code.rb"]);
     const formula = await readFile(join(formulaDir, "corbits-code.rb"), "utf8");
     expect(formula).toContain("class CorbitsCode < Formula");
     expect(formula).toContain('version "1.2.3"');
@@ -43,29 +41,26 @@ describe("generateHomebrewTap", () => {
     expect(formula).not.toContain('bin.install "corbits-code"');
   });
 
-  test("rejects array-shaped rename metadata", async () => {
-    await writeFile(join(tapDir, "formula_renames.json"), "[]\n");
+  test("rejects invalid rename metadata before changing formulas", async () => {
+    const invalidMetadata = ["[]\n", '{"other": 42}\n'];
 
-    await expect(generateHomebrewTap(tapDir, release)).rejects.toThrow(
-      "Invalid formula rename metadata",
-    );
-  });
+    for (const [index, metadata] of invalidMetadata.entries()) {
+      const caseDir = join(tapDir, `invalid-${index}`);
+      const formulaDir = join(caseDir, "Formula");
+      const legacyFormula = "class Corbits < Formula\nend\n";
+      const currentFormula = "class CorbitsCode < Formula\nend\n";
+      await mkdir(formulaDir, { recursive: true });
+      await writeFile(join(formulaDir, "corbits.rb"), legacyFormula);
+      await writeFile(join(formulaDir, "corbits-code.rb"), currentFormula);
+      await writeFile(join(caseDir, "formula_renames.json"), metadata);
 
-  test("leaves formulas unchanged when rename metadata is invalid", async () => {
-    const formulaDir = join(tapDir, "Formula");
-    const legacyFormula = "class Corbits < Formula\nend\n";
-    const currentFormula = "class CorbitsCode < Formula\nend\n";
-    await mkdir(formulaDir);
-    await writeFile(join(formulaDir, "corbits.rb"), legacyFormula);
-    await writeFile(join(formulaDir, "corbits-code.rb"), currentFormula);
-    await writeFile(join(tapDir, "formula_renames.json"), '{"other": 42}\n');
+      await expect(generateHomebrewTap(caseDir, release)).rejects.toThrow(
+        "Invalid formula rename metadata",
+      );
 
-    await expect(generateHomebrewTap(tapDir, release)).rejects.toThrow(
-      "Invalid formula rename metadata",
-    );
-
-    expect(await readFile(join(formulaDir, "corbits.rb"), "utf8")).toBe(legacyFormula);
-    expect(await readFile(join(formulaDir, "corbits-code.rb"), "utf8")).toBe(currentFormula);
+      expect(await readFile(join(formulaDir, "corbits.rb"), "utf8")).toBe(legacyFormula);
+      expect(await readFile(join(formulaDir, "corbits-code.rb"), "utf8")).toBe(currentFormula);
+    }
   });
 
   test("merges formula rename metadata without changing repeated output", async () => {
