@@ -13,6 +13,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Fixed
+
+- First-run onboarding shows the welcome mountain and product line before
+  provider setup again; already-onboarded users still open setup directly.
+
 ## [0.3.8] - 2026-08-28
 
 ### TUI
