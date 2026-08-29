@@ -13,10 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-08-29
+
 ### Fixed
 
-- First-run onboarding shows the welcome mountain and product line before
-  provider setup again; already-onboarded users still open setup directly.
+- First-run onboarding shows the orange mountain welcome and local software
+  factory intro before opening provider and model setup.
 
 ## [0.3.8] - 2026-08-28
 
