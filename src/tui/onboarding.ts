@@ -1,21 +1,42 @@
 import { runTUI } from "./runner.js";
 import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
-import { globalSettingsPath, loadSettings, resolveLocalSettingsPath } from "../config/settings.js";
+import {
+  globalSettingsPath,
+  loadSettings,
+  markOnboarded,
+  resolveLocalSettingsPath,
+} from "../config/settings.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { runProviderSetup } from "./provider-setup.js";
+import { runWelcome } from "./welcome.js";
 
 export async function runOnboarding(config: UnconfiguredConfig): Promise<number> {
   const settingsPath = config.globalSettingsPath;
-  const existing = await loadSettings(settingsPath);
 
   // Disclosure before any send: startup held telemetry because the notice
   // has never been shown, so render it here and treat a completed submit as
   // the affirmative action that activates telemetry (consent by proceeding).
   // Read from the TRUE global settings file — telemetry state never lives in
   // a --config override file.
-  const trueGlobalSettings = await loadSettings(globalSettingsPath()).catch(() => null);
+  const trueGlobalPath = globalSettingsPath();
+  const trueGlobalSettings = await loadSettings(trueGlobalPath).catch(() => null);
   const showTelemetryNotice = telemetryFirstRunPending(trueGlobalSettings);
+
+  // Welcome is global first-run state (same TRUE global file as telemetry /
+  // onboarded), independent of --config provider write targets. Already-
+  // onboarded users who wiped providers jump straight to setup.
+  if (trueGlobalSettings?.onboarded !== true) {
+    const welcomed = await runWelcome();
+    if (!welcomed) {
+      return 1;
+    }
+    await markOnboarded(trueGlobalPath);
+  }
+
+  // Load the provider write-target after welcome so a same-path markOnboarded
+  // is preserved when setup merges the new provider into existing settings.
+  const existing = await loadSettings(settingsPath);
 
   const submitted = await runProviderSetup({
     showTelemetryNotice,
@@ -37,7 +58,7 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   // Completing setup with the disclosure on screen is the affirmative action
   // that unlocks telemetry and fires the held cli_start.
   if (showTelemetryNotice) {
-    await activateHeldTelemetry(globalSettingsPath());
+    await activateHeldTelemetry(trueGlobalPath);
   }
 
   const argv: string[] = ["--cwd", config.cwd];

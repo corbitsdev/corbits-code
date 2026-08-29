@@ -5,21 +5,35 @@ import { join } from "node:path";
 
 import type { Config, UnconfiguredConfig } from "../config/index.js";
 import type { ProviderSetupConfig } from "./provider-setup.js";
+import type { WelcomeConfig } from "./welcome.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 let testHome = "";
 let setup: (config: ProviderSetupConfig) => Promise<void> = async () => {};
+let welcome: (config: WelcomeConfig) => Promise<boolean> = async () => true;
 let tuiConfig: Config | undefined;
+const callOrder: string[] = [];
 
 await withMockedModule(import.meta.resolve("node:os"), (real: typeof import("node:os")) => ({
   ...real,
   homedir: () => testHome,
 }));
 await withMockedModule(
+  import.meta.resolve("./welcome.js"),
+  (real: typeof import("./welcome.js")) => ({
+    ...real,
+    runWelcome: async (config: WelcomeConfig = {}) => {
+      callOrder.push("welcome");
+      return welcome(config);
+    },
+  }),
+);
+await withMockedModule(
   import.meta.resolve("./provider-setup.js"),
   (real: typeof import("./provider-setup.js")) => ({
     ...real,
     runProviderSetup: async (config: ProviderSetupConfig) => {
+      callOrder.push("setup");
       await setup(config);
       return true;
     },
@@ -78,7 +92,102 @@ async function writeXAIAuthProfile(home: string, profile: string): Promise<void>
 
 afterEach(() => {
   setup = async () => {};
+  welcome = async () => true;
   tuiConfig = undefined;
+  callOrder.length = 0;
+});
+
+describe("runOnboarding welcome gate", () => {
+  test("fresh user sees welcome before provider setup and marks onboarded", async () => {
+    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-welcome-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-welcome-cwd-"));
+    const configPath = join(testHome, ".corbits", "settings.json");
+    try {
+      await mkdir(join(testHome, ".corbits"), { recursive: true });
+      await writeFile(configPath, JSON.stringify({ providers: {} }));
+      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+
+      setup = async ({ onSubmit }) => {
+        await onSubmit(
+          {
+            name: "custom",
+            baseURL: "https://provider.example.com/v1",
+            apiKey: "test-key",
+            model: "test-model",
+            oauthProfile: "",
+          },
+          () => {},
+          { skipValidation: true },
+        );
+      };
+
+      expect(await runOnboarding(config)).toBe(0);
+      expect(callOrder).toEqual(["welcome", "setup"]);
+
+      const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
+        onboarded?: boolean;
+      };
+      expect(persisted.onboarded).toBe(true);
+    } finally {
+      await rm(testHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("already-onboarded skips welcome and opens setup directly", async () => {
+    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-skip-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-skip-cwd-"));
+    const configPath = join(testHome, ".corbits", "settings.json");
+    try {
+      await mkdir(join(testHome, ".corbits"), { recursive: true });
+      await writeFile(configPath, JSON.stringify({ providers: {}, onboarded: true }));
+      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+
+      setup = async ({ onSubmit }) => {
+        await onSubmit(
+          {
+            name: "custom",
+            baseURL: "https://provider.example.com/v1",
+            apiKey: "test-key",
+            model: "test-model",
+            oauthProfile: "",
+          },
+          () => {},
+          { skipValidation: true },
+        );
+      };
+
+      expect(await runOnboarding(config)).toBe(0);
+      expect(callOrder).toEqual(["setup"]);
+    } finally {
+      await rm(testHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("cancelled welcome does not mark onboarded or open setup", async () => {
+    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-cancel-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-cancel-cwd-"));
+    const configPath = join(testHome, ".corbits", "settings.json");
+    try {
+      await mkdir(join(testHome, ".corbits"), { recursive: true });
+      await writeFile(configPath, JSON.stringify({ providers: {} }));
+      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+
+      welcome = async () => false;
+
+      expect(await runOnboarding(config)).toBe(1);
+      expect(callOrder).toEqual(["welcome"]);
+
+      const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
+        onboarded?: boolean;
+      };
+      expect(persisted.onboarded).toBeUndefined();
+    } finally {
+      await rm(testHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("runOnboarding settings source", () => {

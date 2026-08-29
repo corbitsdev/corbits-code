@@ -125,7 +125,7 @@ src/
     lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
   tui/
     runner.ts             Chat-mode agent setup; mounts the OpenTUI host
-    onboarding.ts         First-run provider setup entry
+    onboarding.ts         First-run welcome gate, then provider setup
     pick-session.ts       Resume picker (via runListModal)
     turns-to-blocks.ts    Stored turns → typed content blocks (resume hydration)
     tool-formatter.ts     Human-readable tool args/results
