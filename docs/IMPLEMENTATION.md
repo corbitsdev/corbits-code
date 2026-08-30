@@ -358,6 +358,10 @@ Session runtime state lives under the global projects tree (not in the repo):
 
 `createOptimizedContextStore` (`src/session/optimized-context-store.ts`) wraps the
 Interchange git store to keep per-checkpoint cost independent of session length.
+Checkpoint commits go through system git and use the operator's global
+`user.name` / `user.email` when both are set, so commit-author hooks see a real
+identity; otherwise they fall back to Interchange's harness author
+(`interchange-harness`, `harness@interchange.local`).
 The append-only snapshots (`turns.jsonl`, `prompt.jsonl`) are written as rolling
 segments (`turns-0001.jsonl`, ...) that seal at 256KB, so `git add` re-hashes only
 the small active segment instead of the whole growing file. Segment zero keeps the

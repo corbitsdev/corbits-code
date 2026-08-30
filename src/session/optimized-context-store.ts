@@ -29,7 +29,16 @@ const TOOL_OUTPUT_DIR = "tool-output";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
-const AUTHOR = {
+export type CheckpointAuthor = {
+  name: string;
+  email: string;
+};
+
+// Cycle commits shell out to system git, so operator commit-author hooks see
+// this identity. Prefer their global git user when both name and email are
+// set; otherwise keep Interchange's harness fallback so machines without a
+// git identity still checkpoint.
+const HARNESS_AUTHOR: CheckpointAuthor = {
   name: "interchange-harness",
   email: "harness@interchange.local",
 };
@@ -299,16 +308,20 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
   return turns;
 }
 
-async function runGit(dir: string, args: string[]): Promise<string> {
+async function runGit(dir: string, args: string[], author?: CheckpointAuthor): Promise<string> {
   const proc = Bun.spawn(["git", "-C", dir, ...args], {
     stdout: "pipe",
     stderr: "pipe",
     env: {
       ...process.env,
-      GIT_AUTHOR_NAME: AUTHOR.name,
-      GIT_AUTHOR_EMAIL: AUTHOR.email,
-      GIT_COMMITTER_NAME: AUTHOR.name,
-      GIT_COMMITTER_EMAIL: AUTHOR.email,
+      ...(author === undefined
+        ? {}
+        : {
+            GIT_AUTHOR_NAME: author.name,
+            GIT_AUTHOR_EMAIL: author.email,
+            GIT_COMMITTER_NAME: author.name,
+            GIT_COMMITTER_EMAIL: author.email,
+          }),
     },
   });
   const [exitCode, stdout, stderr] = await Promise.all([
@@ -320,6 +333,34 @@ async function runGit(dir: string, args: string[]): Promise<string> {
     throw new Error(`git ${args.join(" ")} failed: ${stderr.trim() || stdout.trim()}`);
   }
   return stdout.trimEnd();
+}
+
+async function gitConfigGlobal(key: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  const proc = Bun.spawn(["git", "config", "--global", "--get", key], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
+  const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+  if (exitCode !== 0) return null;
+  const value = stdout.trim();
+  return value.length > 0 ? value : null;
+}
+
+/**
+ * Author for Corbits cycle commits. Uses the operator's global git identity
+ * when both `user.name` and `user.email` are set; otherwise the Interchange
+ * harness identity.
+ */
+export async function resolveCheckpointAuthor(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<CheckpointAuthor> {
+  const [name, email] = await Promise.all([
+    gitConfigGlobal("user.name", env),
+    gitConfigGlobal("user.email", env),
+  ]);
+  if (name === null || email === null) return HARNESS_AUTHOR;
+  return { name, email };
 }
 
 /**
@@ -395,7 +436,11 @@ async function reconcileSegmentStaging(
  * segment files so `git add` re-hashes only the small active segment, and only
  * spilled tool-output blobs that are new since the last commit are staged.
  */
-export async function createOptimizedContextStore(dir: string): Promise<ContextStore> {
+export async function createOptimizedContextStore(
+  dir: string,
+  opts?: { author?: CheckpointAuthor },
+): Promise<ContextStore> {
+  const author = opts?.author ?? (await resolveCheckpointAuthor());
   const base = await createIsogitStore(dir);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
@@ -550,12 +595,11 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
       if (remove.length > 0) {
         await runGit(dir, ["rm", "--cached", "--ignore-unmatch", "--", ...remove]);
       }
-      await runGit(dir, [
-        "commit",
-        "-m",
-        options.message,
-        `--author=${AUTHOR.name} <${AUTHOR.email}>`,
-      ]);
+      await runGit(
+        dir,
+        ["commit", "-m", options.message, `--author=${author.name} <${author.email}>`],
+        author,
+      );
       pendingBlobFilepaths.clear();
       pendingSegmentPaths.clear();
       return describeHead(dir, options.message);
