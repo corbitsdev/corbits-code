@@ -29,15 +29,11 @@ const TOOL_OUTPUT_DIR = "tool-output";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
-export type CheckpointAuthor = {
+export interface CheckpointAuthor {
   name: string;
   email: string;
-};
+}
 
-// Cycle commits shell out to system git, so operator commit-author hooks see
-// this identity. Prefer their global git user when both name and email are
-// set; otherwise keep Interchange's harness fallback so machines without a
-// git identity still checkpoint.
 const HARNESS_AUTHOR: CheckpointAuthor = {
   name: "interchange-harness",
   email: "harness@interchange.local",
@@ -308,12 +304,17 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
   return turns;
 }
 
-async function runGit(dir: string, args: string[], author?: CheckpointAuthor): Promise<string> {
+async function runGit(
+  dir: string,
+  args: string[],
+  author?: CheckpointAuthor,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
   const proc = Bun.spawn(["git", "-C", dir, ...args], {
     stdout: "pipe",
     stderr: "pipe",
     env: {
-      ...process.env,
+      ...env,
       ...(author === undefined
         ? {}
         : {
@@ -341,20 +342,19 @@ async function gitConfigGlobal(key: string, env: NodeJS.ProcessEnv): Promise<str
     stderr: "pipe",
     env,
   });
-  const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+  const [exitCode, stdout] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
   if (exitCode !== 0) return null;
   const value = stdout.trim();
   return value.length > 0 ? value : null;
 }
 
-/**
- * Author for Corbits cycle commits. Uses the operator's global git identity
- * when both `user.name` and `user.email` are set; otherwise the Interchange
- * harness identity.
- */
-export async function resolveCheckpointAuthor(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<CheckpointAuthor> {
+// Operator commit-author hooks see a real identity; machines without both
+// global user.name and user.email still checkpoint via the harness fallback.
+async function resolveCheckpointAuthor(env: NodeJS.ProcessEnv): Promise<CheckpointAuthor> {
   const [name, email] = await Promise.all([
     gitConfigGlobal("user.name", env),
     gitConfigGlobal("user.email", env),
@@ -438,9 +438,10 @@ async function reconcileSegmentStaging(
  */
 export async function createOptimizedContextStore(
   dir: string,
-  opts?: { author?: CheckpointAuthor },
+  opts?: { author?: CheckpointAuthor; env?: NodeJS.ProcessEnv },
 ): Promise<ContextStore> {
-  const author = opts?.author ?? (await resolveCheckpointAuthor());
+  const gitEnv = opts?.env ?? process.env;
+  const author = opts?.author ?? (await resolveCheckpointAuthor(gitEnv));
   const base = await createIsogitStore(dir);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
@@ -599,6 +600,7 @@ export async function createOptimizedContextStore(
         dir,
         ["commit", "-m", options.message, `--author=${author.name} <${author.email}>`],
         author,
+        gitEnv,
       );
       pendingBlobFilepaths.clear();
       pendingSegmentPaths.clear();

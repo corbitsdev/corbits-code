@@ -3,11 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ConversationTurn } from "@intx/types/runtime";
-import {
-  createOptimizedContextStore,
-  loadRecentTurns,
-  resolveCheckpointAuthor,
-} from "./optimized-context-store.js";
+import { createOptimizedContextStore, loadRecentTurns } from "./optimized-context-store.js";
 import { segmentFileName, listSegmentFiles } from "./incremental-jsonl.js";
 
 const TURNS_FILE = "turns.jsonl";
@@ -26,11 +22,17 @@ function isolatedGitEnv(gitconfig: string): NodeJS.ProcessEnv {
     GIT_CONFIG_SYSTEM: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     HOME: dir,
+    XDG_CONFIG_HOME: dir,
   };
 }
 
-async function headAuthor(dir: string): Promise<{ name: string; email: string }> {
-  const proc = Bun.spawn(["git", "-C", dir, "log", "-1", "--format=%an%n%ae"], {
+async function headIdent(dir: string): Promise<{
+  authorName: string;
+  authorEmail: string;
+  committerName: string;
+  committerEmail: string;
+}> {
+  const proc = Bun.spawn(["git", "-C", dir, "log", "-1", "--format=%an%n%ae%n%cn%n%ce"], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -42,12 +44,38 @@ async function headAuthor(dir: string): Promise<{ name: string; email: string }>
   if (exitCode !== 0) {
     throw new Error(`git log failed: ${stderr.trim() || stdout.trim()}`);
   }
-  const [name, email] = stdout.trimEnd().split("\n");
-  if (name === undefined || email === undefined) {
-    throw new Error(`unexpected git log author output: ${JSON.stringify(stdout)}`);
+  const [authorName, authorEmail, committerName, committerEmail] = stdout.trimEnd().split("\n");
+  if (
+    authorName === undefined ||
+    authorEmail === undefined ||
+    committerName === undefined ||
+    committerEmail === undefined
+  ) {
+    throw new Error(`unexpected git log identity output: ${JSON.stringify(stdout)}`);
   }
-  return { name, email };
+  return { authorName, authorEmail, committerName, committerEmail };
 }
+
+const EMPTY_CHECKPOINT_METADATA = {
+  pendingOperations: [],
+  tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+};
+
+async function commitEmptyCheckpoint(
+  dir: string,
+  opts?: Parameters<typeof createOptimizedContextStore>[1],
+): Promise<void> {
+  const store = await createOptimizedContextStore(dir, opts);
+  await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+  await store.commit({ message: "checkpoint: tool-execution" });
+}
+
+const HARNESS_IDENT = {
+  authorName: "interchange-harness",
+  authorEmail: "harness@interchange.local",
+  committerName: "interchange-harness",
+  committerEmail: "harness@interchange.local",
+};
 
 function turn(text: string): ConversationTurn {
   return { role: "user", content: [{ type: "text", text }], timestamp: 1 };
@@ -510,51 +538,71 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(atHead).toHaveLength(total);
   }, 20_000);
 
-  test("records the operator identity on the cycle commit", async () => {
+  test("records the operator identity as author and committer from global git config", async () => {
     const dir = tempDir();
-    const store = await createOptimizedContextStore(dir, {
-      author: { name: "Sawyer", email: "sawyer@dirtroad.dev" },
+    await commitEmptyCheckpoint(dir, {
+      env: isolatedGitEnv(`[user]\n\tname = Sawyer\n\temail = sawyer@dirtroad.dev\n`),
     });
-    await store.writeMetadata({
-      pendingOperations: [],
-      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-    });
-    await store.commit({ message: "checkpoint: tool-execution" });
 
-    expect(await headAuthor(dir)).toEqual({
-      name: "Sawyer",
-      email: "sawyer@dirtroad.dev",
+    expect(await headIdent(dir)).toEqual({
+      authorName: "Sawyer",
+      authorEmail: "sawyer@dirtroad.dev",
+      committerName: "Sawyer",
+      committerEmail: "sawyer@dirtroad.dev",
     });
   });
-});
 
-describe("resolveCheckpointAuthor", () => {
-  test("uses global user.name and user.email when both are set", async () => {
-    const env = isolatedGitEnv(`[user]\n\tname = Sawyer\n\temail = sawyer@dirtroad.dev\n`);
-    await expect(resolveCheckpointAuthor(env)).resolves.toEqual({
-      name: "Sawyer",
-      email: "sawyer@dirtroad.dev",
+  test("records an injected author as both author and committer", async () => {
+    const dir = tempDir();
+    await commitEmptyCheckpoint(dir, {
+      author: { name: "Sawyer", email: "sawyer@dirtroad.dev" },
+    });
+
+    expect(await headIdent(dir)).toEqual({
+      authorName: "Sawyer",
+      authorEmail: "sawyer@dirtroad.dev",
+      committerName: "Sawyer",
+      committerEmail: "sawyer@dirtroad.dev",
     });
   });
 
   test("falls back to the harness identity when global config is missing", async () => {
-    const env = isolatedGitEnv("");
-    await expect(resolveCheckpointAuthor(env)).resolves.toEqual({
-      name: "interchange-harness",
-      email: "harness@interchange.local",
-    });
+    const dir = tempDir();
+    await commitEmptyCheckpoint(dir, { env: isolatedGitEnv("") });
+    expect(await headIdent(dir)).toEqual(HARNESS_IDENT);
   });
 
   test("falls back when only one of name or email is set", async () => {
-    const nameOnly = isolatedGitEnv(`[user]\n\tname = Sawyer\n`);
-    const emailOnly = isolatedGitEnv(`[user]\n\temail = sawyer@dirtroad.dev\n`);
-    await expect(resolveCheckpointAuthor(nameOnly)).resolves.toEqual({
-      name: "interchange-harness",
-      email: "harness@interchange.local",
+    const nameOnly = tempDir();
+    await commitEmptyCheckpoint(nameOnly, {
+      env: isolatedGitEnv(`[user]\n\tname = Sawyer\n`),
     });
-    await expect(resolveCheckpointAuthor(emailOnly)).resolves.toEqual({
-      name: "interchange-harness",
-      email: "harness@interchange.local",
+    expect(await headIdent(nameOnly)).toEqual(HARNESS_IDENT);
+
+    const emailOnly = tempDir();
+    await commitEmptyCheckpoint(emailOnly, {
+      env: isolatedGitEnv(`[user]\n\temail = sawyer@dirtroad.dev\n`),
     });
+    expect(await headIdent(emailOnly)).toEqual(HARNESS_IDENT);
+  });
+
+  test("falls back when global name and email are empty or whitespace", async () => {
+    const bothEmpty = tempDir();
+    await commitEmptyCheckpoint(bothEmpty, {
+      env: isolatedGitEnv(`[user]\n\tname =\n\temail =\n`),
+    });
+    expect(await headIdent(bothEmpty)).toEqual(HARNESS_IDENT);
+
+    const bothWhitespace = tempDir();
+    await commitEmptyCheckpoint(bothWhitespace, {
+      env: isolatedGitEnv(`[user]\n\tname =   \n\temail =   \n`),
+    });
+    expect(await headIdent(bothWhitespace)).toEqual(HARNESS_IDENT);
+
+    const nameOnlyWhitespaceEmail = tempDir();
+    await commitEmptyCheckpoint(nameOnlyWhitespaceEmail, {
+      env: isolatedGitEnv(`[user]\n\tname = Sawyer\n\temail =   \n`),
+    });
+    expect(await headIdent(nameOnlyWhitespaceEmail)).toEqual(HARNESS_IDENT);
   });
 });
