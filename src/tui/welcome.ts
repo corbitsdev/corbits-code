@@ -37,8 +37,27 @@ const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL];
 /** Rows reserved under the mark for the product line, hint, and breathing room. */
 const BELOW_MARK_ROWS = 5;
 
-/** Hold after one full mark period before auto-advancing. */
-const HOLD_AFTER_PERIOD_MS = 900;
+/** Fill completes at this fraction of one mark period (full-frame hold starts). */
+const MARK_FILL_END = 0.76;
+
+/** Last instant of the full-frame hold; fade starts after this. */
+const MARK_HOLD_END = 0.9;
+
+/**
+ * Auto-advance at the end of the full-frame hold so setup never opens on a
+ * fade or a second draw-in.
+ */
+export const WELCOME_AUTO_ADVANCE_MS = Math.round(MARK_HOLD_END * MARK_PERIOD_SECONDS * 1000);
+
+/** Freeze the mountain on its filled frame once fill completes. */
+export function welcomeMarkStill(elapsedMs: number): boolean {
+  return elapsedMs / 1000 >= MARK_FILL_END * MARK_PERIOD_SECONDS;
+}
+
+/** Full product line when it fits; otherwise hide it rather than slicing words. */
+export function resolveWelcomeLine(columns: number): string {
+  return stringWidth(WELCOME_LINE) > columns ? "" : WELCOME_LINE;
+}
 
 /** Paint cadence while the mountain draws. */
 const PAINT_TICK_MS = 80;
@@ -47,8 +66,8 @@ export interface WelcomeConfig {
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
   /**
-   * Auto-advance delay after mount. Defaults to one mark period plus a short
-   * hold so the silhouette finishes drawing before setup opens.
+   * Auto-advance delay after mount. Defaults to the end of the full-frame
+   * hold (`WELCOME_AUTO_ADVANCE_MS`) so setup opens on a filled silhouette.
    */
   readonly autoAdvanceMs?: number;
   /** Injected clock for mark animation (and tests). */
@@ -87,8 +106,7 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
 
   const now = config.now ?? Date.now;
   const startedAt = now();
-  const autoAdvanceMs =
-    config.autoAdvanceMs ?? Math.round(MARK_PERIOD_SECONDS * 1000) + HOLD_AFTER_PERIOD_MS;
+  const autoAdvanceMs = config.autoAdvanceMs ?? WELCOME_AUTO_ADVANCE_MS;
 
   const margin = resolveSideMargin(renderer.width || 80);
 
@@ -192,16 +210,14 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
     markRows.forEach((row, index) => {
       row.visible = grid !== null && index >= offset;
     });
-    line.content =
-      stringWidth(WELCOME_LINE) > columns
-        ? WELCOME_LINE.slice(0, Math.max(0, columns - 1))
-        : WELCOME_LINE;
+    line.content = resolveWelcomeLine(columns);
   };
 
   const paint = (): void => {
     if (settled || grid === null) return;
     try {
-      const chunks = markChunks(grid, now() - startedAt, false);
+      const elapsed = now() - startedAt;
+      const chunks = markChunks(grid, elapsed, welcomeMarkStill(elapsed));
       const offset = MARK_LARGE.rows - grid.rows;
       markRows.forEach((row, index) => {
         if (!row.visible) return;
