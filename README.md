@@ -81,9 +81,9 @@ picker of saved sessions for the working directory.
 
 While a run is in progress:
 
-- **Enter** — soft-steer at the next parent tool boundary (does not stop the run)
-- **Alt+Enter** — queue a follow-up delivered when the session is idle
-- **Ctrl+C** — stop the run
+- **Enter** — soft-steer while the parent is busy (in-flight tool / `wait_agents`); starts a new primary turn when the parent is idle with a fleet still running
+- **Alt+Enter** — queue a follow-up delivered when the whole session is idle
+- **Ctrl+C** — interrupt the run
 
 Shortcuts are listed in `/help`. Details live in `docs/PRODUCT.md`.
 
@@ -92,8 +92,7 @@ Shortcuts are listed in `/help`. Details live in `docs/PRODUCT.md`.
 Corbits Code defaults to **auto mode** (`auto = true`). Workspace file
 writes/edits/deletes and unconstrained shell commands run without per-action
 prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode
-(there is currently no in-session key to toggle auto). Enabling auto prints a
-one-line reminder of the envelope below.
+(there is currently no in-session key to toggle auto).
 
 ### What auto allows
 
@@ -224,18 +223,18 @@ bun run check
 
 ## Docs
 
-| Doc | Covers |
-| --- | --- |
-| `docs/PRODUCT.md` | What we are building and why |
-| `docs/ARCHITECTURE.md` | Reactor, directors, permissions, exec |
+| Doc                      | Covers                                  |
+| ------------------------ | --------------------------------------- |
+| `docs/PRODUCT.md`        | What we are building and why            |
+| `docs/ARCHITECTURE.md`   | Reactor, directors, permissions, exec   |
 | `docs/IMPLEMENTATION.md` | Runtime, config, CLI flags, persistence |
-| `docs/TUI.md` | Terminal UI behavior |
-| `docs/PLUGINS.md` | Plugin manifests and discovery |
-| `docs/MCP.md` | MCP servers |
-| `docs/HOOKS.md` | Lifecycle hooks |
-| `docs/TELEMETRY.md` | Usage telemetry |
-| `docs/PERFTRACE.md` | Local PerfTrace / OTEL export |
-| `docs/VENDORING.md` | Vendored Interchange packages |
+| `docs/TUI.md`            | Terminal UI behavior                    |
+| `docs/PLUGINS.md`        | Plugin manifests and discovery          |
+| `docs/MCP.md`            | MCP servers                             |
+| `docs/HOOKS.md`          | Lifecycle hooks                         |
+| `docs/TELEMETRY.md`      | Usage telemetry                         |
+| `docs/PERFTRACE.md`      | Local PerfTrace / OTEL export           |
+| `docs/VENDORING.md`      | Vendored Interchange packages           |
 
 ## License
 
