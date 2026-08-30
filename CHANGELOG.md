@@ -13,6 +13,18 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-08-30
+
+### Fixed
+
+- Session durability checkpoints use the operator's git `user.name` and
+  `user.email` when both are set, so allowlisted commit-author hooks no
+  longer fail every tool cycle. Machines without a git user still fall
+  back to the Interchange harness identity.
+- First-run welcome plays the mountain once and holds the filled
+  silhouette until continue or auto-advance. The product line is hidden
+  on narrow terminals instead of wrapping mid-word.
+
 ## [0.3.9] - 2026-08-29
 
 ### Fixed
