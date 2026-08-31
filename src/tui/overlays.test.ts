@@ -2,7 +2,7 @@
  * Wave 5: primary overlays — open / navigate / Esc restore + resize floors.
  */
 import { describe, expect, test } from "bun:test";
-import { rgbToHex } from "@opentui/core";
+import { rgbToHex, type KeyEvent } from "@opentui/core";
 import { IDLE_TRANSCRIPT_FLOOR, OVERLAY_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -18,6 +18,7 @@ import {
   clearShellOverlayHooks,
   closeInsetOverlay,
   createAppShell,
+  handleListFilterKey,
   moveOverlaySelection,
   openListOverlay,
   pageOverlaySelection,
@@ -442,6 +443,44 @@ describe("overlay accept callbacks", () => {
           expect(shellHits).toEqual([]);
         } finally {
           clearShellOverlayHooks(shell);
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
+describe("type-to-filter list overlay", () => {
+  test("no-match Enter leaves overlayList set and does not echo Chose (no matches)", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          openListOverlay(shell, {
+            kind: "resume",
+            items: ["First session", "Second session"],
+            itemIds: ["s-1", "s-2"],
+            typeToFilter: true,
+          });
+          const press = (seq: string): boolean =>
+            handleListFilterKey(shell, {
+              name: seq,
+              sequence: seq,
+              ctrl: false,
+              meta: false,
+              option: false,
+            } as unknown as KeyEvent);
+          for (const ch of "zzzzz") press(ch);
+          expect(shell.overlayItems).toEqual(["(no matches)"]);
+          acceptOverlaySelection(shell);
+          expect(shell.overlayList).not.toBeNull();
+          expect(shell.overlayItems).toEqual(["(no matches)"]);
+          expect(shell.streamLog.some((row) => /Chose \(no matches\)/.test(row.text))).toBe(false);
+        } finally {
           shell.dispose();
         }
       },

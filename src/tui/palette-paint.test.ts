@@ -9,6 +9,7 @@ import type { KeyEvent } from "@opentui/core";
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import {
+  acceptOverlaySelection,
   createAppShell,
   handlePaletteFilterKey,
   moveOverlaySelection,
@@ -181,6 +182,17 @@ describe("palette filters as you type", () => {
       expect(shell.paletteCommands).toEqual([]);
       expect(shell.overlayItems).toEqual(["(no matches)"]);
       expect(shell.overlayKind).toBe("palette");
+    });
+  });
+
+  test("type-to-filter no-match Enter leaves the palette open", async () => {
+    await withPalette((shell) => {
+      for (const ch of "zzqq") press(shell, ch);
+      expect(shell.overlayItems).toEqual(["(no matches)"]);
+      acceptOverlaySelection(shell);
+      expect(shell.overlayKind).toBe("palette");
+      expect(shell.overlayList).not.toBeNull();
+      expect(shell.overlayItems).toEqual(["(no matches)"]);
     });
   });
 });

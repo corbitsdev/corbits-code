@@ -108,8 +108,7 @@ export async function runListModal(config: ListModalConfig): Promise<string | nu
     ...(config.typeToFilter === true ? { typeToFilter: true } : {}),
     onAccept: (selection) => {
       const id = residualIdFromSelection(selection, itemIds);
-      // Type-to-filter plants "(no matches)" with an empty id. Stay open.
-      if (id === undefined || id.length === 0) return;
+      if (id === undefined) return;
       settle(id);
     },
   });

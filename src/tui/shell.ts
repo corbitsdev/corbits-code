@@ -4338,22 +4338,25 @@ export function acceptOverlaySelection(shell: AppShell): void {
   const idx = shell.overlayList.activeIndex;
   const label = shell.overlayItems[idx] ?? `item ${idx}`;
   const kind = shell.overlayKind ?? "demo";
+  const bag = internals.get(shell);
 
   if (kind === "palette") {
     const cmd = shell.paletteCommands[idx];
-    closeInsetOverlay(shell);
-    if (cmd) dispatchPaletteSelection(shell, cmd);
-    else {
-      appendStreamRow(shell, {
-        role: "system",
-        text: `palette: no action for ${label}`,
-      });
+    if (!cmd) {
+      // Type-to-filter plants a "(no matches)" row with no command. Stay open.
+      // Slash popup (`typeToFilter: false`) still closes — intentional dismiss.
+      if (bag?.paletteFilter?.typeToFilter === true && !isSlashPopupOpen(shell)) return;
+      closeInsetOverlay(shell);
+      return;
     }
+    closeInsetOverlay(shell);
+    dispatchPaletteSelection(shell, cmd);
     return;
   }
 
-  const bag = internals.get(shell);
   const id = bag?.overlayItemIds[idx];
+  // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
+  if (id === "") return;
   const value = bag?.overlayItemValues[idx];
   const selection: OverlaySelection = {
     kind,

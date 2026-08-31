@@ -89,7 +89,14 @@ describe("runListModal", () => {
     expect(harness.captureCharFrame()).toContain("(no matches)");
     harness.pressKey("Enter");
     await harness.renderOnce();
-    harness.pressKey("Escape");
-    expect(await choice).toBeNull();
+    const afterEnter = harness.captureCharFrame();
+    expect(afterEnter).toContain("(no matches)");
+    expect(afterEnter).toContain(">");
+    for (let i = 0; i < 5; i++) {
+      harness.pressKey("Backspace");
+    }
+    await harness.renderOnce();
+    harness.pressKey("Enter");
+    expect(await choice).toBe("s-1");
   });
 });

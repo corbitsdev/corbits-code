@@ -576,7 +576,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
           // back to `items[sel.index]` — that index is into the filtered list,
           // not the unfiltered catalog, so it would pick the wrong model.
           const id = sel.id;
-          if (id === undefined || id.length === 0) return;
+          if (id === undefined) return;
           onSelect(id);
         },
         describe: (itemId) => currentDescribeModel?.(itemId) ?? null,
