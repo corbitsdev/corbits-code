@@ -5,6 +5,7 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createSendInputTool,
+  sendInputToolDefinition,
 } from "./lifecycle-tools.js";
 import { createFleetRecords, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -344,7 +345,7 @@ describe("send_input", () => {
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
   });
 
-  test("interrupt:true queues followup without awaiting and refuses when followup is missing", async () => {
+  test("interrupt:true is rejected instead of queuing a followup", async () => {
     const sessions = createSubAgentSessionStore();
     const worker = sessions.start({
       description: "worker",
@@ -354,51 +355,37 @@ describe("send_input", () => {
     });
     sessions.markRunning(worker.id);
     let interrupted = false;
+    let delivered = false;
     let followupStarted = false;
     sessions.registerInterrupt(worker.id, () => {
       interrupted = true;
     });
-    sessions.registerFollowup(worker.id, async (message) => {
+    sessions.registerFollowup(worker.id, async () => {
       followupStarted = true;
-      expect(message).toBe("patch only the test");
-      await new Promise((resolve) => setTimeout(resolve, 20));
       return "queued turn finished";
     });
     sessions.registerDeliver(worker.id, () => {
-      throw new Error("interrupt:true should not soft-deliver");
+      delivered = true;
     });
 
     const sendInput = createSendInputTool({ sessions });
-    const result = await callTool(sendInput, {
-      target: worker.id,
-      message: "patch only the test",
-      interrupt: true,
-    });
-    expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
-    expect(interrupted).toBe(true);
-    expect(followupStarted).toBe(true);
-    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
-    expect(sessions.get(worker.id)?.finishedAt).toBeUndefined();
-
-    const missing = sessions.start({
-      description: "no-followup",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    sessions.markRunning(missing.id);
-    sessions.registerInterrupt(missing.id, () => {});
     if (sendInput.kind !== "full") throw new Error("expected full tool");
-    const denied = await sendInput.handler(
+    const result = await sendInput.handler(
       {
-        id: "missing-followup",
+        id: "interrupt-rejected",
         name: "send_input",
-        arguments: { target: missing.id, message: "steer", interrupt: true },
+        arguments: { target: worker.id, message: "patch only the test", interrupt: true },
       },
       new AbortController().signal,
     );
-    expect(denied.isError).toBe(true);
-    expect(sessions.get(missing.id)?.lifecycleStatus).toBe("running");
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("send_input interrupt:true was removed");
+    expect(interrupted).toBe(false);
+    expect(delivered).toBe(false);
+    expect(followupStarted).toBe(false);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+    expect(sessions.get(worker.id)?.finishedAt).toBeUndefined();
   });
 
   test("rejects completed, interrupted, and closed sessions — steering is in-flight only", async () => {
@@ -511,6 +498,11 @@ describe("send_input", () => {
       new AbortController().signal,
     );
     expect(denied.isError).toBe(true);
+  });
+
+  test("schema exposes no interrupt continuation flag", () => {
+    expect(sendInputToolDefinition.inputSchema.required).toEqual(["target", "message"]);
+    expect(JSON.stringify(sendInputToolDefinition.inputSchema)).not.toContain("interrupt");
   });
 
   test("fails closed when nested authority has no actorId", async () => {

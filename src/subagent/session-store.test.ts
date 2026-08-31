@@ -658,13 +658,9 @@ describe("interrupt stamps finishedAt once", () => {
     expect(store.get(session.id)?.outstandingTools).toHaveLength(1);
   });
 
-  test("sendInputOne interrupt starts a live follow-up turn and keeps tools", async () => {
-    let t = 1000;
-    let finish: (reply: string) => void = () => {};
-    const store = createSubAgentSessionStore({
-      now: () => t,
-      createId: () => "s-send",
-    });
+  test("sendInputOne only soft-delivers to a running turn", () => {
+    const delivered: string[] = [];
+    const store = createSubAgentSessionStore({ createId: () => "s-send" });
     const session = store.start({
       description: "looping",
       agentId: "explorer",
@@ -673,34 +669,25 @@ describe("interrupt stamps finishedAt once", () => {
     });
     store.markRunning(session.id);
     store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
-    store.registerInterrupt(session.id, () => {});
-    store.registerFollowup(
-      session.id,
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve;
-        }),
-    );
+    store.registerInterrupt(session.id, () => {
+      throw new Error("sendInputOne must not interrupt");
+    });
+    store.registerFollowup(session.id, () => {
+      throw new Error("sendInputOne must not queue followups");
+    });
+    store.registerDeliver(session.id, (message) => {
+      delivered.push(message);
+    });
 
-    t = 2500;
-    const outcome = store.sendInputOne(session.id, "stop that", { interrupt: true });
-    expect(outcome).toEqual({ ok: true, status: "interrupted" });
+    const outcome = store.sendInputOne(session.id, "steer only");
+
+    expect(outcome).toEqual({ ok: true, status: "running" });
+    expect(delivered).toEqual(["steer only"]);
     const after = store.get(session.id);
     expect(after?.status).toBe("running");
     expect(after?.lifecycleStatus).toBe("running");
     expect(after?.finishedAt).toBeUndefined();
     expect(after?.outstandingTools).toHaveLength(1);
-
-    t = 4000;
-    expect(store.interruptOne(session.id).ok).toBe(true);
-    expect(store.get(session.id)?.finishedAt).toBe(4000);
-
-    t = 5000;
-    finish("later");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(store.get(session.id)?.status).toBe("done");
-    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
-    expect(store.get(session.id)?.finishedAt).toBe(5000);
   });
 
   test("a follow-up turn keeps the lane live past the linger window until it completes", async () => {

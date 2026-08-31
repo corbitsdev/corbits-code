@@ -212,7 +212,6 @@ export interface SubAgentSessionStore {
   sendInputOne(
     id: string,
     message: string,
-    opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
   ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
   subscribe(listener: () => void): () => void;
   clear(): void;
@@ -1019,26 +1018,11 @@ export function createSubAgentSessionStore(
     sendInputOne(
       id: string,
       message: string,
-      opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
     ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
       if (session.status !== "running" || session.lifecycleStatus !== "running") {
         return { ok: false, status: session.lifecycleStatus };
-      }
-
-      if (opts?.interrupt === true) {
-        const interrupt = interruptHandles.get(id);
-        const followup = followupHandles.get(id);
-        if (interrupt === undefined || followup === undefined) {
-          return { ok: false, status: session.lifecycleStatus };
-        }
-        interrupt();
-        queueFollowupTurn(id, message, "interrupted", {
-          ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
-        });
-        pruneRetained();
-        return { ok: true, status: "interrupted" };
       }
 
       const deliver = deliverHandles.get(id);

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { AgentTool } from "@intx/agent";
 
 import {
   createFleetRecords,
@@ -11,6 +12,7 @@ import {
 import {
   createInterruptAgentTool,
   createCloseAgentTool,
+  createResumeAgentTool,
   createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -62,7 +64,7 @@ function makeDeps(
 }
 
 async function callToolRaw(
-  tool: ReturnType<typeof createSpawnAgentTool> | ReturnType<typeof createWaitAgentsTool>,
+  tool: AgentTool,
   args: Record<string, unknown>,
 ): Promise<{ content: string; isError?: boolean }> {
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
@@ -76,7 +78,7 @@ async function callToolRaw(
 }
 
 async function callTool(
-  tool: ReturnType<typeof createSpawnAgentTool> | ReturnType<typeof createWaitAgentsTool>,
+  tool: AgentTool,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const { content } = await callToolRaw(tool, args);
@@ -673,15 +675,20 @@ describe("interrupt_agent unblocks wait_agents", () => {
     gate.resolve({ report: "done" });
   });
 
-  test("send_input interrupt:true unblocks wait_agents as interrupted", async () => {
+  test("send_input interrupt:true is rejected and does not complete wait_agents", async () => {
     const gate = deferred<RunSubAgentResult>();
-    const followupGate = deferred<string>();
     const deps = makeDeps(async (params) => {
       params.onAgentReady?.({
         close: async () => {},
-        interrupt: () => {},
-        followup: async () => followupGate.promise,
-        deliver: () => {},
+        interrupt: () => {
+          throw new Error("send_input must not interrupt");
+        },
+        followup: async () => {
+          throw new Error("send_input must not queue followups");
+        },
+        deliver: () => {
+          throw new Error("send_input interrupt:true must not soft-deliver");
+        },
       });
       return gate.promise;
     });
@@ -700,13 +707,20 @@ describe("interrupt_agent unblocks wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
-    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
-    const waited = await waiting;
-    expect(waited.timed_out).toBe(false);
+
+    const rejected = await callToolRaw(sendInput, {
+      target: id,
+      message: "stop that",
+      interrupt: true,
+    });
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content).toContain("send_input interrupt:true was removed");
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    expect(waited.timed_out).toBe(true);
     const results = waited.results as { status: string }[];
-    expect(results[0]!.status).toBe("interrupted");
-    followupGate.resolve("later");
+    expect(results[0]!.status).toBe("running");
+    gate.resolve({ report: "done" });
   });
 
   test("soft-interrupt wait path collects so omitted re-wait does not re-deliver", async () => {
@@ -803,33 +817,51 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(results[0]!.report).toContain("salvage");
   });
 
-  test("soft-interrupt wait collects so a later followup cannot resurrect done", async () => {
-    const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
-    const worker = sessions.start({
-      id: "soft-int",
-      description: "looping",
-      agentId: "explorer",
-      brief: "b",
-      retained: true,
+  test("late interrupted first turn cannot steal a resumed turn's wait result", async () => {
+    const firstTurn = deferred<RunSubAgentResult>();
+    const resumedTurn = deferred<string>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => resumedTurn.promise,
+        deliver: () => {},
+      });
+      return firstTurn.promise;
     });
-    sessions.markRunning(worker.id);
-    // Running fleet record + soft-interrupted session (lifecycle only) —
-    // the wait soft path must interrupt+take before returning.
-    fleetRecords.register(worker.id);
-    sessions.registerInterrupt(worker.id, () => {});
-    sessions.interruptOne(worker.id);
+    const spawn = createSpawnAgentTool(deps);
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const resume = createResumeAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
-    const wait = createWaitAgentsTool({ sessions, fleetRecords });
-    const waited = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await callTool(interrupt, { target: id });
+    await callTool(resume, { target: id, message: "continue" });
+
+    firstTurn.resolve({ report: "interrupted first turn", interrupted: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    resumedTurn.resolve("resumed turn finished");
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { status: string }[];
-    expect(results[0]!.status).toBe("interrupted");
-    expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
-
-    fleetRecords.completeAfterInterrupt(worker.id, "resurrected reply");
-    expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
-    expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
+    const results = waited.results as { status: string; report?: string }[];
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toBe("resumed turn finished");
   });
 });
 

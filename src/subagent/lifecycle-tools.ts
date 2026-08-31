@@ -226,15 +226,20 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
             `(got ${message.length}).`,
         );
       }
+      let fleetTurn: number | undefined;
       const outcome = deps.sessions.resumeOne(target, message, {
         onStart: () => {
-          deps.fleetRecords.register(target);
+          fleetTurn = deps.fleetRecords.register(target);
         },
         onReply: (reply) => {
-          deps.fleetRecords.resolve(target, reply);
+          deps.fleetRecords.resolve(target, reply, fleetTurn);
         },
         onFail: (err) => {
-          deps.fleetRecords.reject(target, err instanceof Error ? err.message : String(err));
+          deps.fleetRecords.reject(
+            target,
+            err instanceof Error ? err.message : String(err),
+            fleetTurn,
+          );
         },
       });
       if (!outcome.ok) {
@@ -313,12 +318,12 @@ const SendInputArgs = type({
 export const sendInputToolDefinition: ToolDefinition = {
   name: "send_input",
   description:
-    "Steer a running worker mid-turn. Soft (default): deliver `message` into the live session " +
+    "Steer a running worker mid-turn: deliver `message` into the live session " +
     "and return immediately without awaiting a reply and without completing wait_agents. " +
-    "With interrupt:true: stop the current turn (same wait-mailbox flip as interrupt_agent) " +
-    "then queue `message` as the next-turn followup without awaiting that reply. Fails on a " +
-    "session that is not currently running an active turn, or when the message is empty / oversize. Nested " +
-    "orchestrators may only target their own descendants.",
+    "Use interrupt_agent to stop an active turn and resume_agent to start a later retained turn. " +
+    "Fails on a session that is not currently running an active turn, when the message is empty / " +
+    "oversize, or when the deprecated interrupt flag is present. Nested orchestrators may only " +
+    "target their own descendants.",
   inputSchema: {
     type: "object",
     properties: {
@@ -326,12 +331,6 @@ export const sendInputToolDefinition: ToolDefinition = {
       message: {
         type: "string",
         description: `Instruction to inject (non-empty, max ${DEFAULT_MAX_ENTRY_CHARS} characters).`,
-      },
-      interrupt: {
-        type: "boolean",
-        description:
-          "When true, interrupt the current turn then queue message as the next-turn followup. " +
-          "When false/omitted, soft-deliver into the running turn.",
       },
     },
     required: ["target", "message"],
@@ -360,24 +359,19 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
             `(got ${message.length}).`,
         );
       }
-      const interrupt = parsed.interrupt === true;
-      const outcome = deps.sessions.sendInputOne(target, message, {
-        ...(interrupt ? { interrupt: true } : {}),
-        ...(interrupt && deps.fleetRecords !== undefined
-          ? {
-              onFollowupReply: (reply: string) => {
-                deps.fleetRecords?.completeAfterInterrupt(target, reply);
-              },
-            }
-          : {}),
-      });
+      if (parsed.interrupt === true) {
+        return lifecycleResult(
+          call.id,
+          "Error: send_input interrupt:true was removed; use interrupt_agent, then resume_agent(target, message).",
+        );
+      }
+      const outcome = deps.sessions.sendInputOne(target, message);
       if (!outcome.ok) {
         return lifecycleResult(
           call.id,
           `Error: cannot send_input to "${target}" (status: ${outcome.status}).`,
         );
       }
-      if (interrupt) deps.fleetRecords?.interrupt(target);
       return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
     },
   });

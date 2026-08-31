@@ -88,6 +88,8 @@ const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 /** Terminal (or running) record for one spawned agent, keyed by agent id. */
 interface FleetRecord {
   status: "running" | "done" | "failed" | "interrupted";
+  /** Monotonic per-agent turn token; guards late first-turn settles after resume. */
+  turn: number;
   report?: string;
   error?: string;
   /** Set once a wait_agents caller has been handed this result. */
@@ -125,22 +127,31 @@ class FleetRecords {
     for (const listener of this.listeners) listener();
   }
 
-  register(id: string): void {
-    this.records.set(id, { status: "running" });
+  register(id: string): number {
+    const turn = (this.records.get(id)?.turn ?? 0) + 1;
+    this.records.set(id, { status: "running", turn });
+    return turn;
   }
 
-  resolve(id: string, report: string): void {
+  private isCurrentTurn(
+    existing: FleetRecord | undefined,
+    turn: number | undefined,
+  ): existing is FleetRecord {
+    return existing !== undefined && (turn === undefined || existing.turn === turn);
+  }
+
+  resolve(id: string, report: string, turn?: number): void {
     const existing = this.records.get(id);
-    if (existing !== undefined && existing.status !== "running") return;
-    this.records.set(id, { status: "done", report });
+    if (!this.isCurrentTurn(existing, turn) || existing.status !== "running") return;
+    this.records.set(id, { status: "done", report, turn: existing.turn });
     this.enforceCap();
     this.notify();
   }
 
-  reject(id: string, error: string): void {
+  reject(id: string, error: string, turn?: number): void {
     const existing = this.records.get(id);
-    if (existing !== undefined && existing.status !== "running") return;
-    this.records.set(id, { status: "failed", error });
+    if (!this.isCurrentTurn(existing, turn) || existing.status !== "running") return;
+    this.records.set(id, { status: "failed", error, turn: existing.turn });
     this.enforceCap();
     this.notify();
   }
@@ -152,9 +163,9 @@ class FleetRecords {
    * still attach to an interrupted record that has none yet (including after
    * an early collect), but never overwrites an existing report.
    */
-  interrupt(id: string, report?: string): void {
+  interrupt(id: string, report?: string, turn?: number): void {
     const existing = this.records.get(id);
-    if (existing === undefined) return;
+    if (!this.isCurrentTurn(existing, turn)) return;
     if (
       existing.status === "interrupted" &&
       report !== undefined &&
@@ -167,22 +178,9 @@ class FleetRecords {
     if (existing.status !== "running") return;
     this.records.set(id, {
       status: "interrupted",
+      turn: existing.turn,
       ...(report !== undefined ? { report } : {}),
     });
-    this.enforceCap();
-    this.notify();
-  }
-
-  /**
-   * send_input interrupt:true queued a followup that has now finished.
-   * Upgrade an uncollected interrupted record to done. No-op if wait_agents
-   * already collected the interrupt, so a later reply cannot resurrect it.
-   */
-  completeAfterInterrupt(id: string, report: string): void {
-    const existing = this.records.get(id);
-    if (existing === undefined || existing.collected === true) return;
-    if (existing.status !== "interrupted") return;
-    this.records.set(id, { status: "done", report });
     this.enforceCap();
     this.notify();
   }
@@ -539,7 +537,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         retained: true,
         ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
       });
-      deps.fleetRecords.register(session.id);
+      const fleetTurn = deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
       const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
@@ -603,7 +601,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             err instanceof WorktreeError
               ? err.message
               : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
-          deps.fleetRecords.reject(session.id, message);
+          deps.fleetRecords.reject(session.id, message, fleetTurn);
           deps.sessions.fail(session.id, message);
           finalizeEnd(true);
           return fleetResult(call.id, `Error: ${message}`);
@@ -742,14 +740,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           if (result.interrupted === true) {
             keepWorktreeAlive = true;
             runInterrupted = true;
-            deps.fleetRecords.interrupt(session.id, result.report);
+            deps.fleetRecords.interrupt(session.id, result.report, fleetTurn);
             return;
           }
           // Operator cancel may race after run resolves (childCtl aborted).
           // Keep strip status cancelled when sessions.cancel already flipped
           // it, but never discard a returned body (including salvage) —
           // wait_agents reads fleetRecords, not the strip.
-          deps.fleetRecords.resolve(session.id, result.report);
+          deps.fleetRecords.resolve(session.id, result.report, fleetTurn);
           // result.agentRetained is only true on run.ts's clean-completion
           // path when persist actually skipped teardown — a deadline/cancel
           // salvage resolves through the same promise but always disposed
@@ -774,14 +772,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               deps.sessions.cancel(session.id, DEFAULT_CANCEL_REASON);
             }
             const message = err instanceof Error ? err.message : String(err);
-            deps.fleetRecords.reject(session.id, message);
+            deps.fleetRecords.reject(session.id, message, fleetTurn);
             return;
           }
           // Auth failures keep the actionable Re-authenticate wording that
           // task()'s fused path surfaces via formatSubAgentTaskAuthFailureMessage.
           const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
           const failReason = authMessage ?? (err instanceof Error ? err.message : String(err));
-          deps.fleetRecords.reject(session.id, failReason);
+          deps.fleetRecords.reject(session.id, failReason, fleetTurn);
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
@@ -915,8 +913,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         const session = deps.sessions.get(id);
         if (isSoftInterrupted(session)) {
           // Match the mailbox to what we report (include salvage report when
-          // present), then collect so a later completeAfterInterrupt cannot
-          // resurrect this wait as "done".
+          // present), then collect so omitted waits do not re-deliver it.
           deps.fleetRecords.interrupt(id, session.report);
           const taken = deps.fleetRecords.take(id);
           return {
