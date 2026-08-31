@@ -1,13 +1,7 @@
-import { join, resolve } from "node:path";
-import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import {
-  generateSessionId,
-  isSessionId,
-  migrateLegacySessionIfNeeded,
-  sessionDir,
-} from "../session/index.js";
+import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
 import { loadState } from "../session/state.js";
 import { COMMAND_NAME } from "../branding.js";
 
@@ -532,6 +526,19 @@ export class CliHelpError extends Error {
   }
 }
 
+/**
+ * Thrown for a recoverable operator mistake. Entry points must print
+ * `message` to stderr and exit 1 — not dump a stack.
+ */
+export class CliUserError extends Error {
+  readonly exitCode = 1 as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CliUserError";
+  }
+}
+
 export interface LoadConfigOptions {
   // Override the global settings file location (for tests / non-standard homes).
   globalSettingsPath?: string;
@@ -845,24 +852,18 @@ export async function loadConfig(
   } else if (resumeMode === "id") {
     const id = resumeSessionId!;
     await migrateLegacySessionIfNeeded(cwd, id, options.home);
-    const state = await loadState(cwd, id, options.home);
-    if (state === null) {
-      let runJsonPresent = false;
-      try {
-        await stat(join(sessionDir(cwd, id, options.home), "run.json"));
-        runJsonPresent = true;
-      } catch {
-        // Missing run.json: treat as no session for this project.
-      }
-      if (runJsonPresent) {
-        throw new Error(
-          `Session ${id} is unreadable. Use \`${COMMAND_NAME} resume\` to choose another.`,
-        );
-      }
+    const loaded = await loadState(cwd, id, options.home);
+    if (loaded.kind === "unreadable") {
+      throw new CliUserError(
+        `Session ${id} is unreadable. Use \`${COMMAND_NAME} resume\` to choose another.`,
+      );
+    }
+    if (loaded.kind === "missing") {
       throw new Error(
         `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (this checkout's git toplevel). Use \`${COMMAND_NAME} resume\` to choose one.`,
       );
     }
+    const state = loaded.state;
     sessionId = id;
     skipInitialTask = true;
     if (task.length === 0) resumeTask = state.task;

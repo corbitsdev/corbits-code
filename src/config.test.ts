@@ -10,6 +10,7 @@ import {
   buildProviderCatalog,
   catalogEntryAsProviderSettings,
   CliHelpError,
+  CliUserError,
   CLI_HELP_TEXT,
   KEYLESS_API_KEY,
   loadConfig,
@@ -503,6 +504,58 @@ describe("loadConfig", () => {
     }
   });
 
+  test("resume <id> --force among failed siblings stays silent and reopens the target", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const targetId = generateSessionId();
+      for (let i = 0; i < 6; i++) {
+        const id = i === 0 ? targetId : generateSessionId();
+        await initSessionDir(cwd, id, home);
+        await saveState(
+          cwd,
+          id,
+          {
+            status: "failed",
+            turnsUsed: 2,
+            task: i === 0 ? "target failed session" : `sibling failed ${i}`,
+            startedAt: Date.now() - 1_000 - i,
+            finishedAt: Date.now() - i,
+            error: "Cycle commit failed\nhook dump: pre-commit rejected",
+          },
+          home,
+        );
+      }
+
+      const chunks: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+        return orig(chunk, ...(rest as []));
+      }) as typeof process.stderr.write;
+      let config: Awaited<ReturnType<typeof loadConfig>>;
+      try {
+        config = await loadConfig(["resume", targetId, "--force", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+          home,
+        });
+      } finally {
+        process.stderr.write = orig;
+      }
+      assertConfigured(config);
+      expect(config.sessionId).toBe(targetId);
+      expect(config.task).toBe("target failed session");
+      const text = chunks.join("");
+      expect(text).not.toContain("ignoring unreadable");
+      expect(text).not.toContain(home);
+      expect(text).not.toContain("invalid shape");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("--resume opens the picker", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
@@ -621,14 +674,19 @@ describe("loadConfig", () => {
         process.stderr.write = orig;
       }
 
-      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).toBeInstanceOf(CliUserError);
       const message = thrown instanceof Error ? thrown.message : String(thrown);
-      expect(message).toMatch(new RegExp(`session ${sessionId} is unreadable`, "i"));
+      expect(message).toBe(
+        `Session ${sessionId} is unreadable. Use \`corbits resume\` to choose another.`,
+      );
       expect(message).not.toMatch(/No session/);
       expect(message).not.toContain("ignoring unreadable");
       expect(message).not.toContain("invalid shape");
       expect(message).not.toContain(home);
       expect(message.split("\n")).toHaveLength(1);
+      if (thrown instanceof CliUserError) {
+        expect(thrown.exitCode).toBe(1);
+      }
       const text = chunks.join("");
       expect(text).not.toContain("ignoring unreadable");
       expect(text).not.toContain(home);

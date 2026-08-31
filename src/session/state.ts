@@ -52,13 +52,6 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
   await rename(tmp, path);
 }
 
-// A corrupt or shape-invalid state file means resume is silently starting over
-// and prior progress is being discarded. Log it rather than printing a path and
-// parse dump on the terminal the TUI is about to own.
-export function warnUnreadableState(path: string, reason: string): void {
-  log.warn("unreadable session state at {path}: {reason}", { path, reason });
-}
-
 // Concurrent saveState calls for the same session (a straggler progress
 // snapshot racing a terminal finalize write) have no ordering guarantee
 // between their underlying rename()s — the later call could still finish
@@ -171,25 +164,31 @@ function parseRunState(data: unknown): ParseRunStateResult {
     : { ok: true, state: result };
 }
 
+export type LoadStateResult =
+  { kind: "ok"; state: RunState } | { kind: "missing" } | { kind: "unreadable" };
+
 export async function loadState(
   cwd: string,
   sessionId: string,
   home?: string,
-): Promise<RunState | null> {
+): Promise<LoadStateResult> {
   const path = statePath(cwd, sessionId, home);
 
   try {
     const raw = await readFile(path, "utf8");
     const parsed = parseRunState(JSON.parse(raw));
     if (!parsed.ok) {
-      warnUnreadableState(path, `invalid shape: ${parsed.reason}`);
-      return null;
+      log.warn("unreadable session state at {path}: {reason}", {
+        path,
+        reason: `invalid shape: ${parsed.reason}`,
+      });
+      return { kind: "unreadable" };
     }
-    return parsed.state;
+    return { kind: "ok", state: parsed.state };
   } catch (err) {
     if (err instanceof SyntaxError) {
-      warnUnreadableState(path, "corrupt JSON");
-      return null;
+      log.warn("unreadable session state at {path}: {reason}", { path, reason: "corrupt JSON" });
+      return { kind: "unreadable" };
     }
     if (
       typeof err === "object" &&
@@ -197,7 +196,7 @@ export async function loadState(
       "code" in err &&
       (err as { code?: unknown }).code === "ENOENT"
     ) {
-      return null;
+      return { kind: "missing" };
     }
     throw err;
   }

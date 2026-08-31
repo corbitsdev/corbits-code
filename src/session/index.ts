@@ -240,28 +240,23 @@ export async function listSessions(
   const summaries: SessionSummary[] = [];
   for (const entry of entries) {
     await migrateLegacySessionIfNeeded(cwd, entry, home);
-    const state = await loadState(cwd, entry, home);
-    if (state !== null) {
+    const loaded = await loadState(cwd, entry, home);
+    if (loaded.kind === "ok") {
       summaries.push({
         sessionId: entry,
-        task: state.task,
-        startedAt: state.startedAt,
-        status: state.status,
+        task: loaded.state.task,
+        startedAt: loaded.state.startedAt,
+        status: loaded.state.status,
       });
       continue;
     }
-    // Present but unreadable run.json is not a picker candidate — diagnostics
-    // already went to the structured log from loadState.
-    try {
-      await stat(join(sessionDir(cwd, entry, home), "run.json"));
+    if (loaded.kind === "unreadable") {
       continue;
-    } catch {
-      // Missing run.json: fall through to the context-only crashed fallback.
     }
-    // A session directory with context/ but no readable run.json never
-    // reached its first saveState call (see src/tui/runner.ts's early
-    // "running" write) and therefore isn't actually running: report it as
-    // crashed rather than fabricating liveness.
+    // Missing run.json: a session directory with context/ never reached its
+    // first saveState call (see src/tui/runner.ts's early "running" write)
+    // and therefore isn't actually running: report it as crashed rather
+    // than fabricating liveness.
     try {
       const dirStat = await stat(sessionDir(cwd, entry, home));
       await stat(sessionContextDir(cwd, entry, home));
@@ -298,7 +293,7 @@ export async function renameSession(
   }
   await migrateLegacySessionIfNeeded(cwd, sessionId, home);
   const existing = await loadState(cwd, sessionId, home);
-  if (existing === null) {
+  if (existing.kind !== "ok") {
     let startedAt = Date.now();
     try {
       const dirStat = await stat(sessionDir(cwd, sessionId, home));
@@ -319,7 +314,7 @@ export async function renameSession(
     );
     return;
   }
-  await saveState(cwd, sessionId, { ...existing, task: trimmed }, home);
+  await saveState(cwd, sessionId, { ...existing.state, task: trimmed }, home);
 }
 
 export { projectKeyFor, projectSessionsRoot, projectsRoot, projectRootFor } from "./project-key.js";

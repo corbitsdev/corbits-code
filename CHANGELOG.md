@@ -13,6 +13,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Fixed
+
+- Failed sessions with an `error` string in `run.json` are valid resume
+  candidates, not corrupt files. A truly unreadable session id prints one
+  recovery line; parse diagnostics go to the structured log, not the
+  terminal.
+
 ## [0.3.10] - 2026-08-30
 
 ### Fixed
