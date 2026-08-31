@@ -39,19 +39,20 @@ export function enablePluginConfig(
   return { ...config, [id]: { ...prev, enabled: true } };
 }
 
-export function isEnabledCommandPlugin(
-  mod: PluginModule,
-  config: Record<string, PluginConfig>,
-): boolean {
+function isCommandPluginModule(mod: PluginModule): boolean {
   if (mod.commandPlugin === undefined) return false;
   const kind = mod.manifest?.kind;
   // command/workflow plugins own their slash commands; agent plugins may also
   // contribute commands (e.g. a Claude marketplace plugin's tagged skills), so
   // commands wire as an added surface without changing the plugin's primary kind.
-  return (
-    (kind === "command" || kind === "workflow" || kind === "agent") &&
-    isPluginModuleEnabled(mod, config)
-  );
+  return kind === "command" || kind === "workflow" || kind === "agent";
+}
+
+export function isEnabledCommandPlugin(
+  mod: PluginModule,
+  config: Record<string, PluginConfig>,
+): boolean {
+  return isCommandPluginModule(mod) && isPluginModuleEnabled(mod, config);
 }
 
 export function isEnabledWorkflowPlugin(
@@ -65,15 +66,27 @@ export function isEnabledWorkflowPlugin(
   );
 }
 
+export function registerCommandPluginModule(
+  mod: PluginModule,
+  getConfig: () => Record<string, PluginConfig>,
+): boolean {
+  if (!isCommandPluginModule(mod)) return false;
+  const commandPlugin = mod.commandPlugin;
+  if (commandPlugin === undefined) return false;
+  registerCommandPlugin(commandPlugin, () => isPluginModuleEnabled(mod, getConfig()));
+  return true;
+}
+
 export function registerCommandPlugins(
   modules: PluginModule[],
-  config: Record<string, PluginConfig>,
+  config: Record<string, PluginConfig> | (() => Record<string, PluginConfig>),
 ): string[] {
+  const getConfig = typeof config === "function" ? config : () => config;
   const registered: string[] = [];
   for (const mod of modules) {
-    if (!isEnabledCommandPlugin(mod, config)) continue;
-    registerCommandPlugin(mod.commandPlugin!);
-    registered.push(mod.manifest!.id);
+    const id = mod.manifest?.id;
+    if (id === undefined || !registerCommandPluginModule(mod, getConfig)) continue;
+    if (isPluginModuleEnabled(mod, getConfig())) registered.push(id);
   }
   return registered;
 }

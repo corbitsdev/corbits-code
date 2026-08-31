@@ -65,7 +65,13 @@ export interface CommandPlugin {
   commands: CommandDefinition[];
 }
 
+interface PluginCommandCandidate {
+  command: CommandDefinition;
+  isActive: () => boolean;
+}
+
 const registry = new Map<string, CommandDefinition>();
+const pluginCandidates = new Map<string, PluginCommandCandidate[]>();
 const hidden = new Set<string>();
 
 export function registerCommand(def: CommandDefinition): void {
@@ -75,9 +81,14 @@ export function registerCommand(def: CommandDefinition): void {
   registry.set(def.name, def);
 }
 
-export function registerCommandPlugin(plugin: CommandPlugin): void {
+export function registerCommandPlugin(
+  plugin: CommandPlugin,
+  isActive: () => boolean = () => true,
+): void {
   for (const cmd of plugin.commands) {
-    registerCommand(cmd);
+    const candidates = pluginCandidates.get(cmd.name) ?? [];
+    candidates.push({ command: cmd, isActive });
+    pluginCandidates.set(cmd.name, candidates);
   }
 }
 
@@ -87,11 +98,19 @@ export function setHiddenCommands(names: string[]): void {
 }
 
 export function getCommand(name: string): CommandDefinition | undefined {
-  return registry.get(name);
+  const registered = registry.get(name);
+  if (registered !== undefined) return registered;
+  return pluginCandidates.get(name)?.find((candidate) => candidate.isActive())?.command;
 }
 
 export function listCommands(): CommandDefinition[] {
-  return [...registry.values()]
+  const commands = [...registry.values()];
+  for (const name of pluginCandidates.keys()) {
+    if (registry.has(name)) continue;
+    const command = getCommand(name);
+    if (command !== undefined) commands.push(command);
+  }
+  return commands
     .filter((c) => !hidden.has(c.name) && (c.available === undefined || c.available()))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

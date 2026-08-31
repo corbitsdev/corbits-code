@@ -10,6 +10,7 @@ import {
   acceptOverlaySelection,
   closeInsetOverlay,
   moveOverlaySelection,
+  resolvePaletteCatalog,
   runOverlayAction,
 } from "./shell.js";
 import {
@@ -136,6 +137,34 @@ describe("observeSessionFromSubAgents", () => {
 });
 
 describe("mountRunnerHost chrome wiring", () => {
+  test("reads the current command catalog on every palette access", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    let commands = [{ name: "first", description: "First command" }];
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: () => commands,
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    });
+    try {
+      expect(resolvePaletteCatalog(host.shell).map((command) => command.id)).toEqual(["first"]);
+
+      commands = [{ name: "second", description: "Second command" }];
+      expect(resolvePaletteCatalog(host.shell).map((command) => command.id)).toEqual(["second"]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
   // CL-5731: subscribeChrome must stay wired end-to-end. formatChromeZones
   // now parks both chrome strips (always null), so a tasks push must not
   // paint the checklist — this test asserts the notify path still runs and
