@@ -7,6 +7,7 @@
  */
 
 import {
+  createSessionQueue,
   drainOne,
   enqueue,
   enqueueSteer,
@@ -175,6 +176,12 @@ export interface SessionBridge {
     attachments?: readonly PendingImageAttachment[],
   ) => void;
   interrupt: () => void;
+  /**
+   * Drop mid-run queue items, pending echoes, and fleet hold so a session
+   * rotation cannot drain old input into the new reactor. Leaves the run idle
+   * so the next Enter is a send, not a steer.
+   */
+  clearQueuedDelivery: () => void;
   /**
    * A permission or operator gate was raised — queued or already displayed.
    * Blocks the turn (and exempts it from the stall watchdog) until a matching
@@ -1223,6 +1230,14 @@ export function attachSessionBridge(
     paintPhase();
   };
 
+  const clearQueuedDelivery = (): void => {
+    if (bag.disposed) return;
+    shell.session = createSessionQueue("idle");
+    bag.pendingEchoes.length = 0;
+    bag.liveFleet = 0;
+    paintChrome(shell);
+  };
+
   /**
    * A permission or operator gate was raised — queued or already on screen,
    * the turn does not distinguish. Called from the gate wiring itself, not
@@ -1330,6 +1345,7 @@ export function attachSessionBridge(
     },
     submit,
     interrupt: doInterrupt,
+    clearQueuedDelivery,
     gateOpened,
     gateClosed,
     get turn() {

@@ -714,6 +714,7 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
       eventEmitter: new EventEmitter(),
       send: () => {},
       interrupt: () => {},
+      deliver: () => {},
       providers: {},
       onModelSelect: () => {},
       commands: [],

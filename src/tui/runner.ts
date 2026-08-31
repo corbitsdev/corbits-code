@@ -185,6 +185,7 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
+import { createDeliveryGeneration, routeQueuedDelivery } from "./queued-delivery.js";
 import { createRuntimeShutdown } from "./runtime-shutdown.js";
 import {
   applyFocus,
@@ -1414,8 +1415,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // Reload, interrupt, compaction continuation, and proxy deliver share one queue
     // so a rebuild never races an in-flight deliver.
     const sessionOps = createSessionOperationQueue();
+    const deliveryGeneration = createDeliveryGeneration();
     const enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
+      const stillCurrent = deliveryGeneration.capture();
       void sessionOps.enqueue(async () => {
+        if (!stillCurrent()) return;
         // The shell already popped the queue item and painted it as delivered
         // by the time this runs, so a failed rebuild must be surfaced here —
         // otherwise the message silently never reaches the agent.
@@ -1910,6 +1914,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // abort handles → child agent.close) before clearing the session store so
     // /clear does not leave orphaned child reactors burning tokens.
     const newSession = (): void => {
+      deliveryGeneration.bump();
       cancelFeedbackCapture();
       // Wipe the painted transcript immediately. The product host listens for
       // session.clear; the Ink App used to clear its own stream unconditionally
@@ -2249,32 +2254,34 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const computeAddProviderChoices = () =>
       addProviderSelectorChoices(providerChoices(), config.providers);
 
+    const send = createSubmitHandler({
+      dispatchCommand: (name, args) => dispatchCommand(name, args),
+      sendPrompt: (text, attachments) => {
+        void sendUserPrompt(text, attachments ?? []).catch(handleSendFailure);
+      },
+      onPromptSubmitted: () => {
+        if (telemetryFirstRun && liveTelemetryIntent) {
+          void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
+        }
+      },
+      isFeedbackCapturePending,
+      cancelFeedbackCapture,
+      onFeedbackText: (text) => {
+        takeFeedbackCapture();
+        const status = captureFeedback(getTelemetry(), text, {
+          turnTraceId: getLastTurnTraceId(),
+        });
+        return feedbackResultMessage(status);
+      },
+      onSystemNotice: systemNotice,
+    });
+
     const host = await mountRunnerHost({
       // An unnamed session shows nothing rather than a placeholder.
       title: runTaskTitle,
       cwd: process.cwd(),
       eventEmitter: emitter,
-      send: createSubmitHandler({
-        dispatchCommand: (name, args) => dispatchCommand(name, args),
-        sendPrompt: (text, attachments) => {
-          void sendUserPrompt(text, attachments ?? []).catch(handleSendFailure);
-        },
-        onPromptSubmitted: () => {
-          if (telemetryFirstRun && liveTelemetryIntent) {
-            void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
-          }
-        },
-        isFeedbackCapturePending,
-        cancelFeedbackCapture,
-        onFeedbackText: (text) => {
-          takeFeedbackCapture();
-          const status = captureFeedback(getTelemetry(), text, {
-            turnTraceId: getLastTurnTraceId(),
-          });
-          return feedbackResultMessage(status);
-        },
-        onSystemNotice: systemNotice,
-      }),
+      send,
       classifySubmit: (text, attachments) =>
         classifySubmission(text, {
           hasAttachments: attachments !== undefined && attachments.length > 0,
@@ -2282,6 +2289,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           feedbackCaptureEnabled: true,
         }),
       interrupt,
+      deliver: routeQueuedDelivery({
+        send,
+        deliverSteer: (text, attachments) => {
+          agentProxy.deliver(userInboundMessage(text, attachments ?? []));
+        },
+      }),
       // Consent by proceeding requires the disclosure to be on screen before the
       // first prompt activates the held telemetry instance: the landing shows it,
       // and the shell re-files it into the transcript when the landing clears.

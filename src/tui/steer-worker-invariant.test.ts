@@ -107,6 +107,95 @@ describe("CL-6291 worker-alive invariants", () => {
     );
   });
 
+  test("busy Enter boundary uses deliver, not sendImmediate", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer into the live turn", "steer");
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          bridge.handle({ type: "tool.boundary" });
+          await h.renderOnce();
+          expect(port.calls.some((c) => c.op === "deliver")).toBe(true);
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
+          expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("clearQueuedDelivery drops pending steers instead of draining them", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("old steer", "steer");
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          bridge.clearQueuedDelivery();
+          expect(badgeCount(shell.session)).toBe(0);
+          expect(shell.session.run).toBe("idle");
+          bridge.handle({ type: "tool.boundary" });
+          await h.renderOnce();
+          expect(port.calls.some((c) => c.op === "deliver")).toBe(false);
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("clearQueuedDelivery forgets pending echoes so inbound user rows paint", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("hello there", "immediate");
+          const before = shell.streamLog.filter(
+            (r) => r.role === "user" && r.text === "hello there",
+          ).length;
+          expect(before).toBe(1);
+          bridge.clearQueuedDelivery();
+          bridge.handle({ type: "user", text: "hello there" });
+          await h.renderOnce();
+          expect(
+            shell.streamLog.filter((r) => r.role === "user" && r.text === "hello there"),
+          ).toHaveLength(2);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("Ctrl+C / doInterrupt still calls port.interrupt", async () => {
     await withTestRenderer(
       async (h) => {

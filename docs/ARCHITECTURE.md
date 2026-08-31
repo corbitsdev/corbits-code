@@ -81,7 +81,12 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - Wires `ask_operator` to an operator-gate event resolved by a modal
 - Mounts the OpenTUI host via `mountRunnerHost` (`src/tui/runner-host.ts`), which mounts `mountProductHost` (`src/tui/product-host.ts`) over the shell (`src/tui/shell.ts`)
 - Bridges reactor events to the OpenTUI host via a plain `EventEmitter`
-- **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
+- **Mid-run injection** — Shell `session-queue` items drain at the parent
+  `tool.boundary` through `SessionPort.deliver`. Production `routeQueuedDelivery`
+  sends steers via `agentProxy.deliver` (`Agent.deliver`) into the live reactor
+  and idle follow-ups via the existing send path. `/clear` and `/new` bump a
+  delivery generation and call `SessionBridge.clearQueuedDelivery()` so queued
+  input from the previous session cannot enter the new one.
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
 
 ### Exec Runner (`src/exec/runner.ts`)
