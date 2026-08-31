@@ -51,9 +51,13 @@ export function registerBuiltInCommands(): void {
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "hooks" }),
   });
 
-  // Models-first connect: providers are connected from /model via the Alt+A
-  // add-provider selector, not a standalone /login picker. The OAuth sign-in
-  // surface is reachable only through that connect flow.
+  // Layout-proof add-provider path: `/` works on every keyboard. There is no
+  // standalone /login; OAuth sign-in is still reached only through this flow.
+  registerCommand({
+    name: "connect",
+    description: "Add a provider account",
+    handler: () => ({ type: "overlay", overlay: "add-provider" }),
+  });
 
   // signalClear rotates to a fresh session: the on-screen transcript and run
   // telemetry are reset and the agent is rebuilt against a new state directory,

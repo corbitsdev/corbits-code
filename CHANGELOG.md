@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### TUI
+
+- `/connect` opens Add Provider from any layout.
+- Option+A still opens Add Provider. Terminals that emit å/Å for Option+A
+  without the option modifier also open it in `/model` (US/ABC compose).
+  Dedicated Nordic å in `/model` is treated as that shortcut when Add
+  Provider is offered.
+
 ### Fixed
 
 - Codex ChatGPT subscription sessions no longer show a public-rate dollar
@@ -23,9 +31,6 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   API endpoints keep dollar estimates.
 - CLI `--help` / `-h` is recognized in any argument position. Value flags no
   longer swallow `--*` or `-h` as their option values.
-- `/model` Alt+A opens Add Provider on non-US macOS layouts that emit å/Å
-  for Option+A without the option modifier, instead of type-to-filter
-  claiming the glyph.
 
 ## [0.3.11] - 2026-08-31
 

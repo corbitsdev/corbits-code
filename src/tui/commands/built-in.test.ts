@@ -36,8 +36,21 @@ describe("removed commands", () => {
     expect(getCommand("scope")).toBeUndefined();
   });
 
-  it("/login is not registered (connect from /model)", () => {
+  it("/login is not registered (connect from /model or /connect)", () => {
     expect(getCommand("login")).toBeUndefined();
+  });
+});
+
+describe("/connect command", () => {
+  it("is registered", () => {
+    expect(getCommand("connect")).toBeDefined();
+  });
+
+  it("requests the add-provider overlay", () => {
+    expect(getCommand("connect")!.handler("", makeCtx())).toEqual({
+      type: "overlay",
+      overlay: "add-provider",
+    });
   });
 });
 

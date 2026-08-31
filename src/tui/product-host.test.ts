@@ -734,8 +734,7 @@ describe("flat type-to-filter model picker", () => {
   });
 
   test("composed Option+A (å) opens add-provider and is not claimed by type-to-filter", async () => {
-    // Non-US macOS layouts often emit å/Å for Option+A without meta/option set.
-    // Type-to-filter used to claim that printable before runOverlayAction ran.
+    // Terminals may deliver Option+A as å/Å without meta/option.
     const { harness, host } = await mountPicker({
       onConnectProvider: () => {},
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
@@ -753,6 +752,90 @@ describe("flat type-to-filter model picker", () => {
       expect(handleListFilterKey(host.shell, composed)).toBe(false);
       expect(runOverlayAction(host.shell, composed)).toBe(true);
       expect(host.shell.overlayKind).toBe("add_provider");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed Option+A (Å) opens add-provider and is not claimed by type-to-filter", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = {
+        name: "Å",
+        sequence: "Å",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, composed)).toBe(false);
+      expect(runOverlayAction(host.shell, composed)).toBe(true);
+      expect(host.shell.overlayKind).toBe("add_provider");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed å through the key path opens add-provider", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      harness.pressKey("å");
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).toBe("add_provider");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed å still type-to-filters when add-provider is not wired", async () => {
+    const { harness, host } = await mountPicker();
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = {
+        name: "å",
+        sequence: "å",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, composed)).toBe(true);
+      expect(host.shell.overlayKind).toBe("model_picker");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("bare ASCII a still type-to-filters when add-provider is wired", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const letter = {
+        name: "a",
+        sequence: "a",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, letter)).toBe(true);
+      expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
       harness.destroy();
@@ -868,6 +951,32 @@ describe("flat type-to-filter model picker", () => {
       host.openModels?.();
       await harness.renderOnce();
       expect(harness.captureCharFrame()).not.toContain("Alt+A");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("openAddProvider opens the add-provider selector when choices are wired", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openAddProvider?.();
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).toBe("add_provider");
+      expect(host.shell.overlayItems).toEqual(["Codex — 0 accounts"]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("openAddProvider is absent when add-provider is not wired", async () => {
+    const { harness, host } = await mountPicker();
+    try {
+      expect(host.openAddProvider).toBeUndefined();
     } finally {
       host.dispose();
       harness.destroy();

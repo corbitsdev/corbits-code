@@ -1977,7 +1977,7 @@ interface ShellInternals {
   overlayDescribe: ((itemId: string) => ItemDescription | null) | null;
   /** Per-open bare-key claim for the open primary overlay. */
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null;
-  /** Whether the open primary advertises Alt+A in the footer hints. */
+  /** Whether the open primary advertises Alt+A and yields å/Å from type-to-filter. */
   overlayAddProviderHint: boolean;
   /** Whether the open primary advertises Alt+D in the footer hints. */
   overlaySetDefaultHint: boolean;
@@ -3569,9 +3569,9 @@ export interface OpenListOverlayOpts {
    */
   readonly typeToFilter?: boolean;
   /**
-   * Advertise the Alt+A add-provider hint in the footer for this open. Set
-   * only when the caller actually wired an Alt+A handler via `onAction`, so
-   * the hint can never name a key that is a dead end.
+   * Advertise Alt+A in the footer and yield composed Option+A (å/Å) from
+   * type-to-filter. Set only when the caller actually wired an Alt+A handler
+   * via `onAction`, so the hint can never name a key that is a dead end.
    */
   readonly addProviderHint?: boolean;
   /**
@@ -3867,15 +3867,13 @@ export function handlePaletteFilterKey(shell: AppShell, key: KeyEvent): boolean 
 }
 
 /**
- * Glyphs macOS emits for Option+A on common layouts (US, ABC, Nordic).
- * Non-US input sources often deliver these without meta/option set.
+ * Glyphs some terminals emit for Option+A without setting meta/option.
  */
 const OPTION_A_COMPOSED_CHARS = new Set(["å", "Å"]);
 
 /**
  * True when a key event is the model-picker Alt+A add-provider chord.
- * US layouts send name `"a"` with meta/option; non-US layouts often emit
- * å/Å with neither modifier, so type-to-filter would otherwise claim them.
+ * Terminals may deliver Option+A as å/Å without meta/option.
  */
 export function isAddProviderShortcutKey(key: KeyEvent): boolean {
   if (key.ctrl) return false;
@@ -3899,8 +3897,8 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   if (shell.overlayKind === "palette") return false;
   if (key.ctrl || key.meta || key.option) return false;
 
-  // When Alt+A add-provider is wired, leave Option+A composed glyphs (å/Å)
-  // for runOverlayAction — non-US macOS layouts emit them without meta/option.
+  // overlayAddProviderHint also gates this filter-bypass so composed Option+A
+  // (å/Å) reaches runOverlayAction instead of type-to-filter.
   if (
     bag?.overlayAddProviderHint === true &&
     shell.overlayKind === "model_picker" &&

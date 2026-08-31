@@ -133,7 +133,7 @@ export interface RunnerHostDeps {
    * Live data behind the command surfaces (settings, permissions, plugins).
    * `notify` is supplied by the host itself.
    */
-  readonly surfaces?: Omit<CommandSurfaceDeps, "notify" | "openModels">;
+  readonly surfaces?: Omit<CommandSurfaceDeps, "notify" | "openModels" | "openAddProvider">;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
   /** First-run telemetry disclosure, shown on the landing screen. */
@@ -365,6 +365,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const surfaceDeps: CommandSurfaceDeps = {
     ...(deps.surfaces ?? {}),
     ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
+    ...(host.openAddProvider !== undefined ? { openAddProvider: host.openAddProvider } : {}),
     notify: (text) => surfaceSystemNotice(host.shell, text),
   };
 

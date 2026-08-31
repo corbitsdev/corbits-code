@@ -205,6 +205,10 @@ export interface ProductHost {
    * default model) instead of the top of the list.
    */
   readonly openModels?: (focusId?: string) => void;
+  /**
+   * Opens the add-provider selector; absent when connect choices are not wired.
+   */
+  readonly openAddProvider?: () => void;
   /** Swap the picker's rows/descriptions in place (e.g. after a provider connects). */
   readonly setModels?: (
     models: readonly ProductHostModelOption[],
@@ -514,6 +518,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   let currentModels = config.models ?? [];
   let currentDescribeModel = config.describeModel;
   let openModels: ((focusId?: string) => void) | undefined;
+  let openAddProvider: (() => void) | undefined;
   if (config.onModelSelect) {
     const onSelect = config.onModelSelect;
     const onConnect = config.onConnectProvider;
@@ -528,7 +533,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     // stack — that stack exists so the palette can float over a permission or
     // operator question without dropping the awaited promise underneath it,
     // which does not apply here.
-    const openAddProvider =
+    openAddProvider =
       addProviderChoices !== undefined && onConnect !== undefined
         ? (): void => {
             const rows = addProviderChoices();
@@ -644,5 +649,6 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     setTitle: (title) => setHeader(shell, title),
     pushObserveRow: (row) => appendObserveStreamRow(shell, row),
     ...(openModels !== undefined ? { openModels, setModels } : {}),
+    ...(openAddProvider !== undefined ? { openAddProvider } : {}),
   };
 }
