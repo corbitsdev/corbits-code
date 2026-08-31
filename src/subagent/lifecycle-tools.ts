@@ -2,13 +2,9 @@
  * close_agent / resume_agent: the session-lifecycle half of
  * reusable worker sessions. spawn_agent/wait_agents start and
  * collect workers; these two verbs let an orchestrator tear one down on
- * purpose (close_agent) or bring a retained one back for further input
- * (resume_agent), instead of every session dying the instant its turn ends.
- *
- * interrupt_agent and followup_task (the verbs that actually push a new
- * prompt into a resumed session) are a separate, later change — resume_agent
- * here only flips a retained session back to an addressable state; it takes
- * no prompt argument.
+ * purpose (close_agent) or start the next turn on a retained completed
+ * or interrupted session (resume_agent), returning immediately so
+ * wait_agents collects. send_input steers an in-flight running turn.
  */
 
 import { tool } from "@intx/agent";
@@ -58,20 +54,26 @@ export const closeAgentToolDefinition: ToolDefinition = {
 
 const ResumeAgentArgs = type({
   target: "string",
+  message: "string",
 });
 
 export const resumeAgentToolDefinition: ToolDefinition = {
   name: "resume_agent",
   description:
-    "Reopen a retained, completed worker session (one that finished a turn and was never closed) " +
-    "so it is addressable again. Fails on a session that is still running, was never retained, was " +
-    "interrupted, or was already closed via close_agent (closing is permanent).",
+    "Start the next turn on a retained worker that is 'completed' or 'interrupted', reusing its " +
+    "prior context rather than spawning a fresh worker. Returns immediately with status 'running'; " +
+    "collect the reply with wait_agents. Fails on a session that is still running, was never " +
+    "retained, or was already closed via close_agent (closing is permanent).",
   inputSchema: {
     type: "object",
     properties: {
-      target: { type: "string", description: "agent_id of the session to resume." },
+      target: { type: "string", description: "agent_id of the retained session to resume." },
+      message: {
+        type: "string",
+        description: `The new instruction/message for the worker (non-empty, max ${DEFAULT_MAX_ENTRY_CHARS} characters).`,
+      },
     },
-    required: ["target"],
+    required: ["target", "message"],
   },
 };
 
@@ -109,7 +111,7 @@ export interface LifecycleAuthority {
 
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
-  /** Optional for resume/followup/send_input; close and interrupt require it (see CloseAgentToolDeps / InterruptAgentToolDeps). */
+  /** Optional for send_input; close, interrupt, and resume require it. */
   fleetRecords?: FleetRecordsHandle;
   authority?: LifecycleAuthority;
 }
@@ -121,6 +123,11 @@ export type CloseAgentToolDeps = LifecycleToolDeps & {
 
 /** interrupt_agent always terminalizes the wait mailbox — no silent skip. */
 export type InterruptAgentToolDeps = LifecycleToolDeps & {
+  fleetRecords: FleetRecordsHandle;
+};
+
+/** resume_agent registers the next turn on the wait mailbox so wait_agents can collect. */
+export type ResumeAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetRecordsHandle;
 };
 
@@ -197,7 +204,7 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
   });
 }
 
-export function createResumeAgentTool(deps: LifecycleToolDeps): AgentTool {
+export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
   return tool({
     definition: resumeAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -208,7 +215,28 @@ export function createResumeAgentTool(deps: LifecycleToolDeps): AgentTool {
       const target = parsed.target.trim();
       const denied = gateTarget(deps, "resume_agent", target, call.id);
       if (denied !== undefined) return denied;
-      const outcome = deps.sessions.resumeOne(target);
+      const message = parsed.message.trim();
+      if (message.length === 0) {
+        return lifecycleResult(call.id, "Error: resume_agent requires a non-empty message.");
+      }
+      if (message.length > DEFAULT_MAX_ENTRY_CHARS) {
+        return lifecycleResult(
+          call.id,
+          `Error: resume_agent message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
+            `(got ${message.length}).`,
+        );
+      }
+      const outcome = deps.sessions.resumeOne(target, message, {
+        onStart: () => {
+          deps.fleetRecords.register(target);
+        },
+        onReply: (reply) => {
+          deps.fleetRecords.resolve(target, reply);
+        },
+        onFail: (err) => {
+          deps.fleetRecords.reject(target, err instanceof Error ? err.message : String(err));
+        },
+      });
       if (!outcome.ok) {
         const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
         return lifecycleResult(
@@ -233,7 +261,7 @@ export const interruptAgentToolDefinition: ToolDefinition = {
     "on this id immediately with status 'interrupted'. The worker's in-flight tool call or " +
     "inference keeps running in the background (there is no way to hard-stop it without tearing the " +
     "session down); this only stops the caller from waiting on it and marks the session " +
-    "'interrupted' so followup_task or resume_agent can pick it back up with full prior context. " +
+    "'interrupted' so resume_agent can pick it back up with full prior context. " +
     "Fails on a session that is not currently running.",
   inputSchema: {
     type: "object",
@@ -276,62 +304,6 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
   });
 }
 
-const FollowupTaskArgs = type({
-  target: "string",
-  message: "string",
-});
-
-export const followupTaskToolDefinition: ToolDefinition = {
-  name: "followup_task",
-  description:
-    "Send new work into an existing retained worker session (one that is 'completed' or " +
-    "'interrupted'), reusing its prior context and tool outputs rather than starting a fresh worker. " +
-    "Blocks until the worker replies to this new message, and returns its reply. Fails on a session " +
-    "that was never retained, is still running, or was closed via close_agent (closing is permanent).",
-  inputSchema: {
-    type: "object",
-    properties: {
-      target: { type: "string", description: "agent_id of the retained session to resume." },
-      message: { type: "string", description: "The new instruction/message for the worker." },
-    },
-    required: ["target", "message"],
-  },
-};
-
-export function createFollowupTaskTool(deps: LifecycleToolDeps): AgentTool {
-  return tool({
-    definition: followupTaskToolDefinition,
-    handler: async (call, _signal): Promise<ToolResult> => {
-      const parsed = FollowupTaskArgs(call.arguments);
-      if (parsed instanceof type.errors) {
-        return lifecycleResult(
-          call.id,
-          `Error: followup_task arguments invalid: ${parsed.summary}`,
-        );
-      }
-      const target = parsed.target.trim();
-      const denied = gateTarget(deps, "followup_task", target, call.id);
-      if (denied !== undefined) return denied;
-      const message = parsed.message.trim();
-      if (message.length === 0) {
-        return lifecycleResult(call.id, "Error: followup_task requires a non-empty message.");
-      }
-      const outcome = await deps.sessions.followupOne(target, message);
-      if (!outcome.ok) {
-        const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
-        return lifecycleResult(
-          call.id,
-          `Error: cannot send followup to "${target}" (status: ${outcome.status}).${hint}`,
-        );
-      }
-      return lifecycleResult(
-        call.id,
-        JSON.stringify({ agent_id: target, status: "completed", reply: outcome.reply }),
-      );
-    },
-  });
-}
-
 const SendInputArgs = type({
   target: "string",
   message: "string",
@@ -345,7 +317,7 @@ export const sendInputToolDefinition: ToolDefinition = {
     "and return immediately without awaiting a reply and without completing wait_agents. " +
     "With interrupt:true: stop the current turn (same wait-mailbox flip as interrupt_agent) " +
     "then queue `message` as the next-turn followup without awaiting that reply. Fails on a " +
-    "session that is not currently running, or when the message is empty / oversize. Nested " +
+    "session that is not currently running an active turn, or when the message is empty / oversize. Nested " +
     "orchestrators may only target their own descendants.",
   inputSchema: {
     type: "object",

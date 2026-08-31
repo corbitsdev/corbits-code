@@ -125,7 +125,6 @@ import {
   createCloseAgentTool,
   createResumeAgentTool,
   createInterruptAgentTool,
-  createFollowupTaskTool,
   createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -448,15 +447,18 @@ async function runSubAgentInner(
   // Set only on the interrupt_agent path (a dedicated signal fired by the
   // `interrupt` handle below, never runController) — the finally block
   // skips teardown here too, so the agent and its workdir lock stay live
-  // for a later followup_task.
+  // for a later resume_agent.
   let interruptedKeepAlive = false;
   // Scoped to this run's `agent.send()` call only. Firing it rejects that
   // one send's promise (per Agent.send's documented signal option) without
   // touching agent.close() or runController — the reactor cycle it belongs
   // to keeps running in the background, exactly as the vendored send-queue
-  // documents, so a later followup_task's agent.send() simply queues behind
+  // documents, so a later resume_agent's agent.send() simply queues behind
   // it rather than racing a half-torn-down session.
-  const interruptController = new AbortController();
+  // Per-turn abort for interrupt_agent. Recreated at the start of each
+  // followup send so a prior abort cannot immediately reject the next turn,
+  // and so interrupt_agent can stop a resumed agent.send().
+  let interruptController = new AbortController();
   // Declared before try (same reasoning as closeOnAbort above): assigned once
   // requestContinuation/modelFamilyPolicy exist inside the try, but must be
   // visible to the finally block, which is a sibling scope, not a child.
@@ -472,6 +474,10 @@ async function runSubAgentInner(
       ? resolveSubAgentDeadlineMs(params.deadlineMs, undefined)
       : undefined;
   const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
+  const sendAbortSignal = (): AbortSignal =>
+    typeof AbortSignal.any === "function"
+      ? AbortSignal.any([runController.signal, interruptController.signal])
+      : runController.signal;
 
   try {
     const shellDefaultMs = params.shellTimeout?.defaultMs;
@@ -582,7 +588,6 @@ async function runSubAgentInner(
         "close_agent",
         "resume_agent",
         "interrupt_agent",
-        "followup_task",
         "send_input",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
@@ -685,13 +690,16 @@ async function runSubAgentInner(
           fleetRecords,
           authority: lifecycleAuthority,
         }),
-        createResumeAgentTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
+        createResumeAgentTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
         createInterruptAgentTool({
           sessions: fleetSessions,
           fleetRecords,
           authority: lifecycleAuthority,
         }),
-        createFollowupTaskTool({ sessions: fleetSessions, authority: lifecycleAuthority }),
         createSendInputTool({
           sessions: fleetSessions,
           fleetRecords,
@@ -1031,10 +1039,11 @@ async function runSubAgentInner(
           interruptController.abort(new Error("interrupted by interrupt_agent"));
         }
       };
-      // followup_task's payoff — call agent.send() again on the same live
+      // resume_agent's payoff — call agent.send() again on the same live
       // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
-        const result = await agent!.send(message, { signal: runController.signal });
+        interruptController = new AbortController();
+        const result = await agent!.send(message, { signal: sendAbortSignal() });
         return result.reply.trim().length > 0
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
@@ -1077,16 +1086,13 @@ async function runSubAgentInner(
       // treat a pre-send check as permanent.
       if (runController.signal.aborted) throw abortError(runController.signal);
     };
+    const thisTurnInterrupt = interruptController;
     try {
       ensureNotAborted();
       // Combine the run's own controller with the dedicated interrupt
       // signal so either one stops this send() call, while only
       // runController's abort is wired to closeOnAbort/teardown.
-      const sendSignal =
-        typeof AbortSignal.any === "function"
-          ? AbortSignal.any([runController.signal, interruptController.signal])
-          : runController.signal;
-      const sendOpts = { signal: sendSignal };
+      const sendOpts = { signal: sendAbortSignal() };
       const fresh = await refreshInferenceSourceBundle(
         bundle.sources,
         bundle.defaultSource,
@@ -1124,7 +1130,7 @@ async function runSubAgentInner(
       // interrupt_agent fired its own signal, not runController's — check
       // that first so an interrupted send doesn't fall into the cancel/
       // deadline salvage path or rethrow as a bare AbortError.
-      if (interruptController.signal.aborted && !runController.signal.aborted) {
+      if (thisTurnInterrupt.signal.aborted && !runController.signal.aborted) {
         interruptedKeepAlive = true;
         const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
         const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);

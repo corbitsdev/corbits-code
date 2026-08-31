@@ -19,6 +19,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `advance_workflow` is gone. Already-complete and not-current ids are
   acknowledged without advancing. The unused `autoAdvance` workflow field is
   removed.
+- `resume_agent(target, message)` starts the next turn on a retained completed
+  or interrupted worker and returns immediately. `wait_agents` collects the
+  reply. `send_input` steers only an in-flight running turn. Closed workers
+  stay closed.
 
 ### Fixed
 

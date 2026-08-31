@@ -307,25 +307,127 @@ describe("CL-6943 reusable worker sessions", () => {
     store.markRunning(session.id);
     expect(store.get(session.id)?.lifecycleStatus).toBe("running");
 
+    store.registerFollowup(session.id, async () => "next turn");
     store.complete(session.id, "## Summary\nDone.");
     expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
     expect(store.get(session.id)?.retained).toBe(true);
 
-    const outcome = store.resumeOne(session.id);
-    expect(outcome).toEqual({ ok: true });
+    const outcome = store.resumeOne(session.id, "continue");
+    expect(outcome).toEqual({ ok: true, status: "running" });
+    expect(store.get(session.id)?.status).toBe("running");
     expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("resume-from-completed is a live turn: send_input, interrupt, and appendEvent work", async () => {
+    let finish: (reply: string) => void = () => {};
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    const delivered: string[] = [];
+    store.registerDeliver(session.id, (message) => {
+      delivered.push(message);
+    });
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.get(session.id)?.status).toBe("done");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "running" });
+    expect(store.get(session.id)?.status).toBe("running");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+    expect(store.get(session.id)?.finishedAt).toBeUndefined();
+
+    expect(store.sendInputOne(session.id, "steer mid-turn")).toEqual({
+      ok: true,
+      status: "running",
+    });
+    expect(delivered).toEqual(["steer mid-turn"]);
+
+    store.appendEvent(session.id, startCall(1, "call-1", "grep"));
+    const afterTool = store.get(session.id);
+    if (afterTool === undefined) throw new Error("session missing after tool start");
+    expect(afterTool.toolNames).toContain("grep");
+    expect(afterTool.outstandingTools).toHaveLength(1);
+    expect(afterTool.currentToolName).toBe("grep");
+    expect(agentLaneIsLive(afterTool)).toBe(true);
+    expect(fleetProgress(store.list(), Date.now()).running).toBe(1);
+
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.status).toBe("running");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
+
+    finish("later");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.get(session.id)?.status).toBe("done");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+  });
+
+  test("rejected followup restores strip status so interrupt_agent fails closed", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, async () => {
+      throw new Error("send failed");
+    });
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.get(session.id)?.status).toBe("done");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "running" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const after = store.get(session.id);
+    expect(after?.status).toBe("done");
+    expect(after?.lifecycleStatus).toBe("completed");
+    expect(store.interruptOne(session.id)).toEqual({ ok: false, status: "completed" });
+  });
+
+  test("interrupt then abort does not overwrite interrupted stamp to completed", async () => {
+    let rejectFollowup: (err: unknown) => void = () => {};
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectFollowup = reject;
+        }),
+    );
+    store.complete(session.id, "## Summary\nDone.");
+
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "running" });
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.status).toBe("running");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
+
+    rejectFollowup(new Error("aborted"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const after = store.get(session.id);
+    expect(after?.status).toBe("running");
+    expect(after?.lifecycleStatus).toBe("interrupted");
   });
 
   test("resume_agent fails on a session that was never retained", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
     store.complete(session.id, "## Summary\nDone.");
-    expect(store.resumeOne(session.id)).toEqual({ ok: false, status: "completed" });
+    expect(store.resumeOne(session.id, "more")).toEqual({ ok: false, status: "completed" });
   });
 
   test("resume_agent fails on an unknown id with not_found", () => {
     const store = createSubAgentSessionStore();
-    expect(store.resumeOne("missing")).toEqual({ ok: false, status: "not_found" });
+    expect(store.resumeOne("missing", "more")).toEqual({ ok: false, status: "not_found" });
   });
 
   test("closeOne is bounded by its deadline when the registered close hangs forever", async () => {
@@ -363,13 +465,13 @@ describe("CL-6943 reusable worker sessions", () => {
     store.registerClose(session.id, async () => {});
     store.complete(session.id, "## Summary\nDone.");
     await store.closeOne(session.id, 1000);
-    expect(store.resumeOne(session.id)).toEqual({ ok: false, status: "shutdown" });
+    expect(store.resumeOne(session.id, "more")).toEqual({ ok: false, status: "shutdown" });
   });
 
   // CL-7001 originally folded a retained, still-open session into
   // maxCompleted (the TUI display cap) with no separate bound at all,
-  // fixing the unbounded leak but creating a new bug: resume_agent /
-  // followup_task fail once more than `maxCompleted` (default 20) workers
+  // fixing the unbounded leak but creating a new bug: resume_agent
+  // fails once more than `maxCompleted` (default 20) workers
   // have spawned, even though every one of them is still perfectly
   // reusable. CL-7007 gives open retained sessions their own cap
   // (`maxRetained`) instead — this test changed from asserting that
@@ -444,7 +546,7 @@ describe("CL-6943 reusable worker sessions", () => {
       store.complete(s.id, "## Summary\nDone.");
     }
 
-    const outcome = store.resumeOne(retained.id);
+    const outcome = store.resumeOne(retained.id, "more");
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.status).toBe("completed");
@@ -463,8 +565,9 @@ describe("CL-6943 reusable worker sessions", () => {
     store.markRunning(running.id);
     // Resume it back to "running" so it is an open, actively-driven session.
     store.registerClose(running.id, async () => {});
+    store.registerFollowup(running.id, () => new Promise<string>(() => {}));
     store.complete(running.id, "## Summary\nDone.");
-    store.resumeOne(running.id);
+    store.resumeOne(running.id, "keep going");
     expect(store.get(running.id)?.lifecycleStatus).toBe("running");
 
     for (let i = 0; i < 5; i++) {
@@ -628,7 +731,8 @@ describe("interrupt stamps finishedAt once", () => {
     expect(store.get(session.id)?.finishedAt).toBe(2000);
 
     t = 3000;
-    const pending = store.followupOne(session.id, "keep going");
+    const outcome = store.resumeOne(session.id, "keep going");
+    expect(outcome).toEqual({ ok: true, status: "running" });
 
     t = 11_000;
     store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
@@ -641,7 +745,7 @@ describe("interrupt stamps finishedAt once", () => {
 
     t = 12_000;
     finish("done");
-    expect(await pending).toEqual({ ok: true, reply: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const terminal = store.list();
     expect(terminal[0]?.status).toBe("done");
     expect(terminal[0]?.lifecycleStatus).toBe("completed");

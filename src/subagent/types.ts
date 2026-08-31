@@ -170,7 +170,7 @@ export type RunSubAgentParams = {
    *    `signal` option); this only stops the caller from waiting on it.
    *  - `followup`: sends a new message into the same live agent (same
    *    history, same context store) once the current turn is no longer
-   *    active — this is the resume mechanism `resume_agent`/`followup_task`
+   *    active — this is the resume mechanism `resume_agent`
    *    build on, reusing `agent.send`'s own FIFO send-queue ordering rather
    *    than a second continuation scheme.
    *

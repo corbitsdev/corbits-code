@@ -111,7 +111,7 @@ export class SubAgentDirector extends DefaultDirector {
   // salvage), empty continuations from idle-compact / stall must not fall
   // through to DefaultDirector.infer — that re-opens the brief without a new
   // parent message (CL-7068). Cleared only by a non-empty parent message
-  // (followup_task / send_input).
+  // (resume_agent / send_input).
   private reportReplied = false;
 
   // Stall management: a leaf that goes quiet (e.g. parked on a long-running

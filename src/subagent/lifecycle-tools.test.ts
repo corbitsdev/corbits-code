@@ -4,10 +4,9 @@ import {
   createCloseAgentTool,
   createResumeAgentTool,
   createInterruptAgentTool,
-  createFollowupTaskTool,
   createSendInputTool,
 } from "./lifecycle-tools.js";
-import { createFleetRecords } from "./agent-fleet.js";
+import { createFleetRecords, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 
 async function callTool(
@@ -15,8 +14,8 @@ async function callTool(
     | ReturnType<typeof createCloseAgentTool>
     | ReturnType<typeof createResumeAgentTool>
     | ReturnType<typeof createInterruptAgentTool>
-    | ReturnType<typeof createFollowupTaskTool>
-    | ReturnType<typeof createSendInputTool>,
+    | ReturnType<typeof createSendInputTool>
+    | ReturnType<typeof createWaitAgentsTool>,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
@@ -89,34 +88,66 @@ describe("close_agent", () => {
 });
 
 describe("resume_agent", () => {
-  test("resumes a retained completed session and rejects a non-retained one", async () => {
+  test("starts the next turn on a completed retained session and returns immediately", async () => {
     const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
     const retained = sessions.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    const history: string[] = ["first task"];
+    let finish: (reply: string) => void = () => {};
+    sessions.registerFollowup(
+      retained.id,
+      (message: string) =>
+        new Promise<string>((resolve) => {
+          history.push(message);
+          finish = resolve;
+        }),
+    );
     sessions.complete(retained.id, "## Summary\nDone.");
 
     const notRetained = sessions.start({ description: "d2", agentId: "a", brief: "b" });
     sessions.complete(notRetained.id, "## Summary\nDone.");
 
-    const resumeAgent = createResumeAgentTool({ sessions });
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
 
-    const ok = await callTool(resumeAgent, { target: retained.id });
+    const started = Date.now();
+    const ok = await callTool(resumeAgent, { target: retained.id, message: "now do task two" });
+    expect(Date.now() - started).toBeLessThan(1000);
     expect(ok.status).toBe("running");
+    expect(sessions.get(retained.id)?.status).toBe("running");
     expect(sessions.get(retained.id)?.lifecycleStatus).toBe("running");
+    expect(history).toEqual(["first task", "now do task two"]);
 
-    const rawResult = await (async () => {
-      if (resumeAgent.kind !== "full") throw new Error("expected full tool");
-      return resumeAgent.handler(
-        { id: "call-x", name: "resume_agent", arguments: { target: notRetained.id } },
-        new AbortController().signal,
-      );
-    })();
-    expect(rawResult.isError).toBe(true);
+    sessions.registerDeliver(retained.id, () => {});
+    sessions.registerInterrupt(retained.id, () => {});
+    const sendInput = createSendInputTool({ sessions });
+    const steered = await callTool(sendInput, { target: retained.id, message: "steer" });
+    expect(steered).toEqual({ agent_id: retained.id, status: "running" });
+    const interrupted = await callTool(createInterruptAgentTool({ sessions, fleetRecords }), {
+      target: retained.id,
+    });
+    expect(interrupted.status).toBe("interrupted");
+
+    finish("done, history now 2 turns");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sessions.get(retained.id)?.lifecycleStatus).toBe("completed");
+    expect(sessions.get(retained.id)?.id).toBe(retained.id);
+    expect(sessions.get(retained.id)?.report).toBe("done, history now 2 turns");
+
+    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
+    const rejected = await resumeAgent.handler(
+      {
+        id: "call-x",
+        name: "resume_agent",
+        arguments: { target: notRetained.id, message: "more" },
+      },
+      new AbortController().signal,
+    );
+    expect(rejected.isError).toBe(true);
   });
-});
 
-describe("interrupt_agent / followup_task", () => {
-  test("interrupt then followup keeps prior context — the worker does not re-read from scratch", async () => {
+  test("resumes an interrupted retained session without calling close()", async () => {
     const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
     const worker = sessions.start({
       description: "worker",
       agentId: "a",
@@ -125,11 +156,12 @@ describe("interrupt_agent / followup_task", () => {
     });
     sessions.markRunning(worker.id);
 
-    // Simulates the live agent's own message history (what run.ts's
-    // `followup`/`interrupt` closures actually close over) — a shared array,
-    // not something recreated per call.
     const history: string[] = ["read src/index.ts", "found the bug on line 12"];
     let interruptFired = false;
+    let closeCalls = 0;
+    sessions.registerClose(worker.id, async () => {
+      closeCalls++;
+    });
     sessions.registerInterrupt(worker.id, () => {
       interruptFired = true;
     });
@@ -138,112 +170,136 @@ describe("interrupt_agent / followup_task", () => {
       return `Applying fix given ${history.length} prior turns of context.`;
     });
 
-    const interruptAgent = createInterruptAgentTool({
-      sessions,
-      fleetRecords: createFleetRecords(),
-    });
-    const followupTask = createFollowupTaskTool({ sessions });
+    const interruptAgent = createInterruptAgentTool({ sessions, fleetRecords });
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
 
     const interruptResult = await callTool(interruptAgent, { target: worker.id });
     expect(interruptResult.status).toBe("interrupted");
     expect(interruptFired).toBe(true);
+    expect(closeCalls).toBe(0);
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("interrupted");
 
-    const followupResult = await callTool(followupTask, {
+    const started = Date.now();
+    const resumeResult = await callTool(resumeAgent, {
       target: worker.id,
       message: "actually fix line 12 directly, not line 20",
     });
-    expect(followupResult.status).toBe("completed");
-
-    // The load-bearing assertion: the worker's own history object still
-    // holds the turns that predate the interrupt, plus the new one appended
-    // in place — not a fresh array the followup started from empty.
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(resumeResult.status).toBe("running");
+    expect(closeCalls).toBe(0);
     expect(history).toEqual([
       "read src/index.ts",
       "found the bug on line 12",
       "actually fix line 12 directly, not line 20",
     ]);
-    expect(history.length).toBe(3);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("completed");
-    expect(sessions.get(worker.id)?.report).toBe(followupResult.reply as string);
+    expect(sessions.get(worker.id)?.report).toContain("Applying fix given 3 prior turns");
   });
 
-  test("followup_task on a completed retained worker reuses its existing session, not a fresh one", async () => {
+  test("rejects a closed session and a concurrent resume of a running turn", async () => {
     const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const closed = sessions.start({
+      description: "closed",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.registerClose(closed.id, async () => {});
+    sessions.registerFollowup(closed.id, async () => "should not run");
+    sessions.complete(closed.id, "## Summary\nDone.");
+    const closeAgent = createCloseAgentTool({ sessions, fleetRecords });
+    await callTool(closeAgent, { target: closed.id });
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
+    const closedErr = await resumeAgent.handler(
+      { id: "c-closed", name: "resume_agent", arguments: { target: closed.id, message: "more" } },
+      new AbortController().signal,
+    );
+    expect(closedErr.isError).toBe(true);
+    expect(String(closedErr.content)).toContain("shutdown");
+
     const worker = sessions.start({
       description: "worker",
       agentId: "a",
       brief: "b",
       retained: true,
     });
-    const history: string[] = ["did the first task"];
-    sessions.registerFollowup(worker.id, async (message: string) => {
-      history.push(message);
-      return `done, history now ${history.length} turns`;
-    });
-    sessions.complete(worker.id, "## Summary\nFirst task done.");
+    let finish: (reply: string) => void = () => {};
+    sessions.registerFollowup(
+      worker.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    sessions.complete(worker.id, "## Summary\nDone.");
 
-    const followupTask = createFollowupTaskTool({ sessions });
-    const result = await callTool(followupTask, { target: worker.id, message: "now do task two" });
-
-    expect(result.status).toBe("completed");
-    // Same session id throughout — never re-created — and its underlying
-    // history object grew rather than being replaced.
-    expect(sessions.get(worker.id)?.id).toBe(worker.id);
-    expect(history).toEqual(["did the first task", "now do task two"]);
-
-    const nonRetained = sessions.start({ description: "d2", agentId: "a", brief: "b" });
-    sessions.complete(nonRetained.id, "## Summary\nDone.");
-    if (followupTask.kind !== "full") throw new Error("expected full tool");
-    const rejected = await followupTask.handler(
+    const first = await callTool(resumeAgent, { target: worker.id, message: "turn two" });
+    expect(first.status).toBe("running");
+    const concurrent = await resumeAgent.handler(
       {
-        id: "c3",
-        name: "followup_task",
-        arguments: { target: nonRetained.id, message: "more work" },
+        id: "c-concurrent",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "again" },
       },
       new AbortController().signal,
     );
-    expect(rejected.isError).toBe(true);
+    expect(concurrent.isError).toBe(true);
+    expect(String(concurrent.content)).toContain("running");
+    finish("done");
   });
 
-  test("an interrupted session is resumable via followup_task and interrupt never touches close()", async () => {
+  test("wait_agents collects the resumed turn after resume_agent returns", async () => {
     const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
     const worker = sessions.start({
       description: "worker",
       agentId: "a",
       brief: "b",
       retained: true,
     });
-    sessions.markRunning(worker.id);
+    let finish: (reply: string) => void = () => {};
+    sessions.registerFollowup(
+      worker.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    sessions.complete(worker.id, "first report");
+    fleetRecords.register(worker.id);
+    fleetRecords.resolve(worker.id, "first report");
 
-    let closeCalls = 0;
-    sessions.registerClose(worker.id, async () => {
-      closeCalls++;
-    });
-    sessions.registerInterrupt(worker.id, () => {
-      // Real interrupt handle: fires a dedicated signal, never close().
-    });
-    sessions.registerFollowup(worker.id, async () => "resumed cleanly");
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
 
-    const interruptAgent = createInterruptAgentTool({
-      sessions,
-      fleetRecords: createFleetRecords(),
-    });
-    const followupTask = createFollowupTaskTool({ sessions });
+    const firstWait = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    expect(firstWait.timed_out).toBe(false);
+    const firstResults = firstWait.results as { status: string; report?: string }[];
+    expect(firstResults[0]!.status).toBe("done");
+    expect(firstResults[0]!.report).toBe("first report");
 
-    await callTool(interruptAgent, { target: worker.id });
-    expect(closeCalls).toBe(0);
+    const started = Date.now();
+    const resumed = await callTool(resumeAgent, { target: worker.id, message: "second turn" });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(resumed.status).toBe("running");
 
-    const followupResult = await callTool(followupTask, { target: worker.id, message: "continue" });
-    expect(followupResult.status).toBe("completed");
-    expect(closeCalls).toBe(0);
-    // No lock-strand risk from this path: close() was never invoked, so the
-    // workdir lock close_agent's bounded teardown would otherwise release
-    // was never at risk of being held by a wedged close in the first place.
-    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("completed");
+    const waiting = callTool(wait, { targets: [worker.id], timeout_ms: 2000 });
+    finish("second report");
+    const collected = await waiting;
+    expect(collected.timed_out).toBe(false);
+    const results = collected.results as { status: string; report?: string }[];
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toBe("second report");
   });
+});
 
-  test("interrupt_agent and followup_task fail closed on a non-running / non-retained target", async () => {
+describe("interrupt_agent", () => {
+  test("interrupt_agent fails closed on a non-running target", async () => {
     const sessions = createSubAgentSessionStore();
     const notRunning = sessions.start({ description: "d", agentId: "a", brief: "b" });
     sessions.complete(notRunning.id, "## Summary\nDone.");
@@ -252,7 +308,6 @@ describe("interrupt_agent / followup_task", () => {
       sessions,
       fleetRecords: createFleetRecords(),
     });
-    const followupTask = createFollowupTaskTool({ sessions });
 
     if (interruptAgent.kind !== "full") throw new Error("expected full tool");
     const interruptErr = await interruptAgent.handler(
@@ -260,14 +315,6 @@ describe("interrupt_agent / followup_task", () => {
       new AbortController().signal,
     );
     expect(interruptErr.isError).toBe(true);
-
-    if (followupTask.kind !== "full") throw new Error("expected full tool");
-    const followupErr = await followupTask.handler(
-      { id: "c2", name: "followup_task", arguments: { target: notRunning.id, message: "x" } },
-      new AbortController().signal,
-    );
-    // Not retained, so followup_task must reject even though it is "completed".
-    expect(followupErr.isError).toBe(true);
   });
 });
 
@@ -352,6 +399,73 @@ describe("send_input", () => {
     );
     expect(denied.isError).toBe(true);
     expect(sessions.get(missing.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("rejects completed, interrupted, and closed sessions — steering is in-flight only", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    if (sendInput.kind !== "full") throw new Error("expected full tool");
+
+    const completed = sessions.start({
+      description: "done",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(completed.id);
+    sessions.registerDeliver(completed.id, () => {
+      throw new Error("must not deliver to a completed session");
+    });
+    sessions.complete(completed.id, "## Summary\nDone.");
+    const completedErr = await sendInput.handler(
+      { id: "to-completed", name: "send_input", arguments: { target: completed.id, message: "x" } },
+      new AbortController().signal,
+    );
+    expect(completedErr.isError).toBe(true);
+
+    const interrupted = sessions.start({
+      description: "paused",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(interrupted.id);
+    sessions.registerInterrupt(interrupted.id, () => {});
+    sessions.registerDeliver(interrupted.id, () => {
+      throw new Error("must not deliver to an interrupted session");
+    });
+    await callTool(createInterruptAgentTool({ sessions, fleetRecords }), {
+      target: interrupted.id,
+    });
+    const interruptedErr = await sendInput.handler(
+      {
+        id: "to-interrupted",
+        name: "send_input",
+        arguments: { target: interrupted.id, message: "x" },
+      },
+      new AbortController().signal,
+    );
+    expect(interruptedErr.isError).toBe(true);
+
+    const closed = sessions.start({
+      description: "closed",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(closed.id);
+    sessions.registerClose(closed.id, async () => {});
+    sessions.registerDeliver(closed.id, () => {
+      throw new Error("must not deliver to a closed session");
+    });
+    await callTool(createCloseAgentTool({ sessions, fleetRecords }), { target: closed.id });
+    const closedErr = await sendInput.handler(
+      { id: "to-closed", name: "send_input", arguments: { target: closed.id, message: "x" } },
+      new AbortController().signal,
+    );
+    expect(closedErr.isError).toBe(true);
+    expect(sessions.get(closed.id)?.lifecycleStatus).toBe("shutdown");
   });
 
   test("enforces nested orchestrator descendant authority", async () => {
@@ -492,7 +606,7 @@ describe("nested lifecycle authority", () => {
     expect(sessions.get(sibling.id)?.lifecycleStatus).not.toBe("shutdown");
   });
 
-  test("followup_task denies a sibling and allows a descendant", async () => {
+  test("resume_agent denies a sibling and allows a descendant", async () => {
     const sessions = createSubAgentSessionStore();
     const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
     const child = sessions.start({
@@ -514,53 +628,15 @@ describe("nested lifecycle authority", () => {
       sessions.complete(s.id, "done");
       sessions.registerFollowup(s.id, async () => "reply");
     }
-    const followup = createFollowupTaskTool({
-      sessions,
-      authority: nestAuthority(sessions, nested.id),
-    });
-    expect((await callTool(followup, { target: child.id, message: "more" })).status).toBe(
-      "completed",
-    );
-    if (followup.kind !== "full") throw new Error("expected full tool");
-    const denied = await followup.handler(
-      {
-        id: "d",
-        name: "followup_task",
-        arguments: { target: sibling.id, message: "more" },
-      },
-      new AbortController().signal,
-    );
-    expect(denied.isError).toBe(true);
-  });
-
-  test("resume_agent denies a sibling and allows a descendant", async () => {
-    const sessions = createSubAgentSessionStore();
-    const nested = sessions.start({ id: "nested", description: "n", agentId: "a", brief: "b" });
-    const child = sessions.start({
-      id: "child",
-      description: "c",
-      agentId: "a",
-      brief: "b",
-      parentSessionId: nested.id,
-      retained: true,
-    });
-    const sibling = sessions.start({
-      id: "sibling",
-      description: "s",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    sessions.complete(child.id, "done");
-    sessions.complete(sibling.id, "done");
     const resume = createResumeAgentTool({
       sessions,
+      fleetRecords: createFleetRecords(),
       authority: nestAuthority(sessions, nested.id),
     });
-    expect((await callTool(resume, { target: child.id })).status).toBe("running");
+    expect((await callTool(resume, { target: child.id, message: "more" })).status).toBe("running");
     if (resume.kind !== "full") throw new Error("expected full tool");
     const denied = await resume.handler(
-      { id: "d", name: "resume_agent", arguments: { target: sibling.id } },
+      { id: "d", name: "resume_agent", arguments: { target: sibling.id, message: "more" } },
       new AbortController().signal,
     );
     expect(denied.isError).toBe(true);
