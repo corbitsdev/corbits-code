@@ -137,8 +137,11 @@ export interface AgentToolsetArgs {
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
   // Current workflow step id, read live so the handler can distinguish a
-  // matching complete from a duplicate or stale one without advancing.
+  // matching complete from a duplicate, stale, or future id without advancing.
   getCurrentWorkflowStepId?: () => string | null;
+  // True when `stepId` is behind the cursor in the active workflow frame.
+  // Omitted (tests, exec) treats a non-current id as unknown/future, not stale.
+  isPastWorkflowStep?: (stepId: string) => boolean;
   // Primary session mode (always orchestrator; kept for call-site wiring).
   sessionMode?: SessionMode;
   // Session-start facts gating lsp advertisement. Omitted callers (tests,
@@ -466,7 +469,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       definition: submitOutputDefinition,
       // The director observes this call and compare-and-advances the workflow
       // runtime; the handler only acknowledges so the model gets a clean tool
-      // result. Duplicate/stale step ids succeed without claiming an advance.
+      // result. Duplicate, stale, and future step ids succeed without claiming
+      // an advance. Copy distinguishes those cases so a future id is not
+      // reported as already complete.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
         const parsed = SubmitOutputArgs(rawArgs);
         const step = parsed instanceof type.errors ? undefined : parsed.step;
@@ -481,7 +486,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             const note = summary !== undefined && summary.length > 0 ? ` (${summary})` : "";
             return `Workflow step marked complete${note}. Advancing to the next step.`;
           }
-          return "This workflow step is already complete. No advance.";
+          if (args.isPastWorkflowStep?.(step) === true) {
+            return "This workflow step is already complete. No advance.";
+          }
+          return "This workflow step is not current. No advance.";
         }
         if (step !== undefined && step.length > 0) {
           return "No active workflow — nothing to advance.";

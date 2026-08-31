@@ -826,6 +826,7 @@ describe("submit_output workflow handler", () => {
   const buildToolset = (opts: {
     isWorkflowActive: () => boolean;
     getCurrentWorkflowStepId?: () => string | null;
+    isPastWorkflowStep?: (stepId: string) => boolean;
   }) =>
     createAgentToolset({
       cwd: process.cwd(),
@@ -838,6 +839,9 @@ describe("submit_output workflow handler", () => {
       isWorkflowActive: opts.isWorkflowActive,
       ...(opts.getCurrentWorkflowStepId !== undefined
         ? { getCurrentWorkflowStepId: opts.getCurrentWorkflowStepId }
+        : {}),
+      ...(opts.isPastWorkflowStep !== undefined
+        ? { isPastWorkflowStep: opts.isPastWorkflowStep }
         : {}),
     });
 
@@ -889,10 +893,25 @@ describe("submit_output workflow handler", () => {
       await buildToolset({
         isWorkflowActive: () => true,
         getCurrentWorkflowStepId: () => "b",
+        isPastWorkflowStep: (id) => id === "a",
       }),
       { step: "a" },
     );
     expect(content).toContain("already complete");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("does not report a future step as already complete", async () => {
+    const content = await runSubmit(
+      await buildToolset({
+        isWorkflowActive: () => true,
+        getCurrentWorkflowStepId: () => "a",
+        isPastWorkflowStep: () => false,
+      }),
+      { step: "b" },
+    );
+    expect(content).toContain("not current");
+    expect(content).not.toContain("already complete");
     expect(content).not.toContain("Advancing");
   });
 });

@@ -30,6 +30,15 @@ export class WorkflowCoordinator {
     return this.runtime.currentStep()?.id ?? null;
   }
 
+  // True when `stepId` belongs to the active frame and sits behind the cursor
+  // (completed or skipped). Unknown and future ids are not past.
+  isPastStep(stepId: string): boolean {
+    const view = this.runtime.view();
+    if (view === null) return false;
+    const idx = view.steps.findIndex((s) => s.step.id === stepId);
+    return idx !== -1 && idx < view.stepIndex;
+  }
+
   // True when the current step is a gate — the agent must pause and wait for
   // the operator. Used by the chat director to decide when to keep looping
   // autonomously vs. when to hand back to the user.

@@ -189,6 +189,18 @@ test("coordinator ignores submit_output tagged with a different step", () => {
   expect(rt.currentStep()?.id).toBe("a");
 });
 
+test("coordinator treats completed steps as past and future ids as not past", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(simple);
+  const coord = new WorkflowCoordinator(rt);
+  expect(coord.isPastStep("a")).toBe(false);
+  expect(coord.isPastStep("b")).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(true);
+  expect(coord.isPastStep("a")).toBe(true);
+  expect(coord.isPastStep("b")).toBe(false);
+  expect(coord.isPastStep("zzz")).toBe(false);
+});
+
 test("duplicate and stale submit_output completions do not advance", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);

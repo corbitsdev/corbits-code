@@ -1283,6 +1283,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
       isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
       getCurrentWorkflowStepId: () => workflowControllerHolder.instance?.currentStepId() ?? null,
+      isPastWorkflowStep: (stepId) =>
+        workflowControllerHolder.instance?.isPastStep(stepId) === true,
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
       onOperatorGate: (question, options) =>
         new Promise<OperatorResult>((resolve) => {

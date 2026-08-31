@@ -109,6 +109,10 @@ export class WorkflowController {
     return this.coordinator?.currentStepId() ?? null;
   }
 
+  isPastStep(stepId: string): boolean {
+    return this.coordinator?.isPastStep(stepId) === true;
+  }
+
   list(): { name: string; description: string }[] {
     return WORKFLOWS.map((w) => ({ name: w.name, description: w.description }));
   }
