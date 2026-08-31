@@ -357,7 +357,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const sessionMode: SessionMode =
       resolveSessionMode(config.settings, localSettingsForMode) ?? "orchestrator";
 
-    const activeProviderModel = `${config.providerName}:${config.model}`;
     const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
 
     const interactive = input.isTTY === true && output.isTTY === true;
@@ -377,7 +376,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model: config.model,
       requestApproval: (request: PermissionRequest): Promise<ApprovalOutcome> =>
         promptPermission(request, interactive),
-      persist: createApprovalPersist(config.cwd, activeProviderModel),
+      persist: createApprovalPersist(config.cwd, () => `${config.providerName}:${config.model}`),
       approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,

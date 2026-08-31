@@ -122,16 +122,18 @@ export async function loadSeededApprovals(
 /**
  * Route a gate-persisted grant to the store its scope selects.
  * Session grants never reach here — the gate keeps those in memory only.
+ * `getActiveProviderModel` is read at persist time so a live model switch
+ * stores new provider-model grants under the pair now in use.
  */
 export function createApprovalPersist(
   cwd: string,
-  activeProviderModel: string,
+  getActiveProviderModel: () => string,
 ): (approval: Approval, scope: GrantScope) => void {
   return (approval: Approval, scope: GrantScope) => {
     if (scope === "project") void saveProjectApproval(cwd, approval);
     else if (scope === "global") void saveGlobalApproval(approval);
     else if (scope === "provider-model") {
-      void saveProviderModelApproval(activeProviderModel, approval);
+      void saveProviderModelApproval(getActiveProviderModel(), approval);
     }
   };
 }

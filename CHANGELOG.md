@@ -22,6 +22,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - `ask_operator` no longer pre-authorizes a model-authored shell command when
   the operator picks any option, including Reject. Clarification choices
   cannot mint shell grants.
+- Live `/model` switches refresh inference, permission identity, grant
+  persistence identity, and advertised tool schemas together. A grant for the
+  previous model no longer covers the same action, new grants store under the
+  new pair, and Kimi/Moonshot sessions get non-recursive `present` schemas
+  immediately (canonical schemas restore when switching away).
 
 ## [0.3.10] - 2026-08-30
 

@@ -249,6 +249,7 @@ import {
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
+import { applyLiveModelSwitch } from "../session/live-model-switch.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer, type SummaryContext } from "../session/summarizer.js";
 import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -856,8 +857,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const isXaiAuthError = (err: unknown): boolean =>
       err instanceof Error && err.name === "XaiAuthError";
 
-    const activeProviderModel = `${config.providerName}:${config.model}`;
-
     // Shared by the permission gate and every operator-gate emission site: an
     // unattended auto-continue run must not park on any gate forever, whichever
     // kind it is. No caller arms this today — the goal subsystem was the only
@@ -881,7 +880,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         emitGate: (event) => emitter.emit("permission.gate", event),
         approvalTimeout,
       }),
-      persist: createApprovalPersist(config.cwd, activeProviderModel),
+      persist: createApprovalPersist(config.cwd, () => `${config.providerName}:${config.model}`),
       approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
       interactive: true,
       skipPermissions: config.dangerouslySkipPermissions,
@@ -2344,10 +2343,27 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         if (sep <= 0) return;
         const provider = id.slice(0, sep);
         const model = id.slice(sep + 1);
-        config = { ...config, providerName: provider, model };
-        host.bridge.setInferenceProviderId(provider);
-        const bundle = buildSessionSources();
-        agentProxy.setSources(bundle.sources, bundle.defaultSource);
+        applyLiveModelSwitch(
+          { providerName: provider, model },
+          {
+            applyIdentity: (next) => {
+              config = { ...config, providerName: next.providerName, model: next.model };
+            },
+            setPermissionIdentity: (providerName, modelName) => {
+              permissionGate.setProviderIdentity(providerName, modelName);
+            },
+            rebuildInference: (next) => {
+              host.bridge.setInferenceProviderId(next.providerName);
+              const bundle = buildSessionSources();
+              agentProxy.setSources(bundle.sources, bundle.defaultSource);
+            },
+            refreshAdvertisedSchemas: () => {
+              directorHolder.instance?.updateToolDefinitions(
+                computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+              );
+            },
+          },
+        );
 
         const ref: ModelRef = { provider, model };
         void (async () => {

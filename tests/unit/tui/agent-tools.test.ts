@@ -148,6 +148,7 @@ const fakePermissionGate: PermissionGate = {
   setAuto: () => {},
   getSkipPermissions: () => false,
   setSkipPermissions: () => {},
+  setProviderIdentity: () => {},
   registerMcpClient: mock(() => {}),
   unregisterMcpServer: mock(() => {}),
 };
