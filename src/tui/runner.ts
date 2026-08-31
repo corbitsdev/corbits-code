@@ -2086,6 +2086,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const summary = buildCostSummary({
           modelId: config.model,
           baseURL: config.baseURL,
+          providerName: config.providerName,
           pricingCache,
           totalCost,
           formattedCost: formatCost(totalCost),

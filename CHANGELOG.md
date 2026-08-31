@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Fixed
+
+- Codex ChatGPT subscription sessions no longer show a public-rate dollar
+  cost estimate. Hide follows the live provider identity after `/model`
+  switches, not the launch base URL. Context usage and `/cost` still work;
+  `/cost` reports the cost as covered by ChatGPT subscription. Metered
+  OpenAI API endpoints keep dollar estimates.
+
 ## [0.3.11] - 2026-08-31
 
 ### Changed
@@ -37,10 +45,6 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
-- Codex ChatGPT subscription sessions no longer show a public-rate dollar
-  cost estimate. Context usage and `/cost` still work; `/cost` reports the
-  hide reason as ChatGPT subscription. Metered OpenAI API endpoints keep
-  dollar estimates.
 - Failed sessions with an `error` string in `run.json` are valid resume
   candidates, not corrupt files. A truly unreadable session id prints one
   recovery line; parse diagnostics go to the structured log, not the

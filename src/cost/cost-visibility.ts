@@ -1,4 +1,5 @@
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
+import { isCodexProviderName } from "../config/codex-providers.js";
 import { lookupModelPricing, type PricingCache } from "./pricing-fetcher.js";
 
 // Free-model naming conventions: OpenRouter appends ":free", some gateways use
@@ -30,17 +31,21 @@ export function isCodingPlanBaseURL(baseURL: string | undefined): boolean {
 // not apply there, so dollar estimates must be suppressed. Matched against
 // the canonical Codex base (origin + path prefix) so api.openai.com stays
 // metered and a bare chatgpt.com host does not hide costs.
-const CHATGPT_SUBSCRIPTION_FALLBACK = /chatgpt\.com\/backend-api(\/|$)/i;
+const CODEX_BASE = new URL(CODEX_BASE_URL);
+const CODEX_ORIGIN = CODEX_BASE.origin;
+const CODEX_PATH = CODEX_BASE.pathname.replace(/\/$/, "").toLowerCase();
+// Host-anchored: a scheme or start of string must precede chatgpt.com so
+// notchatgpt.com/backend-api never matches. Query/hash after the path still
+// count. Unparseable noise that merely contains the substring does not.
+const CHATGPT_SUBSCRIPTION_FALLBACK = /(?:^|\/\/)chatgpt\.com\/backend-api(?:\/|$|\?|#)/i;
 
 export function isChatGPTSubscriptionBaseURL(baseURL: string | undefined): boolean {
   if (baseURL === undefined) return false;
   try {
     const url = new URL(baseURL);
-    const codex = new URL(CODEX_BASE_URL);
-    if (url.origin !== codex.origin) return false;
-    const basePath = codex.pathname.replace(/\/$/, "");
-    const path = url.pathname.replace(/\/$/, "") || "/";
-    return path === basePath || path.startsWith(`${basePath}/`);
+    if (url.origin !== CODEX_ORIGIN) return false;
+    const path = url.pathname.replace(/\/$/, "").toLowerCase() || "/";
+    return path === CODEX_PATH || path.startsWith(`${CODEX_PATH}/`);
   } catch {
     return CHATGPT_SUBSCRIPTION_FALLBACK.test(baseURL);
   }
@@ -54,6 +59,10 @@ export function isFreeModelByPricing(cache: PricingCache | null, modelId: string
 
 export interface CostVisibilityInput {
   baseURL?: string | undefined;
+  // Live /model identity. When set, it wins over a stale launch baseURL for
+  // the ChatGPT-subscription hide: Codex names hide even on api.openai.com,
+  // non-Codex names show even on CODEX_BASE_URL. Undefined falls back to URL.
+  providerName?: string | undefined;
   modelId: string;
   providerFree?: boolean | undefined;
   pricingCache: PricingCache | null;
@@ -62,15 +71,22 @@ export interface CostVisibilityInput {
 export type CostHiddenReason =
   "provider-free" | "coding-plan" | "chatgpt-subscription" | "free-model" | "zero-priced";
 
+function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
+  if (input.providerName !== undefined) {
+    return isCodexProviderName(input.providerName);
+  }
+  return isChatGPTSubscriptionBaseURL(input.baseURL);
+}
+
 // Non-null when the dollar cost should be suppressed: a manual provider
-// override, a coding-plan endpoint, a ChatGPT/Codex subscription endpoint, a
-// free-named model, or a model the pricing registry reports as zero-cost. The
-// reason is carried to the display so /cost can say which condition hid the
-// figure.
+// override, a coding-plan endpoint, a ChatGPT/Codex subscription (live
+// provider identity, else Codex URL), a free-named model, or a model the
+// pricing registry reports as zero-cost. The reason is carried to the
+// display so /cost can say which condition hid the figure.
 export function costHiddenReason(input: CostVisibilityInput): CostHiddenReason | null {
   if (input.providerFree === true) return "provider-free";
   if (isCodingPlanBaseURL(input.baseURL)) return "coding-plan";
-  if (isChatGPTSubscriptionBaseURL(input.baseURL)) return "chatgpt-subscription";
+  if (isChatGPTSubscriptionSession(input)) return "chatgpt-subscription";
   if (isFreeModelId(input.modelId)) return "free-model";
   return isFreeModelByPricing(input.pricingCache, input.modelId) ? "zero-priced" : null;
 }

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { setModelContextWindows } from "../provider/context-window.js";
 import {
   buildCostSummary,
@@ -55,11 +54,12 @@ describe("buildCostSummary", () => {
     expect(summary.costHiddenReason).toBe("coding-plan");
   });
 
-  it("hides cost for a Codex ChatGPT subscription base URL", () => {
+  it("hides cost for a Codex ChatGPT subscription identity", () => {
     const summary = buildCostSummary({
       ...baseInput,
       modelId: "gpt-5.6-luna",
-      baseURL: CODEX_BASE_URL,
+      providerName: "codex/default",
+      baseURL: "https://api.openai.com/v1",
     });
     expect(summary.costHiddenReason).toBe("chatgpt-subscription");
   });
@@ -116,13 +116,15 @@ describe("formatStatusBarSegments", () => {
     const summary = buildCostSummary({
       ...baseInput,
       modelId: "gpt-5.6-luna",
-      baseURL: CODEX_BASE_URL,
+      providerName: "codex/default",
+      baseURL: "https://api.openai.com/v1",
       totalCost: 1.1897,
       formattedCost: "$1.1897",
     });
-    const segments = formatStatusBarSegments(summary);
-    expect(segments.costLabel).toBeUndefined();
-    expect(segments.contextLabel).toMatch(/^Ctx /);
+    expect(formatStatusBarSegments(summary)).toEqual({
+      contextLabel: "Ctx 16%",
+      contextPercentUsed: 16,
+    });
   });
 
   it("renders an unknown context window as --% rather than 0%", () => {
@@ -165,13 +167,21 @@ describe("formatCostCommandOutput", () => {
     expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (coding-plan endpoint)");
   });
 
-  it("reports the reason cost is hidden for a ChatGPT subscription endpoint", () => {
+  it("reports ChatGPT subscription coverage instead of a hidden dollar figure", () => {
     const summary = buildCostSummary({
       ...baseInput,
       modelId: "gpt-5.6-luna",
-      baseURL: CODEX_BASE_URL,
+      providerName: "codex/default",
+      baseURL: "https://api.openai.com/v1",
     });
-    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (ChatGPT subscription)");
+    expect(formatCostCommandOutput(summary)).toBe(
+      [
+        "Model: gpt-5.6-luna",
+        "Cost: covered by ChatGPT subscription (not billed per token)",
+        "Tokens: 1000 in / 500 out / 200 cache-read",
+        "Context: 64000/400000 (16%)",
+      ].join("\n"),
+    );
   });
 
   it("reports the reason cost is hidden for a provider marked free", () => {

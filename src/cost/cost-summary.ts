@@ -9,6 +9,7 @@ import type { PricingCache } from "./pricing-fetcher.js";
 export interface CostSummaryInput {
   modelId: string;
   baseURL?: string | undefined;
+  providerName?: string | undefined;
   providerFree?: boolean | undefined;
   pricingCache: PricingCache | null;
   totalCost: number;
@@ -45,6 +46,7 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
     costHiddenReason: costHiddenReason({
       modelId: input.modelId,
       baseURL: input.baseURL,
+      providerName: input.providerName,
       providerFree: input.providerFree,
       pricingCache: input.pricingCache,
     }),
@@ -90,21 +92,24 @@ export function formatStatusBarSegments(summary: CostSummary): StatusBarCostSegm
   };
 }
 
-const HIDDEN_REASON_TEXT: Record<CostHiddenReason, string> = {
+const HIDDEN_REASON_TEXT: Record<Exclude<CostHiddenReason, "chatgpt-subscription">, string> = {
   "provider-free": "provider marked free",
   "coding-plan": "coding-plan endpoint",
-  "chatgpt-subscription": "ChatGPT subscription",
   "free-model": "free model",
   "zero-priced": "zero-priced in the pricing registry",
 };
 
 export function formatCostCommandOutput(summary: CostSummary): string {
   const window = summary.contextWindow > 0 ? String(summary.contextWindow) : "unknown";
-  const lines = [
-    `Model: ${summary.modelId}`,
+  const costLine =
     summary.costHiddenReason === null
       ? `Cost: ${summary.formattedCost}`
-      : `Cost: hidden (${HIDDEN_REASON_TEXT[summary.costHiddenReason]})`,
+      : summary.costHiddenReason === "chatgpt-subscription"
+        ? "Cost: covered by ChatGPT subscription (not billed per token)"
+        : `Cost: hidden (${HIDDEN_REASON_TEXT[summary.costHiddenReason]})`;
+  const lines = [
+    `Model: ${summary.modelId}`,
+    costLine,
     `Tokens: ${String(summary.inputTokens)} in / ${String(summary.outputTokens)} out / ${String(summary.cacheReadTokens)} cache-read`,
     `Context: ${String(summary.contextTokens)}/${window} (${formatContextPercentLabel(summary.contextPercentUsed, summary.contextIsEstimate)})`,
   ];
