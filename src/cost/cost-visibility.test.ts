@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { costHiddenReason, isCodingPlanBaseURL, isFreeModelId } from "./cost-visibility.js";
+import { CODEX_BASE_URL } from "../auth/codex/constants.js";
+import {
+  costHiddenReason,
+  isChatGPTSubscriptionBaseURL,
+  isCodingPlanBaseURL,
+  isFreeModelId,
+} from "./cost-visibility.js";
 import type { PricingCache } from "./pricing-fetcher.js";
 
 const pricingCache: PricingCache = {
@@ -12,6 +18,11 @@ const pricingCache: PricingCache = {
       cacheReadPricePerToken: 0,
     },
     "free-model": { inputPricePerToken: 0, outputPricePerToken: 0, cacheReadPricePerToken: 0 },
+    "gpt-5.6-luna": {
+      inputPricePerToken: 0.000001,
+      outputPricePerToken: 0.000008,
+      cacheReadPricePerToken: 0,
+    },
   },
 };
 
@@ -55,6 +66,29 @@ describe("isCodingPlanBaseURL", () => {
   });
 });
 
+describe("isChatGPTSubscriptionBaseURL", () => {
+  it("detects the Codex ChatGPT subscription inference base URL", () => {
+    expect(isChatGPTSubscriptionBaseURL(CODEX_BASE_URL)).toBe(true);
+    expect(isChatGPTSubscriptionBaseURL(`${CODEX_BASE_URL}/`)).toBe(true);
+    expect(isChatGPTSubscriptionBaseURL(`${CODEX_BASE_URL}/codex/responses`)).toBe(true);
+  });
+
+  it("does not match the metered OpenAI platform API", () => {
+    expect(isChatGPTSubscriptionBaseURL("https://api.openai.com/v1")).toBe(false);
+  });
+
+  it("does not match chatgpt.com outside the backend-api path", () => {
+    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/")).toBe(false);
+    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend")).toBe(false);
+  });
+
+  it("handles undefined and malformed URLs without over-matching", () => {
+    expect(isChatGPTSubscriptionBaseURL(undefined)).toBe(false);
+    expect(isChatGPTSubscriptionBaseURL("not a url chatgpt.com/backend-api")).toBe(true);
+    expect(isChatGPTSubscriptionBaseURL("not a url chatgpt.com/")).toBe(false);
+  });
+});
+
 describe("costHiddenReason", () => {
   it("hides for a manual provider override", () => {
     expect(costHiddenReason({ modelId: "glm-5.1", providerFree: true, pricingCache })).toBe(
@@ -72,6 +106,16 @@ describe("costHiddenReason", () => {
     ).toBe("coding-plan");
   });
 
+  it("hides for a Codex ChatGPT subscription base URL even when the model has public rates", () => {
+    expect(
+      costHiddenReason({
+        modelId: "gpt-5.6-luna",
+        baseURL: CODEX_BASE_URL,
+        pricingCache,
+      }),
+    ).toBe("chatgpt-subscription");
+  });
+
   it("hides for a free-named model", () => {
     expect(costHiddenReason({ modelId: "qwen3:free", pricingCache })).toBe("free-model");
   });
@@ -85,6 +129,16 @@ describe("costHiddenReason", () => {
       costHiddenReason({
         modelId: "glm-5.1",
         baseURL: "https://api.z.ai/api/paas/v4",
+        pricingCache,
+      }),
+    ).toBeNull();
+  });
+
+  it("shows cost for Luna on the metered OpenAI platform API", () => {
+    expect(
+      costHiddenReason({
+        modelId: "gpt-5.6-luna",
+        baseURL: "https://api.openai.com/v1",
         pricingCache,
       }),
     ).toBeNull();

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
+import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { setModelContextWindows } from "../provider/context-window.js";
 import {
   buildCostSummary,
@@ -54,6 +55,15 @@ describe("buildCostSummary", () => {
     expect(summary.costHiddenReason).toBe("coding-plan");
   });
 
+  it("hides cost for a Codex ChatGPT subscription base URL", () => {
+    const summary = buildCostSummary({
+      ...baseInput,
+      modelId: "gpt-5.6-luna",
+      baseURL: CODEX_BASE_URL,
+    });
+    expect(summary.costHiddenReason).toBe("chatgpt-subscription");
+  });
+
   it("hides cost for a provider marked free", () => {
     const summary = buildCostSummary({ ...baseInput, providerFree: true });
     expect(summary.costHiddenReason).toBe("provider-free");
@@ -102,6 +112,19 @@ describe("formatStatusBarSegments", () => {
     });
   });
 
+  it("omits dollar cost for a Codex ChatGPT subscription session", () => {
+    const summary = buildCostSummary({
+      ...baseInput,
+      modelId: "gpt-5.6-luna",
+      baseURL: CODEX_BASE_URL,
+      totalCost: 1.1897,
+      formattedCost: "$1.1897",
+    });
+    const segments = formatStatusBarSegments(summary);
+    expect(segments.costLabel).toBeUndefined();
+    expect(segments.contextLabel).toMatch(/^Ctx /);
+  });
+
   it("renders an unknown context window as --% rather than 0%", () => {
     setModelContextWindows({ "test-model": 0 });
     const summary = buildCostSummary(baseInput);
@@ -140,6 +163,15 @@ describe("formatCostCommandOutput", () => {
       baseURL: "https://api.z.ai/api/coding/paas/v4",
     });
     expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (coding-plan endpoint)");
+  });
+
+  it("reports the reason cost is hidden for a ChatGPT subscription endpoint", () => {
+    const summary = buildCostSummary({
+      ...baseInput,
+      modelId: "gpt-5.6-luna",
+      baseURL: CODEX_BASE_URL,
+    });
+    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (ChatGPT subscription)");
   });
 
   it("reports the reason cost is hidden for a provider marked free", () => {

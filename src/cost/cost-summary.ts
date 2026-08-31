@@ -93,6 +93,7 @@ export function formatStatusBarSegments(summary: CostSummary): StatusBarCostSegm
 const HIDDEN_REASON_TEXT: Record<CostHiddenReason, string> = {
   "provider-free": "provider marked free",
   "coding-plan": "coding-plan endpoint",
+  "chatgpt-subscription": "ChatGPT subscription",
   "free-model": "free model",
   "zero-priced": "zero-priced in the pricing registry",
 };
