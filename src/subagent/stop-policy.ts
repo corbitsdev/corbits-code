@@ -57,7 +57,7 @@ export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "r
  * An opt-in deadline firing must always produce a salvage report — even with
  * zero tool calls and zero partial text — so the parent gets a graceful report
  * instead of a bare AbortError racing the outer tool-execution watchdog. A
- * genuine pre-progress operator cancel still rethrows so the task tool's
+ * genuine pre-progress operator cancel still rethrows so the spawn_agent tool's
  * cancel path stays a bare abort; mid-run cancel with progress salvages.
  */
 export function resolveSubAgentCatchOutcome(input: {
@@ -193,7 +193,7 @@ export interface ForcedStopReportOptions {
 
 // Exact Summary text rendered for each forced-stop reason. Human-facing only —
 // forcedStopReport is the sole reader; the parent classifies outcomes from the
-// structured ForcedStopReason value itself (see run.ts/task-tool.ts), never by
+// structured ForcedStopReason value itself (see run.ts/agent-fleet.ts), never by
 // parsing this text back out of the report.
 const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   cancelled: "Stopped: cancelled by operator before finishing.",

@@ -149,8 +149,8 @@ describe("approval-log wiring through the permission gate", () => {
     expect(record!.rule).toBe("non-interactive");
   });
 
-  // A sub-agent's `task` dispatch `description` is model-authored free text
-  // (see task-tool.ts) — it is only ever trimmed, never constrained to a
+  // A sub-agent's `spawn_agent` dispatch `description` is model-authored free text
+  // — it is only ever trimmed, never constrained to a
   // closed set. A prior version of this log carried it verbatim as
   // `agentLabel`. It must never reach the record: unlike `rule` (a fixed
   // taxonomy) and `segments` (a count), nothing stops a model from quoting a

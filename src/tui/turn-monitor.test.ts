@@ -500,7 +500,7 @@ describe("stall watchdog", () => {
         t.bridge.submit("build it", "immediate");
         t.bridge.handle({
           type: "inference.tool_call.end",
-          data: { name: "task", callId: "c1" },
+          data: { name: "spawn_agent", callId: "c1" },
         });
         t.port.clear();
 
@@ -589,7 +589,7 @@ describe("stall watchdog", () => {
         t.bridge.submit("build it", "immediate");
         t.bridge.handle({
           type: "inference.tool_call.end",
-          data: { name: "task", callId: "c1" },
+          data: { name: "spawn_agent", callId: "c1" },
         });
         t.bridge.gateOpened();
         t.port.clear();

@@ -1,7 +1,7 @@
 # Example Agent Plugin
 
 A minimal worked example of a `kind: "agent"` plugin. It contributes one
-sub-agent profile, `scout`, that can be dispatched via the `task` tool with
+sub-agent profile, `scout`, that can be dispatched via `spawn_agent` with
 `agent: "scout"`.
 
 ## What it shows
@@ -15,5 +15,5 @@ sub-agent profile, `scout`, that can be dispatched via the `task` tool with
 ## Usage
 
 1. Enable in `/plugins` (or add this directory via "add by path").
-2. In any session, the `task` tool accepts `agent: "scout"` to dispatch a
+2. In any session, call `spawn_agent` with `agent: "scout"` to dispatch a
    sub-agent using this profile.

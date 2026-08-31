@@ -135,7 +135,7 @@ export type PluginManifest = {
 
 Workflow recipe names are **not** registered as top-level `/scope` slashes; an integration plugin owns the command prefix (e.g. a `kind: "workflow"` plugin → `/mywf scope`) and contributes workflow definitions beside the plugin under `plugins/<name>/src/workflows/`. Types live in `src/workflows/definition.ts`.
 
-`agent` plugins contribute dispatchable profiles rather than commands. A command or workflow can still fan out to one subagent or a fleet through the normal `task` surface.
+`agent` plugins contribute dispatchable profiles rather than commands. A command or workflow can still fan out to one subagent or a fleet through `spawn_agent` and `wait_agents`.
 
 The kind-specific export is the implementation hook:
 
@@ -145,7 +145,7 @@ The kind-specific export is the implementation hook:
 | `command`  | `commandPlugin`                             | slash-command registry                     | slash commands                                              |
 | `workflow` | `workflowPlugin` + optional `commandPlugin` | workflow registry + slash-command registry | named workflow recipes behind an integration command prefix |
 | `tool`     | `toolPlugin` (factory)                      | posix toolset                              | add new agent tools (highest trust)                         |
-| `agent`    | `agentPlugin`                               | sub-agent profiles                         | contribute `task`-dispatchable agent profiles               |
+| `agent`    | `agentPlugin`                               | sub-agent profiles                         | contribute `spawn_agent`-dispatchable agent profiles        |
 
 A module with no valid manifest is ignored (not silently half-loaded).
 
@@ -246,8 +246,8 @@ shape.
 
 ### Agent plugins
 
-- `agent` plugins (`agentPlugin` export) contribute `AgentProfile`s that the
-  `task` tool can dispatch to, resolved in `src/plugins/agent-plugins.ts` and
+- `agent` plugins (`agentPlugin` export) contribute `AgentProfile`s that
+  `spawn_agent(agent=...)` can dispatch to, resolved in `src/plugins/agent-plugins.ts` and
   merged into the profile registry alongside local `.agents/agents/` profiles.
 - **Data-only agent plugins** — a directory with `agents/*.md` (or flat `*.md`)
   and optional `skills/<name>/SKILL.md` needs no `index.ts`; `loadDataOnlyAgentPlugin`

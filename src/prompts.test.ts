@@ -128,9 +128,11 @@ test("chat system prompt satisfies system prompt quality markers", () => {
   }
 });
 
-test("default session always lists task and search_agents", () => {
+test("default session lists split fleet tools and search_agents", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
-  expect(prompt).toContain("- task:");
+  expect(prompt).not.toContain("- task:");
+  expect(prompt).toContain("- spawn_agent:");
+  expect(prompt).toContain("- wait_agents:");
   expect(prompt).toContain("- search_agents:");
 });
 
@@ -174,7 +176,8 @@ test("SYSTEM.md override still appends orchestrator harness rules", () => {
   expect(prompt).toContain(override);
   expect(prompt).toContain("## Session mode");
   expect(prompt).toContain("Orchestration:");
-  expect(prompt).toContain("- task:");
+  expect(prompt).toContain("- spawn_agent:");
+  expect(prompt).toContain("- wait_agents:");
 });
 
 test("an empty base override falls back to the default base", () => {
@@ -323,25 +326,28 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
 test("default sub-agent prompt forbids recursion", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain(
-    "Only the primary Corbits Code session (or an orchestrator profile) may call `task`",
+    "Only the primary Corbits Code session (or a built-in orchestrator director) may call `spawn_agent`",
   );
   expect(prompt).toContain("You are a worker");
 });
 
-// Orchestrator profiles (frontmatter `orchestrator: true`) are the documented
-// exception to the no-recursion rule — their purpose IS to fan work out to
+// Built-in orchestrator directors are the documented exception to the
+// no-recursion rule — their purpose IS to fan work out to
 // other agents. The appendix grants them permission and links the syntax.
-test("orchestrator sub-agent prompt grants the task-tool recursion exception", () => {
+test("orchestrator sub-agent prompt grants the spawn_agent recursion exception", () => {
   const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
     orchestrator: true,
   });
   expect(prompt).toContain("You are an orchestrator");
-  expect(prompt).toContain("MAY call `task`");
-  expect(prompt).toContain('task(agent="');
+  expect(prompt).toContain("MAY call `spawn_agent`");
+  expect(prompt).toContain(
+    'spawn_agent(agent="greybeard", description="Review approach", prompt="...")',
+  );
+  expect(prompt).not.toContain("Prefer search_agents");
   // Must NOT contain the default no-recursion line — that would contradict
   // the permission grant in the same appendix.
   expect(prompt).not.toContain(
-    "Only the primary Corbits Code session (or an orchestrator profile) may call `task`",
+    "Only the primary Corbits Code session (or a built-in orchestrator director) may call `spawn_agent`",
   );
 });
 

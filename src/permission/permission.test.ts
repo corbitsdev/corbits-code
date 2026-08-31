@@ -1099,7 +1099,14 @@ describe("createPermissionGate", () => {
     });
     expect(editVerdict.allowed).toBe(true);
     // Benign built-ins a hands-off run should not stop for.
-    for (const name of ["present", "tool_search", "use_skill", "search_agents", "task"]) {
+    for (const name of [
+      "present",
+      "tool_search",
+      "use_skill",
+      "search_agents",
+      "spawn_agent",
+      "wait_agents",
+    ]) {
       const verdict = await gate.evaluate({ id: "c", name, arguments: {} });
       expect(verdict.allowed).toBe(true);
     }

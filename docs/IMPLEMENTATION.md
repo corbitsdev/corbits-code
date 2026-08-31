@@ -87,8 +87,8 @@ src/
     stream-consumer.ts    Async stream consumer with error handling
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
   subagent/
-    index.ts              Sub-agent spawn + SubAgentDirector
-    task-tool.ts          task() — fused spawn+wait; resolveDirector first
+    index.ts              Sub-agent run exports + SubAgentDirector
+    agent-fleet.ts        spawn_agent / wait_agents fleet dispatch and mailbox tools
     session-store.ts      Retained child session transcripts for observe UI
     identity-context.ts   ALS: worker description + cwd for gate attribution
   config/
@@ -153,18 +153,18 @@ docs/
 
 Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
 
-1. `spawn_agent(agent=…)` / `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
+1. `spawn_agent(agent=…)` / `spawn_agent(intent=…)` → `resolveDirector` in `agent-fleet.ts` before tools and system prompt are built. Bare `spawn_agent` (neither field) and `intent=general` fail closed.
 2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities` and `spawn.maySpawn` → `orchestrator`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
-3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `task(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
+3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `spawn_agent` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `spawn_agent(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
 4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker. Plugin and local `.agents/agents/` profiles still load, but closed `DIRECTOR_IDS` cannot be overridden or aliased.
 5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn builder/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. There is no static per-profile write-path lock (CL-6952).
 
    **Codex tool proxies.** When the active provider is Codex (`isCodexProviderName`), `createAgentToolset` and `runSubAgent` mount `apply_patch`, `shell`, and `update_plan` stringTools from `createCodexToolProxies`, all forwarding through the same posix `ToolRunner` seam (`runTool`) so permission plugins still apply. `apply_patch` parses the Codex envelope and forwards each op (`write_file` / `delete_file` / `read_file`). `shell` — the native Codex name is `shell`, not `exec_command`, per the pinned base-instructions text quoted in `codex-responses-adapter.ts`'s bridge message — normalizes Codex's `command` (string or `["bash","-lc",script]`-style argv array), `workdir`, and `timeout_ms` onto `run_shell`'s `{command, cwd?, timeout?}` and is gated by `allowShellFromCapabilities` (mirrors `allowDeleteFromCapabilities` against `run_shell`). `update_plan` maps Codex's `plan: [{step, status}]` onto `manage_tasks(action: "create")`; `pending`/`in_progress`/`completed` map to `todo`/`doing`/`done` — `manage_tasks`'s `cancelled` status has no Codex equivalent and is never produced by this proxy. Primary strips `apply_patch` after mount (Corbits DIY stays on `write_file` / `edit_file` / `delete_file`); `shell` and `update_plan` stay on primary (same classification as `run_shell` / `manage_tasks`). Build and docs leaf allowlists (`BUILD_TOOLS` / `DOCS_TOOLS`) include `apply_patch` so Codex workers keep the proxy after the capability filter. `CORE_TOOL_NAMES` does not list it.
 
-6. There is no static write-path declaration on packages or profiles (CL-6952 removed it — no shipped director ever set one). Instead, `task-tool.ts` tracks each running dispatch by cwd; a new dispatch that lands on the same cwd as a still-running lane records a `concurrent-lane-overlap` entry in `intervention-log.ts` (class `conflict`). This is advisory only — it never blocks the spawn, since cwd overlap does not prove the two lanes touch the same files.
+6. There is no static write-path declaration on packages or profiles (CL-6952 removed it — no shipped director ever set one). Instead, `agent-fleet.ts` tracks each running dispatch by cwd; a new dispatch that lands on the same cwd as a still-running lane records a `concurrent-lane-overlap` entry in `intervention-log.ts` (class `conflict`). This is advisory only — it never blocks the spawn, since cwd overlap does not prove the two lanes touch the same files.
 7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low; plan/review/orchestrator=high; implement/explore/docs/test=medium) > orchestrator/worker binary > parent inheritance. Optional skills are listed in the identity header for awareness; workers do not mount `use_skill` (guidance is baked into package system prompts). Primary mounts `use_skill` for its own skill list.
 
-Intent defaults: `intent=implement` → director `builder`; `explore` → `explorer`; `plan` → `counsel`; `review` → `critic`; general → error. Spawn: skywalker full fleet; greybeard intern/explorer/critic only; all other directors no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and worker prompt.
+Intent defaults: `intent=implement` → director `builder`; `explore` → `explorer`; `plan` → `counsel`; `review` → `critic`; general → error. Spawn: skywalker full fleet; greybeard intern/explorer/critic only; all other directors mount no fleet tools. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and worker prompt.
 
 ### Auto Mode
 
@@ -187,7 +187,7 @@ Unmatched shell auto-allows, including contained non-force `git worktree add`/`r
 
 `ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true, drain timing is **parent-idle** vs **session-idle**:
 
-- **Enter** soft-steers while the parent is busy — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent `run_shell` or awaiting `task()` is parent-busy and holds steers.
+- **Enter** soft-steers while the parent is busy — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent `run_shell` or awaiting `wait_agents` is parent-busy and holds steers.
 - **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only on **session-idle** — parent-idle **and** no live fleet lanes (`run` goes idle). Session-idle Alt+Enter is a no-op. **Ctrl+C** stops the run.
 
 Idle-with-fleet is shipped: after a non-blocking `spawn_agent` dispatch the parent turn can settle while workers keep running. The runner emits a `fleet` event carrying the live-lane count; the bridge holds the run busy on that count, so mid-hold Enter upgrades to a new primary turn (sent immediately) instead of queueing a steer, follow-ups keep waiting for true session-idle, and any steer left pending at the hold's engagement delivers immediately — the parent it was steering has already stopped.
@@ -232,7 +232,7 @@ Provider and model configuration lives in JSON settings files. The global file h
   }
   ```
 
-  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. The `task` tool is always exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget.
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. Fleet wait tools are exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget.
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
   Optional `mcp` block bounds MCP tool calls (`mcp__*` names) specifically — unlike `tools.*`, this arms **unconditionally** even with no settings at all, defaulting to **5 minutes**, since a wedged MCP server otherwise hangs a call forever with nothing to bound it (CL-6895):

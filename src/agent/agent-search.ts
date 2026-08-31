@@ -88,11 +88,11 @@ export function formatAgentSearchResults(profiles: readonly AgentProfile[]): str
   // contain secret-shaped substrings).
   return scrubSecretShapedToolResultContent(
     [
-      "Matching agent profiles (pass id to task(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
+      "Matching agent profiles (pass id to spawn_agent(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
       "",
       ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
       "",
-      "Spawn with task(description, prompt, agent=<id>). For a team, call task once per member (parallel in one turn when independent).",
+      "Spawn with spawn_agent(description, prompt, agent=<id>). For a team, call spawn_agent once per member (parallel in one turn when independent), then collect with wait_agents.",
     ].join("\n"),
   );
 }
@@ -100,7 +100,7 @@ export function formatAgentSearchResults(profiles: readonly AgentProfile[]): str
 export const searchAgentsDefinition: ToolDefinition = {
   name: "search_agents",
   description:
-    "Find task-dispatchable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids, descriptions, and the full loaded system prompt / body for each match so you can inspect plugin or Claude marketplace agents without reading files outside the workspace. Use the id in task(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
+    "Find spawnable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids, descriptions, and the full loaded system prompt / body for each match so you can inspect plugin or Claude marketplace agents without reading files outside the workspace. Use the id in spawn_agent(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
   inputSchema: {
     type: "object",
     properties: {

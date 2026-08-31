@@ -154,8 +154,8 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
  *
  * A carried call id is exact and wins outright — it is the only thing that
  * tells two in-flight calls to the same tool apart, which parallel sub-agent
- * dispatch produces on every turn that fires more than one `task` call (three
- * dispatches all show `meta === "task"`; name alone cannot tell them apart).
+ * dispatch produces on every turn that fires more than one `spawn_agent` call
+ * (three dispatches all show `meta === "spawn_agent"`; name alone cannot tell them apart).
  * An id that matches nothing on the log still returns -1 rather than falling
  * through to the name scan below: every current caller (the live bridge's own
  * call map, `SubAgentTranscriptEntry`, `BridgeInboundEvent`) always carries an

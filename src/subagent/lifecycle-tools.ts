@@ -226,6 +226,12 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
             `(got ${message.length}).`,
         );
       }
+      if (deps.fleetRecords.hasUncollectedTerminal(target)) {
+        return lifecycleResult(
+          call.id,
+          `Error: cannot resume "${target}" before its prior result is collected. Call wait_agents for this agent_id first.`,
+        );
+      }
       const outcome = deps.sessions.resumeOne(target, message, {
         onStart: () => {
           deps.fleetRecords.register(target);

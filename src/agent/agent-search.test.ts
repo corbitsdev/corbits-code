@@ -41,10 +41,10 @@ describe("createAgentIndex", () => {
 });
 
 describe("formatAgentSearchResults", () => {
-  test("includes task hint and ids", () => {
+  test("includes spawn hint and ids", () => {
     const text = formatAgentSearchResults([fixtures[1]!]);
     expect(text).toContain("critique");
-    expect(text).toContain("task(agent=");
+    expect(text).toContain("spawn_agent(agent=");
   });
 
   test("includes source label when present", () => {

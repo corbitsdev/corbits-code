@@ -42,8 +42,7 @@ export function turnTraceId(sessionId: string, turnIndex: number): string {
 }
 
 // Maps a tool call to a fixed span kind. Takes the tool's canonical name
-// (e.g. the subagent task tool's registered name) rather than reaching into
-// subagent internals, so this module has no dependency on tool
+// rather than reaching into subagent internals, so this module has no dependency on tool
 // implementations beyond the one identifier it needs to classify.
 export function classifySpanKind(toolName: string): AiSpanKind {
   return isSubagentToolName(toolName) ? "subagent_call" : "tool_call";

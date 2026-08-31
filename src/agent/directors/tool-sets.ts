@@ -62,7 +62,18 @@ export const REVIEW_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
 export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir", ...PRODUCT_WRITE_TOOLS] as const;
 
 /** Nested orchestrator surface (greybeard / package filter): dispatch + path writes. */
-export const ORCHESTRATOR_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS, "task"] as const;
+export const ORCHESTRATOR_TOOLS = [
+  ...READ_TOOLS,
+  ...PRODUCT_WRITE_TOOLS,
+  "spawn_agent",
+  "wait_agents",
+  "list_agents",
+  "close_agent",
+  "resume_agent",
+  "interrupt_agent",
+  "send_input",
+  "read_agent_trace",
+] as const;
 
 /** Skywalker primary: orchestrator surface plus fleet discovery (Tier-1 only). */
 export const SKYWALKER_TOOLS = [...ORCHESTRATOR_TOOLS, "search_agents"] as const;

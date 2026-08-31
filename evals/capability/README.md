@@ -38,7 +38,7 @@ Tool-discipline baits (shell editing, env prefixes, curl instead of
 `web_fetch`, search loops, skipped dispatch) used to be separate cases. They
 validate _behavior_, not capability, so they now ride on the tier cases as
 `requireBehaviors` bounds — the same mechanism that lets a case demand
-`taskToolCallCount >= 1`:
+`spawnAgentToolCallCount >= 1`:
 
 ```json
 "requireBehaviors": [
@@ -108,7 +108,7 @@ shell parser.
 | `maxChainSegmentsPerCommand` | largest chain in one command                                                | lower is better    |
 | `networkCommandCount`        | segments invoking curl/wget/nc/...                                          | lower is better    |
 | `webFetchToolCallCount`      | `web_fetch` tool calls (0 when the tool is absent or unused)                | informational      |
-| `taskToolCallCount`          | `task` tool calls (0 when the tool is absent or unused)                     | informational      |
+| `spawnAgentToolCallCount`    | `spawn_agent` tool calls (0 when the tool is absent or unused)              | informational      |
 | `editViaShellCount`          | sed/perl/awk `-i` edits or heredoc writes                                   | lower is better    |
 | `repeatedSearchCount`        | tool calls repeating an earlier call's name with normalized-equal arguments | lower is better    |
 | `longestToolOnlyStreak`      | longest run of assistant turns with tool calls and no text                  | lower is better    |
@@ -287,7 +287,7 @@ verify.sh   # objective grader (exit 0 = pass)
         "maxChainSegmentsPerCommand": 2,
         "networkCommandCount": 0,
         "webFetchToolCallCount": 0,
-        "taskToolCallCount": 0,
+        "spawnAgentToolCallCount": 0,
         "editViaShellCount": 0,
         "repeatedSearchCount": 0,
         "longestToolOnlyStreak": 2,

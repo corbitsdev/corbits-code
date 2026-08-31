@@ -285,37 +285,37 @@ describe("isUserFacingJSON", () => {
   });
 });
 
-describe("describeToolCall for task tool", () => {
+describe("describeToolCall for spawn_agent", () => {
   test("named agent call uses agent name as display with description separate", () => {
     const args = JSON.stringify({
       agent: "greybeard",
       description: "review the diff",
       prompt: "...",
     });
-    const result = describeToolCall("task", args);
+    const result = describeToolCall("spawn_agent", args);
     expect(result.display).toBe("Greybeard");
     expect(result.summary).toBe("review the diff");
     expect(result.isShell).toBe(false);
   });
 
-  test("task without agent uses generic Task display", () => {
+  test("spawn_agent without agent uses generic Worker display", () => {
     const args = JSON.stringify({ description: "map all callers", prompt: "..." });
-    const result = describeToolCall("task", args);
-    expect(result.display).toBe("Task");
+    const result = describeToolCall("spawn_agent", args);
+    expect(result.display).toBe("Worker");
     expect(result.summary).toBe("map all callers");
   });
 
-  test("task with blank agent uses generic Task display", () => {
+  test("spawn_agent with blank agent uses generic Worker display", () => {
     const args = JSON.stringify({ agent: "", description: "map all callers", prompt: "..." });
-    const result = describeToolCall("task", args);
-    expect(result.display).toBe("Task");
+    const result = describeToolCall("spawn_agent", args);
+    expect(result.display).toBe("Worker");
     expect(result.summary).toBe("map all callers");
   });
 
-  test("task without description falls back to the prompt subject", () => {
+  test("spawn_agent without description falls back to the prompt subject", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
     const args = JSON.stringify({ agent: "explorer", prompt, intent: "explore" });
-    const result = describeToolCall("task", args);
+    const result = describeToolCall("spawn_agent", args);
     expect(result.display).toBe("Explorer");
     // ARG_VALUE_MAX = 48 with ellipsis when truncated
     expect(result.summary.length).toBeLessThanOrEqual(48);
@@ -327,13 +327,13 @@ describe("describeToolCall for task tool", () => {
   test("long description is abbreviated", () => {
     const long = "a".repeat(100);
     const args = JSON.stringify({ agent: "critic", description: long, prompt: "..." });
-    const result = describeToolCall("task", args);
+    const result = describeToolCall("spawn_agent", args);
     expect(result.summary.length).toBeLessThan(long.length + 20);
     expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
   });
 });
 
-describe("task activity transcript lines", () => {
+describe("spawn_agent activity transcript lines", () => {
   const fullBrief = {
     agent: "explorer",
     description: "map callers of leaveObserve",
@@ -363,7 +363,7 @@ describe("task activity transcript lines", () => {
   ].join("\n");
 
   test("summarizeToolArgs keeps only the description, not the full spawn brief", () => {
-    const s = summarizeToolArgs("task", JSON.stringify(fullBrief));
+    const s = summarizeToolArgs("spawn_agent", JSON.stringify(fullBrief));
     expect(s.summary).toBe("map callers of leaveObserve");
     expect(s.summary).not.toContain("prompt");
     expect(s.summary).not.toContain("intent");
@@ -375,7 +375,7 @@ describe("task activity transcript lines", () => {
   test("summarizeToolArgs falls back to prompt when description is missing", () => {
     const prompt = "Find every call site of leaveObserve and report them with paths.";
     const s = summarizeToolArgs(
-      "task",
+      "spawn_agent",
       JSON.stringify({ agent: "explorer", prompt, intent: "explore", maxTurns: 40 }),
     );
     expect(s.summary.length).toBeLessThanOrEqual(48);
@@ -388,7 +388,7 @@ describe("task activity transcript lines", () => {
   test("describeToolCall full keeps the untrimmed description for Ctrl+O", () => {
     const long = "a".repeat(80);
     const d = describeToolCall(
-      "task",
+      "spawn_agent",
       JSON.stringify({ agent: "explorer", description: long, prompt: "secret brief" }),
     );
     expect(d.summary.length).toBeLessThan(long.length);
@@ -397,28 +397,33 @@ describe("task activity transcript lines", () => {
     expect(d.display).toBe("Explorer");
   });
 
-  test("describeToolCall task with empty description stays empty", () => {
-    const d = describeToolCall("task", JSON.stringify({ agent: "worker" }));
+  test("describeToolCall spawn_agent with empty description stays empty", () => {
+    const d = describeToolCall("spawn_agent", JSON.stringify({ agent: "worker" }));
     expect(d.summary).toBe("");
     expect(d.full).toBe("");
     expect(d.display).toBe("Worker");
   });
 
   test("summarizeToolResult peels the report envelope to the summary line", () => {
-    const r = summarizeToolResult("task", reportBody);
+    const r = summarizeToolResult("spawn_agent", reportBody);
     expect(r.preview).toBe("Found 3 call sites in app.tsx");
     expect(r.preview).not.toContain("## Summary");
     expect(r.preview).not.toContain("## Findings");
   });
 
-  test("summarizeToolResult marks a cancelled task without raw markdown", () => {
-    const r = summarizeToolResult("task", 'Sub-agent "map callers" cancelled by operator.');
+  test("summarizeToolResult marks a cancelled spawn_agent without raw markdown", () => {
+    const r = summarizeToolResult("spawn_agent", 'Sub-agent "map callers" cancelled by operator.');
     expect(r.preview).toBe("cancelled");
     expect(r.preview).not.toContain("##");
   });
 
-  test("mergedToolCollapsedPreview curates task call+result into one line", () => {
-    const line = mergedToolCollapsedPreview("task", JSON.stringify(fullBrief), reportBody, false);
+  test("mergedToolCollapsedPreview curates spawn_agent call+result into one line", () => {
+    const line = mergedToolCollapsedPreview(
+      "spawn_agent",
+      JSON.stringify(fullBrief),
+      reportBody,
+      false,
+    );
     expect(line).toBe("Explorer map callers of leaveObserve — Found 3 call sites in app.tsx");
     expect(line).not.toContain("prompt");
     expect(line).not.toContain("maxTurns");

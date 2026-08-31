@@ -104,7 +104,7 @@ export interface SubAgentSession {
   stopReason?: string;
   // Session id of the orchestrator that dispatched this worker, when this is
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
-  // directly from the primary session's task tool.
+  // directly from the primary session's spawn_agent tool.
   parentSessionId?: string;
   /**
    * Projection of `lifecycle` for close/resume/interrupt JSON. Maps cancelled →
@@ -946,8 +946,8 @@ export function createSubAgentSessionStore(
       // "still open, resumable" when the caller says the agent genuinely
       // survived this turn.
       // Defaults true: complete() historically meant "clean completion," and
-      // task-tool.ts / tests call it that way with no opts at all. Only
-      // agent-fleet's spawn_agent path ever has a salvage to report, and it
+      // tests call it that way with no opts at all. Only agent-fleet's
+      // spawn_agent path ever has a salvage to report, and it
       // always passes this flag explicitly (see its call site).
       const agentRetained = opts?.agentRetained ?? true;
       mutate(id, (session) => {

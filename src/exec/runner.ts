@@ -155,14 +155,14 @@ export async function disposeExecRuntime(args: {
 export interface ExecDirectorOverlay {
   /** Package system prompt; omitted on the skywalker default path. */
   systemPrompt?: string;
-  /** `pkg.tools.allow` (task stripped when `maySpawn` is false). */
+  /** `pkg.tools.allow` (fleet tools stripped when `maySpawn` is false). */
   advertisedAllow?: readonly string[];
-  mountTask: boolean;
+  mountFleet: boolean;
 }
 
 export function resolveExecDirectorOverlay(director: DirectorId | undefined): ExecDirectorOverlay {
   if (director === undefined || director === "skywalker") {
-    return { mountTask: true };
+    return { mountFleet: true };
   }
   const pkg = DIRECTOR_REGISTRY[director];
   const allow = pkg.tools?.allow;
@@ -170,12 +170,25 @@ export function resolveExecDirectorOverlay(director: DirectorId | undefined): Ex
     allow !== undefined && allow.length > 0
       ? pkg.spawn.maySpawn
         ? [...allow]
-        : allow.filter((name) => name !== "task")
+        : allow.filter(
+            (name) =>
+              ![
+                "search_agents",
+                "spawn_agent",
+                "wait_agents",
+                "list_agents",
+                "close_agent",
+                "resume_agent",
+                "interrupt_agent",
+                "send_input",
+                "read_agent_trace",
+              ].includes(name),
+          )
       : undefined;
   return {
     systemPrompt: formatDirectorSystemPrompt(pkg),
     ...(advertisedAllow !== undefined ? { advertisedAllow } : {}),
-    mountTask: pkg.spawn.maySpawn,
+    mountFleet: pkg.spawn.maySpawn,
   };
 }
 
@@ -476,7 +489,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         );
         return result.kind === "option" && result.index === 0;
       },
-      ...(overlay.mountTask
+      ...(overlay.mountFleet
         ? {
             subAgent: {
               provider: () => liveSubAgentProvider.current,

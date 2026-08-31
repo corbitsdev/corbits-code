@@ -114,7 +114,6 @@ import {
   isSubAgentCancelError,
   DEFAULT_CLOSE_DEADLINE_MS,
 } from "./dispose.js";
-import { createTaskTool } from "./task-tool.js";
 import {
   createFleetMailbox,
   createSpawnAgentTool,
@@ -360,7 +359,7 @@ export function createCodexProxyRunTool(posixTools: CodexProxyToolRunner): Codex
 // Spin up an isolated, autonomous agent loop, hand it one task, and return
 // its final report. `params.cwd` is either the dispatcher's own cwd (shared
 // mode) or a worktree snapshotted from the dispatcher's last commit
-// (isolated mode, see task-tool.ts's useWorktree) — either way this loop
+// (isolated mode, see agent-fleet.ts's useWorktree) — either way this loop
 // gets its own posix tool instances and its own git-backed context store so
 // the two loops never trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgentResult> {
@@ -467,7 +466,7 @@ async function runSubAgentInner(
   // deadline so a leaf that hits the deadline can still return a salvage
   // report. When deadlineMs is omitted, no timer is armed — cancel remains
   // the only bound. Declared before try so finally can dispose.
-  // The task tool is exempt from the generic per-tool watchdog (see
+  // spawn_agent is exempt from the generic per-tool watchdog (see
   // resolveToolExecutionTimeoutMs), so there is no outer budget to clamp under.
   const resolvedDeadlineMs =
     params.deadlineMs !== undefined
@@ -567,19 +566,18 @@ async function runSubAgentInner(
       ];
     }
 
-    // Orchestrators need task installed, not just mentioned in the prompt.
+    // Orchestrators need fleet tools installed, not just mentioned in the prompt.
     // Nested dispatch always forbids further orchestration so the tree
     // bottoms out after one hop. Fleet discovery (search_agents) is Tier-1
-    // only (CL-7051) — nested directors keep task/spawn allowlists.
+    // only (CL-7051) — nested directors keep spawn allowlists.
     if (params.orchestrator === true) {
       // Tier enforcement at the mount point, not the prompt, fails closed:
       // an unresolved tier defaults to "leaf" rather than skipping the check,
       // so an AgentProfile outside the closed director set cannot mount
-      // task/search_agents just by setting orchestrator: true.
+      // spawn_agent/search_agents just by setting orchestrator: true.
       const tier = params.orchestratorTier ?? "leaf";
       const mayDiscoverFleet = tier === "orchestrator";
       for (const verb of [
-        "task",
         ...(mayDiscoverFleet ? (["search_agents"] as const) : []),
         "read_agent_trace",
         "spawn_agent",
@@ -594,7 +592,7 @@ async function runSubAgentInner(
       }
       if (params.nestedDispatch === undefined) {
         throw new Error(
-          "runSubAgent: orchestrator=true requires nestedDispatch so the task tool can be installed",
+          "runSubAgent: orchestrator=true requires nestedDispatch so fleet tools can be installed",
         );
       }
       const nd = params.nestedDispatch;
@@ -602,34 +600,6 @@ async function runSubAgentInner(
       const fleetRecords = createFleetMailbox(fleetSessions);
       tools = [
         ...tools,
-        createTaskTool({
-          permissionGate: nd.permissionGate,
-          ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
-          ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
-          ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
-          ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
-          cwd: params.cwd,
-          getWorkdirBase: nd.getWorkdirBase,
-          provider: nd.provider,
-          allowOrchestrator: false,
-          // Nested workers inherit this composite so they can re-read both the
-          // orchestrator's spills and the original parent's.
-          getBlobReader: () => sessionBlobReader,
-          // Pass the public entry so nested workers still go through the outer
-          // slot/refresh path; avoids task-tool importing runSubAgent (cycle).
-          run: runSubAgent,
-          telemetry: liveTelemetry,
-          ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
-          ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
-          sessions: fleetSessions,
-          fleetRecords,
-          ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
-          ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
-          ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
-          ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
-          ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
-          ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
-        }),
         ...(mayDiscoverFleet && nd.profiles !== undefined
           ? [
               createSearchAgentsTool(() => {
@@ -679,11 +649,16 @@ async function runSubAgentInner(
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
         ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
+        ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
       };
       tools = [
         ...tools,
         createSpawnAgentTool(fleetDeps),
-        createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
+        createWaitAgentsTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          authority: lifecycleAuthority,
+        }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({
           sessions: fleetSessions,

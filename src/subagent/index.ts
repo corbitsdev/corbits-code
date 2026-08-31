@@ -59,16 +59,6 @@ export {
   type ToolLessNarrationSpiral,
 } from "./stop-policy.js";
 
-export {
-  classifyBriefSalvage,
-  createBriefDispatchLedger,
-  fingerprintTaskBrief,
-  type BriefDispatchLedger,
-  type BriefDispatchRecord,
-  type BriefSalvageKind,
-  type TaskBriefFingerprintInput,
-} from "./brief-dispatch.js";
-
 export { SubAgentDirector } from "./nudge-director.js";
 
 export {
@@ -99,13 +89,6 @@ export {
   shouldRequireEvidence,
   type SubAgentRunController,
 } from "./run.js";
-
-export {
-  TaskToolArgs,
-  createTaskTool,
-  taskToolDefinition,
-  type TaskToolDeps,
-} from "./task-tool.js";
 
 export {
   cleanupSubAgentWorktree,

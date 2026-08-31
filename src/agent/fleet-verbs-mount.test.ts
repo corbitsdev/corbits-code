@@ -1,6 +1,6 @@
 /**
- * Primary createAgentToolset mounts the seven fleet verbs beside task /
- * search_agents / read_agent_trace when subAgent (with the shared TUI
+ * Primary createAgentToolset mounts the seven fleet verbs beside search_agents /
+ * read_agent_trace when subAgent (with the shared TUI
  * sessions store) is wired. Leaves / no-subAgent toolsets stay without them.
  */
 import { mkdtempSync } from "node:fs";
@@ -45,7 +45,7 @@ describe("primary fleet verb mount", () => {
       },
     });
     const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
-    expect(names).toContain("task");
+    expect(names).not.toContain("task");
     expect(names).toContain("read_agent_trace");
     for (const name of FLEET_VERBS) {
       expect(names).toContain(name);

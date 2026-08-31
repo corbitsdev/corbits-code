@@ -49,8 +49,8 @@ export interface BehaviorMetrics {
   networkCommandCount: number;
   /** web_fetch tool calls (0 when the tool is absent or unused). */
   webFetchToolCallCount: number;
-  /** task tool calls (0 when the tool is absent or unused). */
-  taskToolCallCount: number;
+  /** spawn_agent tool calls (0 when the tool is absent or unused). */
+  spawnAgentToolCallCount: number;
   /** Segments editing files via sed/perl/awk in-place or heredoc redirection. */
   editViaShellCount: number;
   /** Tool calls repeating an earlier call's name with normalized-equal arguments. */
@@ -71,7 +71,7 @@ export const NUMERIC_BEHAVIOR_METRICS = [
   "maxChainSegmentsPerCommand",
   "networkCommandCount",
   "webFetchToolCallCount",
-  "taskToolCallCount",
+  "spawnAgentToolCallCount",
   "editViaShellCount",
   "repeatedSearchCount",
   "longestToolOnlyStreak",
@@ -96,7 +96,7 @@ export const BEHAVIOR_METRIC_DIRECTIONS: Record<NumericBehaviorMetric, "lower" |
   maxChainSegmentsPerCommand: "lower",
   networkCommandCount: "lower",
   webFetchToolCallCount: "neutral",
-  taskToolCallCount: "neutral",
+  spawnAgentToolCallCount: "neutral",
   editViaShellCount: "lower",
   repeatedSearchCount: "lower",
   longestToolOnlyStreak: "lower",
@@ -117,7 +117,8 @@ const NETWORK_COMMANDS = new Set([
 const INPLACE_EDIT_COMMANDS = new Set(["sed", "perl", "awk", "gawk"]);
 const SHELL_TOOL_NAME = "run_shell";
 const WEB_FETCH_TOOL_NAME = "web_fetch";
-const TASK_TOOL_NAME = "task";
+const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
+const LEGACY_TASK_TOOL_NAME = "task";
 
 /**
  * Split a shell command into chain segments, using the same quote-aware
@@ -260,7 +261,7 @@ export function deriveBehaviorMetrics(summary: CapturedRunSummary): BehaviorMetr
     maxChainSegmentsPerCommand,
     networkCommandCount,
     webFetchToolCallCount: toolCallsByName[WEB_FETCH_TOOL_NAME] ?? 0,
-    taskToolCallCount: toolCallsByName[TASK_TOOL_NAME] ?? 0,
+    spawnAgentToolCallCount: toolCallsByName[SPAWN_AGENT_TOOL_NAME] ?? 0,
     editViaShellCount,
     repeatedSearchCount,
     longestToolOnlyStreak,
@@ -276,6 +277,7 @@ const BehaviorMetricsType = type({
   maxChainSegmentsPerCommand: "number",
   networkCommandCount: "number",
   webFetchToolCallCount: "number",
+  "spawnAgentToolCallCount?": "number",
   "taskToolCallCount?": "number",
   editViaShellCount: "number",
   repeatedSearchCount: "number",
@@ -289,10 +291,16 @@ export function parseBehaviorMetrics(raw: unknown): BehaviorMetrics | null {
   if (raw === undefined || raw === null) return null;
   const parsed = BehaviorMetricsType(raw);
   if (parsed instanceof type.errors) return null;
+  const { taskToolCallCount: legacyTaskToolCallCount, ...current } = parsed;
   // Frozen baseline files predate this field; derive from the per-name map.
   return {
-    ...parsed,
-    taskToolCallCount: parsed.taskToolCallCount ?? parsed.toolCallsByName[TASK_TOOL_NAME] ?? 0,
+    ...current,
+    spawnAgentToolCallCount:
+      parsed.spawnAgentToolCallCount ??
+      parsed.toolCallsByName[SPAWN_AGENT_TOOL_NAME] ??
+      legacyTaskToolCallCount ??
+      parsed.toolCallsByName[LEGACY_TASK_TOOL_NAME] ??
+      0,
   };
 }
 

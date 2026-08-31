@@ -70,7 +70,7 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  * layer cannot beat shell-guard). A requested run_shell timeout is not clamped
  * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
  *
- * The task tool is exempt: it runs an entire sub-agent that carries its own
+ * The spawn_agent tool is exempt: it runs an entire sub-agent that carries its own
  * bound (an opt-in deadline), so the generic per-tool budget would
  * abort healthy long-running workers mid-run.
  *
@@ -83,7 +83,7 @@ export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
   call?: ToolCall,
 ): number | undefined {
-  if (call?.name === "task") return undefined;
+  if (call?.name === "spawn_agent") return undefined;
   if (call?.name === "run_shell") {
     const requested = requestedRunShellTimeoutMs(call);
     if (requested !== undefined) {
