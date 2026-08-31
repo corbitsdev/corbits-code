@@ -27,6 +27,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   previous model no longer covers the same action, new grants store under the
   new pair, and Kimi/Moonshot sessions get non-recursive `present` schemas
   immediately (canonical schemas restore when switching away).
+- A failed write of a project, global, or provider-model approval no longer
+  crashes the session. The grant still applies in memory, the approved tool
+  call still completes, and the operator is told remember did not stick.
 
 ## [0.3.10] - 2026-08-30
 
