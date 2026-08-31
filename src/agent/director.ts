@@ -247,8 +247,8 @@ export const submitOutputDefinition: ToolDefinition = {
   name: "submit_output",
   description:
     "Call this when the task is fully complete (include summary) or to complete " +
-    "a workflow step (step id is required to advance; duplicate or stale step " +
-    "ids are acknowledged without advancing).",
+    "a workflow step (step id is required to advance; already-complete and " +
+    "not-current step ids are acknowledged without advancing).",
   inputSchema: {
     type: "object",
     properties: {

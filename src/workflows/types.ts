@@ -8,6 +8,11 @@ export type {
 
 export type StepStatus = "pending" | "active" | "completed" | "skipped";
 
+// Result of compare-and-advance: the matching current step moves the cursor;
+// anything already behind it is already-complete; unknown and future ids are
+// not-current. Callers report this instead of reconstructing the cursor.
+export type WorkflowCompleteResult = "advanced" | "already-complete" | "not-current";
+
 // One entry on the runtime call stack. The active frame is the last element;
 // nested sub-workflows push new frames and pop on completion.
 export interface WorkflowFrame {

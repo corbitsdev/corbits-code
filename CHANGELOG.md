@@ -13,6 +13,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Changed
+
+- Completing a workflow step is a `submit_output` tagged with that step's id.
+  `advance_workflow` is gone. Already-complete and not-current ids are
+  acknowledged without advancing. The unused `autoAdvance` workflow field is
+  removed.
+
 ### Fixed
 
 - Failed sessions with an `error` string in `run.json` are valid resume

@@ -23,7 +23,6 @@ export interface Workflow {
   description: string;
   autoInvoke?: string;
   stepThrough?: boolean;
-  autoAdvance?: boolean;
   steps: WorkflowStep[];
 }
 

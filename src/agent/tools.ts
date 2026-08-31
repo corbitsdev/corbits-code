@@ -34,6 +34,7 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
+import type { WorkflowCompleteResult } from "../workflows/types.js";
 import {
   createTaskTool,
   runSubAgent,
@@ -136,12 +137,10 @@ export interface AgentToolsetArgs {
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
-  // Current workflow step id, read live so the handler can distinguish a
-  // matching complete from a duplicate, stale, or future id without advancing.
-  getCurrentWorkflowStepId?: () => string | null;
-  // True when `stepId` is behind the cursor in the active workflow frame.
-  // Omitted (tests, exec) treats a non-current id as unknown/future, not stale.
-  isPastWorkflowStep?: (stepId: string) => boolean;
+  // Compare-and-advance the live workflow. The handler reports this result
+  // instead of reconstructing the cursor; omitted (exec, tests) never claims
+  // an advance.
+  completeWorkflowStep?: (stepId: string) => WorkflowCompleteResult;
   // Primary session mode (always orchestrator; kept for call-site wiring).
   sessionMode?: SessionMode;
   // Session-start facts gating lsp advertisement. Omitted callers (tests,
@@ -467,11 +466,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
     stringTool({
       definition: submitOutputDefinition,
-      // The director observes this call and compare-and-advances the workflow
-      // runtime; the handler only acknowledges so the model gets a clean tool
-      // result. Duplicate, stale, and future step ids succeed without claiming
-      // an advance. Copy distinguishes those cases so a future id is not
-      // reported as already complete.
+      // The director also observes this call on tool.done; complete() is
+      // compare-and-advance so a second pass is a no-op. The handler reports
+      // complete()'s result so parallel submit_output cannot both claim an
+      // advance. Already-complete and not-current ids succeed without
+      // claiming one.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
         const parsed = SubmitOutputArgs(rawArgs);
         const step = parsed instanceof type.errors ? undefined : parsed.step;
@@ -481,12 +480,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           if (step === undefined || step.length === 0) {
             return "Error: workflow completion requires a step identifier.";
           }
-          const current = args.getCurrentWorkflowStepId?.() ?? null;
-          if (current === step) {
+          const result = args.completeWorkflowStep?.(step) ?? "not-current";
+          if (result === "advanced") {
             const note = summary !== undefined && summary.length > 0 ? ` (${summary})` : "";
             return `Workflow step marked complete${note}. Advancing to the next step.`;
           }
-          if (args.isPastWorkflowStep?.(step) === true) {
+          if (result === "already-complete") {
             return "This workflow step is already complete. No advance.";
           }
           return "This workflow step is not current. No advance.";

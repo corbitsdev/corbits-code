@@ -148,12 +148,15 @@ test("coordinator directive includes the ordinal, label, prompt, and completion 
 test("runtime complete is a compare-and-advance against the current step", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
+  expect(rt.complete("b")).toBe("not-current");
   expect(rt.complete("a")).toBe("advanced");
   expect(rt.currentStep()?.id).toBe("b");
-  expect(rt.complete("a")).toBe("acknowledged");
+  expect(rt.complete("a")).toBe("already-complete");
   expect(rt.currentStep()?.id).toBe("b");
-  expect(rt.complete("zzz")).toBe("acknowledged");
+  expect(rt.complete("zzz")).toBe("not-current");
   expect(rt.currentStep()?.id).toBe("b");
+  expect(rt.complete("b")).toBe("advanced");
+  expect(rt.isComplete()).toBe(true);
 });
 
 test("coordinator advances on submit_output tagged with the current step", () => {

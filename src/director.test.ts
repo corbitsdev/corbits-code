@@ -825,8 +825,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 describe("submit_output workflow handler", () => {
   const buildToolset = (opts: {
     isWorkflowActive: () => boolean;
-    getCurrentWorkflowStepId?: () => string | null;
-    isPastWorkflowStep?: (stepId: string) => boolean;
+    completeWorkflowStep?: (stepId: string) => "advanced" | "already-complete" | "not-current";
   }) =>
     createAgentToolset({
       cwd: process.cwd(),
@@ -837,11 +836,8 @@ describe("submit_output workflow handler", () => {
       }),
       onOperatorGate: async () => ({ kind: "cancel" }),
       isWorkflowActive: opts.isWorkflowActive,
-      ...(opts.getCurrentWorkflowStepId !== undefined
-        ? { getCurrentWorkflowStepId: opts.getCurrentWorkflowStepId }
-        : {}),
-      ...(opts.isPastWorkflowStep !== undefined
-        ? { isPastWorkflowStep: opts.isPastWorkflowStep }
+      ...(opts.completeWorkflowStep !== undefined
+        ? { completeWorkflowStep: opts.completeWorkflowStep }
         : {}),
     });
 
@@ -869,7 +865,7 @@ describe("submit_output workflow handler", () => {
     const content = await runSubmit(
       await buildToolset({
         isWorkflowActive: () => true,
-        getCurrentWorkflowStepId: () => "a",
+        completeWorkflowStep: () => "advanced",
       }),
       { summary: "done" },
     );
@@ -877,23 +873,22 @@ describe("submit_output workflow handler", () => {
     expect(content).not.toContain("Advancing");
   });
 
-  test("acknowledges advancement when the step matches the current step", async () => {
+  test("reports complete() when the step advances", async () => {
     const content = await runSubmit(
       await buildToolset({
         isWorkflowActive: () => true,
-        getCurrentWorkflowStepId: () => "a",
+        completeWorkflowStep: (id) => (id === "a" ? "advanced" : "not-current"),
       }),
       { step: "a" },
     );
     expect(content).toContain("Advancing to the next step");
   });
 
-  test("acknowledges duplicate or stale completions without claiming an advance", async () => {
+  test("reports already-complete without claiming an advance", async () => {
     const content = await runSubmit(
       await buildToolset({
         isWorkflowActive: () => true,
-        getCurrentWorkflowStepId: () => "b",
-        isPastWorkflowStep: (id) => id === "a",
+        completeWorkflowStep: () => "already-complete",
       }),
       { step: "a" },
     );
@@ -901,18 +896,54 @@ describe("submit_output workflow handler", () => {
     expect(content).not.toContain("Advancing");
   });
 
-  test("does not report a future step as already complete", async () => {
+  test("does not report a not-current step as already complete", async () => {
     const content = await runSubmit(
       await buildToolset({
         isWorkflowActive: () => true,
-        getCurrentWorkflowStepId: () => "a",
-        isPastWorkflowStep: () => false,
+        completeWorkflowStep: () => "not-current",
       }),
       { step: "b" },
     );
     expect(content).toContain("not current");
     expect(content).not.toContain("already complete");
     expect(content).not.toContain("Advancing");
+  });
+
+  test("omitted completeWorkflowStep does not claim an advance", async () => {
+    const content = await runSubmit(await buildToolset({ isWorkflowActive: () => true }), {
+      step: "a",
+    });
+    expect(content).toContain("not current");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("parallel submit_output only one reports Advancing", async () => {
+    const { WorkflowRuntime } = await import("./workflows/runtime.js");
+    const workflow = {
+      name: "simple",
+      description: "two steps",
+      steps: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+      ],
+    };
+    const runtime = new WorkflowRuntime(new Map(), () => workflow);
+    runtime.start(workflow);
+    const toolset = await buildToolset({
+      isWorkflowActive: () => true,
+      completeWorkflowStep: (stepId) => runtime.complete(stepId),
+    });
+    const run = (id: string, step: string) =>
+      toolset.dynamicRunner.run(
+        { id, name: "submit_output", arguments: { step } },
+        new AbortController().signal,
+      );
+    const [first, second] = await Promise.all([run("so-1", "a"), run("so-2", "a")]);
+    await toolset.dispose();
+    const contents = [String(first.content), String(second.content)];
+    expect(contents.filter((c) => c.includes("Advancing"))).toHaveLength(1);
+    expect(contents.filter((c) => c.includes("already complete"))).toHaveLength(1);
+    expect(runtime.currentStep()?.id).toBe("b");
   });
 });
 

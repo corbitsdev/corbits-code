@@ -1,5 +1,5 @@
 import type { WorkflowRuntime } from "./runtime.js";
-import type { WorkflowStep } from "./types.js";
+import type { WorkflowCompleteResult, WorkflowStep } from "./types.js";
 
 // Bridges the workflow runtime and a director. A director consults the
 // coordinator for the directive to inject into each turn's system prompt and
@@ -78,16 +78,23 @@ export class WorkflowCoordinator {
   // the runtime, and only via compare-and-advance against the current step.
   // Returns true when the runtime advanced (used by tests; the directors
   // already reset their idle counters on any tool call, so a workflow
-  // advance is never seen as a stall). Duplicate or stale completions are
-  // acknowledged here without moving the cursor.
+  // advance is never seen as a stall). Already-complete and not-current
+  // completions are acknowledged here without moving the cursor.
   handleToolDone(name: string | undefined, args: unknown, isError: boolean): boolean {
     if (isError || !this.runtime.isActive()) return false;
     if (name !== "submit_output") return false;
     const stepId = stepIdOf(args);
     if (stepId === null) return false;
-    if (this.runtime.complete(stepId) !== "advanced") return false;
-    this.persist();
-    return true;
+    return this.complete(stepId) === "advanced";
+  }
+
+  // Compare-and-advance, persist on a real move, and return the complete()
+  // result so callers (submit_output's handler) report it instead of
+  // reconstructing the cursor.
+  complete(stepId: string): WorkflowCompleteResult {
+    const result = this.runtime.complete(stepId);
+    if (result === "advanced") this.persist();
+    return result;
   }
 }
 

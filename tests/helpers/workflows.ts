@@ -14,7 +14,6 @@ import {
 const scope: Workflow = {
   name: "scope",
   description: "Scope a feature or task — creates a ticket or a local scope file",
-  autoAdvance: true,
   steps: [
     {
       id: "research",
@@ -49,7 +48,6 @@ const scope: Workflow = {
 const build: Workflow = {
   name: "build",
   description: "Full implementation workflow: implement, document, and review",
-  autoAdvance: true,
   steps: [
     {
       id: "fetch-ticket",
@@ -94,7 +92,6 @@ const build: Workflow = {
 const review: Workflow = {
   name: "review",
   description: "Multi-agent review and synthesis",
-  autoAdvance: true,
   steps: [
     {
       id: "core-review",

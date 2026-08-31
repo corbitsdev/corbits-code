@@ -12,7 +12,12 @@ import {
   saveWorkflowState,
   warnWorkflowPersistenceFailure,
 } from "../workflows/state.js";
-import type { CapabilityName, StepStatus, Workflow } from "../workflows/types.js";
+import type {
+  CapabilityName,
+  StepStatus,
+  Workflow,
+  WorkflowCompleteResult,
+} from "../workflows/types.js";
 import type { WorkflowEvent } from "../workflows/runtime.js";
 
 export interface CapabilityStatus {
@@ -105,12 +110,8 @@ export class WorkflowController {
     return this.runtime?.isActive() === true;
   }
 
-  currentStepId(): string | null {
-    return this.coordinator?.currentStepId() ?? null;
-  }
-
-  isPastStep(stepId: string): boolean {
-    return this.coordinator?.isPastStep(stepId) === true;
+  complete(stepId: string): WorkflowCompleteResult {
+    return this.coordinator?.complete(stepId) ?? "not-current";
   }
 
   list(): { name: string; description: string }[] {
