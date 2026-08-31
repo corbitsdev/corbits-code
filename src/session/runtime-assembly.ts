@@ -3,6 +3,7 @@
 // Only near-verbatim blocks live here. Gate / toolset / director construction
 // bind runner-specific state and stay in each runner.
 
+import { getLogger } from "@intx/log";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 import type { Compactor } from "@intx/types/runtime";
 
@@ -13,6 +14,7 @@ import {
   loadAgentContextExtensions,
   loadSystemPromptOverrides,
 } from "../agent/context-extensions.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import { buildMainSessionSources } from "../config/inference-sources.js";
 import type { SessionMode } from "../config/session-mode.js";
@@ -119,21 +121,36 @@ export async function loadSeededApprovals(
   return [...sessionApprovals, ...projectApprovals, ...globalApprovals, ...providerModelApprovals];
 }
 
+const persistLogger = getLogger([LOG_NAMESPACE_ROOT, "session", "approvals"]);
+
+// The persist callback is fire-and-forget from the gate. A rejected write must
+// not become an unhandledRejection (that path is fatal at process level); the
+// in-memory grant already applies, so the approved call still completes.
+function persistBestEffort(scope: GrantScope, write: Promise<void>): void {
+  void write.catch((err: unknown) => {
+    persistLogger.warn("Failed to persist {scope} approval: {error}", {
+      scope,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
 /**
  * Route a gate-persisted grant to the store its scope selects.
  * Session grants never reach here — the gate keeps those in memory only.
  * `getActiveProviderModel` is read at persist time so a live model switch
  * stores new provider-model grants under the pair now in use.
+ * Disk failures are logged and swallowed so they cannot crash the session.
  */
 export function createApprovalPersist(
   cwd: string,
   getActiveProviderModel: () => string,
 ): (approval: Approval, scope: GrantScope) => void {
   return (approval: Approval, scope: GrantScope) => {
-    if (scope === "project") void saveProjectApproval(cwd, approval);
-    else if (scope === "global") void saveGlobalApproval(approval);
+    if (scope === "project") persistBestEffort(scope, saveProjectApproval(cwd, approval));
+    else if (scope === "global") persistBestEffort(scope, saveGlobalApproval(approval));
     else if (scope === "provider-model") {
-      void saveProviderModelApproval(getActiveProviderModel(), approval);
+      persistBestEffort(scope, saveProviderModelApproval(getActiveProviderModel(), approval));
     }
   };
 }

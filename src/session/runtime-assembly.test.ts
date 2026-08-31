@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getLogger } from "@intx/log";
+import type { ToolCall } from "@intx/types/runtime";
 
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import * as permissionStore from "../permission/store.js";
+import { createPermissionGate } from "../permission/gate.js";
+import type { GrantScope } from "../permission/types.js";
 import {
   buildSubAgentProvider,
   createApprovalPersist,
@@ -160,6 +165,12 @@ describe("loadSeededApprovals merge order", () => {
 });
 
 describe("createApprovalPersist", () => {
+  const persistLogger = getLogger([LOG_NAMESPACE_ROOT, "session", "approvals"]);
+
+  beforeEach(() => {
+    spyOn(persistLogger, "warn");
+  });
+
   afterEach(() => {
     mock.restore();
   });
@@ -203,6 +214,97 @@ describe("createApprovalPersist", () => {
     expect(providerModel).toHaveBeenNthCalledWith(1, "openai:gpt-5", approval);
     expect(providerModel).toHaveBeenNthCalledWith(2, "anthropic:claude-opus", approval);
   });
+
+  const persistedScopes: {
+    scope: Exclude<GrantScope, "session">;
+    reject: (message: string) => void;
+  }[] = [
+    {
+      scope: "project",
+      reject: (message) => {
+        spyOn(permissionStore, "saveProjectApproval").mockRejectedValue(new Error(message));
+      },
+    },
+    {
+      scope: "global",
+      reject: (message) => {
+        spyOn(permissionStore, "saveGlobalApproval").mockRejectedValue(new Error(message));
+      },
+    },
+    {
+      scope: "provider-model",
+      reject: (message) => {
+        spyOn(permissionStore, "saveProviderModelApproval").mockRejectedValue(new Error(message));
+      },
+    },
+  ];
+
+  const shellCall = (command: string): ToolCall => ({
+    id: "c",
+    name: "run_shell",
+    arguments: { command },
+  });
+
+  async function flushUnhandledRejections(): Promise<unknown> {
+    let unhandled: unknown = null;
+    const onUnhandled = (reason: unknown): void => {
+      unhandled = reason;
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    return unhandled;
+  }
+
+  for (const { scope, reject } of persistedScopes) {
+    test(`a rejected ${scope} write is contained, logged, and never becomes an unhandled rejection`, async () => {
+      const message = `${scope} disk full`;
+      reject(message);
+
+      const persist = createApprovalPersist("/tmp/proj", () => "openai:gpt-5");
+      persist({ tool: "run_shell", pattern: "npm *" }, scope);
+
+      expect(await flushUnhandledRejections()).toBeNull();
+      expect(persistLogger.warn).toHaveBeenCalledTimes(1);
+      expect(persistLogger.warn).toHaveBeenCalledWith(
+        "Failed to persist {scope} approval: {error}",
+        {
+          scope,
+          error: message,
+        },
+      );
+    });
+
+    test(`an approved call still completes and the in-memory ${scope} grant still applies when persist rejects`, async () => {
+      reject(`${scope} EACCES`);
+      const persist = createApprovalPersist("/tmp/proj", () => "openai:gpt-5");
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => {
+          asked++;
+          return {
+            allow: true,
+            persist: { id: scope, label: "", pattern: "npm *", grant: scope },
+          };
+        },
+        persist,
+        interactive: true,
+        skipPermissions: false,
+        providerName: "openai",
+        model: "gpt-5",
+      });
+
+      expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+      expect(asked).toBe(1);
+      expect(await flushUnhandledRejections()).toBeNull();
+      expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(true);
+      expect(asked).toBe(1);
+    });
+  }
 });
 
 describe("skillDirsFromEnabledPlugins", () => {
