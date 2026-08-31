@@ -342,7 +342,7 @@ Positional arguments after flags are joined into the optional initial task deliv
 ### Inference
 
 - OpenAI-compatible chat completions, streamed via `@intx/inference`
-- JSON-schema tool definitions for director-layer tools (`ask_operator`, `present`, `submit_output`, `advance_workflow`) and agent tools (`manage_tasks`, `tool_search`, `use_skill`, `search_agents`, …)
+- JSON-schema tool definitions for director-layer tools (`ask_operator`, `present`, `submit_output`) and agent tools (`manage_tasks`, `tool_search`, `use_skill`, `search_agents`, …)
 
 ### State Persistence
 

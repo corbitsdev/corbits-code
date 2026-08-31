@@ -140,16 +140,23 @@ test("coordinator directive includes the ordinal, label, prompt, and completion 
   const directive = coord.directive();
   expect(directive).toContain("[WORKFLOW STEP 1/2: A]");
   expect(directive).toContain("do a");
-  expect(directive).toContain("advance_workflow");
+  expect(directive).toContain("submit_output");
   expect(directive).toContain('"step": "a"');
+  expect(directive).not.toContain("advance_workflow");
 });
 
-test("coordinator advances on advance_workflow", () => {
+test("runtime complete is a compare-and-advance against the current step", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
-  const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("advance_workflow", {}, false)).toBe(true);
+  expect(rt.complete("b")).toBe("not-current");
+  expect(rt.complete("a")).toBe("advanced");
   expect(rt.currentStep()?.id).toBe("b");
+  expect(rt.complete("a")).toBe("already-complete");
+  expect(rt.currentStep()?.id).toBe("b");
+  expect(rt.complete("zzz")).toBe("not-current");
+  expect(rt.currentStep()?.id).toBe("b");
+  expect(rt.complete("b")).toBe("advanced");
+  expect(rt.isComplete()).toBe(true);
 });
 
 test("coordinator advances on submit_output tagged with the current step", () => {
@@ -160,6 +167,23 @@ test("coordinator advances on submit_output tagged with the current step", () =>
   expect(rt.currentStep()?.id).toBe("b");
 });
 
+test("coordinator requires a step identifier to complete", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(simple);
+  const coord = new WorkflowCoordinator(rt);
+  expect(coord.handleToolDone("submit_output", { summary: "done" }, false)).toBe(false);
+  expect(coord.handleToolDone("submit_output", {}, false)).toBe(false);
+  expect(rt.currentStep()?.id).toBe("a");
+});
+
+test("coordinator does not advance on advance_workflow", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(simple);
+  const coord = new WorkflowCoordinator(rt);
+  expect(coord.handleToolDone("advance_workflow", {}, false)).toBe(false);
+  expect(rt.currentStep()?.id).toBe("a");
+});
+
 test("coordinator ignores submit_output tagged with a different step", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
@@ -168,10 +192,35 @@ test("coordinator ignores submit_output tagged with a different step", () => {
   expect(rt.currentStep()?.id).toBe("a");
 });
 
+test("coordinator treats completed steps as past and future ids as not past", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(simple);
+  const coord = new WorkflowCoordinator(rt);
+  expect(coord.isPastStep("a")).toBe(false);
+  expect(coord.isPastStep("b")).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(true);
+  expect(coord.isPastStep("a")).toBe(true);
+  expect(coord.isPastStep("b")).toBe(false);
+  expect(coord.isPastStep("zzz")).toBe(false);
+});
+
+test("duplicate and stale submit_output completions do not advance", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(simple);
+  const coord = new WorkflowCoordinator(rt);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(true);
+  expect(rt.currentStep()?.id).toBe("b");
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(false);
+  expect(rt.currentStep()?.id).toBe("b");
+  expect(coord.handleToolDone("submit_output", { step: "b" }, false)).toBe(true);
+  expect(rt.isComplete()).toBe(true);
+  expect(coord.handleToolDone("submit_output", { step: "b" }, false)).toBe(false);
+});
+
 test("coordinator ignores errored tool calls", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
   const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("advance_workflow", {}, true)).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, true)).toBe(false);
   expect(rt.currentStep()?.id).toBe("a");
 });

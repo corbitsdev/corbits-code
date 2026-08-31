@@ -127,9 +127,9 @@ await withMockedModule(import.meta.resolve("../../../src/agent/director.js"), ()
     description: "Present structured output",
     inputSchema: { type: "object", properties: {}, required: [] },
   } as ToolDefinition,
-  advanceWorkflowDefinition: {
-    name: "advance_workflow",
-    description: "Advance workflow",
+  submitOutputDefinition: {
+    name: "submit_output",
+    description: "Submit output",
     inputSchema: { type: "object", properties: {}, required: [] },
   } as ToolDefinition,
   createChatDirector: mock(() => ({})),

@@ -716,9 +716,9 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
   });
 
-  // advance_workflow is always on the wire so a workflow going active never grows
+  // submit_output is always on the wire so a workflow going active never grows
   // the array and busts the provider cache prefix.
-  test("advance_workflow is advertised even with no active workflow", async () => {
+  test("submit_output is advertised even with no active workflow", async () => {
     const director = createChatDirector("base-prompt", [], { onTasksChange: () => {} });
     director.updateToolDefinitions([lateTool]);
 
@@ -730,7 +730,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as
       Record<string, unknown> | undefined;
-    expect(inferToolNames(inferAction)).toContain("advance_workflow");
+    expect(inferToolNames(inferAction)).toContain("submit_output");
   });
 
   // End-to-end: tool_search matches an MCP tool, the runner's promote wiring
@@ -781,13 +781,13 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const afterTools = after as { name: string }[];
     const afterNames = afterTools.map((t) => t.name);
     expect(afterNames).toContain("mcp__linear__list_issues");
-    // advance_workflow rides along separately (see withCurrentTools), appended
+    // submit_output rides along separately (see withCurrentTools), appended
     // after computeAdvertised's result every turn — strip it before comparing
     // the fixed built-in prefix, which must survive untouched ahead of the
     // newly appended MCP tool.
-    const beforePrefix = beforeNames.filter((n) => n !== "advance_workflow");
+    const beforePrefix = beforeNames.filter((n) => n !== "submit_output");
     const afterPrefix = afterNames.filter(
-      (n) => n !== "advance_workflow" && n !== "mcp__linear__list_issues",
+      (n) => n !== "submit_output" && n !== "mcp__linear__list_issues",
     );
     expect(afterPrefix).toEqual(beforePrefix);
     expect(afterNames.indexOf("mcp__linear__list_issues")).toBe(beforePrefix.length);
@@ -822,8 +822,11 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   });
 });
 
-describe("advance_workflow handler", () => {
-  const buildToolset = (isWorkflowActive: () => boolean) =>
+describe("submit_output workflow handler", () => {
+  const buildToolset = (opts: {
+    isWorkflowActive: () => boolean;
+    completeWorkflowStep?: (stepId: string) => "advanced" | "already-complete" | "not-current";
+  }) =>
     createAgentToolset({
       cwd: process.cwd(),
       permissionGate: createPermissionGate({
@@ -832,27 +835,115 @@ describe("advance_workflow handler", () => {
         skipPermissions: true,
       }),
       onOperatorGate: async () => ({ kind: "cancel" }),
-      isWorkflowActive,
+      isWorkflowActive: opts.isWorkflowActive,
+      ...(opts.completeWorkflowStep !== undefined
+        ? { completeWorkflowStep: opts.completeWorkflowStep }
+        : {}),
     });
 
-  const runAdvance = async (toolset: Awaited<ReturnType<typeof createAgentToolset>>) => {
+  const runSubmit = async (
+    toolset: Awaited<ReturnType<typeof createAgentToolset>>,
+    args: Record<string, unknown>,
+  ) => {
     const result = await toolset.dynamicRunner.run(
-      { id: "aw", name: "advance_workflow", arguments: {} },
+      { id: "so", name: "submit_output", arguments: args },
       new AbortController().signal,
     );
     await toolset.dispose();
     return String(result.content);
   };
 
-  test("reports an honest no-op when no workflow is active", async () => {
-    const content = await runAdvance(await buildToolset(() => false));
+  test("reports an honest no-op when no workflow is active and a step is tagged", async () => {
+    const content = await runSubmit(await buildToolset({ isWorkflowActive: () => false }), {
+      step: "a",
+    });
     expect(content).toContain("No active workflow");
     expect(content).not.toContain("Advancing");
   });
 
-  test("acknowledges advancement when a workflow is active", async () => {
-    const content = await runAdvance(await buildToolset(() => true));
+  test("requires a step identifier while a workflow is active", async () => {
+    const content = await runSubmit(
+      await buildToolset({
+        isWorkflowActive: () => true,
+        completeWorkflowStep: () => "advanced",
+      }),
+      { summary: "done" },
+    );
+    expect(content).toContain("requires a step identifier");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("reports complete() when the step advances", async () => {
+    const content = await runSubmit(
+      await buildToolset({
+        isWorkflowActive: () => true,
+        completeWorkflowStep: (id) => (id === "a" ? "advanced" : "not-current"),
+      }),
+      { step: "a" },
+    );
     expect(content).toContain("Advancing to the next step");
+  });
+
+  test("reports already-complete without claiming an advance", async () => {
+    const content = await runSubmit(
+      await buildToolset({
+        isWorkflowActive: () => true,
+        completeWorkflowStep: () => "already-complete",
+      }),
+      { step: "a" },
+    );
+    expect(content).toContain("already complete");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("does not report a not-current step as already complete", async () => {
+    const content = await runSubmit(
+      await buildToolset({
+        isWorkflowActive: () => true,
+        completeWorkflowStep: () => "not-current",
+      }),
+      { step: "b" },
+    );
+    expect(content).toContain("not current");
+    expect(content).not.toContain("already complete");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("omitted completeWorkflowStep does not claim an advance", async () => {
+    const content = await runSubmit(await buildToolset({ isWorkflowActive: () => true }), {
+      step: "a",
+    });
+    expect(content).toContain("not current");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("parallel submit_output only one reports Advancing", async () => {
+    const { WorkflowRuntime } = await import("./workflows/runtime.js");
+    const workflow = {
+      name: "simple",
+      description: "two steps",
+      steps: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+      ],
+    };
+    const runtime = new WorkflowRuntime(new Map(), () => workflow);
+    runtime.start(workflow);
+    const toolset = await buildToolset({
+      isWorkflowActive: () => true,
+      completeWorkflowStep: (stepId) => runtime.complete(stepId),
+    });
+    const run = (id: string, step: string) =>
+      toolset.dynamicRunner.run(
+        { id, name: "submit_output", arguments: { step } },
+        new AbortController().signal,
+      );
+    const [first, second] = await Promise.all([run("so-1", "a"), run("so-2", "a")]);
+    await toolset.dispose();
+    const contents = [String(first.content), String(second.content)];
+    expect(contents.filter((c) => c.includes("Advancing"))).toHaveLength(1);
+    expect(contents.filter((c) => c.includes("already complete"))).toHaveLength(1);
+    expect(runtime.currentStep()?.id).toBe("b");
   });
 });
 

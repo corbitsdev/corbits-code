@@ -8,6 +8,7 @@ import {
   type WorkflowFrame,
   type WorkflowState,
   type WorkflowStep,
+  type WorkflowCompleteResult,
 } from "./types.js";
 
 export type WorkflowEvent =
@@ -93,6 +94,25 @@ export class WorkflowRuntime {
     if (frame === undefined) return null;
     const workflow = this.workflowOf(frame);
     return workflow.steps[frame.stepIndex] ?? null;
+  }
+
+  // Compare-and-advance against the current step. Matching `stepId` advances
+  // atomically (check and move happen in this call). A step already behind the
+  // cursor is already-complete; a future, unknown, or inactive id is
+  // not-current. Neither acknowledged case moves the cursor, so a retry cannot
+  // skip ahead.
+  complete(stepId: string): WorkflowCompleteResult {
+    const current = this.currentStep();
+    if (current !== null && current.id === stepId) {
+      this.advance();
+      return "advanced";
+    }
+    const view = this.view();
+    if (view !== null) {
+      const idx = view.steps.findIndex((s) => s.step.id === stepId);
+      if (idx !== -1 && idx < view.stepIndex) return "already-complete";
+    }
+    return "not-current";
   }
 
   // Mark the current step complete and move to the next runnable step. Pops

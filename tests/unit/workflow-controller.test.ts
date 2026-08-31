@@ -98,33 +98,55 @@ test("reset detaches the workflow", async () => {
   });
 });
 
-test("attach() passes autoAdvance to coordinator — directive uses submit_output step tag", async () => {
+test("directive uses submit_output with the current step id", async () => {
   await withController([], async (controller, director, _cwd) => {
-    controller.start("build"); // build has autoAdvance: true
+    controller.start("build");
     const coordinator = director.coordinator!;
     expect(coordinator).toBeDefined();
     const directive = coordinator.directive();
     expect(directive).not.toBeNull();
-    // autoAdvance=true: directive must use step-tagged submit_output only, not advance_workflow.
     expect(directive).toContain("submit_output");
+    expect(directive).toContain('"step":');
     expect(directive).not.toContain("advance_workflow");
   });
 });
 
 test("history() entry after workflow completion contains the workflow name and steps", async () => {
   await withController([], async (controller, _director, _cwd) => {
-    controller.start("review"); // review has 3 steps
+    controller.start("review");
     const coordinator = (controller as unknown as { coordinator: WorkflowCoordinator })
       .coordinator!;
-    // Advance through all steps to trigger workflow-complete.
-    coordinator.handleToolDone("advance_workflow", {}, false);
-    coordinator.handleToolDone("advance_workflow", {}, false);
-    coordinator.handleToolDone("advance_workflow", {}, false);
+    while (coordinator.isActive()) {
+      const stepId = coordinator.currentStepId();
+      expect(stepId).not.toBeNull();
+      coordinator.handleToolDone("submit_output", { step: stepId }, false);
+    }
     expect(controller.isActive()).toBe(false);
     const history = controller.history();
     expect(history).toHaveLength(1);
     expect(history[0]!.name).toBe("review");
     expect(history[0]!.steps.length).toBeGreaterThan(0);
+  });
+});
+
+test("resume() uses the same completion listener as a fresh start", async () => {
+  await withController([], async (controller, director, cwd, home) => {
+    const workflow = findWorkflow("review");
+    expect(workflow).toBeDefined();
+    const runtime = new WorkflowRuntime(new Map());
+    runtime.start(workflow!);
+    await saveWorkflowState(cwd, "session-1", runtime.state(), home);
+
+    await controller.resume();
+    expect(controller.isActive()).toBe(true);
+    const coordinator = director.coordinator!;
+    while (coordinator.isActive()) {
+      const stepId = coordinator.currentStepId();
+      expect(stepId).not.toBeNull();
+      coordinator.handleToolDone("submit_output", { step: stepId }, false);
+    }
+    expect(controller.history()).toHaveLength(1);
+    expect(controller.history()[0]!.name).toBe("review");
   });
 });
 

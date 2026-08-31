@@ -173,8 +173,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 
 - `ask_operator` — Pauses for a clarifying question with a list of options.
 - `present` — Renders structured UI from a JSON view spec instead of pasting tables into chat.
-- `submit_output` — Workflow step advancement when `step` is set (observed by the workflow coordinator).
-- `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
+- `submit_output` — Completes a workflow step when `step` is set. The step id is compared atomically against the current step (`complete()`); already-complete ids (behind the cursor) and not-current ids (future or unknown) are acknowledged without advancing. Always advertised so activating a workflow does not grow the tools array.
 
 Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, **`task`** (spawn a sub-agent), and **`search_agents`** when sub-agent profiles are available — see Sub-agents below.
 
@@ -186,7 +185,7 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `capabilities.ts` — `detectCapabilities` maps the live tool surface to abstract capabilities (`ticket-tracker`, `code-host`, `doc-search`) by name pattern; `resolveStep` decides whether a step runs. A capability override set forces integrations off per run. Adding a capability is a data edit, not a logic change.
 - `runtime.ts` — `WorkflowRuntime` drives execution on a call stack: it skips capability-unsatisfied steps, descends into sub-workflow references, emits step lifecycle events, and snapshots `WorkflowState`. `state.ts` persists that snapshot atomically to `workflow.json` under the session state root for resume.
 
-- `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
+- `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and compare-and-advances the runtime when a `submit_output` tagged `{ step }` completes. Already-complete and not-current ids are acknowledged without moving the cursor. Shared by both directors. Fresh and resumed runs share one listener path.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
 Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled workflow/command plugins** at startup; command surfaces on those plugins (e.g. a workflow plugin's command prefix such as `/mywf scope`). Slash commands may also be authored as data-only markdown (`commands/*.md`, no `index.ts`); see PLUGINS.md. The model never suggests or auto-starts workflows from ordinary chat. Skills (bundled `corbits-skills`, enabled plugins, or `.agents/skills/`) load on demand via `use_skill` or as `/<skill-name>` slash commands when `user-invocable` is not `false` (see Skills below). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).

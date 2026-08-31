@@ -4,9 +4,9 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
 import {
-  advanceWorkflowDefinition,
   askOperatorDefinition,
   presentDefinition,
+  submitOutputDefinition,
 } from "../agent/director.js";
 import { manageTasksDefinition } from "./tasks.js";
 import { validateView } from "../tui/view/index.js";
@@ -34,6 +34,7 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
+import type { WorkflowCompleteResult } from "../workflows/types.js";
 import {
   createTaskTool,
   runSubAgent,
@@ -74,8 +75,9 @@ const AskOperatorArgs = type({
   options: "string[]",
 });
 
-const AdvanceWorkflowArgs = type({
-  "note?": "string",
+const SubmitOutputArgs = type({
+  "summary?": "string",
+  "step?": "string",
 });
 
 // The operator can pick one of the offered options, type a free-form answer, or
@@ -131,10 +133,14 @@ export interface AgentToolsetArgs {
   getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
-  // Whether a workflow is currently running. advance_workflow rides the wire
+  // Whether a workflow is currently running. submit_output rides the wire
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
+  // Compare-and-advance the live workflow. The handler reports this result
+  // instead of reconstructing the cursor; omitted (exec, tests) never claims
+  // an advance.
+  completeWorkflowStep?: (stepId: string) => WorkflowCompleteResult;
   // Primary session mode (always orchestrator; kept for call-site wiring).
   sessionMode?: SessionMode;
   // Session-start facts gating lsp advertisement. Omitted callers (tests,
@@ -459,21 +465,35 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       },
     }),
     stringTool({
-      definition: advanceWorkflowDefinition,
-      // The director observes this call and advances the workflow runtime; the
-      // handler only needs to acknowledge so the model gets a clean tool result.
-      // Since the tool is always advertised, the model can call it with no
-      // workflow active — report the honest no-op rather than a false advance.
+      definition: submitOutputDefinition,
+      // The director also observes this call on tool.done; complete() is
+      // compare-and-advance so a second pass is a no-op. The handler reports
+      // complete()'s result so parallel submit_output cannot both claim an
+      // advance. Already-complete and not-current ids succeed without
+      // claiming one.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        if (args.isWorkflowActive?.() === false) {
+        const parsed = SubmitOutputArgs(rawArgs);
+        const step = parsed instanceof type.errors ? undefined : parsed.step;
+        const summary = parsed instanceof type.errors ? undefined : parsed.summary;
+        const workflowActive = args.isWorkflowActive?.() === true;
+        if (workflowActive) {
+          if (step === undefined || step.length === 0) {
+            return "Error: workflow completion requires a step identifier.";
+          }
+          const result = args.completeWorkflowStep?.(step) ?? "not-current";
+          if (result === "advanced") {
+            const note = summary !== undefined && summary.length > 0 ? ` (${summary})` : "";
+            return `Workflow step marked complete${note}. Advancing to the next step.`;
+          }
+          if (result === "already-complete") {
+            return "This workflow step is already complete. No advance.";
+          }
+          return "This workflow step is not current. No advance.";
+        }
+        if (step !== undefined && step.length > 0) {
           return "No active workflow — nothing to advance.";
         }
-        const parsed = AdvanceWorkflowArgs(rawArgs);
-        if (parsed instanceof type.errors) {
-          return "Acknowledged.";
-        }
-        const note = parsed.note !== undefined ? ` (${parsed.note})` : "";
-        return `Workflow step marked complete${note}. Advancing to the next step.`;
+        return "Acknowledged.";
       },
     }),
   ];
