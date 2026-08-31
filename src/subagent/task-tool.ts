@@ -403,26 +403,17 @@ async function runTaskViaFleet(input: {
     if (result === undefined) {
       return taskToolResult(input.callId, `Error: wait_agents returned no result for ${agentId}.`);
     }
-    // Cancel must not be misclassified as failed:abort — strip cancel /
-    // AbortError leaves fleetRecords as failed with "aborted" while the
-    // session store holds cancelled + the operator reason. A cancel that
-    // still resolved a salvage body (fleet status done) keeps the report,
-    // matching the fused task() race contract.
-    const session = input.sessions.get(agentId);
-    if (session?.status === "cancelled") {
-      if (
-        (result.status === "done" || result.status === "interrupted") &&
-        typeof result.report === "string" &&
-        result.report.length > 0
-      ) {
+    if (result.status === "interrupted") {
+      if (typeof result.report === "string" && result.report.length > 0) {
         return taskToolResult(
           input.callId,
           `Sub-agent "${input.description}" reported:\n\n${result.report}`,
         );
       }
+      const session = input.sessions.get(agentId);
       return taskToolResult(
         input.callId,
-        cancelledSubAgentMessage(input.description, session.error),
+        cancelledSubAgentMessage(input.description, session?.error),
       );
     }
     if (result.status === "failed") {
@@ -460,7 +451,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const briefLedger = createBriefDispatchLedger();
   const fleetSessions = deps.sessions;
   const fleetRecords =
-    deps.fleetRecords ?? (fleetSessions !== undefined ? createFleetRecords() : undefined);
+    deps.fleetRecords ??
+    (fleetSessions !== undefined ? createFleetRecords(fleetSessions) : undefined);
   // Every completed dispatch gets an outcome record — the log otherwise
   // carries shape and run state but never what the run actually produced.
   // Tagged with the dispatched child's provider/model/family so

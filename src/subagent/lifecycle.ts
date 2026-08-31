@@ -75,3 +75,28 @@ export function isResumableLifecycle(
     retained === true && (lifecycle.state === "completed" || lifecycle.state === "interrupted")
   );
 }
+
+export type WaitJSONStatus = "running" | "done" | "failed" | "interrupted";
+
+/**
+ * Wait JSON projection of stored lifecycle. Operator cancel (`cancelled`) is
+ * wait-running while a run/followup is still in flight so the first collect
+ * can still attach salvage. `interrupted` and `shutdown` are immediately
+ * terminal. Never leaks `cancelled` into wait JSON.
+ */
+export function projectWaitStatus(lifecycle: WorkerLifecycle, inFlight: boolean): WaitJSONStatus {
+  if (lifecycle.state === "cancelled" && inFlight) return "running";
+  switch (lifecycle.state) {
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+    case "interrupted":
+    case "cancelled":
+    case "shutdown":
+      return "interrupted";
+    case "pending_init":
+    case "running":
+      return "running";
+  }
+}

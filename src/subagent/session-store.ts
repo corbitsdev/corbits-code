@@ -234,6 +234,23 @@ export interface SubAgentSessionStore {
    */
   pin(id: string): void;
   unpin(id: string): void;
+  /**
+   * Attach a salvage report to cancelled/interrupted/shutdown without changing
+   * `state`. Never overwrites an existing report. If the session is still
+   * pending_init/running (interrupt result with no prior interrupt_agent),
+   * flip to interrupted rather than completed. Clears the in-flight-run bit
+   * and notifies waiters.
+   */
+  attachReport(id: string, report: string): void;
+  /** True while a run or followup has not settled. */
+  isRunInFlight(id: string): boolean;
+  /**
+   * Catch-path settle: clear the in-flight bit without changing lifecycle so
+   * operator cancel becomes wait-terminal when there is no salvage body.
+   */
+  settleRun(id: string): void;
+  /** Wake subscribers without mutating a session (mailbox overlay writers). */
+  wake(): void;
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -387,6 +404,8 @@ export function createSubAgentSessionStore(
   const sessions = new Map<string, StoredSession>();
   // Pin refcount: wait mailboxes hold a pin until they collect the result.
   const pinCounts = new Map<string, number>();
+  // Live run/followup: operator cancel is wait-terminal only after this clears.
+  const runInFlight = new Set<string>();
   // Live abort hooks keyed by session id. Cleared on terminal transition.
   const cancelHandles = new Map<string, () => void>();
   // CL-6943: bounded close functions keyed by session id, for close_agent.
@@ -570,7 +589,7 @@ export function createSubAgentSessionStore(
   // still report an actionable status afterward instead of "not_found".
   const pruneRetained = (): void => {
     const openRetained = [...sessions.values()]
-      .filter(isOpenRetained)
+      .filter((s) => isOpenRetained(s) && !isPinned(s.id))
       .sort((a, b) => a.lastActivityAt - b.lastActivityAt);
     const excess = openRetained.length - maxRetained;
     if (excess <= 0) return;
@@ -633,6 +652,7 @@ export function createSubAgentSessionStore(
   // resume_agent can retry. interrupt_agent's stamp on this turn wins over
   // that restore — do not rewrite interrupted back to completed.
   const beginFollowupTurn = (id: string): void => {
+    runInFlight.add(id);
     mutate(id, (s) => {
       s.lifecycle = { state: "running" };
       delete s.finishedAt;
@@ -667,12 +687,16 @@ export function createSubAgentSessionStore(
     void followup(message)
       .then((reply) => {
         const still = sessions.get(id);
-        if (still === undefined) return;
+        if (still === undefined) {
+          runInFlight.delete(id);
+          return;
+        }
         if (
           still.lifecycle.state === "shutdown" ||
           still.lifecycle.state === "cancelled" ||
           still.lifecycle.state === "failed"
         ) {
+          runInFlight.delete(id);
           return;
         }
         mutate(id, (s) => {
@@ -681,12 +705,17 @@ export function createSubAgentSessionStore(
           s.report = reply;
           pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
         });
+        runInFlight.delete(id);
         opts?.onReply?.(reply);
         pruneRetained();
       })
       .catch((err: unknown) => {
-        endFollowupTurn(id, failLifecycle);
-        opts?.onFail?.(err);
+        runInFlight.delete(id);
+        if (opts?.onFail !== undefined) {
+          opts.onFail(err);
+        } else {
+          endFollowupTurn(id, failLifecycle);
+        }
         log.error("followup turn failed for {id}: {error}", {
           id,
           error: err instanceof Error ? err.message : String(err),
@@ -723,6 +752,7 @@ export function createSubAgentSessionStore(
       followupHandles.delete(id);
       deliverHandles.delete(id);
       pinCounts.delete(id);
+      runInFlight.delete(id);
       forgetRevision(id);
       const session: StoredSession = {
         id,
@@ -742,6 +772,7 @@ export function createSubAgentSessionStore(
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
+      runInFlight.add(id);
       bumpRevision(id);
       notify();
       return snapshotOf(session);
@@ -921,6 +952,7 @@ export function createSubAgentSessionStore(
         // release it now rather than leaving a stale reference around.
         cancelHandles.delete(id);
         if (!agentRetained) closeHandles.delete(id);
+        runInFlight.delete(id);
         pruneCompleted();
         pruneRetained();
       });
@@ -948,6 +980,7 @@ export function createSubAgentSessionStore(
         });
         cancelHandles.delete(id);
         closeHandles.delete(id);
+        runInFlight.delete(id);
         pruneCompleted();
       });
     },
@@ -1036,6 +1069,7 @@ export function createSubAgentSessionStore(
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
+      runInFlight.delete(id);
       pruneCompleted();
       return "shutdown";
     },
@@ -1184,8 +1218,50 @@ export function createSubAgentSessionStore(
 
     unpin(id: string): void {
       const next = (pinCounts.get(id) ?? 0) - 1;
-      if (next <= 0) pinCounts.delete(id);
-      else pinCounts.set(id, next);
+      if (next <= 0) {
+        pinCounts.delete(id);
+        pruneCompleted();
+        pruneRetained();
+      } else pinCounts.set(id, next);
+    },
+
+    attachReport(id: string, report: string): void {
+      mutate(id, (session) => {
+        const state = session.lifecycle.state;
+        if (state === "completed" || state === "failed") {
+          runInFlight.delete(id);
+          return;
+        }
+        if (state === "pending_init" || state === "running") {
+          session.lifecycle = { state: "interrupted", report };
+          session.report = report;
+          session.finishedAt = session.finishedAt ?? now();
+          pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        } else if (
+          (state === "cancelled" || state === "interrupted" || state === "shutdown") &&
+          session.report === undefined
+        ) {
+          session.report = report;
+          session.lifecycle = { ...session.lifecycle, report };
+          pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        }
+        runInFlight.delete(id);
+        pruneCompleted();
+        pruneRetained();
+      });
+    },
+
+    isRunInFlight(id: string): boolean {
+      return runInFlight.has(id);
+    },
+
+    settleRun(id: string): void {
+      if (!runInFlight.delete(id)) return;
+      notify();
+    },
+
+    wake(): void {
+      notify();
     },
 
     subscribe(listener: () => void): () => void {
@@ -1207,6 +1283,7 @@ export function createSubAgentSessionStore(
       deliverHandles.clear();
       sessions.clear();
       pinCounts.clear();
+      runInFlight.clear();
       revisions.clear();
       snapshotCache.clear();
       evicted.clear();

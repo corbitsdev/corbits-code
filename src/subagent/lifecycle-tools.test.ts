@@ -52,7 +52,10 @@ describe("close_agent", () => {
       });
     }
 
-    const closeAgent = createCloseAgentTool({ sessions, fleetRecords: createFleetRecords() });
+    const closeAgent = createCloseAgentTool({
+      sessions,
+      fleetRecords: createFleetRecords(sessions),
+    });
     const result = await callTool(closeAgent, { target: parent.id });
 
     expect(result.status).toBe("shutdown");
@@ -90,7 +93,7 @@ describe("close_agent", () => {
 describe("resume_agent", () => {
   test("starts the next turn on a completed retained session and returns immediately", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetRecords(sessions);
     const retained = sessions.start({ description: "d", agentId: "a", brief: "b", retained: true });
     const history: string[] = ["first task"];
     let finish: (reply: string) => void = () => {};
@@ -147,7 +150,7 @@ describe("resume_agent", () => {
 
   test("resumes an interrupted retained session without calling close()", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetRecords(sessions);
     const worker = sessions.start({
       description: "worker",
       agentId: "a",
@@ -200,7 +203,7 @@ describe("resume_agent", () => {
 
   test("rejects a closed session and a concurrent resume of a running turn", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetRecords(sessions);
     const closed = sessions.start({
       description: "closed",
       agentId: "a",
@@ -255,7 +258,7 @@ describe("resume_agent", () => {
 
   test("wait_agents collects the resumed turn after resume_agent returns", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetRecords(sessions);
     const worker = sessions.start({
       description: "worker",
       agentId: "a",
@@ -306,7 +309,7 @@ describe("interrupt_agent", () => {
 
     const interruptAgent = createInterruptAgentTool({
       sessions,
-      fleetRecords: createFleetRecords(),
+      fleetRecords: createFleetRecords(sessions),
     });
 
     if (interruptAgent.kind !== "full") throw new Error("expected full tool");
@@ -403,7 +406,7 @@ describe("send_input", () => {
 
   test("rejects completed, interrupted, and closed sessions — steering is in-flight only", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetRecords(sessions);
     const sendInput = createSendInputTool({ sessions, fleetRecords });
     if (sendInput.kind !== "full") throw new Error("expected full tool");
 
@@ -567,7 +570,7 @@ describe("nested lifecycle authority", () => {
     }
     const interrupt = createInterruptAgentTool({
       sessions,
-      fleetRecords: createFleetRecords(),
+      fleetRecords: createFleetRecords(sessions),
       authority: nestAuthority(sessions, nested.id),
     });
     expect((await callTool(interrupt, { target: child.id })).status).toBe("interrupted");
@@ -593,7 +596,7 @@ describe("nested lifecycle authority", () => {
     for (const s of [child, sibling]) sessions.registerClose(s.id, async () => {});
     const close = createCloseAgentTool({
       sessions,
-      fleetRecords: createFleetRecords(),
+      fleetRecords: createFleetRecords(sessions),
       authority: nestAuthority(sessions, nested.id),
     });
     expect((await callTool(close, { target: child.id })).status).toBe("shutdown");
@@ -630,7 +633,7 @@ describe("nested lifecycle authority", () => {
     }
     const resume = createResumeAgentTool({
       sessions,
-      fleetRecords: createFleetRecords(),
+      fleetRecords: createFleetRecords(sessions),
       authority: nestAuthority(sessions, nested.id),
     });
     expect((await callTool(resume, { target: child.id, message: "more" })).status).toBe("running");

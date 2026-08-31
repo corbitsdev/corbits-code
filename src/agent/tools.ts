@@ -329,7 +329,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const orchestratorTools: AgentTool[] = [];
   if (subAgentsEnabled && args.subAgent !== undefined) {
     const sa = args.subAgent;
-    const fleetRecords = sa.sessions !== undefined ? createFleetRecords() : undefined;
+    const fleetRecords = sa.sessions !== undefined ? createFleetRecords(sa.sessions) : undefined;
     orchestratorTools.push(
       createTaskTool({
         cwd,

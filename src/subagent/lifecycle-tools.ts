@@ -231,10 +231,10 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
           deps.fleetRecords.register(target);
         },
         onReply: (reply) => {
-          deps.fleetRecords.resolve(target, reply);
+          deps.sessions.complete(target, reply);
         },
         onFail: (err) => {
-          deps.fleetRecords.reject(target, err instanceof Error ? err.message : String(err));
+          deps.sessions.fail(target, err instanceof Error ? err.message : String(err));
         },
       });
       if (!outcome.ok) {
@@ -293,9 +293,6 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
           `Error: cannot interrupt "${target}" (status: ${outcome.status}).`,
         );
       }
-      // Wait mailbox is separate from the TUI strip — flip it here so
-      // wait_agents does not stay blocked on a still-"running" record.
-      deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
         JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),

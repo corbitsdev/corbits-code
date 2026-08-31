@@ -599,7 +599,7 @@ async function runSubAgentInner(
       }
       const nd = params.nestedDispatch;
       const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
-      const fleetRecords = createFleetRecords();
+      const fleetRecords = createFleetRecords(fleetSessions);
       tools = [
         ...tools,
         createTaskTool({

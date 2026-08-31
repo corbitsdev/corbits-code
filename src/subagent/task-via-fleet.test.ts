@@ -20,7 +20,7 @@ const provider = {
 describe("task via spawn_agent + wait_agents", () => {
   test("a director task with a session store returns the worker report", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetRecords(sessions);
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/tmp",
