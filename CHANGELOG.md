@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-08-31
+
 ### Changed
 
 - Completing a workflow step is a `submit_output` tagged with that step's id.
@@ -23,19 +25,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   or interrupted worker and returns immediately. `wait_agents` collects the
   reply. `send_input` steers only an in-flight running turn. Closed workers
   stay closed.
-- `corbits resume` lists completed, failed, and crashed sessions alongside
-  in-progress ones, ordered by last persist rather than start time.
-  `--force` is no longer required to see finished threads. The picker shows
-  the 10 most recent sessions and type-to-filter narrows that list.
+- `corbits resume` orders sessions by last persist. The picker shows the 10
+  most recent sessions and type-to-filter narrows that list. Default rows are
+  running and cancelled; `--force` includes failed and done.
+
+### TUI
+
+- `/yolo` is listed on the landing screen and on permission prompts.
+- Git fatal stderr stays off the TUI when the working directory is not a
+  repository.
 
 ### Fixed
 
 - Failed sessions with an `error` string in `run.json` are valid resume
-  candidates, not corrupt files. The default picker still shows only
-  running and cancelled sessions; `--force` includes failed and done. A
-  truly unreadable session id prints one recovery line; parse diagnostics
-  go to the structured log, not the terminal. Renaming a session does not
-  overwrite an unreadable `run.json`.
+  candidates, not corrupt files. A truly unreadable session id prints one
+  recovery line; parse diagnostics go to the structured log, not the
+  terminal. Renaming a session does not overwrite an unreadable `run.json`.
 - `ask_operator` no longer pre-authorizes a model-authored shell command when
   the operator picks any option, including Reject. Clarification choices
   cannot mint shell grants.
