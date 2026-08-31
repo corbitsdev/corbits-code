@@ -600,7 +600,9 @@ export function createSubAgentSessionStore(
   // A follow-up turn takes the lane back over: the worker is live again, so
   // the interrupt's linger stamp must not outlive the new turn. Completion
   // re-stamps through the caller's own mutate; a rejected turn restores the
-  // addressable state it started from so resume_agent can retry.
+  // addressable strip state it started from (done, or interrupted linger) so
+  // resume_agent can retry. interrupt_agent's stamp on this turn wins over
+  // that restore — do not rewrite interrupted back to completed.
   const beginFollowupTurn = (id: string): void => {
     mutate(id, (s) => {
       s.status = "running";
@@ -610,8 +612,13 @@ export function createSubAgentSessionStore(
   };
   const endFollowupTurn = (id: string, lifecycleStatus: AgentLifecycleStatus): void => {
     mutate(id, (s) => {
+      if (s.lifecycleStatus === "interrupted") {
+        s.finishedAt = s.finishedAt ?? now();
+        return;
+      }
       s.lifecycleStatus = lifecycleStatus;
       s.finishedAt = now();
+      s.status = lifecycleStatus === "interrupted" ? "running" : "done";
     });
   };
   const queueFollowupTurn = (

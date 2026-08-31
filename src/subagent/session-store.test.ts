@@ -369,6 +369,55 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
   });
 
+  test("rejected followup restores strip status so interrupt_agent fails closed", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, async () => {
+      throw new Error("send failed");
+    });
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.get(session.id)?.status).toBe("done");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "running" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const after = store.get(session.id);
+    expect(after?.status).toBe("done");
+    expect(after?.lifecycleStatus).toBe("completed");
+    expect(store.interruptOne(session.id)).toEqual({ ok: false, status: "completed" });
+  });
+
+  test("interrupt then abort does not overwrite interrupted stamp to completed", async () => {
+    let rejectFollowup: (err: unknown) => void = () => {};
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectFollowup = reject;
+        }),
+    );
+    store.complete(session.id, "## Summary\nDone.");
+
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "running" });
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.status).toBe("running");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
+
+    rejectFollowup(new Error("aborted"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const after = store.get(session.id);
+    expect(after?.status).toBe("running");
+    expect(after?.lifecycleStatus).toBe("interrupted");
+  });
+
   test("resume_agent fails on a session that was never retained", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });

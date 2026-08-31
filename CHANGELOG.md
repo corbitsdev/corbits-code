@@ -226,12 +226,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
-- Retained worker sessions (`spawn_agent`, resumable via `resume_agent`) now have
+- Retained worker sessions (`spawn_agent`, resumable via `resume_agent`/`followup_task`) now have
   their own retention cap, separate from the TUI's finished-session display cap. Previously they
   shared that 20-item cap, so `resume_agent` on an early worker failed with a bare `not_found` once
   a fan-out of more than 20 workers had finished. A session dropped by the retention cap still
   releases its sidecars/reactor/lock entry, always evicts least-recently-used first, and never
-  evicts a running session. `resume_agent` against an evicted session now reports
+  evicts a running session. `resume_agent`/`followup_task` against an evicted session now report
   its terminal status plus a pointer to `read_agent_trace`, instead of `not_found`.
 
 ## [0.3.0] - 2026-08-24
@@ -273,17 +273,19 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   operator interrupts it (`interrupt_agent`) rather than the harness enforcing
   a count.
 
-- Added `interrupt_agent({ target })`, the second half of reusable worker
-  sessions: `interrupt_agent` stops a retained worker's current turn while
-  keeping it and its context alive (distinct from the permanent `close_agent`).
-  Starting the next turn on that retained session is `resume_agent`. Both are
-  gated to orchestrator tiers via the existing fleet-verb mechanism, denied to
-  leaves. `interrupt_agent` fires a signal scoped only to the in-flight
-  `agent.send()` call, never `close()`, so it cannot hit the close()-ordering
-  workdir-lock issue tracked separately — the underlying reactor cycle keeps
-  running in the background (there is no lower-level stop primitive for that in
-  the vendored agent), so this is an approximation: it stops the caller from
-  waiting, not the worker's compute.
+- Added `interrupt_agent({ target })` and `followup_task({ target, message })`,
+  the second half of reusable worker sessions: `interrupt_agent` stops a
+  retained worker's current turn while keeping it and its context alive
+  (distinct from the permanent `close_agent`), and `followup_task` sends new
+  work into a retained worker's existing session, reusing its prior context
+  and tool outputs rather than starting fresh. Both are gated to orchestrator
+  tiers via the existing fleet-verb mechanism, denied to leaves. `interrupt_agent`
+  fires a signal scoped only to the in-flight `agent.send()` call, never
+  `close()`, so it cannot hit the close()-ordering workdir-lock issue tracked
+  separately — the underlying reactor cycle keeps running in the background
+  (there is no lower-level stop primitive for that in the vendored agent), so
+  this is an approximation: it stops the caller from waiting, not the
+  worker's compute.
 - `evaluateSubAgentStop` now always requires the final assistant text; the
   omitted-text branch that unconditionally completed a tool-less turn is
   removed, so every call path gets the `incomplete-report` nudge and salvage
