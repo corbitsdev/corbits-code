@@ -1,9 +1,29 @@
-import { execFile, execFileSync } from "node:child_process";
-import { promisify } from "node:util";
+import { execFileSync, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
-const execFileAsync = promisify(execFile);
+function gitWorktreeList(cwd: string): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn("git", ["worktree", "list", "--porcelain"], {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (child.stdout === null) {
+      reject(new Error("git stdout is not available"));
+      return;
+    }
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolvePromise(stdout);
+      else reject(new Error("git worktree list failed"));
+    });
+  });
+}
 
 // Git prints realpaths; the caller's cwd may reach the same directory through a
 // symlink (e.g. macOS /tmp, /var). Canonicalize both sides so self-exclusion
@@ -35,7 +55,7 @@ function parseWorktreePorcelain(stdout: string, cwd: string): string[] {
 // the gate then confines autonomy to cwd alone, which is the safe floor.
 export async function listWorktreeRoots(cwd: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd });
+    const stdout = await gitWorktreeList(cwd);
     return parseWorktreePorcelain(stdout, cwd);
   } catch {
     return [];
@@ -50,6 +70,7 @@ export function listWorktreeRootsSync(cwd: string): string[] {
     const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
       cwd,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     });
     return parseWorktreePorcelain(stdout, cwd);
   } catch {
