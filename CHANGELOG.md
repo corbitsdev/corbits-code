@@ -16,9 +16,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Fixed
 
 - Failed sessions with an `error` string in `run.json` are valid resume
-  candidates, not corrupt files. A truly unreadable session id prints one
-  recovery line; parse diagnostics go to the structured log, not the
-  terminal.
+  candidates, not corrupt files. The default picker still shows only
+  running and cancelled sessions; `--force` includes failed and done. A
+  truly unreadable session id prints one recovery line; parse diagnostics
+  go to the structured log, not the terminal. Renaming a session does not
+  overwrite an unreadable `run.json`.
 - `ask_operator` no longer pre-authorizes a model-authored shell command when
   the operator picks any option, including Reject. Clarification choices
   cannot mint shell grants.

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { saveState, loadState, type RunState } from "./session/state.js";
 import { sessionDir } from "./session/index.js";
+import { withFileLogSink } from "../tests/helpers/file-log-sink.js";
 
 const SESSION_ID = "test-session-001";
 
@@ -89,22 +90,12 @@ describe("state persistence", () => {
       home,
     );
 
-    const chunks: string[] = [];
-    const orig = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
-      return orig(chunk, ...(rest as []));
-    }) as typeof process.stderr.write;
-    try {
+    const logged = await withFileLogSink(async () => {
       expect(await loadState(cwd, SESSION_ID, home)).toEqual({ kind: "ok", state: failed });
       expect((await loadState(cwd, crashedId, home)).kind).toBe("ok");
-    } finally {
-      process.stderr.write = orig;
-    }
-    const text = chunks.join("");
-    expect(text).not.toContain("ignoring unreadable");
-    expect(text).not.toContain(home);
-    expect(text).not.toContain("invalid shape");
+    });
+    expect(logged).not.toContain("unreadable session state");
+    expect(logged).not.toContain(home);
   });
 
   test("saveState round-trips optional fields", async () => {
@@ -137,31 +128,24 @@ describe("state persistence", () => {
     await mkdir(stateDir, { recursive: true });
     await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
 
-    const result = await loadState(cwd, SESSION_ID, home);
-    expect(result).toEqual({ kind: "unreadable" });
+    await withFileLogSink(async () => {
+      const result = await loadState(cwd, SESSION_ID, home);
+      expect(result).toEqual({ kind: "unreadable" });
+    });
   });
 
   test("loadState does not print unreadable-state diagnostics to stderr", async () => {
     const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
     await mkdir(stateDir, { recursive: true });
-    await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
+    const runPath = join(stateDir, "run.json");
+    await writeFile(runPath, '{ "turnsUsed": ');
 
-    const chunks: string[] = [];
-    const orig = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
-      return orig(chunk, ...(rest as []));
-    }) as typeof process.stderr.write;
-    try {
+    const logged = await withFileLogSink(async () => {
       expect(await loadState(cwd, SESSION_ID, home)).toEqual({ kind: "unreadable" });
-    } finally {
-      process.stderr.write = orig;
-    }
-    const text = chunks.join("");
-    expect(text).not.toContain("ignoring unreadable");
-    expect(text).not.toContain(home);
-    expect(text).not.toContain("invalid shape");
+    });
+    expect(logged).toContain(runPath);
+    expect(logged).toContain("corrupt JSON");
   });
 
   // ---------------------------------------------------------------------------
@@ -177,8 +161,10 @@ describe("state persistence", () => {
       JSON.stringify({ status: "running", turnsUsed: "not-a-number", task: "x", startedAt: 0 }),
     );
 
-    const result = await loadState(cwd, SESSION_ID, home);
-    expect(result).toEqual({ kind: "unreadable" });
+    await withFileLogSink(async () => {
+      const result = await loadState(cwd, SESSION_ID, home);
+      expect(result).toEqual({ kind: "unreadable" });
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -249,7 +235,9 @@ describe("state persistence", () => {
       }),
     );
 
-    const result = await loadState(cwd, SESSION_ID, home);
-    expect(result).toEqual({ kind: "unreadable" });
+    await withFileLogSink(async () => {
+      const result = await loadState(cwd, SESSION_ID, home);
+      expect(result).toEqual({ kind: "unreadable" });
+    });
   });
 });

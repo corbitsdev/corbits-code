@@ -2104,9 +2104,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         if (trimmed.length === 0) return "Session name cannot be empty";
         runTaskTitle = trimmed;
         emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
-        void renameSession(config.cwd, sessionId, trimmed).then(() =>
-          persistRunSnapshot("running"),
-        );
+        void renameSession(config.cwd, sessionId, trimmed)
+          .then(() => persistRunSnapshot("running"))
+          .catch((err: unknown) => {
+            tuiLogger.warn("rename session failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
         return undefined;
       },
       submitFeedback: (text) => {
