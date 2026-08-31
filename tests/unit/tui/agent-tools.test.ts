@@ -1,6 +1,7 @@
 import { test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
 import { TOOL_NAMES } from "@intx/tools-posix";
+import { createPermissionGate } from "../../../src/permission/gate.js";
 import type { PermissionGate } from "../../../src/permission/gate.js";
 import { withMockedModule } from "../../helpers/mock-module.js";
 
@@ -136,8 +137,6 @@ await withMockedModule(import.meta.resolve("../../../src/agent/director.js"), ()
 
 const { createAgentToolset } = await import("../../../src/agent/tools.js");
 
-const preApproveMock = mock((_tool: string, _pattern: string) => {});
-
 const fakePermissionGate: PermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
   getApprovals: () => [],
@@ -149,7 +148,6 @@ const fakePermissionGate: PermissionGate = {
   setAuto: () => {},
   getSkipPermissions: () => false,
   setSkipPermissions: () => {},
-  preApprove: preApproveMock,
   registerMcpClient: mock(() => {}),
   unregisterMcpServer: mock(() => {}),
 };
@@ -229,37 +227,48 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
   expect(result).toBe("B");
 });
 
-test("operator tool pre-approves the declared command for run_shell when an option is chosen", async () => {
-  preApproveMock.mockClear();
-
+test("selecting Reject does not mint a shell grant even when command is declared", async () => {
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+  });
   const toolset = await createAgentToolset({
     cwd: "/fake",
-    permissionGate: fakePermissionGate,
-    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+    permissionGate: gate,
+    onOperatorGate: async () => ({ kind: "option", index: 1 }),
   });
 
-  await callOperator(toolset, {
-    question: "What would you like to install?",
-    options: ["Project dependencies"],
+  const chosen = await callOperator(toolset, {
+    question: "Install dependencies?",
+    options: ["Allow", "Reject"],
     command: "bun install",
   });
 
-  expect(preApproveMock).toHaveBeenCalledWith("run_shell", "bun install");
-  expect(preApproveMock).toHaveBeenCalledTimes(1);
+  expect(chosen).toBe("Reject");
+  expect(gate.getSessionApprovals()).toEqual([]);
 });
 
-test("operator tool does not pre-approve anything when no command is declared", async () => {
-  preApproveMock.mockClear();
-
+test("clarification choices do not mint shell grants", async () => {
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+  });
   const toolset = await createAgentToolset({
     cwd: "/fake",
-    permissionGate: fakePermissionGate,
+    permissionGate: gate,
     onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
-  await callOperator(toolset, { question: "Which approach?", options: ["A", "B"] });
+  const chosen = await callOperator(toolset, {
+    question: "Install dependencies?",
+    options: ["Allow", "Reject"],
+    command: "bun install",
+  });
 
-  expect(preApproveMock).not.toHaveBeenCalled();
+  expect(chosen).toBe("Allow");
+  expect(gate.getSessionApprovals()).toEqual([]);
 });
 
 test("operator tool returns the operator's free-form answer", async () => {

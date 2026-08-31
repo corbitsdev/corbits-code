@@ -441,20 +441,9 @@ function stringArg(call: ToolCall, key: string): string {
 }
 
 // The real (non-comment-only) chain segments of a shell command — the basis
-// both shellApprovalScopes and isSingleShellCommand use to answer "is this
-// one command or a chain."
+// shellApprovalScopes uses to answer "is this one command or a chain."
 function realShellSegments(command: string): string[] {
   return splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
-}
-
-// Whether `command` is exactly one real command — not a chain (`a && b`), not
-// a pipeline (`a | b`), not empty/comment-only. Shared by preApprove's gate
-// (src/permission/gate.ts) and the interactive scope ladder below, so a
-// segmenting-rule change here reaches both.
-export function isSingleShellCommand(command: string): boolean {
-  const segments = realShellSegments(command);
-  if (segments.length !== 1) return false;
-  return tokenize(segments[0]!).length > 0;
 }
 
 // Approval scopes for a shell command the operator may persist. Multi-segment

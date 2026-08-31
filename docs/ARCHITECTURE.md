@@ -171,7 +171,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 
 ### Director-Layer Tools (`src/agent/director.ts`)
 
-- `ask_operator` — Pauses for a clarifying question with a list of options (and optional shell pre-approval via `command`).
+- `ask_operator` — Pauses for a clarifying question with a list of options.
 - `present` — Renders structured UI from a JSON view spec instead of pasting tables into chat.
 - `submit_output` — Workflow step advancement when `step` is set (observed by the workflow coordinator).
 - `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createChatDirector } from "./agent/director.js";
+import { createChatDirector, askOperatorDefinition } from "./agent/director.js";
 import { createAgentToolset } from "./agent/tools.js";
 import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search.js";
 import { createPermissionGate } from "./permission/gate.js";
@@ -68,6 +68,17 @@ function makeToolErrorEvent(callId: string, content: string) {
 function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
   return Array.isArray(result) ? result : [result];
 }
+
+describe("ask_operator definition", () => {
+  test("has no command field and does not advertise shell preauthorization", () => {
+    const schema = askOperatorDefinition.inputSchema as {
+      properties?: Record<string, unknown>;
+    };
+    expect(schema.properties).not.toHaveProperty("command");
+    expect(askOperatorDefinition.description).not.toMatch(/pre-authoriz/i);
+    expect(askOperatorDefinition.description).not.toMatch(/`command`/);
+  });
+});
 
 describe("operator declined tool calls", () => {
   const declined =

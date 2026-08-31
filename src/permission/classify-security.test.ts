@@ -435,23 +435,6 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(asked).toBe(1);
   });
 
-  test("preApprove of a secret-path command still re-prompts", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-    });
-    gate.preApprove("run_shell", "cat .env");
-    const verdict = await gate.evaluate(shellCall("cat .env"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
-  });
-
   test("pipeline with secret segment prompts once for the full block; safe tail grant-skips under the hood", async () => {
     const subjects: string[] = [];
     const full = "cat .env | sort";
