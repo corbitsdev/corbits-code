@@ -208,7 +208,7 @@ export interface OpenAddProviderOpts {
   readonly onAccept?: (selection: OverlaySelection) => void;
   /** Description-zone source, keyed by the focused row's id. */
   readonly describe?: (itemId: string) => ItemDescription | null;
-  /** Per-open Esc/dismiss — the caller returns to the model list. */
+  /** Per-open Esc/dismiss. Set when Esc should return to the model list (Alt+A). */
   readonly onCancel?: () => void;
 }
 

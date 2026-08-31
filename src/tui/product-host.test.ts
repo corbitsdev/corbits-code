@@ -911,6 +911,26 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
+  test("Esc after openAddProvider from a closed prompt does not reopen the model list", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
+    });
+    try {
+      expect(host.shell.overlayKind).toBeNull();
+      host.openAddProvider?.();
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).toBe("add_provider");
+      closeInsetOverlay(host.shell);
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).not.toBe("model_picker");
+      expect(host.shell.overlayKind).toBeNull();
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
   test("Enter on an add-provider row runs the connect flow for that provider", async () => {
     const connected: string[] = [];
     const { harness, host } = await mountPicker({
