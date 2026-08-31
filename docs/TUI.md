@@ -282,6 +282,11 @@ because an earlier version could abandon the awaited promise on Escape and
 leave the session parked with no recovery path short of killing the process;
 Escape must always settle the promise it is dismissing.
 
+The permissions prompt's title line names `/yolo` as the way to skip further
+prompts, longest first as the terminal narrows: `Esc cancel · Enter choose ·
+/yolo skip prompts`, then `Esc · Enter · /yolo`, then `Esc · Enter`. Operator
+questions and the model/provider picker do not advertise `/yolo`.
+
 Once a permission or operator prompt is answered — or cancelled, timed out,
 or auto-settled by a grant / abort / teardown — it leaves the screen and
 does **not** replay the request, the command, or the chosen option into the
@@ -355,6 +360,12 @@ or transcript. The shortcut list it used to open is still reachable, as
 `/help` (`src/tui/commands/built-in.ts`, routed to `shell.ts:openHelpOverlay`
 via `openCommandSurface`'s `"help"` case, `command-surfaces.ts`); the `/` row
 in `SHELL_SHORTCUTS` documents that in place of a dedicated `?` row.
+
+The idle landing paints two doors beside the mark, keys aligned so the
+descriptions share a column (`LANDING_HINTS` in `src/tui/landing.ts`): `/`
+for commands, and `/yolo` so Corbits Code does not have to ask for
+permissions. An 80-column terminal still seats the compact mark next to
+them; when the terminal is too narrow, the hints win and the mark drops.
 
 The running build version is chrome, not part of the landing composition:
 `shell.ts`'s `versionRow`/`versionBadge`, a dedicated row pinned to the
