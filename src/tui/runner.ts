@@ -120,6 +120,7 @@ import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { captureSlashCommand } from "../telemetry/product-events.js";
 import { getTelemetry, liveTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
+import { isPluginEnabledForSurface } from "./plugin-surface.js";
 
 import { loadStartupChangelogMarkdown, stampVersionAfterStartup } from "../changelog/index.js";
 import { scheduleUpgradeNotice } from "../upgrade/index.js";
@@ -2511,7 +2512,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               return {
                 id: p.id,
                 name: p.name,
-                enabled: cfg[p.id]?.enabled === true,
+                enabled: isPluginEnabledForSurface(mod, cfg),
                 credentials: p.credentials,
                 credentialValues: cfg[p.id]?.credentials ?? {},
                 ...(p.kind !== undefined ? { kind: p.kind } : {}),
