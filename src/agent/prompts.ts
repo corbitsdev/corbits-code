@@ -219,7 +219,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   search_agents:
     "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
-  submit_output: "signal the task is complete — the only way to finish",
+  submit_output: "signal the task is complete, or complete a workflow step by passing its step id",
   ask_operator:
     "pause and ask the user when blocked or genuinely ambiguous; put long rationale in a transcript reply first, then call with a short question and short option labels only",
   present:

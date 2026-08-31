@@ -95,6 +95,19 @@ export class WorkflowRuntime {
     return workflow.steps[frame.stepIndex] ?? null;
   }
 
+  // Compare-and-advance against the current step. Matching `stepId` advances
+  // atomically (check and move happen in this call). Any other id — duplicate
+  // of a step already left behind, a future step, or no active step — is
+  // acknowledged without moving the cursor, so a retry cannot skip ahead.
+  complete(stepId: string): "advanced" | "acknowledged" {
+    const current = this.currentStep();
+    if (current !== null && current.id === stepId) {
+      this.advance();
+      return "advanced";
+    }
+    return "acknowledged";
+  }
+
   // Mark the current step complete and move to the next runnable step. Pops
   // finished sub-workflow frames and descends into sub-workflow references as
   // needed. Emits step-complete for the step left behind.

@@ -60,7 +60,6 @@ const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
   delete_file: "building",
   manage_tasks: "planning",
   task: "planning",
-  advance_workflow: "planning",
   tool_search: "researching",
   search_agents: "researching",
   ask_operator: "waiting",

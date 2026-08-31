@@ -99,9 +99,9 @@ const IDLE_OPEN_TASK_NUDGE =
 
 const WORKFLOW_OPEN_TASK_NUDGE =
   "\n\nYou are ending your turn while tasks are still open (todo/doing) and a " +
-  "workflow step is active. Continue working with tools, call advance_workflow " +
-  "once the step is complete, or mark finished tasks done with manage_tasks. " +
-  "Do not end your turn with tasks still open.";
+  "workflow step is active. Continue working with tools, call submit_output " +
+  "with this step's id once the step is complete, or mark finished tasks done " +
+  "with manage_tasks. Do not end your turn with tasks still open.";
 
 const DECLINED_OPEN_TASK_NUDGE =
   "\n\nThe operator declined the tool call. Do not retry the declined action. " +
@@ -243,27 +243,12 @@ export const presentDefinition: ToolDefinition = {
   },
 };
 
-export const advanceWorkflowDefinition: ToolDefinition = {
-  name: "advance_workflow",
-  description:
-    "Call this when the current workflow step is finished to advance to the next step. " +
-    "Include an optional note summarizing what the step accomplished.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      note: {
-        type: "string",
-        description: "Optional summary of what this step accomplished",
-      },
-    },
-  },
-};
-
 export const submitOutputDefinition: ToolDefinition = {
   name: "submit_output",
   description:
-    "Call this when the task is fully complete (include summary) or to advance " +
-    "a workflow step (include step id).",
+    "Call this when the task is fully complete (include summary) or to complete " +
+    "a workflow step (step id is required to advance; duplicate or stale step " +
+    "ids are acknowledged without advancing).",
   inputSchema: {
     type: "object",
     properties: {
@@ -274,8 +259,8 @@ export const submitOutputDefinition: ToolDefinition = {
       step: {
         type: "string",
         description:
-          "Workflow step ID to advance. When present this is a " +
-          "step-advancement signal, not a terminal task submission.",
+          "Workflow step ID to complete. Required to advance a workflow. " +
+          "Compared atomically against the current step.",
       },
     },
   },
@@ -480,12 +465,13 @@ class ChatDirectorImpl extends DefaultDirector {
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
     const active = this.workflowCoordinator?.isActive() === true;
-    // advance_workflow rides on the wire every turn, workflow or not, so
+    // submit_output rides on the wire every turn, workflow or not, so
     // activating a workflow never grows the tools array and busts the cache
-    // prefix. Outside a workflow it is a harmless no-op the director ignores.
-    const tools = this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+    // prefix. Outside a workflow it is a harmless no-op the director ignores
+    // unless the call is a terminal task submission.
+    const tools = this._toolDefinitions.some((t) => t.name === submitOutputDefinition.name)
       ? this._toolDefinitions
-      : [...this._toolDefinitions, advanceWorkflowDefinition];
+      : [...this._toolDefinitions, submitOutputDefinition];
 
     const directive = active ? (this.workflowCoordinator?.directive() ?? null) : null;
 
@@ -694,7 +680,7 @@ class ChatDirectorImpl extends DefaultDirector {
           const path = pathResult instanceof type.errors ? "" : pathResult.path;
           if (isCodeFile(path)) this.lspTriggerCalls.add(block.id);
         }
-        if (block.name === "advance_workflow" || block.name === "submit_output") {
+        if (block.name === "submit_output") {
           this.workflowCalls.set(block.id, { name: block.name, args: block.arguments });
         }
         if (block.name === "ask_operator") {
@@ -791,10 +777,15 @@ class ChatDirectorImpl extends DefaultDirector {
             ),
           ];
         }
+        const stepId = coordinator.currentStepId();
+        const stepClause =
+          stepId !== null
+            ? `call submit_output with { "step": "${stepId}" } now`
+            : "call submit_output with this step's id now";
         const nudge =
-          "\n\nYou have not yet called advance_workflow. " +
-          "If this step is complete, call advance_workflow now. " +
-          "Otherwise continue working with tools.";
+          `\n\nYou have not yet completed this workflow step. ` +
+          `If this step is complete, ${stepClause}. ` +
+          `Otherwise continue working with tools.`;
         const passThrough = actions.filter(
           (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
             a.type !== "wait" && a.type !== "reply",
@@ -816,8 +807,9 @@ class ChatDirectorImpl extends DefaultDirector {
             (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
               a.type !== "wait" && a.type !== "reply",
           );
-          // Inside a workflow the terminal action is advance_workflow, so point
-          // the nudge at it rather than the general manage_tasks guidance.
+          // Inside a workflow the terminal action is submit_output with the
+          // current step id, so point the nudge at it rather than the general
+          // manage_tasks guidance.
           const nudge =
             coordinator?.isActive() === true ? WORKFLOW_OPEN_TASK_NUDGE : IDLE_OPEN_TASK_NUDGE;
           return [...passThrough, inferWithNudge(capabilities, nudge)];

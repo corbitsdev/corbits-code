@@ -1258,7 +1258,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       toolAvailability,
     );
     // The workflow controller is built below, after the toolset; the holder lets
-    // advance_workflow's handler read live workflow-active state without a
+    // submit_output's handler read live workflow-active state without a
     // construction-order cycle.
     const workflowControllerHolder: { instance?: WorkflowController } = {};
 
@@ -1282,6 +1282,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       getContextDir: () => workdir,
 
       isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
+      getCurrentWorkflowStepId: () => workflowControllerHolder.instance?.currentStepId() ?? null,
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
       onOperatorGate: (question, options) =>
         new Promise<OperatorResult>((resolve) => {

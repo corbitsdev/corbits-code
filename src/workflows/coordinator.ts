@@ -16,10 +16,6 @@ export class WorkflowCoordinator {
     // When true the workflow pauses after each step for user confirmation; the
     // directive tells the agent to gate via ask_operator before advancing.
     private readonly stepThrough = false,
-    // When true the directive instructs the agent to use step-tagged
-    // submit_output rather than advance_workflow, so workflows drive themselves
-    // to completion without requiring explicit tool call selection.
-    private readonly autoAdvance = false,
   ) {}
 
   isActive(): boolean {
@@ -28,6 +24,10 @@ export class WorkflowCoordinator {
 
   isComplete(): boolean {
     return this.runtime.isComplete();
+  }
+
+  currentStepId(): string | null {
+    return this.runtime.currentStep()?.id ?? null;
   }
 
   // True when the current step is a gate — the agent must pause and wait for
@@ -59,44 +59,33 @@ export class WorkflowCoordinator {
           ` ask_operator to confirm before you advance.`,
       );
     }
-    if (this.autoAdvance) {
-      lines.push(
-        `When this step is complete, call submit_output with { "step": "${step.id}" } to advance to the next step.`,
-      );
-    } else {
-      lines.push(
-        `When this step is complete, call advance_workflow to continue` +
-          ` (or submit_output with { "step": "${step.id}" }).`,
-      );
-    }
+    lines.push(
+      `When this step is complete, call submit_output with { "step": "${step.id}" } to advance to the next step.`,
+    );
     return lines.join("\n");
   }
 
-  // Handle a completed tool call, advancing the runtime when it is an
-  // advance_workflow or a step-tagged submit_output. Returns true when the
-  // runtime advanced (used by tests; the directors already reset their idle
-  // counters on any tool call, so a workflow advance is never seen as a stall).
+  // Handle a completed tool call. Only a step-tagged submit_output can move
+  // the runtime, and only via compare-and-advance against the current step.
+  // Returns true when the runtime advanced (used by tests; the directors
+  // already reset their idle counters on any tool call, so a workflow
+  // advance is never seen as a stall). Duplicate or stale completions are
+  // acknowledged here without moving the cursor.
   handleToolDone(name: string | undefined, args: unknown, isError: boolean): boolean {
     if (isError || !this.runtime.isActive()) return false;
-    if (name === "advance_workflow") {
-      this.runtime.advance();
-      this.persist();
-      return true;
-    }
-    if (name === "submit_output" && stepMatchesCurrent(args, this.runtime.currentStep())) {
-      this.runtime.advance();
-      this.persist();
-      return true;
-    }
-    return false;
+    if (name !== "submit_output") return false;
+    const stepId = stepIdOf(args);
+    if (stepId === null) return false;
+    if (this.runtime.complete(stepId) !== "advanced") return false;
+    this.persist();
+    return true;
   }
 }
 
-function stepMatchesCurrent(args: unknown, current: WorkflowStep | null): boolean {
-  if (current === null) return false;
-  if (typeof args !== "object" || args === null) return false;
+function stepIdOf(args: unknown): string | null {
+  if (typeof args !== "object" || args === null) return null;
   const step = (args as Record<string, unknown>).step;
-  return typeof step === "string" && step === current.id;
+  return typeof step === "string" && step.length > 0 ? step : null;
 }
 
 function guidanceFor(step: WorkflowStep): string[] {

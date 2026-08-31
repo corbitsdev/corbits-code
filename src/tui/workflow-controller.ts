@@ -105,6 +105,10 @@ export class WorkflowController {
     return this.runtime?.isActive() === true;
   }
 
+  currentStepId(): string | null {
+    return this.coordinator?.currentStepId() ?? null;
+  }
+
   list(): { name: string; description: string }[] {
     return WORKFLOWS.map((w) => ({ name: w.name, description: w.description }));
   }
@@ -130,7 +134,7 @@ export class WorkflowController {
     );
   }
 
-  private attach(workflow: Workflow): void {
+  private attachRuntime(workflow: Workflow, restore?: boolean): WorkflowRuntime {
     const runtime = new WorkflowRuntime(this.capabilityMap());
     const coordinator = new WorkflowCoordinator(
       runtime,
@@ -139,8 +143,22 @@ export class WorkflowController {
         this.publish();
       },
       workflow.stepThrough === true,
-      workflow.autoAdvance === true,
     );
+    this.listen(runtime);
+    this.runtime = runtime;
+    this.coordinator = coordinator;
+    this.args.getDirector()?.setWorkflowCoordinator(coordinator);
+    if (restore !== true) {
+      runtime.start(workflow);
+      this.persist();
+      this.publish();
+    }
+    return runtime;
+  }
+
+  // Shared by start and resume so a restored run records history the same way
+  // a fresh run does.
+  private listen(runtime: WorkflowRuntime): void {
     runtime.on((event: WorkflowEvent) => {
       if (event.type === "workflow-complete") {
         // status() returns an empty shell here because runtime.done is already
@@ -154,12 +172,10 @@ export class WorkflowController {
       this.persist();
       this.publish();
     });
-    this.runtime = runtime;
-    this.coordinator = coordinator;
-    this.args.getDirector()?.setWorkflowCoordinator(coordinator);
-    runtime.start(workflow);
-    this.persist();
-    this.publish();
+  }
+
+  private attach(workflow: Workflow): void {
+    this.attachRuntime(workflow);
   }
 
   // Start a workflow by name. If one is already active, the first call asks for
@@ -188,24 +204,8 @@ export class WorkflowController {
     const rootName = state.stack[0]?.workflow;
     const workflow = rootName !== undefined ? findWorkflow(rootName) : undefined;
     if (workflow === undefined) return;
-    const runtime = new WorkflowRuntime(this.capabilityMap());
+    const runtime = this.attachRuntime(workflow, true);
     runtime.restore(state);
-    const coordinator = new WorkflowCoordinator(
-      runtime,
-      () => {
-        this.persist();
-        this.publish();
-      },
-      workflow.stepThrough === true,
-      workflow.autoAdvance === true,
-    );
-    runtime.on(() => {
-      this.persist();
-      this.publish();
-    });
-    this.runtime = runtime;
-    this.coordinator = coordinator;
-    this.args.getDirector()?.setWorkflowCoordinator(coordinator);
     this.publish();
   }
 
