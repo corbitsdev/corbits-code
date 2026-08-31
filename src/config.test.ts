@@ -741,6 +741,67 @@ describe("loadConfig", () => {
     }
   });
 
+  test("--help after flags throws CliHelpError", async () => {
+    await expect(
+      loadConfig(["--force", "--help"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
+    await expect(
+      loadConfig(["--force", "-h"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
+  });
+
+  test("--help after a positional throws CliHelpError", async () => {
+    await expect(
+      loadConfig(["ship it", "--help"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
+  });
+
+  test("resume -h / --help throws CliHelpError instead of treating it as a session id", async () => {
+    await expect(
+      loadConfig(["resume", "-h"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
+    await expect(
+      loadConfig(["resume", "--help"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
+    await expect(
+      loadConfig(["continue", "-h"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
+  });
+
+  test("value flags do not swallow --help / -h as their value", async () => {
+    for (const flag of ["--provider", "--model", "--cwd", "--config", "--profile"] as const) {
+      await expect(
+        loadConfig([flag, "--help"], { globalSettingsPath: NO_SETTINGS }),
+      ).rejects.toBeInstanceOf(CliHelpError);
+      await expect(
+        loadConfig([flag, "-h"], { globalSettingsPath: NO_SETTINGS }),
+      ).rejects.toBeInstanceOf(CliHelpError);
+    }
+  });
+
+  test("value flags reject other flag-shaped tokens as values", async () => {
+    await expect(
+      loadConfig(["--provider", "--force"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--provider requires a value");
+    await expect(
+      loadConfig(["--model", "--cwd"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--model requires a value");
+    await expect(
+      loadConfig(["exec", "--director", "--force", "ship it"], {
+        globalSettingsPath: NO_SETTINGS,
+      }),
+    ).rejects.toThrow("--director requires a value");
+  });
+
+  test("value flags still error clearly when the value is omitted", async () => {
+    await expect(loadConfig(["--provider"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--provider requires a value",
+    );
+    await expect(loadConfig(["--model"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--model requires a value",
+    );
+  });
+
   test("rejects unknown flags", async () => {
     await expect(loadConfig(["--unknown"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
       /unrecognized flag/,
