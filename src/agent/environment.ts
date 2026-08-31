@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { arch, release, type as osType } from "node:os";
+import { promisify } from "node:util";
 
 export interface EnvironmentInfo {
   cwd: string;
@@ -22,33 +23,18 @@ const TOP_LEVEL_ENTRIES = 40;
 
 const GIT_TIMEOUT_MS = 3000;
 
+const execFileAsync = promisify(execFile);
+
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
-    const stdout = await new Promise<string>((resolve, reject) => {
-      const child = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"] });
-      if (child.stdout === null) {
-        reject(new Error("git stdout is not available"));
-        return;
-      }
-      let out = "";
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => {
-        out += chunk;
-      });
-      const timer = setTimeout(() => {
-        child.kill();
-        reject(new Error("git timed out"));
-      }, GIT_TIMEOUT_MS);
-      child.on("error", (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code === 0) resolve(out);
-        else reject(new Error("git failed"));
-      });
-    });
+    const opts = {
+      cwd,
+      encoding: "utf8" as const,
+      timeout: GIT_TIMEOUT_MS,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "ignore"] as const,
+    };
+    const { stdout } = await execFileAsync("git", args, opts);
     return stdout.trim();
   } catch {
     return null;
