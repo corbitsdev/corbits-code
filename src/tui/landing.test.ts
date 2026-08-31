@@ -105,17 +105,24 @@ describe("landing layout math", () => {
     expect(text.some((line) => line.includes("telemetry"))).toBe(false);
   });
 
+  test("the two doors are commands and /yolo", () => {
+    expect(LANDING_HINTS).toEqual([
+      { key: "/", rest: "for commands" },
+      { key: "/yolo", rest: "so Corbits Code doesn't have to ask for permissions" },
+    ]);
+  });
+
   test("the mark degrades through its tiers and then disappears", () => {
     // Roomy: the hero grid, which is the only size that reads unambiguously.
-    expect(resolveMarkGrid(20, 96)).toBe(MARK_LARGE);
+    expect(resolveMarkGrid(20, 120)).toBe(MARK_LARGE);
     // A row short of the hero, a tier down rather than a clipped hero.
-    expect(resolveMarkGrid(12, 96)).toBe(MARK_MID);
-    expect(resolveMarkGrid(9, 96)).toBe(MARK_SMALL);
+    expect(resolveMarkGrid(12, 120)).toBe(MARK_MID);
+    expect(resolveMarkGrid(9, 120)).toBe(MARK_SMALL);
+    // 80-column terminal: contentWidth is 78 after gutters; the compact mark
+    // still seats beside the two doors.
+    expect(resolveMarkGrid(20, 78)).toBe(MARK_SMALL);
     // Narrow enough that the mark would crowd the hints: the hints win.
-    // (The version moved off this hint block into the shell's own chrome —
-    // CL-5736 — so the block is narrower and a bit more room stays for the
-    // mark at this width than before.)
-    expect(resolveMarkGrid(20, 50)).toBe(MARK_MID);
+    expect(resolveMarkGrid(20, 50)).toBeNull();
     expect(resolveMarkGrid(20, 30)).toBeNull();
     expect(resolveMarkGrid(3, 96)).toBeNull();
   });

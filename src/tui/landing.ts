@@ -9,11 +9,11 @@
  *   ────    the prompt box and its hint row (owned by the shell)
  *   below   the telemetry disclosure, then a few selectable starter prompts
  *
- * The mark is the screen. Beside it sit exactly two lines — the command menu
- * and the shortcut sheet — because those two are the only doors an operator
- * needs on a screen where nothing has happened yet; every other key is behind
- * one of them, and listing keys here would trade the one legible thing on the
- * screen for a reference card nobody reads twice.
+ * The mark is the screen. Beside it sit exactly two lines — `/` for commands
+ * and `/yolo` so permission prompts are not required — because those two are
+ * the only doors an operator needs on a screen where nothing has happened yet;
+ * every other key is behind one of them, and listing keys here would trade the
+ * one legible thing on the screen for a reference card nobody reads twice.
  *
  * The disclosure sits directly under the box rather than at the bottom edge
  * because it has to be read, not discovered.
@@ -70,13 +70,19 @@ export function versionBadgeVisible(columns: number, rows: number): boolean {
 }
 
 /**
- * The one door off the landing screen — `/help` (listed among the commands
- * `/` opens) is the other, so this stays a single row rather than growing.
+ * The two doors off the landing screen. `/help` is among the commands `/`
+ * opens; `/yolo` is the other way in, so permission prompts do not have to be
+ * discovered the hard way.
  */
 export const LANDING_HINTS: readonly {
   readonly key: string;
   readonly rest: string;
-}[] = [{ key: "/", rest: "for commands" }];
+}[] = [
+  { key: "/", rest: "for commands" },
+  // One character shorter than the spoken line ("does not") so an 80-column
+  // terminal still seats the compact mark beside the aligned descriptions.
+  { key: "/yolo", rest: "so Corbits Code doesn't have to ask for permissions" },
+];
 
 /**
  * Columns held for the key, so the descriptions beside them start on one

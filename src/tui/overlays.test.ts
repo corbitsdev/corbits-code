@@ -99,6 +99,8 @@ describe("permissions overlay", () => {
           // First option is in the list model (may clip if body short).
           expect(shell.overlayItems[0]).toBe("Allow once");
           expect(frame).toMatch(/Allow/);
+          expect(frame).toContain("/yolo");
+          expect(frame).toContain("Esc cancel · Enter choose · /yolo skip prompts");
 
           // Navigate deep enough that window must scroll (keep-active-visible).
           const listH = shell.overlayList!.height;
@@ -129,6 +131,27 @@ describe("permissions overlay", () => {
         }
       },
       { width: 80, height: 24 },
+    );
+  });
+
+  test("key hints drop to Esc · Enter on a narrow interior", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 32, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          openPermissionsOverlay(shell, { items: makePermissionItems(4) });
+          await h.renderOnce();
+          const frame = h.captureCharFrame();
+          expect(frame).toContain("Esc · Enter");
+          expect(frame).not.toContain("/yolo");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 32, height: 24 },
     );
   });
 
@@ -208,6 +231,7 @@ describe("operator question overlay", () => {
           expect(frame).toMatch(/Cancel|Allow/);
           // The overlay carries its own keys now that there is no hint strip.
           expect(frame).toContain("Esc cancel");
+          expect(frame).not.toContain("/yolo");
           // Empty title must not leave a leading middle-dot before the hints.
           expect(frame).not.toMatch(/·\s*Esc cancel/);
 
@@ -245,6 +269,7 @@ describe("model / provider picker", () => {
           let frame = h.captureCharFrame();
           expect(frame).toContain("model");
           expect(frame).toMatch(/anthropic|openai|claude/i);
+          expect(frame).not.toContain("/yolo");
 
           moveOverlaySelection(shell, 2);
           acceptOverlaySelection(shell);

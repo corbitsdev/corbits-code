@@ -1337,6 +1337,13 @@ const MODEL_PICKER_HINTS = [
   "Esc · Enter",
 ] as const;
 
+/** Permissions only: name `/yolo` so skip-prompts is discoverable at the ask. */
+const PERMISSIONS_HINTS = [
+  "Esc cancel · Enter choose · /yolo skip prompts",
+  "Esc · Enter · /yolo",
+  "Esc · Enter",
+] as const;
+
 function overlayHints(shell: AppShell): readonly string[] {
   const answer = overlayAnswerState(shell);
   const hasChoices = shell.overlayItems.length > 0;
@@ -1363,6 +1370,7 @@ function overlayHints(shell: AppShell): readonly string[] {
         ];
       }
     }
+    if (shell.overlayKind === "permissions") return PERMISSIONS_HINTS;
     return DEFAULT_OVERLAY_HINTS;
   }
   if (answer.active) {
