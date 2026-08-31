@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
 import { loadState } from "../session/state.js";
+import { COMMAND_NAME } from "../branding.js";
 
 import { isDirectorId } from "../agent/directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
@@ -525,6 +526,19 @@ export class CliHelpError extends Error {
   }
 }
 
+/**
+ * Thrown for a recoverable operator mistake. Entry points must print
+ * `message` to stderr and exit 1 — not dump a stack.
+ */
+export class CliUserError extends Error {
+  readonly exitCode = 1 as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CliUserError";
+  }
+}
+
 export interface LoadConfigOptions {
   // Override the global settings file location (for tests / non-standard homes).
   globalSettingsPath?: string;
@@ -838,12 +852,18 @@ export async function loadConfig(
   } else if (resumeMode === "id") {
     const id = resumeSessionId!;
     await migrateLegacySessionIfNeeded(cwd, id, options.home);
-    const state = await loadState(cwd, id, options.home);
-    if (state === null) {
-      throw new Error(
-        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (this checkout's git toplevel). Use \`corbits resume\` to choose one.`,
+    const loaded = await loadState(cwd, id, options.home);
+    if (loaded.kind === "unreadable") {
+      throw new CliUserError(
+        `Session ${id} is unreadable. Use \`${COMMAND_NAME} resume\` to choose another.`,
       );
     }
+    if (loaded.kind === "missing") {
+      throw new Error(
+        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (this checkout's git toplevel). Use \`${COMMAND_NAME} resume\` to choose one.`,
+      );
+    }
+    const state = loaded.state;
     sessionId = id;
     skipInitialTask = true;
     if (task.length === 0) resumeTask = state.task;

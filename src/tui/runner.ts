@@ -671,7 +671,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     if (picked === null) return 0;
     sessionId = picked.sessionId;
     resumeSkipInitialTask = true;
-    const pickedState = await loadState(config.cwd, sessionId);
+    const loaded = await loadState(config.cwd, sessionId);
+    const pickedState = loaded.kind === "ok" ? loaded.state : null;
     resumeSeed = resolveResumeSeed(pickedState);
     if (pickedState !== null) {
       startedAt = pickedState.startedAt;

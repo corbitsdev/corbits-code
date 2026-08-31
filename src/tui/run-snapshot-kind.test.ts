@@ -59,7 +59,10 @@ describe("a snapshot write dispatched by kind", () => {
 
     await write("old", runState({ status: "done", finishedAt: 10 }), "session-rotation");
 
-    expect((await loadState(cwd, "old", home))?.status).toBe("done");
+    expect(await loadState(cwd, "old", home)).toMatchObject({
+      kind: "ok",
+      state: { status: "done" },
+    });
     // The rotated-in session is repointed on the same handle, so the handle
     // must survive the write for the crash handler to have anything to close.
     expect(getActiveRun()).not.toBeNull();
@@ -70,7 +73,10 @@ describe("a snapshot write dispatched by kind", () => {
 
     await write("last", runState({ status: "done", finishedAt: 20 }), "run-end");
 
-    expect((await loadState(cwd, "last", home))?.status).toBe("done");
+    expect(await loadState(cwd, "last", home)).toMatchObject({
+      kind: "ok",
+      state: { status: "done" },
+    });
     expect(getActiveRun()).toBeNull();
   });
 });

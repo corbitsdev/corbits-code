@@ -3,11 +3,12 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../../src/config/index.js";
+import { CliHelpError, CliUserError } from "../../src/config/index.js";
 import {
   resetPricingMetadataRefreshForTests,
   schedulePricingMetadataRefresh,
 } from "../../src/cost/pricing-metadata.js";
-import { mainWithRunners } from "../../src/index.js";
+import { cliCaughtExit, mainWithRunners } from "../../src/index.js";
 
 const envVars = {
   // Unit tests must never export telemetry or write an installationId into
@@ -138,4 +139,33 @@ test("main launches exec for run alias", async () => {
     expect(cfg.command).toBe("exec");
     expect(cfg.task).toBe("do the thing");
   });
+});
+
+test("CliUserError prints one line to stderr without a stack", () => {
+  const err = new CliUserError(
+    "Session abc is unreadable. Use `corbits resume` to choose another.",
+  );
+  const exit = cliCaughtExit(err);
+  expect(exit.stream).toBe("stderr");
+  expect(exit.code).toBe(1);
+  expect(exit.text).toBe(`${err.message}\n`);
+  expect(exit.text).not.toContain("    at ");
+  expect(exit.text.trimEnd().split("\n")).toHaveLength(1);
+});
+
+test("CliHelpError prints help to stdout and exits 0", () => {
+  const err = new CliHelpError("usage: corbits");
+  const exit = cliCaughtExit(err);
+  expect(exit.stream).toBe("stdout");
+  expect(exit.code).toBe(0);
+  expect(exit.text).toBe("usage: corbits\n");
+});
+
+test("generic Error still dumps a stack to stderr", () => {
+  const err = new Error("No session abc for this project");
+  const exit = cliCaughtExit(err);
+  expect(exit.stream).toBe("stderr");
+  expect(exit.code).toBe(1);
+  expect(exit.text).toContain("No session abc for this project");
+  expect(exit.text).toContain("    at ");
 });

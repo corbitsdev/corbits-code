@@ -4,7 +4,7 @@ import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/r
 import { getActiveRun, markCrashed } from "./session/active-run.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";
-import { loadConfig, CliHelpError } from "./config/index.js";
+import { loadConfig, CliHelpError, CliUserError } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
@@ -286,6 +286,24 @@ export function installSignalHandlers(): void {
   }
 }
 
+export function cliCaughtExit(err: unknown): {
+  stream: "stdout" | "stderr";
+  text: string;
+  code: number;
+} {
+  if (err instanceof CliHelpError) {
+    return { stream: "stdout", text: `${err.message}\n`, code: err.exitCode };
+  }
+  if (err instanceof CliUserError) {
+    return { stream: "stderr", text: `${err.message}\n`, code: err.exitCode };
+  }
+  return {
+    stream: "stderr",
+    text: `${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+    code: 1,
+  };
+}
+
 if (import.meta.main) {
   installCrashHandlers();
   installSignalHandlers();
@@ -294,14 +312,10 @@ if (import.meta.main) {
   try {
     code = await main(process.argv.slice(2));
   } catch (err: unknown) {
-    // Help is an intentional early exit, not a crash — stdout + 0.
-    if (err instanceof CliHelpError) {
-      process.stdout.write(`${err.message}\n`);
-      code = err.exitCode;
-    } else {
-      process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
-      code = 1;
-    }
+    const exit = cliCaughtExit(err);
+    const dest = exit.stream === "stdout" ? process.stdout : process.stderr;
+    dest.write(exit.text);
+    code = exit.code;
   }
   process.exit(code);
 }

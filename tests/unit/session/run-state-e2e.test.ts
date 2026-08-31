@@ -78,7 +78,7 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       expect(observed).toEqual([1, 2, 3, 4]);
 
       const onDisk = await loadState(cwd, sessionId, home);
-      expect(onDisk?.turnsUsed).toBe(4);
+      expect(onDisk).toMatchObject({ kind: "ok", state: { turnsUsed: 4 } });
 
       runSink.sink({ type: "reactor.done", data: {} } as unknown as ReactorEmittedEvent);
       await saveState(
@@ -88,8 +88,7 @@ describe("run.json turn-boundary snapshots — end to end", () => {
         home,
       );
       const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState?.status).toBe("done");
-      expect(finalState?.turnsUsed).toBe(4);
+      expect(finalState).toMatchObject({ kind: "ok", state: { status: "done", turnsUsed: 4 } });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
@@ -127,7 +126,7 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       await Promise.all(writes);
 
       const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState?.turnsUsed).toBe(20);
+      expect(finalState).toMatchObject({ kind: "ok", state: { turnsUsed: 20 } });
       expect(runSink.getTurnCount()).toBe(20);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -169,7 +168,7 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       await Promise.all([runningWrite, doneWrite]);
 
       const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState?.status).toBe("done");
+      expect(finalState).toMatchObject({ kind: "ok", state: { status: "done" } });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
