@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -202,4 +202,61 @@ test("listSessions stays silent when many sibling runs failed with an error", as
   expect(listed.every((s) => s.status === "failed")).toBe(true);
   expect(logged).not.toContain("unreadable session state");
   expect(logged).not.toContain(home);
+});
+
+async function writeRun(
+  sessionId: string,
+  body: { status: string; task: string; startedAt: number; turnsUsed?: number },
+): Promise<string> {
+  await initSessionDir(cwd, sessionId, home);
+  const dir = sessionDir(cwd, sessionId, home);
+  await writeFile(join(dir, "run.json"), JSON.stringify({ turnsUsed: 1, ...body }));
+  return join(dir, "run.json");
+}
+
+test("listSessions includes completed and failed sessions", async () => {
+  const doneId = generateSessionId();
+  const failedId = generateSessionId();
+  await writeRun(doneId, { status: "done", task: "finished work", startedAt: 1 });
+  await writeRun(failedId, { status: "failed", task: "broke", startedAt: 2 });
+  const listed = await listSessions(cwd, home);
+  expect(listed.find((s) => s.sessionId === doneId)?.status).toBe("done");
+  expect(listed.find((s) => s.sessionId === failedId)?.status).toBe("failed");
+});
+
+test("listSessions sorts by run.json mtime, not startedAt", async () => {
+  const olderStart = generateSessionId();
+  const newerStart = generateSessionId();
+  const olderPath = await writeRun(olderStart, {
+    status: "done",
+    task: "started first, touched last",
+    startedAt: 1_000,
+  });
+  const newerPath = await writeRun(newerStart, {
+    status: "running",
+    task: "started later, stale",
+    startedAt: 9_000,
+  });
+  const now = Date.now();
+  await utimes(newerPath, now / 1000 - 60, now / 1000 - 60);
+  await utimes(olderPath, now / 1000, now / 1000);
+  const listed = await listSessions(cwd, home);
+  expect(listed[0]?.sessionId).toBe(olderStart);
+  expect(listed[1]?.sessionId).toBe(newerStart);
+  expect(listed[0]?.updatedAt).toBeGreaterThan(listed[1]?.updatedAt ?? 0);
+});
+
+test("listSessions reports updatedAt from run.json mtime", async () => {
+  const sessionId = generateSessionId();
+  const path = await writeRun(sessionId, {
+    status: "done",
+    task: "mtime title",
+    startedAt: 1,
+  });
+  const stamp = Date.now() - 120_000;
+  await utimes(path, stamp / 1000, stamp / 1000);
+  const listed = await listSessions(cwd, home);
+  const row = listed.find((s) => s.sessionId === sessionId);
+  expect(row?.updatedAt).toBeGreaterThanOrEqual(stamp - 2000);
+  expect(row?.updatedAt).toBeLessThanOrEqual(stamp + 2000);
 });

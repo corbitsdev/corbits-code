@@ -75,7 +75,8 @@ corbits resume <session-id>
 ```
 
 Plain `corbits` always starts a fresh conversation. `corbits resume` opens a
-picker of saved sessions for the working directory.
+picker of saved sessions for this checkout, including completed ones, ordered
+by last persist.
 
 ### Mid-run steering
 

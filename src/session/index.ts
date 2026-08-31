@@ -202,6 +202,8 @@ export interface SessionSummary {
   sessionId: string;
   task: string;
   startedAt: number;
+  /** Last persist time (`run.json` mtime, else session-dir mtime). Sort key for resume. */
+  updatedAt: number;
   status: RunState["status"];
 }
 
@@ -230,7 +232,19 @@ async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   return [...ids];
 }
 
-/** List on-disk sessions for a project, newest first. */
+async function sessionUpdatedAt(dir: string, fallbackMs: number): Promise<number> {
+  try {
+    return (await stat(join(dir, "run.json"))).mtimeMs;
+  } catch {
+    try {
+      return (await stat(dir)).mtimeMs;
+    } catch {
+      return fallbackMs;
+    }
+  }
+}
+
+/** List on-disk sessions for a project, most recently persisted first. */
 export async function listSessions(
   cwd: string,
   home: string = homedir(),
@@ -240,12 +254,14 @@ export async function listSessions(
   const summaries: SessionSummary[] = [];
   for (const entry of entries) {
     await migrateLegacySessionIfNeeded(cwd, entry, home);
+    const dir = sessionDir(cwd, entry, home);
     const loaded = await loadState(cwd, entry, home);
     if (loaded.kind === "ok") {
       summaries.push({
         sessionId: entry,
         task: loaded.state.task,
         startedAt: loaded.state.startedAt,
+        updatedAt: await sessionUpdatedAt(dir, loaded.state.startedAt),
         status: loaded.state.status,
       });
       continue;
@@ -258,12 +274,14 @@ export async function listSessions(
     // and therefore isn't actually running: report it as crashed rather
     // than fabricating liveness.
     try {
-      const dirStat = await stat(sessionDir(cwd, entry, home));
+      const dirStat = await stat(dir);
       await stat(sessionContextDir(cwd, entry, home));
+      const startedAt = dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
       summaries.push({
         sessionId: entry,
         task: "(conversation)",
-        startedAt: dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs,
+        startedAt,
+        updatedAt: dirStat.mtimeMs,
         status: "crashed",
       });
     } catch {
@@ -271,7 +289,7 @@ export async function listSessions(
     }
   }
 
-  summaries.sort((a, b) => b.startedAt - a.startedAt);
+  summaries.sort((a, b) => b.updatedAt - a.updatedAt);
   return Promise.all(
     summaries.map(async (row) => ({
       ...row,

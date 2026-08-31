@@ -6,7 +6,6 @@ import { describe, expect, test } from "bun:test";
 
 import { generateSessionId, sessionDir } from "../../src/session/index.js";
 import type { RunState } from "../../src/session/state.js";
-import { isResumableByDefault } from "../../src/tui/pick-session.js";
 
 const FIXTURE = join(import.meta.dirname, "../fixtures/crash-run/simulate-crash.ts");
 const RUN_END_FIXTURE = join(
@@ -51,7 +50,6 @@ describe("integration — crash finalizes run.json", () => {
       expect(state.error).toContain("simulated crash");
       expect(state.task).toBe("simulated crash task");
       expect(state.model).toBe("test-provider:test-model");
-      expect(isResumableByDefault(state)).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });

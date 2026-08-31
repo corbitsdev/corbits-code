@@ -668,7 +668,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let resumeSeed: ResumeSeed = FRESH_RESUME_SEED;
 
   if (config.resumePicker) {
-    const picked = await pickSession(config.cwd, { includeCompleted: config.force });
+    const picked = await pickSession(config.cwd);
     if (picked === null) return 0;
     sessionId = picked.sessionId;
     resumeSkipInitialTask = true;
