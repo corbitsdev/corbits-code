@@ -52,6 +52,7 @@ function session(over: Partial<SubAgentSession>): SubAgentSession {
     agentId: "explorer",
     brief: "",
     status: "running",
+    lifecycle: { state: "running" },
     toolNames: [],
     currentToolName: null,
     currentToolPreview: null,

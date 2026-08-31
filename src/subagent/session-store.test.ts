@@ -754,3 +754,132 @@ describe("interrupt stamps finishedAt once", () => {
     expect(fleetProgress(terminal, t).running).toBe(0);
   });
 });
+
+describe("CL-7269 one stored worker lifecycle", () => {
+  test("fail() stores failed, projects strip failed and verb shutdown", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.fail(session.id, "provider 500");
+    const after = store.get(session.id);
+    expect(after?.status).toBe("failed");
+    expect(after?.lifecycle.state).toBe("failed");
+    expect(after?.lifecycleStatus).toBe("shutdown");
+    expect(after?.error).toBe("provider 500");
+  });
+
+  test("cancel() is not resumable; interruptOne() is when retained", () => {
+    const store = createSubAgentSessionStore();
+    const cancelled = store.start({
+      description: "c",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(cancelled.id);
+    store.registerFollowup(cancelled.id, async () => "nope");
+    expect(store.cancel(cancelled.id, "operator kill")).toBe(true);
+    const afterCancel = store.get(cancelled.id);
+    expect(afterCancel?.status).toBe("cancelled");
+    expect(afterCancel?.lifecycle.state).toBe("cancelled");
+    expect(afterCancel?.lifecycleStatus).toBe("interrupted");
+    expect(afterCancel?.retained).toBe(false);
+    expect(store.resumeOne(cancelled.id, "continue").ok).toBe(false);
+
+    const interrupted = store.start({
+      description: "i",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(interrupted.id);
+    store.registerInterrupt(interrupted.id, () => {});
+    store.registerFollowup(interrupted.id, async () => "next");
+    expect(store.interruptOne(interrupted.id).ok).toBe(true);
+    const afterInterrupt = store.get(interrupted.id);
+    expect(afterInterrupt?.lifecycle.state).toBe("interrupted");
+    expect(afterInterrupt?.status).toBe("running");
+    expect(afterInterrupt?.lifecycleStatus).toBe("interrupted");
+    expect(afterInterrupt?.retained).toBe(true);
+    expect(store.resumeOne(interrupted.id, "continue")).toEqual({ ok: true, status: "running" });
+  });
+
+  test("complete() after cancel() no-ops", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.cancel(session.id, "operator kill");
+    store.complete(session.id, "should not win");
+    const after = store.get(session.id);
+    expect(after?.status).toBe("cancelled");
+    expect(after?.lifecycle.state).toBe("cancelled");
+    expect(after?.report).toBeUndefined();
+  });
+
+  test("pin keeps a session past maxCompleted; unpin allows prune", () => {
+    let n = 0;
+    let t = 0;
+    const store = createSubAgentSessionStore({
+      maxCompleted: 1,
+      createId: () => `s-${++n}`,
+      now: () => ++t,
+    });
+    const pinned = store.start({ description: "keep", agentId: "a", brief: "b" });
+    store.pin(pinned.id);
+    store.complete(pinned.id, "report keep");
+
+    const extra1 = store.start({ description: "drop-me", agentId: "a", brief: "b" });
+    store.complete(extra1.id, "report extra");
+    expect(store.get(pinned.id)?.id).toBe(pinned.id);
+    expect(store.get(extra1.id)?.id).toBe(extra1.id);
+
+    const extra2 = store.start({ description: "also", agentId: "a", brief: "b" });
+    store.complete(extra2.id, "report also");
+    expect(store.get(pinned.id)).toBeDefined();
+    expect(store.get(extra1.id)).toBeUndefined();
+    expect(store.get(extra2.id)).toBeDefined();
+
+    store.unpin(pinned.id);
+    const extra3 = store.start({ description: "prune-pinned", agentId: "a", brief: "b" });
+    store.complete(extra3.id, "report prune");
+    expect(store.get(pinned.id)).toBeUndefined();
+    expect(store.get(extra3.id)).toBeDefined();
+  });
+
+  test("closeOne after fail() returns immediately and leaves stored failed", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.fail(session.id, "provider 500");
+    const started = Date.now();
+    const status = await store.closeOne(session.id, 5000);
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(status).toBe("shutdown");
+    expect(store.get(session.id)?.lifecycle.state).toBe("failed");
+  });
+
+  test("closeOne during setup then fail() does not wait the deadline", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    const started = Date.now();
+    const closePromise = store.closeOne(session.id, 5000);
+    setTimeout(() => store.fail(session.id, "boom"), 15);
+    expect(await closePromise).toBe("shutdown");
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(store.get(session.id)?.lifecycle.state).toBe("failed");
+  });
+
+  test("start() reuse of an id drops leftover pins", () => {
+    let t = 0;
+    const store = createSubAgentSessionStore({
+      maxCompleted: 1,
+      now: () => ++t,
+    });
+    store.start({ id: "reuse", description: "old", agentId: "a", brief: "b" });
+    store.pin("reuse");
+    store.start({ id: "reuse", description: "new", agentId: "a", brief: "b" });
+    store.complete("reuse", "new report");
+    const extra = store.start({ description: "other", agentId: "a", brief: "b" });
+    store.complete(extra.id, "other report");
+    const extra2 = store.start({ description: "prune", agentId: "a", brief: "b" });
+    store.complete(extra2.id, "prune report");
+    expect(store.get("reuse")).toBeUndefined();
+  });
+});
