@@ -80,6 +80,11 @@ Opens a picker of saved conversations for the working directory. Plain
 `corbits` always starts a fresh conversation; `corbits resume <session-id>`
 is the direct, explicit resume path.
 
+A session that ended in `failed` (including one that recorded an `error`
+string in `run.json`) is a failed session, not a corrupt one — it still
+appears in the picker. Passing a corrupt session id prints one short
+recovery line instead of dumping the file path and parse details.
+
 ## Safety Model
 
 - **Tiered permission gate** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) run freely. Every consequential tool (`write_file`, `edit_file`, `run_shell`, …) is gated. The operator can Allow Once or Allow Always (scoped to a file, a directory, or a command shape); "Allow Always" choices persist per working directory so repeat actions don't interrupt flow.
@@ -128,7 +133,9 @@ The exact turn thresholds are model-family-dependent (tighter for models with ob
 
 **What the user sees:** `Ctrl+C` mid-run, network error, or crash. The last state is persisted.
 
-**Recovery:** `corbits resume` reloads `RunState` and continues.
+**Recovery:** `corbits resume` reloads `RunState` and continues. Failed
+sessions remain failed (still listed); a corrupt id gets a short recovery
+line instead of a path dump.
 
 ## Configuration
 

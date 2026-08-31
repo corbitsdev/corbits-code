@@ -24,7 +24,7 @@ await withMockedModule(
 
 const { finalizeRunState, loadState, saveState } = await import("./state.js");
 const { getActiveRun, setActiveRun } = await import("./active-run.js");
-type RunState = Awaited<ReturnType<typeof loadState>>;
+type RunState = import("./state.js").RunState;
 
 let cwd = "";
 let home = "";
@@ -42,7 +42,7 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-function state(overrides: Partial<NonNullable<RunState>>): NonNullable<RunState> {
+function state(overrides: Partial<RunState>): RunState {
   return {
     status: "running",
     turnsUsed: 0,
@@ -62,8 +62,7 @@ test("a straggler snapshot started before a terminal write does not overwrite it
   await Promise.all([straggler, terminal]);
 
   const final = await loadState(cwd, sessionId, home);
-  expect(final?.status).toBe("done");
-  expect(final?.finishedAt).toBe(999);
+  expect(final).toMatchObject({ kind: "ok", state: { status: "done", finishedAt: 999 } });
 });
 
 test("a persisted terminal status agrees with the active-run handle without a second call site", async () => {
@@ -73,7 +72,7 @@ test("a persisted terminal status agrees with the active-run handle without a se
   await finalizeRunState(cwd, sessionId, state({ status: "done", finishedAt: 1000 }), home);
 
   const persisted = await loadState(cwd, sessionId, home);
-  expect(persisted?.status).toBe("done");
+  expect(persisted).toMatchObject({ kind: "ok", state: { status: "done" } });
   // The only liveness representation left is presence in the active-run
   // slot -- a terminal RunState.status must leave nothing there to read.
   expect(getActiveRun()).toBeNull();
@@ -87,6 +86,6 @@ test("saveState calls for different sessions do not block each other", async () 
 
   const a = await loadState(cwd, "session-a", home);
   const b = await loadState(cwd, "session-b", home);
-  expect(a?.task).toBe("a");
-  expect(b?.task).toBe("b");
+  expect(a).toMatchObject({ kind: "ok", state: { task: "a" } });
+  expect(b).toMatchObject({ kind: "ok", state: { task: "b" } });
 });

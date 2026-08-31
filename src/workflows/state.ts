@@ -1,10 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { getLogger } from "@intx/log";
+
 import { sessionDir } from "../session/index.js";
-import { atomicWrite, warnUnreadableState } from "../session/state.js";
+import { atomicWrite } from "../session/state.js";
 import type { StepStatus, WorkflowState } from "./types.js";
-import { COMMAND_NAME } from "../branding.js";
+import { COMMAND_NAME, LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "workflows", "state"]);
 
 const STEP_STATUSES: StepStatus[] = ["pending", "active", "completed", "skipped"];
 
@@ -81,13 +85,13 @@ export async function loadWorkflowState(
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
     if (!isValidWorkflowState(parsed)) {
-      warnUnreadableState(path, "invalid shape");
+      log.warn("unreadable workflow state at {path}: {reason}", { path, reason: "invalid shape" });
       return null;
     }
     return parsed;
   } catch (err) {
     if (err instanceof SyntaxError) {
-      warnUnreadableState(path, "corrupt JSON");
+      log.warn("unreadable workflow state at {path}: {reason}", { path, reason: "corrupt JSON" });
       return null;
     }
     if (

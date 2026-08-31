@@ -240,20 +240,23 @@ export async function listSessions(
   const summaries: SessionSummary[] = [];
   for (const entry of entries) {
     await migrateLegacySessionIfNeeded(cwd, entry, home);
-    const state = await loadState(cwd, entry, home);
-    if (state !== null) {
+    const loaded = await loadState(cwd, entry, home);
+    if (loaded.kind === "ok") {
       summaries.push({
         sessionId: entry,
-        task: state.task,
-        startedAt: state.startedAt,
-        status: state.status,
+        task: loaded.state.task,
+        startedAt: loaded.state.startedAt,
+        status: loaded.state.status,
       });
       continue;
     }
-    // A session directory with context/ but no readable run.json never
-    // reached its first saveState call (see src/tui/runner.ts's early
-    // "running" write) and therefore isn't actually running: report it as
-    // crashed rather than fabricating liveness.
+    if (loaded.kind === "unreadable") {
+      continue;
+    }
+    // Missing run.json: a session directory with context/ never reached its
+    // first saveState call (see src/tui/runner.ts's early "running" write)
+    // and therefore isn't actually running: report it as crashed rather
+    // than fabricating liveness.
     try {
       const dirStat = await stat(sessionDir(cwd, entry, home));
       await stat(sessionContextDir(cwd, entry, home));
@@ -290,7 +293,7 @@ export async function renameSession(
   }
   await migrateLegacySessionIfNeeded(cwd, sessionId, home);
   const existing = await loadState(cwd, sessionId, home);
-  if (existing === null) {
+  if (existing.kind !== "ok") {
     let startedAt = Date.now();
     try {
       const dirStat = await stat(sessionDir(cwd, sessionId, home));
@@ -311,7 +314,7 @@ export async function renameSession(
     );
     return;
   }
-  await saveState(cwd, sessionId, { ...existing, task: trimmed }, home);
+  await saveState(cwd, sessionId, { ...existing.state, task: trimmed }, home);
 }
 
 export { projectKeyFor, projectSessionsRoot, projectsRoot, projectRootFor } from "./project-key.js";

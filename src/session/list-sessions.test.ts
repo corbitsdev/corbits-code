@@ -89,3 +89,128 @@ test("listSessions ignores a leftover goal.json from a pre-removal session", asy
   expect(row).toBeDefined();
   expect(row?.task).toBe("pre-removal session");
 });
+
+test("listSessions skips a session whose run.json is unreadable", async () => {
+  const sessionId = generateSessionId();
+  await initSessionDir(cwd, sessionId, home);
+  await writeFile(join(sessionDir(cwd, sessionId, home), "run.json"), "{ not json");
+  const listed = await listSessions(cwd, home);
+  expect(listed.find((s) => s.sessionId === sessionId)).toBeUndefined();
+});
+
+test("listSessions stays silent when many sibling run.json files are unreadable", async () => {
+  const validId = generateSessionId();
+  await initSessionDir(cwd, validId, home);
+  await writeFile(
+    join(sessionDir(cwd, validId, home), "run.json"),
+    JSON.stringify({
+      status: "running",
+      turnsUsed: 1,
+      task: "keep me",
+      startedAt: 1_700_000_000_000,
+    }),
+  );
+  for (let i = 0; i < 8; i++) {
+    const id = generateSessionId();
+    await initSessionDir(cwd, id, home);
+    await writeFile(join(sessionDir(cwd, id, home), "run.json"), '{ "turnsUsed": ');
+  }
+
+  const chunks: string[] = [];
+  const orig = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+    return orig(chunk, ...(rest as []));
+  }) as typeof process.stderr.write;
+  let listed: Awaited<ReturnType<typeof listSessions>> = [];
+  try {
+    listed = await listSessions(cwd, home);
+  } finally {
+    process.stderr.write = orig;
+  }
+
+  expect(listed.map((s) => s.sessionId)).toEqual([validId]);
+  const text = chunks.join("");
+  expect(text).not.toContain("ignoring unreadable");
+  expect(text).not.toContain(home);
+});
+
+test("listSessions includes a failed run that recorded an error", async () => {
+  const sessionId = generateSessionId();
+  await initSessionDir(cwd, sessionId, home);
+  await writeFile(
+    join(sessionDir(cwd, sessionId, home), "run.json"),
+    JSON.stringify({
+      status: "failed",
+      turnsUsed: 2,
+      task: "failed work",
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+      error: "Cycle commit failed\nhook dump: pre-commit rejected",
+    }),
+  );
+  const listed = await listSessions(cwd, home);
+  const row = listed.find((s) => s.sessionId === sessionId);
+  expect(row?.status).toBe("failed");
+  expect(row?.task).toBe("failed work");
+});
+
+test("listSessions includes a crashed run that recorded an error", async () => {
+  const sessionId = generateSessionId();
+  await initSessionDir(cwd, sessionId, home);
+  await writeFile(
+    join(sessionDir(cwd, sessionId, home), "run.json"),
+    JSON.stringify({
+      status: "crashed",
+      turnsUsed: 1,
+      task: "crashed work",
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+      error: "uncaughtException: boom",
+    }),
+  );
+  const listed = await listSessions(cwd, home);
+  const row = listed.find((s) => s.sessionId === sessionId);
+  expect(row?.status).toBe("crashed");
+  expect(row?.task).toBe("crashed work");
+});
+
+test("listSessions stays silent when many sibling runs failed with an error", async () => {
+  const ids: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const id = generateSessionId();
+    ids.push(id);
+    await initSessionDir(cwd, id, home);
+    await writeFile(
+      join(sessionDir(cwd, id, home), "run.json"),
+      JSON.stringify({
+        status: "failed",
+        turnsUsed: 1,
+        task: `failed ${i}`,
+        startedAt: 1_700_000_000_000 + i,
+        finishedAt: 1_700_000_005_000 + i,
+        error: "Cycle commit failed\nhook dump",
+      }),
+    );
+  }
+
+  const chunks: string[] = [];
+  const orig = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+    return orig(chunk, ...(rest as []));
+  }) as typeof process.stderr.write;
+  let listed: Awaited<ReturnType<typeof listSessions>> = [];
+  try {
+    listed = await listSessions(cwd, home);
+  } finally {
+    process.stderr.write = orig;
+  }
+
+  expect(listed.map((s) => s.sessionId).sort()).toEqual([...ids].sort());
+  expect(listed.every((s) => s.status === "failed")).toBe(true);
+  const text = chunks.join("");
+  expect(text).not.toContain("ignoring unreadable");
+  expect(text).not.toContain(home);
+  expect(text).not.toContain("invalid shape");
+});

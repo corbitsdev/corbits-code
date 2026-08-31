@@ -41,7 +41,70 @@ describe("state persistence", () => {
   test("saveState then loadState returns an equal RunState", async () => {
     await saveState(cwd, SESSION_ID, baseRunState, home);
     const loaded = await loadState(cwd, SESSION_ID, home);
-    expect(loaded).toEqual(baseRunState);
+    expect(loaded).toEqual({ kind: "ok", state: baseRunState });
+  });
+
+  test("loadState returns a failed run that recorded an error string", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      status: "failed",
+      finishedAt: 1_700_000_005_000,
+      error: "Cycle commit failed\nhook dump: pre-commit rejected",
+    };
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
+    expect(loaded).toEqual({ kind: "ok", state });
+  });
+
+  test("loadState returns a crashed run that recorded an error string", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      status: "crashed",
+      finishedAt: 1_700_000_005_000,
+      error: "uncaughtException: boom",
+    };
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
+    expect(loaded).toEqual({ kind: "ok", state });
+  });
+
+  test("failed and crashed runs with error do not print diagnostics to stderr", async () => {
+    const failed: RunState = {
+      ...baseRunState,
+      status: "failed",
+      finishedAt: 1_700_000_005_000,
+      error: "Cycle commit failed\nhook dump: pre-commit rejected",
+    };
+    await saveState(cwd, SESSION_ID, failed, home);
+    const crashedId = "test-session-crashed";
+    await saveState(
+      cwd,
+      crashedId,
+      {
+        ...baseRunState,
+        status: "crashed",
+        finishedAt: 1_700_000_005_000,
+        error: "uncaughtException: boom",
+      },
+      home,
+    );
+
+    const chunks: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      return orig(chunk, ...(rest as []));
+    }) as typeof process.stderr.write;
+    try {
+      expect(await loadState(cwd, SESSION_ID, home)).toEqual({ kind: "ok", state: failed });
+      expect((await loadState(cwd, crashedId, home)).kind).toBe("ok");
+    } finally {
+      process.stderr.write = orig;
+    }
+    const text = chunks.join("");
+    expect(text).not.toContain("ignoring unreadable");
+    expect(text).not.toContain(home);
+    expect(text).not.toContain("invalid shape");
   });
 
   test("saveState round-trips optional fields", async () => {
@@ -52,37 +115,60 @@ describe("state persistence", () => {
     };
     await saveState(cwd, SESSION_ID, state, home);
     const loaded = await loadState(cwd, SESSION_ID, home);
-    expect(loaded).toEqual(state);
+    expect(loaded).toEqual({ kind: "ok", state });
   });
 
   // ---------------------------------------------------------------------------
-  // 2. Missing file returns null (ENOENT mapped, no throw)
+  // 2. Missing file returns missing (ENOENT mapped, no throw)
   // ---------------------------------------------------------------------------
 
-  test("loadState on missing file returns null", async () => {
+  test("loadState on missing file returns missing", async () => {
     const result = await loadState(cwd, "nonexistent-session", home);
-    expect(result).toBeNull();
+    expect(result).toEqual({ kind: "missing" });
   });
 
   // ---------------------------------------------------------------------------
-  // 3. Corrupt / truncated JSON returns null rather than throwing
+  // 3. Corrupt / truncated JSON returns unreadable rather than throwing
   // ---------------------------------------------------------------------------
 
-  test("loadState with truncated JSON returns null instead of throwing", async () => {
+  test("loadState with truncated JSON returns unreadable instead of throwing", async () => {
     const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
     await mkdir(stateDir, { recursive: true });
     await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
 
     const result = await loadState(cwd, SESSION_ID, home);
-    expect(result).toBeNull();
+    expect(result).toEqual({ kind: "unreadable" });
+  });
+
+  test("loadState does not print unreadable-state diagnostics to stderr", async () => {
+    const stateDir = dir();
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
+
+    const chunks: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      return orig(chunk, ...(rest as []));
+    }) as typeof process.stderr.write;
+    try {
+      expect(await loadState(cwd, SESSION_ID, home)).toEqual({ kind: "unreadable" });
+    } finally {
+      process.stderr.write = orig;
+    }
+    const text = chunks.join("");
+    expect(text).not.toContain("ignoring unreadable");
+    expect(text).not.toContain(home);
+    expect(text).not.toContain("invalid shape");
   });
 
   // ---------------------------------------------------------------------------
-  // 4. Valid JSON but wrong shape returns null via the validators
+  // 4. Valid JSON but wrong shape returns unreadable via the validators
   // ---------------------------------------------------------------------------
 
-  test("loadState with turnsUsed as string returns null", async () => {
+  test("loadState with turnsUsed as string returns unreadable", async () => {
     const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
     await mkdir(stateDir, { recursive: true });
@@ -92,7 +178,7 @@ describe("state persistence", () => {
     );
 
     const result = await loadState(cwd, SESSION_ID, home);
-    expect(result).toBeNull();
+    expect(result).toEqual({ kind: "unreadable" });
   });
 
   // ---------------------------------------------------------------------------
@@ -139,14 +225,13 @@ describe("state persistence", () => {
     };
     await saveState(cwd, SESSION_ID, state, home);
     const loaded = await loadState(cwd, SESSION_ID, home);
-    expect(loaded).toEqual(state);
+    expect(loaded).toEqual({ kind: "ok", state });
   });
 
   test("loadState accepts a record with no model or mcpServers (pre-existing sessions)", async () => {
     await saveState(cwd, SESSION_ID, baseRunState, home);
     const loaded = await loadState(cwd, SESSION_ID, home);
-    expect(loaded?.model).toBeUndefined();
-    expect(loaded?.mcpServers).toBeUndefined();
+    expect(loaded).toEqual({ kind: "ok", state: baseRunState });
   });
 
   test("loadState rejects a mcpServers entry missing toolCount", async () => {
@@ -165,6 +250,6 @@ describe("state persistence", () => {
     );
 
     const result = await loadState(cwd, SESSION_ID, home);
-    expect(result).toBeNull();
+    expect(result).toEqual({ kind: "unreadable" });
   });
 });

@@ -10,6 +10,7 @@ import {
   buildProviderCatalog,
   catalogEntryAsProviderSettings,
   CliHelpError,
+  CliUserError,
   CLI_HELP_TEXT,
   KEYLESS_API_KEY,
   loadConfig,
@@ -26,7 +27,7 @@ import {
   type Settings,
 } from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
-import { generateSessionId, initSessionDir } from "./session/index.js";
+import { generateSessionId, initSessionDir, sessionDir } from "./session/index.js";
 import { saveState } from "./session/state.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
 import { createExaMCPServerConfig } from "./mcp/exa.js";
@@ -467,6 +468,94 @@ describe("loadConfig", () => {
     }
   });
 
+  test("resume <id> --force reopens a failed session that recorded an error", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await saveState(
+        cwd,
+        sessionId,
+        {
+          status: "failed",
+          turnsUsed: 4,
+          task: "ship resume after failure",
+          startedAt: Date.now() - 1_000,
+          finishedAt: Date.now(),
+          error: "Cycle commit failed\nhook dump: pre-commit rejected",
+        },
+        home,
+      );
+      const config = await loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      assertConfigured(config);
+      expect(config.resumeMode).toBe("id");
+      expect(config.sessionId).toBe(sessionId);
+      expect(config.skipInitialTask).toBe(true);
+      expect(config.task).toBe("ship resume after failure");
+      expect(config.force).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("resume <id> --force among failed siblings stays silent and reopens the target", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const targetId = generateSessionId();
+      for (let i = 0; i < 6; i++) {
+        const id = i === 0 ? targetId : generateSessionId();
+        await initSessionDir(cwd, id, home);
+        await saveState(
+          cwd,
+          id,
+          {
+            status: "failed",
+            turnsUsed: 2,
+            task: i === 0 ? "target failed session" : `sibling failed ${i}`,
+            startedAt: Date.now() - 1_000 - i,
+            finishedAt: Date.now() - i,
+            error: "Cycle commit failed\nhook dump: pre-commit rejected",
+          },
+          home,
+        );
+      }
+
+      const chunks: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+        return orig(chunk, ...(rest as []));
+      }) as typeof process.stderr.write;
+      let config: Awaited<ReturnType<typeof loadConfig>>;
+      try {
+        config = await loadConfig(["resume", targetId, "--force", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+          home,
+        });
+      } finally {
+        process.stderr.write = orig;
+      }
+      assertConfigured(config);
+      expect(config.sessionId).toBe(targetId);
+      expect(config.task).toBe("target failed session");
+      const text = chunks.join("");
+      expect(text).not.toContain("ignoring unreadable");
+      expect(text).not.toContain(home);
+      expect(text).not.toContain("invalid shape");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("--resume opens the picker", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
@@ -552,6 +641,55 @@ describe("loadConfig", () => {
           home,
         }),
       ).rejects.toThrow(new RegExp(`No session ${missing}`));
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("resume <id> of an unreadable session throws a short recovery line", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await writeFile(join(sessionDir(cwd, sessionId, home), "run.json"), "{ not json");
+
+      const chunks: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+        return orig(chunk, ...(rest as []));
+      }) as typeof process.stderr.write;
+      let thrown: unknown;
+      try {
+        await loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+          home,
+        });
+      } catch (err) {
+        thrown = err;
+      } finally {
+        process.stderr.write = orig;
+      }
+
+      expect(thrown).toBeInstanceOf(CliUserError);
+      const message = thrown instanceof Error ? thrown.message : String(thrown);
+      expect(message).toBe(
+        `Session ${sessionId} is unreadable. Use \`corbits resume\` to choose another.`,
+      );
+      expect(message).not.toMatch(/No session/);
+      expect(message).not.toContain("ignoring unreadable");
+      expect(message).not.toContain("invalid shape");
+      expect(message).not.toContain(home);
+      expect(message.split("\n")).toHaveLength(1);
+      if (thrown instanceof CliUserError) {
+        expect(thrown.exitCode).toBe(1);
+      }
+      const text = chunks.join("");
+      expect(text).not.toContain("ignoring unreadable");
+      expect(text).not.toContain(home);
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
