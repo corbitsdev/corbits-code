@@ -19,10 +19,6 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function initGitRepo(dir: string): void {
-  initTemporaryGitRepo(dir);
-}
-
 async function commitReadme(dir: string): Promise<void> {
   await writeFile(join(dir, "README"), "x");
   execFileSync("git", ["add", "README"], { cwd: dir, stdio: "ignore" });
@@ -37,7 +33,7 @@ test("projectKeyFor is stable across calls for the same path", () => {
 });
 
 test("projectKeyFor shares nested dirs under the same git toplevel", async () => {
-  initGitRepo(root);
+  initTemporaryGitRepo(root);
   await commitReadme(root);
 
   const nested = join(root, "nested", "deep");
@@ -48,7 +44,7 @@ test("projectKeyFor shares nested dirs under the same git toplevel", async () =>
 });
 
 test("linked worktrees have distinct project roots and keys from main and each other", async () => {
-  initGitRepo(root);
+  initTemporaryGitRepo(root);
   await commitReadme(root);
 
   const wtA = join(root, "..", `wt-a-${Date.now()}-${Math.random().toString(16).slice(2)}`);
