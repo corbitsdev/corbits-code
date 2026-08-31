@@ -6,7 +6,12 @@ import type { KeyEvent } from "@opentui/core";
 import type { CostSummary } from "../cost/cost-summary.js";
 import type { SubAgentSession } from "../subagent/session-store.js";
 import { createHarness } from "./harness.js";
-import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction } from "./shell.js";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+  moveOverlaySelection,
+  runOverlayAction,
+} from "./shell.js";
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,
@@ -436,6 +441,55 @@ describe("bottom border cost run", () => {
       showCost = true;
       host.refreshCostContext();
       expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("selecting a Codex model hides prompt $ without waiting for inference", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    let provider = "xai";
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {
+        xai: { models: ["grok-4"] },
+        "codex/abk-labs": { models: ["gpt-5.5"] },
+      },
+      onModelSelect: (id) => {
+        const sep = id.indexOf(":");
+        if (sep <= 0) return;
+        provider = id.slice(0, sep);
+      },
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => ({
+        ...fakeCostSummary(),
+        costHiddenReason: provider.startsWith("codex/") ? "chatgpt-subscription" : null,
+      }),
+      showPromptCost: () => true,
+    });
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+
+      expect(host.openSurface("models")).toBe(true);
+      const items = host.shell.overlayItems;
+      const codexIndex = items.findIndex((label) => label.includes("codex/abk-labs"));
+      expect(codexIndex).toBeGreaterThanOrEqual(0);
+      moveOverlaySelection(host.shell, codexIndex);
+      acceptOverlaySelection(host.shell);
+
+      expect(provider).toBe("codex/abk-labs");
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
+      expect(host.shell.costContext?.costLabel ?? null).toBeNull();
       expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
     } finally {
       host.dispose();

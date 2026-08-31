@@ -104,9 +104,9 @@ export interface RunnerHostDeps {
    */
   readonly modelLabel?: () => PromptActionBarModelLabelInput;
   /**
-   * Live cost/context source for the bottom border's meter. Read on mount and
-   * again after every completed inference turn, so the meter tracks usage
-   * without a timer of its own.
+   * Live cost/context source for the bottom border's meter. Read on mount, after
+   * every completed inference turn, and after a live model pick so hide/show
+   * follows the new identity without waiting for the next inference.
    */
   readonly readCostSummary?: () => CostSummary | undefined;
   /**
@@ -248,6 +248,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const onModelSelect = (id: string): void => {
     deps.onModelSelect(id);
     if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel());
+    // Identity is already applied (deps.onModelSelect). Re-read so Codex
+    // hides $ (and a metered provider shows it) without waiting for inference.
+    pushCostContext();
   };
   const cwd = deps.cwd ?? process.cwd();
   const host = await mountProductHost({
