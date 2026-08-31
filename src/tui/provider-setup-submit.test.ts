@@ -34,6 +34,8 @@ await withMockedModule(
 );
 
 const { buildProviderSubmitHandler } = await import("./provider-setup-submit.js");
+const { createGlobalSettingsWriter, persistGlobalHTTPMCPServer } =
+  await import("../mcp/add-server.js");
 const { loadLocalSettings, loadSettings, localSettingsPath, resolveLocalSettingsPath } =
   await import("../config/settings.js");
 import type { OAuthResult, ProviderFormValues, SubmitPhase } from "./provider-setup.js";
@@ -172,6 +174,42 @@ describe("buildProviderSubmitHandler", () => {
         defaultModel: "qwen3",
       });
       expect(provider?.apiKey).toBeUndefined();
+    });
+  });
+
+  test("preserves a queued MCP add when a provider is persisted from stale runner settings", async () => {
+    await withTempDir(async (dir) => {
+      const path = join(dir, "settings.json");
+      const writer = createGlobalSettingsWriter(path);
+      await persistGlobalHTTPMCPServer(writer, "linear", "https://mcp.linear.app/mcp");
+      const staleRunnerSettings = { providers: {} };
+      const submit = buildProviderSubmitHandler(
+        path,
+        staleRunnerSettings,
+        localSettingsPath(dir),
+        async (apply) => {
+          const next = await writer.update(apply);
+          if (next === null) throw new Error("global settings are unreadable");
+          return next;
+        },
+      );
+
+      await submit(
+        {
+          name: "local",
+          baseURL: "http://localhost:11434/v1",
+          apiKey: "",
+          model: "llama3",
+          oauthProfile: "",
+        },
+        noopSetPhase,
+        { skipValidation: true },
+      );
+
+      expect(await loadSettings(path)).toMatchObject({
+        providers: { local: { keyless: true } },
+        mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      });
     });
   });
 

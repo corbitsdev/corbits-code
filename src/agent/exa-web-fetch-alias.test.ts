@@ -6,18 +6,52 @@ import type { ToolResult } from "@intx/types/runtime";
 import { stringTool, type AgentTool } from "@intx/agent";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 import type { ResolvedMCPServerConfig } from "../mcp/exa.js";
+import type { MCPConnectOptions } from "../mcp/client.js";
+import { createGlobalSettingsWriter, persistGlobalHTTPMCPServer } from "../mcp/add-server.js";
 import { createPermissionGate } from "../permission/gate.js";
 
 const calls: { toolName: string; args: Record<string, unknown>; signal: AbortSignal }[] = [];
+const closedClients: string[] = [];
 let connectConfigs: ResolvedMCPServerConfig[] = [];
-let connectMode: "success" | "missing-fetch" | "failed" = "success";
+let connectOptions: MCPConnectOptions[] = [];
+let releaseDeferredConnect: (() => void) | undefined;
+let authWaitAborts = 0;
+let authResourceCloses = 0;
+let blockInteractiveAuth = false;
+let connectMode: "success" | "missing-fetch" | "failed" | "rejected" | "auth" | "deferred" =
+  "success";
 
 await withMockedModule(
   import.meta.resolve("../mcp/client.js"),
   (real: typeof import("../mcp/client.js")) => ({
     ...real,
-    connectMCPServer: async (config: ResolvedMCPServerConfig) => {
+    connectMCPServer: async (config: ResolvedMCPServerConfig, options: MCPConnectOptions = {}) => {
       connectConfigs.push(config);
+      connectOptions.push(options);
+      if (connectMode === "auth" || blockInteractiveAuth) {
+        options.onAuthURL?.(config.name, "https://auth.test/authorize");
+      }
+      if (blockInteractiveAuth) {
+        await new Promise<void>((resolve) => {
+          const onAbort = (): void => {
+            authWaitAborts += 1;
+            authResourceCloses += 1;
+            resolve();
+          };
+          if (options.signal?.aborted === true) {
+            onAbort();
+          } else {
+            options.signal?.addEventListener("abort", onAbort, { once: true });
+          }
+        });
+        return { ok: false, serverName: config.name, error: "authorization aborted" };
+      }
+      if (connectMode === "deferred") {
+        await new Promise<void>((resolve) => {
+          releaseDeferredConnect = resolve;
+        });
+      }
+      if (connectMode === "rejected") throw new Error("transport setup exploded");
       if (connectMode === "failed") {
         return { ok: false, serverName: config.name, error: "connection exploded" };
       }
@@ -36,7 +70,9 @@ await withMockedModule(
             calls.push({ toolName, args, signal });
             return "exa fetch result";
           },
-          close: async () => undefined,
+          close: async () => {
+            closedClients.push(config.name);
+          },
         },
       };
     },
@@ -51,10 +87,13 @@ function permissionGate() {
   return createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
 }
 
-async function makeToolset(mcpServers = resolveMcpServers(undefined, undefined)) {
+async function makeToolset(
+  mcpServers = resolveMcpServers(undefined, undefined),
+  gate = permissionGate(),
+) {
   return createAgentToolset({
     cwd: mkdtempSync(join(tmpdir(), "corbits-exa-fetch-alias-")),
-    permissionGate: permissionGate(),
+    permissionGate: gate,
     onOperatorGate: async () => ({ kind: "cancel" }),
     mcpServers,
   });
@@ -79,7 +118,13 @@ async function runTool(
 
 beforeEach(() => {
   calls.length = 0;
+  closedClients.length = 0;
   connectConfigs = [];
+  connectOptions = [];
+  releaseDeferredConnect = undefined;
+  authWaitAborts = 0;
+  authResourceCloses = 0;
+  blockInteractiveAuth = false;
   connectMode = "success";
 });
 
@@ -203,6 +248,281 @@ describe("built-in Exa web_fetch alias", () => {
       expect(calls).toHaveLength(0);
     } finally {
       await failed.dispose();
+    }
+  });
+
+  test("single-server connection deduplicates and hands OAuth status through", async () => {
+    connectMode = "auth";
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    );
+    const states: { state: string; url?: string }[] = [];
+    const callbacks = {
+      interactiveAuth: true,
+      onStatus: (status: { state: string; url?: string }) => states.push(status),
+      onToolsChanged: () => undefined,
+    };
+    const server = { name: "linear", type: "http" as const, url: "https://mcp.linear.app/mcp" };
+    try {
+      await Promise.all([
+        toolset.connectMCPServer(server, callbacks),
+        toolset.connectMCPServer(server, callbacks),
+      ]);
+      await toolset.connectMCPServer(server, callbacks);
+
+      expect(connectConfigs).toEqual([server]);
+      expect(states.map((status) => status.state)).toEqual([
+        "connecting",
+        "needs-auth",
+        "connected",
+      ]);
+      expect(states[1]?.url).toBe("https://auth.test/authorize");
+      expect(connectOptions[0]?.onAuthURL).toBeDefined();
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("dispose invalidates an in-flight connection and closes its late client", async () => {
+    connectMode = "deferred";
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    );
+    const states: string[] = [];
+    const connection = toolset.connectMCPServer(
+      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      {
+        interactiveAuth: true,
+        onStatus: (status) => states.push(status.state),
+        onToolsChanged: () => undefined,
+      },
+    );
+    await Promise.resolve();
+
+    let disposed = false;
+    const disposal = toolset.dispose().then(() => {
+      disposed = true;
+    });
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+    releaseDeferredConnect?.();
+    await Promise.all([connection, disposal]);
+
+    expect(states).toEqual(["connecting"]);
+    expect(closedClients).toEqual(["linear"]);
+    expect(
+      toolset.dynamicRunner.currentDefinitions().some((tool) => tool.name.includes("linear")),
+    ).toBe(false);
+  });
+
+  test("dispose aborts blocked interactive auth and closes its resources", async () => {
+    blockInteractiveAuth = true;
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    );
+    const callerAbort = new AbortController();
+    const states: string[] = [];
+    const connection = toolset.connectMCPServer(
+      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      {
+        interactiveAuth: true,
+        onStatus: (status) => states.push(status.state),
+        onToolsChanged: () => undefined,
+      },
+      callerAbort.signal,
+    );
+    while (connectOptions.length === 0) await Promise.resolve();
+
+    const ownedSignal = connectOptions[0]?.signal;
+    expect(ownedSignal).toBeDefined();
+    expect(ownedSignal).not.toBe(callerAbort.signal);
+    const disposal = toolset.dispose();
+    expect(toolset.dispose()).toBe(disposal);
+    await Promise.resolve();
+    expect(ownedSignal?.aborted).toBe(true);
+    expect(callerAbort.signal.aborted).toBe(false);
+    await Promise.all([connection, disposal]);
+
+    expect(authWaitAborts).toBe(1);
+    expect(authResourceCloses).toBe(1);
+    expect(states).toEqual(["connecting", "needs-auth"]);
+    expect(
+      toolset.dynamicRunner.currentDefinitions().some((tool) => tool.name.includes("linear")),
+    ).toBe(false);
+  });
+
+  test("rejects connected and in-flight implicit Exa names before persistence", async () => {
+    const connected = await makeToolset();
+    const connectedPath = join(mkdtempSync(join(tmpdir(), "corbits-mcp-active-")), "settings.json");
+    try {
+      await connect(connected);
+      expect(connected.hasMCPServer("exa")).toBe(true);
+      expect(
+        await persistGlobalHTTPMCPServer(
+          createGlobalSettingsWriter(connectedPath),
+          "exa",
+          "https://custom.test/mcp",
+          "none",
+          connected.hasMCPServer,
+        ),
+      ).toEqual({ ok: false, reason: "active" });
+      expect(await Bun.file(connectedPath).exists()).toBe(false);
+    } finally {
+      await connected.dispose();
+    }
+
+    connectMode = "deferred";
+    const inFlight = await makeToolset();
+    const inFlightPath = join(mkdtempSync(join(tmpdir(), "corbits-mcp-active-")), "settings.json");
+    const startup = connect(inFlight);
+    while (releaseDeferredConnect === undefined) await Promise.resolve();
+    try {
+      expect(inFlight.hasMCPServer("exa")).toBe(true);
+      expect(
+        await persistGlobalHTTPMCPServer(
+          createGlobalSettingsWriter(inFlightPath),
+          "exa",
+          "https://custom.test/mcp",
+          "none",
+          inFlight.hasMCPServer,
+        ),
+      ).toEqual({ ok: false, reason: "active" });
+      expect(await Bun.file(inFlightPath).exists()).toBe(false);
+    } finally {
+      releaseDeferredConnect?.();
+      await startup;
+      await inFlight.dispose();
+    }
+  });
+
+  test("failed implicit Exa remains reserved and cannot be persisted explicitly", async () => {
+    connectMode = "failed";
+    const toolset = await makeToolset();
+    const path = join(mkdtempSync(join(tmpdir(), "corbits-mcp-failed-exa-")), "settings.json");
+    try {
+      await connect(toolset);
+      expect(toolset.hasMCPServer("exa")).toBe(true);
+      expect(
+        await persistGlobalHTTPMCPServer(
+          createGlobalSettingsWriter(path),
+          "exa",
+          "https://custom.test/mcp",
+          "none",
+          toolset.hasMCPServer,
+        ),
+      ).toEqual({ ok: false, reason: "active" });
+      expect(await Bun.file(path).exists()).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("single-server registration failure closes the client and reports failed", async () => {
+    const gate = permissionGate();
+    gate.registerMcpClient = () => {
+      throw new Error("registration exploded");
+    };
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+      gate,
+    );
+    const states: { state: string; error?: string }[] = [];
+    try {
+      await toolset.connectMCPServer(
+        { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+        {
+          interactiveAuth: true,
+          onStatus: (status) => states.push(status),
+          onToolsChanged: () => undefined,
+        },
+      );
+
+      expect(states.map((status) => status.state)).toEqual(["connecting", "failed"]);
+      expect(states[1]?.error).toContain("registration exploded");
+      expect(closedClients).toEqual(["linear"]);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("rejected single-server connection reports failed without registration or client leaks", async () => {
+    connectMode = "rejected";
+    const gate = permissionGate();
+    let registrations = 0;
+    let unregistrations = 0;
+    gate.registerMcpClient = () => {
+      registrations += 1;
+    };
+    gate.unregisterMcpServer = () => {
+      unregistrations += 1;
+    };
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+      gate,
+    );
+    const server = { name: "linear", type: "http" as const, url: "https://mcp.linear.app/mcp" };
+    const states: { state: string; error?: string }[] = [];
+    try {
+      await toolset.connectMCPServer(server, {
+        interactiveAuth: true,
+        onStatus: (status) => states.push(status),
+        onToolsChanged: () => undefined,
+      });
+
+      expect(states.map((status) => status.state)).toEqual(["connecting", "failed"]);
+      expect(states[1]?.error).toContain("transport setup exploded");
+      expect(registrations).toBe(0);
+      expect(unregistrations).toBe(0);
+      expect(closedClients).toEqual([]);
+      expect(
+        toolset.dynamicRunner.currentDefinitions().some((tool) => tool.name.includes("linear")),
+      ).toBe(false);
+      expect(toolset.hasMCPServer("linear")).toBe(true);
+
+      connectMode = "failed";
+      const retryStates: string[] = [];
+      await toolset.connectMCPServer(server, {
+        interactiveAuth: true,
+        onStatus: (status) => retryStates.push(status.state),
+        onToolsChanged: () => undefined,
+      });
+      expect(retryStates).toEqual(["connecting", "failed"]);
+      expect(connectConfigs).toEqual([server, server]);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("connection failure leaves the late-added server persisted and reports failed", async () => {
+    connectMode = "failed";
+    const dir = mkdtempSync(join(tmpdir(), "corbits-mcp-failure-"));
+    const path = join(dir, "settings.json");
+    const persisted = await persistGlobalHTTPMCPServer(
+      createGlobalSettingsWriter(path),
+      "linear",
+      "https://mcp.linear.app/mcp",
+    );
+    expect(persisted.ok).toBe(true);
+    if (!persisted.ok) return;
+
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    );
+    const states: { state: string; error?: string }[] = [];
+    try {
+      await toolset.connectMCPServer(persisted.server, {
+        interactiveAuth: true,
+        onStatus: (status) => states.push(status),
+        onToolsChanged: () => undefined,
+      });
+
+      expect(states.map((status) => status.state)).toEqual(["connecting", "failed"]);
+      expect(states[1]?.error).toContain("connection exploded");
+      expect(await Bun.file(path).json()).toMatchObject({
+        mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      });
+    } finally {
+      await toolset.dispose();
     }
   });
 

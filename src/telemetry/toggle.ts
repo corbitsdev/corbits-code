@@ -44,7 +44,9 @@ const defaultDeps: TelemetryToggleDeps = {
 export function createTelemetryToggleHandler(
   globalSettingsPath: string,
   deps: TelemetryToggleDeps = defaultDeps,
+  enqueue: <T>(job: () => Promise<T>) => Promise<T> = (job) => job(),
 ): (enabled: boolean) => boolean {
+  let intentGeneration = 0;
   return (enabled: boolean): boolean => {
     if (enabled && deps.telemetryDisabledByEnv()) {
       // Env kills own the "disabled means no settings writes" constraint
@@ -56,6 +58,7 @@ export function createTelemetryToggleHandler(
       );
       return false;
     }
+    const generation = ++intentGeneration;
     if (!enabled) {
       // Opt-out must be immediate and absolute: discard whatever the outgoing
       // instance has queued (dropping the singleton alone would leave its
@@ -84,7 +87,7 @@ export function createTelemetryToggleHandler(
       );
     }
 
-    void (async () => {
+    void enqueue(async () => {
       // Re-enable goes through ensureTelemetrySettings so an installationId
       // always exists — writing { enabled: true } without one would leave the
       // re-created instance resolving disabled and the toggle a silent no-op.
@@ -110,6 +113,7 @@ export function createTelemetryToggleHandler(
         // file is readable again.
         return;
       }
+      if (generation !== intentGeneration) return;
       const previous = deps.getTelemetry();
       const base: Settings = current ?? { providers: {} };
       // Keep installation identity across ambient opt-out so /feedback still
@@ -139,8 +143,9 @@ export function createTelemetryToggleHandler(
       }
       // Re-create so this session's remaining captures honor the change (and,
       // on the load-succeeded path, carry forward the real installationId).
+      if (generation !== intentGeneration) return;
       deps.setTelemetry(deps.createTelemetry({ settings: next }));
-    })();
+    });
     return true;
   };
 }

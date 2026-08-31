@@ -1940,6 +1940,7 @@ interface PriorOverlaySnapshot {
   readonly onCycle: ((itemId: string, direction: -1 | 1) => void) | null;
   readonly describe: ((itemId: string) => ItemDescription | null) | null;
   readonly onAction: ((itemId: string, key: KeyEvent) => boolean) | null;
+  readonly onPaste: ((text: string) => void) | null;
   readonly answer: OverlayAnswerState | null;
   readonly titleText: string;
   readonly onCancel: (() => void) | null;
@@ -1961,6 +1962,8 @@ interface ShellInternals {
   overlayRawBodyText: string;
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null;
+  /** Advances whenever a new overlay takes ownership of the shared host. */
+  overlayGeneration: number;
   /** Optional stable ids aligned with overlayItems for the open primary. */
   overlayItemIds: readonly string[];
   /** Optional plain chosen values aligned with overlayItems for the open primary. */
@@ -1977,6 +1980,8 @@ interface ShellInternals {
   overlayDescribe: ((itemId: string) => ItemDescription | null) | null;
   /** Per-open bare-key claim for the open primary overlay. */
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null;
+  /** Per-open bracketed-paste owner for synthetic text panes. */
+  overlayOnPaste: ((text: string) => void) | null;
   /** Whether the open primary advertises Alt+A and yields å/Å from type-to-filter. */
   overlayAddProviderHint: boolean;
   /** Whether the open primary advertises Alt+D in the footer hints. */
@@ -3534,13 +3539,13 @@ export interface OpenListOverlayOpts {
    */
   readonly describe?: (itemId: string) => ItemDescription | null;
   /**
-   * Per-open bare-key claim, checked for any key the list's own navigation
-   * (arrows, expand, accept) leaves unclaimed. Returns true when the key was
-   * used, so the shell can `preventDefault` it and stop. Scoped to this open
-   * only — never reachable while no list overlay is open, so it cannot shadow
-   * prompt typing.
+   * Per-open bare-key claim, checked before list navigation. Returning false
+   * leaves the key available to the ordinary j/k and arrow handlers. Scoped to
+   * this open only, so it cannot shadow prompt typing.
    */
   readonly onAction?: (itemId: string, key: KeyEvent) => boolean;
+  /** Per-open bracketed-paste target for synthetic text panes. */
+  readonly onPaste?: (text: string) => void;
   /**
    * Per-open free-text answer. When set the overlay paints an answer field the
    * operator can Tab into and type into, and submitting it closes the overlay
@@ -3611,6 +3616,7 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
           onCycle: bag.overlayOnCycle,
           describe: bag.overlayDescribe,
           onAction: bag.overlayOnAction,
+          onPaste: bag.overlayOnPaste,
           answer: bag.overlayAnswer,
           titleText: bag.overlayTitleText,
           onCancel: bag.overlayOnCancel,
@@ -3635,6 +3641,7 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
 
   const bag = internals.get(shell);
   if (bag) {
+    bag.overlayGeneration += 1;
     // Palette open does not own primary accept; leave prior snapshot's callback.
     if (!isPalette) {
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : [];
@@ -3645,6 +3652,7 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
       bag.overlayOnCycle = opts?.onCycle ?? null;
       bag.overlayDescribe = opts?.describe ?? null;
       bag.overlayOnAction = opts?.onAction ?? null;
+      bag.overlayOnPaste = opts?.onPaste ?? null;
       bag.overlayOnCancel = opts?.onCancel ?? null;
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
       bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
@@ -3668,6 +3676,7 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
       bag.overlayOnCycle = opts?.onCycle ?? null;
       bag.overlayDescribe = opts?.describe ?? null;
       bag.overlayOnAction = opts?.onAction ?? null;
+      bag.overlayOnPaste = opts?.onPaste ?? null;
       bag.overlayOnCancel = opts?.onCancel ?? null;
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
       bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
@@ -4077,18 +4086,10 @@ export function closeInsetOverlay(shell: AppShell): void {
   const bag = internals.get(shell);
   if (bag) bag.listFilter = null;
   const prior = wasPalette ? (bag?.priorOverlay ?? null) : null;
-  // Permissions/operator overlays back a caller awaiting ev.resolve — Esc must
-  // still settle that promise (as a deny/cancel) or the caller hangs forever.
-  // model_picker/add_provider onCancel is optional back-navigation for
-  // callers that set one; palette/mentions/copy have no awaited caller and
-  // drop silently.
-  const cancelable =
-    !prior &&
-    (shell.overlayKind === "permissions" ||
-      shell.overlayKind === "operator" ||
-      shell.overlayKind === "model_picker" ||
-      shell.overlayKind === "add_provider");
-  const onCancel = cancelable ? (bag?.overlayOnCancel ?? null) : null;
+  // A primary overlay that registers onCancel owns cleanup for every dismiss
+  // path. A palette stacked over another overlay restores that prior frame
+  // instead, so its callback must remain untouched.
+  const onCancel = !prior ? (bag?.overlayOnCancel ?? null) : null;
 
   shell.overlayList = null;
   shell.overlayKind = null;
@@ -4107,6 +4108,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCycle = null;
     bag.overlayDescribe = null;
     bag.overlayOnAction = null;
+    bag.overlayOnPaste = null;
     bag.overlayAddProviderHint = false;
     bag.overlaySetDefaultHint = false;
     bag.overlayAnswer = null;
@@ -4136,6 +4138,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCycle = prior.onCycle;
     bag.overlayDescribe = prior.describe;
     bag.overlayOnAction = prior.onAction;
+    bag.overlayOnPaste = prior.onPaste;
     bag.overlayAnswer = prior.answer;
     bag.overlayTitleText = prior.titleText;
     bag.overlayOnCancel = prior.onCancel;
@@ -4267,6 +4270,72 @@ export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): voi
     overlayMinBodyRows: minHostRows,
   });
   paintOverlayList(shell);
+}
+
+export interface OverlayContinuationToken {
+  readonly generation: number;
+}
+
+/** Capture ownership of the currently idle overlay host for an async continuation. */
+export function captureOverlayContinuation(shell: AppShell): OverlayContinuationToken {
+  return { generation: internals.get(shell)?.overlayGeneration ?? -1 };
+}
+
+/** True only while no newer overlay has taken ownership of the shared host. */
+export function isOverlayContinuationCurrent(
+  shell: AppShell,
+  token: OverlayContinuationToken,
+): boolean {
+  return (
+    !shell.disposed &&
+    shell.overlayList === null &&
+    internals.get(shell)?.overlayGeneration === token.generation
+  );
+}
+
+/**
+ * Refresh an overlay owned by either the foreground or the frame beneath a
+ * stacked palette. Returns false once that overlay no longer owns either slot.
+ */
+export function setOwnedOverlayItems(
+  shell: AppShell,
+  kind: PrimaryOverlayKind,
+  items: readonly string[],
+  itemIds: readonly string[],
+): boolean {
+  const bag = internals.get(shell);
+  if (!bag) return false;
+
+  if (shell.overlayKind === kind && shell.overlayList !== null) {
+    const activeId = bag.overlayItemIds[shell.overlayList.activeIndex];
+    setOverlayItems(shell, items, itemIds);
+    const activeIndex = activeId === undefined ? -1 : itemIds.indexOf(activeId);
+    if (activeIndex >= 0 && shell.overlayList.activeIndex !== activeIndex) {
+      shell.overlayList = createListViewport({
+        count: items.length,
+        height: shell.overlayList.height,
+        activeIndex,
+      });
+      paintOverlayList(shell);
+    }
+    return true;
+  }
+
+  const prior = bag.priorOverlay;
+  if (prior?.kind !== kind) return false;
+  const activeId = prior.itemIds[prior.list.activeIndex];
+  const activeIndex = activeId === undefined ? -1 : itemIds.indexOf(activeId);
+  bag.priorOverlay = {
+    ...prior,
+    items: [...items],
+    itemIds: [...itemIds],
+    list: createListViewport({
+      count: items.length,
+      height: prior.list.height,
+      activeIndex: activeIndex >= 0 ? activeIndex : prior.list.activeIndex,
+    }),
+  };
+  return true;
 }
 
 /**
@@ -5596,9 +5665,15 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   let lastKeyAt = 0;
   let lastKeyWasPrintable = false;
   let suppressNextLinefeed = false;
-  const onPaste = (): void => {
-    if (internals.get(shell)?.inputSuspended === true) return;
+  const onPaste = (event: { bytes: Uint8Array; preventDefault: () => void }): void => {
+    if (disposed) return;
+    const bag = internals.get(shell);
+    if (bag?.inputSuspended === true) return;
     sawBracketedPaste = true;
+    if (shell.overlayList !== null && bag?.overlayOnPaste) {
+      event.preventDefault();
+      bag.overlayOnPaste(new TextDecoder().decode(event.bytes));
+    }
   };
 
   const onKey = (key: KeyEvent): void => {
@@ -5681,6 +5756,12 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
         key.preventDefault();
         return;
       }
+      // Per-overlay bare-key owners (including text panes) get first refusal.
+      // Ordinary lists return false here, preserving j/k navigation below.
+      if (runOverlayAction(shell, key)) {
+        key.preventDefault();
+        return;
+      }
       if (key.name === "up" || key.name === "k") {
         key.preventDefault();
         moveOverlaySelection(shell, -1);
@@ -5734,10 +5815,6 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
           copyAllTargets(shell);
           return;
         }
-      }
-      if (runOverlayAction(shell, key)) {
-        key.preventDefault();
-        return;
       }
       if (key.name === "return" || key.name === "enter") {
         if (!key.meta && !key.option && !key.ctrl) {
@@ -6156,6 +6233,10 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     disposed: false,
     dispose: () => {
       if (disposed) return;
+      // Unwind a stacked palette first, then let the primary overlay's owner
+      // release subscriptions or settle awaited cancellation exactly once.
+      let overlayGuard = 4;
+      while (shell.overlayList !== null && overlayGuard-- > 0) closeInsetOverlay(shell);
       disposed = true;
       shell.disposed = true;
       if (wireKeys) {
@@ -6190,6 +6271,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayMinBodyRows: undefined,
     overlayRawBodyText: "",
     priorOverlay: null,
+    overlayGeneration: 0,
     overlayItemIds: [],
     overlayItemValues: [],
     overlayOnAccept: null,
@@ -6198,6 +6280,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayOnCycle: null,
     overlayDescribe: null,
     overlayOnAction: null,
+    overlayOnPaste: null,
     overlayAddProviderHint: false,
     overlaySetDefaultHint: false,
     inputSuspended: false,

@@ -9,18 +9,23 @@ import {
   pluginRowLabel,
   type CommandSurfaceDeps,
   type GrantEntry,
+  type McpEntry,
   type PluginEntry,
   type PluginsSurfaceDeps,
   type SettingsSnapshot,
 } from "./command-surfaces";
 import type { KeyEvent } from "@opentui/core";
 
-import { withTestRenderer } from "./harness";
+import { focusOwner } from "./focus/index.js";
+import { withTestRenderer, type Harness } from "./harness";
 import {
   acceptOverlaySelection,
+  closeInsetOverlay,
   createAppShell,
   cycleOverlaySelection,
   moveOverlaySelection,
+  openListOverlay,
+  openPalette,
   runOverlayAction,
   type AppShell,
 } from "./shell";
@@ -43,6 +48,25 @@ async function withShell(fn: (shell: AppShell) => Promise<void> | void): Promise
       });
       try {
         await fn(shell);
+      } finally {
+        shell.dispose();
+      }
+    },
+    { width: 80, height: 24 },
+  );
+}
+
+async function withWiredShell(
+  fn: (shell: AppShell, harness: Harness) => Promise<void> | void,
+): Promise<void> {
+  await withTestRenderer(
+    async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: true,
+      });
+      try {
+        await fn(shell, h);
       } finally {
         shell.dispose();
       }
@@ -568,6 +592,159 @@ describe("mcp surface", () => {
         "notion — needs auth",
         "sentry — failed",
       ]);
+      expect(shell.overlayItems).toContain("Add MCP server — Alt+A");
+    });
+  });
+
+  test("the visible add row opens the same add-server flow", async () => {
+    await withShell((shell) => {
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: { list: () => entries, openAuthURL: () => {} },
+      });
+      moveOverlaySelection(shell, entries.length);
+      acceptOverlaySelection(shell);
+      expect(shell.overlayItems).toEqual(["▏"]);
+    });
+  });
+
+  test("dismissing and reopening releases the previous status subscription", async () => {
+    await withShell((shell) => {
+      const listeners = new Set<() => void>();
+      const deps: CommandSurfaceDeps = {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+      };
+
+      openCommandSurface(shell, "mcp", deps);
+      expect(listeners.size).toBe(1);
+      closeInsetOverlay(shell);
+      expect(listeners.size).toBe(0);
+
+      openCommandSurface(shell, "mcp", deps);
+      expect(listeners.size).toBe(1);
+      closeInsetOverlay(shell);
+      expect(listeners.size).toBe(0);
+    });
+  });
+
+  test("disposing an open MCP surface releases its status subscription exactly once", async () => {
+    await withShell((shell) => {
+      const listeners = new Set<() => void>();
+      let unsubscribeCalls = 0;
+      let listCalls = 0;
+      const emitStatus = (): void => {
+        for (const listener of [...listeners]) listener();
+      };
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => {
+            listCalls += 1;
+            return entries;
+          },
+          openAuthURL: () => {},
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => {
+              unsubscribeCalls += 1;
+              listeners.delete(listener);
+            };
+          },
+        },
+      });
+
+      expect(listeners.size).toBe(1);
+      shell.dispose();
+      expect(unsubscribeCalls).toBe(1);
+      expect(listeners.size).toBe(0);
+      const callsAfterDispose = listCalls;
+      emitStatus();
+      expect(listCalls).toBe(callsAfterDispose);
+      expect(shell.overlayList).toBeNull();
+      shell.dispose();
+      expect(unsubscribeCalls).toBe(1);
+    });
+  });
+
+  test("status refreshes the MCP surface while a palette is stacked over it", async () => {
+    await withShell((shell) => {
+      let liveEntries: readonly McpEntry[] = [{ name: "linear", state: "connecting" }];
+      const listeners = new Set<() => void>();
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+      });
+      openPalette(shell, { catalog: [{ id: "help", label: "help" }] });
+
+      liveEntries = [
+        { name: "linear", state: "needs-auth", authURL: "https://linear.test/authorize" },
+      ];
+      for (const listener of [...listeners]) listener();
+      expect(shell.overlayKind).toBe("palette");
+      expect(listeners.size).toBe(1);
+
+      closeInsetOverlay(shell);
+      expect(shell.overlayKind).toBe("mcp");
+      expect(shell.overlayItems[0]).toBe("linear — needs auth");
+      expect(listeners.size).toBe(1);
+
+      liveEntries = [{ name: "linear", state: "connected", toolCount: 3 }];
+      for (const listener of [...listeners]) listener();
+      expect(shell.overlayItems[0]).toBe("linear — connected · 3 tools");
+      expect(listeners.size).toBe(1);
+      closeInsetOverlay(shell);
+      expect(listeners.size).toBe(0);
+    });
+  });
+
+  test("an open surface refreshes a delayed OAuth transition and authorizes the live target", async () => {
+    await withShell((shell) => {
+      let liveEntries: readonly McpEntry[] = [
+        { name: "exa", state: "connected", toolCount: 2 },
+        { name: "linear", state: "connecting" },
+      ];
+      const listeners = new Set<() => void>();
+      const opened: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: (url) => opened.push(url),
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+      });
+      expect(shell.overlayItems[1]).toBe("linear — connecting");
+      moveOverlaySelection(shell, 1);
+
+      liveEntries = [
+        { name: "exa", state: "connected", toolCount: 2 },
+        { name: "linear", state: "needs-auth", authURL: "https://linear.test/authorize" },
+      ];
+      for (const listener of [...listeners]) listener();
+
+      expect(shell.overlayItems[1]).toBe("linear — needs auth");
+      expect(shell.overlayList?.activeIndex).toBe(1);
+      acceptOverlaySelection(shell);
+      expect(opened).toEqual(["https://linear.test/authorize"]);
+      expect(listeners.size).toBe(0);
     });
   });
 
@@ -588,15 +765,383 @@ describe("mcp surface", () => {
     });
   });
 
-  test("Enter on a connected server does nothing", async () => {
-    await withShell((shell) => {
-      const opened: string[] = [];
+  test("Enter on non-auth rows releases the status subscription", async () => {
+    const nonAuthEntries: readonly McpEntry[] = [
+      { name: "connected", state: "connected", toolCount: 1 },
+      { name: "connecting", state: "connecting" },
+      { name: "failed", state: "failed", error: "offline" },
+    ];
+
+    for (const entry of nonAuthEntries) {
+      await withShell((shell) => {
+        const listeners = new Set<() => void>();
+        let unsubscribeCalls = 0;
+        const opened: string[] = [];
+        openCommandSurface(shell, "mcp", {
+          notify: () => {},
+          mcp: {
+            list: () => [entry],
+            openAuthURL: (url) => opened.push(url),
+            subscribe: (listener) => {
+              listeners.add(listener);
+              return () => {
+                unsubscribeCalls += 1;
+                listeners.delete(listener);
+              };
+            },
+          },
+        });
+
+        expect(listeners.size).toBe(1);
+        acceptOverlaySelection(shell);
+        expect(opened).toEqual([]);
+        expect(unsubscribeCalls).toBe(1);
+        expect(listeners.size).toBe(0);
+      });
+    }
+  });
+
+  test("Alt+A collects a name and absolute HTTP URL before adding", async () => {
+    await withShell(async (shell) => {
+      const added: { name: string; url: string }[] = [];
+      let liveEntries: readonly McpEntry[] = entries;
       openCommandSurface(shell, "mcp", {
         notify: () => {},
-        mcp: { list: () => entries, openAuthURL: (url) => opened.push(url) },
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            liveEntries = [...liveEntries, { name, state: "connecting" }];
+            return { ok: true, message: `Added ${name}.` };
+          },
+        },
       });
+
+      expect(runOverlayAction(shell, altKey("a"))).toBe(true);
+      for (const ch of "linear") runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
-      expect(opened).toEqual([]);
+      for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(added).toEqual([{ name: "linear", url: "https://mcp.linear.app/mcp" }]);
+      expect(shell.overlayItems).toContain("linear — connecting");
+    });
+  });
+
+  test("wired shell preserves j and k in MCP names and URLs while ordinary lists still navigate", async () => {
+    await withWiredShell(async (shell, harness) => {
+      const added: { name: string; url: string }[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "added" };
+          },
+        },
+      });
+      runOverlayAction(shell, altKey("a"));
+
+      for (const ch of "jira") harness.mockInput.pressKey(ch);
+      expect(shell.overlayItems[0]).toBe("jira▏");
+      harness.mockInput.pressKey("\r");
+      for (const ch of "https://jira.test/mcp") harness.mockInput.pressKey(ch);
+      expect(shell.overlayItems[0]).toBe("https://jira.test/mcp▏");
+      harness.mockInput.pressKey("\r");
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(added).toEqual([{ name: "jira", url: "https://jira.test/mcp" }]);
+
+      closeInsetOverlay(shell);
+      openListOverlay(shell, { kind: "demo", items: ["first", "second"] });
+      expect(shell.overlayList?.activeIndex).toBe(0);
+      harness.mockInput.pressKey("j");
+      expect(shell.overlayList?.activeIndex).toBe(1);
+      harness.mockInput.pressKey("k");
+      expect(shell.overlayList?.activeIndex).toBe(0);
+    });
+  });
+
+  test("bracketed paste inserts an MCP URL into the owned text pane", async () => {
+    await withWiredShell(async (shell, harness) => {
+      const added: { name: string; url: string }[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "added" };
+          },
+        },
+      });
+      runOverlayAction(shell, altKey("a"));
+      for (const ch of "jira") harness.mockInput.pressKey(ch);
+      harness.mockInput.pressKey("\r");
+
+      await harness.mockInput.pasteBracketedText("https://jira.test/mcp");
+      await harness.renderOnce();
+      expect(shell.overlayItems[0]).toBe("https://jira.test/mcp▏");
+      harness.mockInput.pressKey("\r");
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(added).toEqual([{ name: "jira", url: "https://jira.test/mcp" }]);
+    });
+  });
+
+  test("deferred add completion does not displace a newer gate overlay", async () => {
+    await withShell(async (shell) => {
+      let resolveAdd: ((result: { ok: boolean; message: string }) => void) | undefined;
+      const deferredAdd = new Promise<{ ok: boolean; message: string }>((resolve) => {
+        resolveAdd = resolve;
+      });
+      let gateCancellations = 0;
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          addServer: () => deferredAdd,
+        },
+      });
+
+      expect(runOverlayAction(shell, altKey("a"))).toBe(true);
+      for (const ch of "linear") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+
+      openListOverlay(shell, {
+        kind: "operator",
+        title: "newer gate",
+        items: ["Keep waiting"],
+        onCancel: () => {
+          gateCancellations += 1;
+        },
+      });
+      resolveAdd?.({ ok: true, message: "Added linear." });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(shell.overlayKind).toBe("operator");
+      expect(shell.overlayItems).toEqual(["Keep waiting"]);
+      expect(gateCancellations).toBe(0);
+      closeInsetOverlay(shell);
+      expect(gateCancellations).toBe(1);
+    });
+  });
+
+  test("a resolved MCP add cannot continue into a disposed shell", async () => {
+    await withShell(async (shell) => {
+      let resolveAdd: ((result: { ok: boolean; message: string }) => void) | undefined;
+      const deferredAdd = new Promise<{ ok: boolean; message: string }>((resolve) => {
+        resolveAdd = resolve;
+      });
+      const notes: string[] = [];
+      const listeners = new Set<() => void>();
+      let subscribeCalls = 0;
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        openCommandSurface(shell, "mcp", {
+          notify: (note) => {
+            notes.push(note);
+            throw new Error("disposed shell notified");
+          },
+          mcp: {
+            list: () => entries,
+            openAuthURL: () => {},
+            subscribe: (listener) => {
+              subscribeCalls += 1;
+              listeners.add(listener);
+              return () => listeners.delete(listener);
+            },
+            addServer: () => deferredAdd,
+          },
+        });
+        runOverlayAction(shell, altKey("a"));
+        for (const ch of "linear") runOverlayAction(shell, charKey(ch));
+        acceptOverlaySelection(shell);
+        for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+        acceptOverlaySelection(shell);
+
+        shell.dispose();
+        const overlayItemsAfterDispose = shell.overlayItems;
+        resolveAdd?.({ ok: true, message: "Added linear." });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(notes).toEqual([]);
+        expect(subscribeCalls).toBe(1);
+        expect(listeners.size).toBe(0);
+        expect(shell.overlayKind).toBeNull();
+        expect(shell.overlayItems).toBe(overlayItemsAfterDispose);
+        expect(shell.overlayHost.visible).toBe(false);
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
+    });
+  });
+
+  test("a rejected MCP add cannot continue into a disposed shell", async () => {
+    await withShell(async (shell) => {
+      let rejectAdd: ((reason: unknown) => void) | undefined;
+      const deferredAdd = new Promise<{ ok: boolean; message: string }>((_resolve, reject) => {
+        rejectAdd = reject;
+      });
+      const notes: string[] = [];
+      const listeners = new Set<() => void>();
+      let subscribeCalls = 0;
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        openCommandSurface(shell, "mcp", {
+          notify: (note) => {
+            notes.push(note);
+            throw new Error("disposed shell notified");
+          },
+          mcp: {
+            list: () => entries,
+            openAuthURL: () => {},
+            subscribe: (listener) => {
+              subscribeCalls += 1;
+              listeners.add(listener);
+              return () => listeners.delete(listener);
+            },
+            addServer: () => deferredAdd,
+          },
+        });
+        runOverlayAction(shell, altKey("a"));
+        for (const ch of "linear") runOverlayAction(shell, charKey(ch));
+        acceptOverlaySelection(shell);
+        for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+        acceptOverlaySelection(shell);
+
+        shell.dispose();
+        const overlayItemsAfterDispose = shell.overlayItems;
+        rejectAdd?.(new Error("connection failed"));
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(notes).toEqual([]);
+        expect(subscribeCalls).toBe(1);
+        expect(listeners.size).toBe(0);
+        expect(shell.overlayKind).toBeNull();
+        expect(shell.overlayItems).toBe(overlayItemsAfterDispose);
+        expect(shell.overlayHost.visible).toBe(false);
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
+    });
+  });
+
+  test("an invalid name stays focused with its value retained and can be corrected", async () => {
+    await withShell(async (shell) => {
+      const added: { name: string; url: string }[] = [];
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "added" };
+          },
+        },
+      });
+      runOverlayAction(shell, altKey("a"));
+      for (const ch of "linear__admin") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+
+      expect(added).toEqual([]);
+      expect(notes.at(-1)).toContain("single underscores");
+      expect(notes.at(-1)).toContain("__");
+      expect(shell.overlayItems[0]).toBe("linear__admin▏");
+      expect(focusOwner(shell.focus)).toBe("overlay");
+
+      for (let i = 0; i < 7; i++) runOverlayAction(shell, key("backspace"));
+      for (const ch of "-admin") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      for (const ch of "https://linear.test/mcp") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(added).toEqual([{ name: "linear-admin", url: "https://linear.test/mcp" }]);
+    });
+  });
+
+  test("an invalid URL stays focused with its value retained and can be corrected", async () => {
+    await withShell(async (shell) => {
+      const added: { name: string; url: string }[] = [];
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "added" };
+          },
+        },
+      });
+      runOverlayAction(shell, altKey("a"));
+      for (const ch of "linear") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      const invalidURL = "relative/path";
+      for (const ch of invalidURL) runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+
+      expect(added).toEqual([]);
+      expect(notes.at(-1)).toContain("HTTP(S) URL");
+      expect(shell.overlayItems[0]).toBe(`${invalidURL}▏`);
+      expect(focusOwner(shell.focus)).toBe("overlay");
+
+      for (const _character of invalidURL) runOverlayAction(shell, key("backspace"));
+      for (const ch of "https://linear.test/mcp") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(added).toEqual([{ name: "linear", url: "https://linear.test/mcp" }]);
+    });
+  });
+
+  test("cancelling the add prompt does not add a server", async () => {
+    await withShell((shell) => {
+      const added: { name: string; url: string }[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "added" };
+          },
+        },
+      });
+      runOverlayAction(shell, altKey("a"));
+      for (const ch of "linear") runOverlayAction(shell, charKey(ch));
+      closeInsetOverlay(shell);
+
+      expect(added).toEqual([]);
     });
   });
 

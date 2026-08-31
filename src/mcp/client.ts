@@ -78,6 +78,7 @@ async function completeInteractiveAuth(context: HTTPAuthContext): Promise<void> 
   const code = await context.callback.waitForCode(context.signal ?? new AbortController().signal);
   await new StreamableHTTPClientTransport(context.url, {
     authProvider: context.authProvider,
+    ...(context.signal === undefined ? {} : { requestInit: { signal: context.signal } }),
   }).finishAuth(code);
 }
 
@@ -140,8 +141,11 @@ async function finishClient(
   client: Client,
   serverName: string,
   authContext?: HTTPAuthContext,
+  signal?: AbortSignal,
 ): Promise<MCPClient> {
-  const result = await withHTTPAuthorizationRecovery(authContext, () => client.listTools());
+  const result = await withHTTPAuthorizationRecovery(authContext, () =>
+    signal === undefined ? client.listTools() : client.listTools(undefined, { signal }),
+  );
   const tools: MCPTool[] = result.tools.map((t) => {
     const annotations = t.annotations as McpToolAnnotations | undefined;
     const tool: MCPTool = {
@@ -185,8 +189,11 @@ async function connectStdio(
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   try {
-    await client.connect(new StdioClientTransport(transportOptions));
-    return { ok: true, client: await finishClient(client, config.name) };
+    await client.connect(
+      new StdioClientTransport(transportOptions),
+      options.signal === undefined ? undefined : { signal: options.signal },
+    );
+    return { ok: true, client: await finishClient(client, config.name, undefined, options.signal) };
   } catch (err) {
     await client.close().catch(() => undefined);
     return {
@@ -203,40 +210,55 @@ async function connectHttp(
 ): Promise<MCPConnectResult> {
   if (config.url === undefined)
     return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
-  const normalizedURL = normalizeMCPServerURL(config.url);
-  const url = new URL(normalizedURL);
-  let authContext: HTTPAuthContext | undefined;
-  let makeTransport: () => Transport;
-  if (config.oauth === false) {
-    makeTransport = () => new StreamableHTTPClientTransport(url) as unknown as Transport;
-  } else {
-    const callback = await startCallbackServer(config.name);
-    const authProvider = await createOAuthProvider({
-      serverName: config.name,
-      serverURL: normalizedURL,
-      redirectUrl: callback.redirectUrl,
-      onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
-      onAuthorizationState: callback.expectState,
-    });
-    makeTransport = () =>
-      new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
-    authContext = {
-      url,
-      authProvider,
-      callback,
-      interactive: options.onAuthURL !== undefined,
-      serverName: config.name,
-      ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    };
-  }
-  const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
+  let callback: CallbackServer | undefined;
+  let client: Client | undefined;
   try {
-    await withHTTPAuthorizationRecovery(authContext, () => client.connect(makeTransport()));
-    return { ok: true, client: await finishClient(client, config.name, authContext) };
+    const normalizedURL = normalizeMCPServerURL(config.url);
+    const url = new URL(normalizedURL);
+    let authContext: HTTPAuthContext | undefined;
+    let makeTransport: () => Transport;
+    if (config.oauth === false) {
+      makeTransport = () => new StreamableHTTPClientTransport(url) as unknown as Transport;
+    } else {
+      callback = await startCallbackServer(config.name);
+      const authProvider = await createOAuthProvider({
+        serverName: config.name,
+        serverURL: normalizedURL,
+        redirectUrl: callback.redirectUrl,
+        onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
+        onAuthorizationState: callback.expectState,
+      });
+      makeTransport = () =>
+        new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
+      authContext = {
+        url,
+        authProvider,
+        callback,
+        interactive: options.onAuthURL !== undefined,
+        serverName: config.name,
+        ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      };
+    }
+    const connectedClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
+    client = connectedClient;
+    await withHTTPAuthorizationRecovery(authContext, () =>
+      connectedClient.connect(
+        makeTransport(),
+        options.signal === undefined ? undefined : { signal: options.signal },
+      ),
+    );
+    return {
+      ok: true,
+      client: await finishClient(connectedClient, config.name, authContext, options.signal),
+    };
   } catch (err) {
-    await client.close().catch(() => undefined);
-    authContext?.callback.close();
+    await client?.close().catch(() => undefined);
+    try {
+      callback?.close();
+    } catch {
+      // Setup has already failed; callback teardown is best effort.
+    }
     return {
       ok: false,
       serverName: config.name,

@@ -47,6 +47,68 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
   return { deps, getInstance: () => instance, fetchCalls: () => calls };
 }
 
+test("queued enable cannot publish after a later opt-out while disable load is blocked", async () => {
+  let releaseEnable: (() => void) | undefined;
+  let releaseDisableLoad: (() => void) | undefined;
+  let signalEnableStarted: (() => void) | undefined;
+  let signalDisableLoadStarted: (() => void) | undefined;
+  const enableStarted = new Promise<void>((resolve) => {
+    signalEnableStarted = resolve;
+  });
+  const disableLoadStarted = new Promise<void>((resolve) => {
+    signalDisableLoadStarted = resolve;
+  });
+  const published: boolean[] = [];
+  const { deps, getInstance, fetchCalls } = fakeDeps({
+    setTelemetry: (telemetry) => {
+      published.push(telemetry.enabled);
+      current = telemetry;
+    },
+    getTelemetry: () => current,
+    ensureTelemetrySettings: async () => {
+      signalEnableStarted?.();
+      await new Promise<void>((resolve) => {
+        releaseEnable = resolve;
+      });
+      return { providers: {}, telemetry: { enabled: true, installationId: "id" } };
+    },
+    loadSettings: async () => {
+      signalDisableLoadStarted?.();
+      await new Promise<void>((resolve) => {
+        releaseDisableLoad = resolve;
+      });
+      return { providers: {}, telemetry: { enabled: true, installationId: "id" } };
+    },
+  });
+  let current = getInstance();
+  let tail = Promise.resolve();
+  const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = tail.then(job);
+    tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+  const handler = createTelemetryToggleHandler("/fake/path", deps, enqueue);
+
+  handler(true);
+  await enableStarted;
+  handler(false);
+  const publishedAfterOff = published.length;
+  releaseEnable?.();
+  await disableLoadStarted;
+
+  expect(published.slice(publishedAfterOff)).not.toContain(true);
+  expect(current.enabled).toBe(false);
+  current.capture("cli_start");
+  await current.flush();
+  expect(fetchCalls()).toBe(0);
+
+  releaseDisableLoad?.();
+  await tail;
+});
+
 test("toggle off disables the singleton synchronously, before any await", () => {
   const { deps, getInstance } = fakeDeps();
   const handler = createTelemetryToggleHandler("/fake/path", deps);

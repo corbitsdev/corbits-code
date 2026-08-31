@@ -106,11 +106,13 @@ export function registerBuiltInCommands(): void {
     handler: (_args, _ctx) => ({ type: "paste-image" }),
   });
 
-  registerCommand({
-    name: "mcp",
-    description: "Show MCP servers and authorize the ones that need it",
-    handler: (_args, _ctx) => ({ type: "overlay", overlay: "mcp" }),
-  });
+  for (const name of ["mcp", "mcps"]) {
+    registerCommand({
+      name,
+      description: "Show MCP servers and authorize the ones that need it",
+      handler: (_args, _ctx) => ({ type: "overlay", overlay: "mcp" }),
+    });
+  }
 
   registerCommand({
     name: "cost",
