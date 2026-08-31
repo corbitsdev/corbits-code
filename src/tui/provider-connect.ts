@@ -17,6 +17,7 @@ export interface ConnectProviderInput {
   readonly existing: Settings | null;
   readonly createRenderer?: ProviderSetupConfig["createRenderer"];
   readonly startLogin?: ProviderSetupConfig["startLogin"];
+  readonly discoverOllamaModels?: ProviderSetupConfig["discoverOllamaModels"];
 }
 
 export interface ConnectProviderResult {
@@ -47,6 +48,9 @@ export async function connectProviderInline(
     existingProviderNames: Object.keys(input.existing?.providers ?? {}),
     ...(input.createRenderer !== undefined ? { createRenderer: input.createRenderer } : {}),
     ...(input.startLogin !== undefined ? { startLogin: input.startLogin } : {}),
+    ...(input.discoverOllamaModels !== undefined
+      ? { discoverOllamaModels: input.discoverOllamaModels }
+      : {}),
     onSubmit: async (values, setPhase, opts) => {
       // Persistence and validation (empty-key rejection, connection test,
       // unverified marking) live in the one funnel every provider-setup exit

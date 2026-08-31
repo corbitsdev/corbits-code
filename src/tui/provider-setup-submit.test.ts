@@ -11,6 +11,7 @@ import { withMockedModule } from "../../tests/helpers/mock-module.js";
 // (ok / blocked / unavailable) without a live call.
 let scopeCheckResult: OAuthScopeCheckResult = { status: "ok" };
 const scopeCheckCalls: unknown[][] = [];
+const connectionChecks: unknown[] = [];
 await withMockedModule(
   import.meta.resolve("../auth/oauth-scope-check.js"),
   (real: typeof import("../auth/oauth-scope-check.js")) => ({
@@ -18,6 +19,16 @@ await withMockedModule(
     checkOAuthProviderScope: async (...args: unknown[]) => {
       scopeCheckCalls.push(args);
       return scopeCheckResult;
+    },
+  }),
+);
+await withMockedModule(
+  import.meta.resolve("../provider/validate-connection.js"),
+  (real: typeof import("../provider/validate-connection.js")) => ({
+    ...real,
+    validateProviderConnection: async (args: unknown) => {
+      connectionChecks.push(args);
+      return { ok: true as const };
     },
   }),
 );
@@ -94,6 +105,38 @@ describe("buildProviderSubmitHandler", () => {
 
       const settings = await loadSettings(path);
       expect(settings?.providers.local?.keyless).toBe(true);
+    });
+  });
+
+  test("never validates or persists a stale API key for Ollama", async () => {
+    await withTempDir(async (dir) => {
+      connectionChecks.length = 0;
+      const path = join(dir, "settings.json");
+      const submit = buildProviderSubmitHandler(path, null, localSettingsPath(dir));
+      const values: ProviderFormValues = {
+        name: "ollama/default",
+        baseURL: "http://remote:11434/",
+        apiKey: "sk-stale-secret",
+        model: "qwen3",
+        oauthProfile: "default",
+      };
+      const preset = {
+        id: "ollama",
+        models: [],
+        anthropic: false,
+        opencodeGo: false,
+      };
+
+      await submit(values, noopSetPhase, { skipValidation: false, preset });
+
+      expect(connectionChecks).toEqual([{ baseURL: "http://remote:11434/v1", apiKey: undefined }]);
+      const provider = (await loadSettings(path))?.providers["ollama/default"];
+      expect(provider).toMatchObject({
+        baseURL: "http://remote:11434",
+        keyless: true,
+        models: ["qwen3"],
+      });
+      expect(provider?.apiKey).toBeUndefined();
     });
   });
 

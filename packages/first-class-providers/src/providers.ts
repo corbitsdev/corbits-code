@@ -105,6 +105,15 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     authHint: "Paste your Google AI Studio API key",
   },
   {
+    id: "ollama",
+    label: "Ollama",
+    auth: "keyless",
+    baseURL: "http://localhost:11434",
+    models: [],
+    defaultModel: "",
+    authHint: "Local provider — Ollama must be running",
+  },
+  {
     id: "custom",
     label: "Custom",
     auth: "custom",

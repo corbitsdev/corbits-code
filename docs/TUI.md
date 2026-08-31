@@ -413,16 +413,27 @@ kind-level "already connected" filtering hid the connect path the moment the
 first profile existed. **Alt+A** now opens `add_provider`
 (`src/tui/overlays.ts:openAddProviderOverlay`), a separate `PrimaryOverlayKind`
 listing every first-class provider kind from `providerChoices()` — OAuth,
-API-key, and Custom alike — each annotated with its live connected-account
-count and none of them filtered out. Custom uses the full manual form (name,
-base URL, key, model); first-class kinds keep their auth-only or browser
-login paths. Esc returns to the model list through the same
+API-key, keyless local, and Custom alike — each annotated with its live
+connected-account count and none of them filtered out. Custom uses the full
+manual form (name, base URL, key, model); OAuth and API-key kinds keep their
+auth-only or browser login paths, while Ollama has a keyless local setup path.
+Esc returns to the model list through the same
 `openModels()` entry point the picker itself uses. Picking a row runs the
 existing inline connect flow (`provider-connect.ts`); first-class kinds (OAuth
 and API-key) both ask for an instance/account name before auth so multiple
 instances coexist as `kind/slug` catalog rows, and reusing a name confirms
 before re-auth or re-key. On success the picker reopens focused on the new
 account's default model instead of the top of the list.
+
+Ollama setup is keyless and starts with an editable server root, defaulting to
+`http://localhost:11434`. Continuing discovers models dynamically from that
+server rather than presenting a fixed catalog. If the server is unreachable,
+the setup stays open and treats that as an expected local-availability state:
+the user can start Ollama, edit the root, or retry. A reachable server with no
+models instead explains that at least one model must be pulled before retrying;
+a reachable response with an invalid shape is reported separately as malformed,
+not collapsed into either an empty catalog or a connection failure. These are
+recovery instructions, not an Ollama installation tutorial.
 
 Onboarding (the standalone provider-setup screen, `provider-setup.ts`) and
 the satellite pickers used for session resume and session-mode selection
