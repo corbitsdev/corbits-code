@@ -212,7 +212,7 @@ export function clampEffort(
 }
 
 export interface ResolveEffortForRoleOpts {
-  /** True when the spawn is an orchestrator profile (may call task). */
+  /** True when the spawn is a built-in orchestrator director (may call fleet tools). */
   orchestrator: boolean;
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
   pin?: ReasoningEffort;

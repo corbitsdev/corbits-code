@@ -55,20 +55,20 @@ describe("runExec", () => {
 });
 
 describe("resolveExecDirectorOverlay", () => {
-  test("builder exec primary does not mount task", () => {
+  test("builder exec primary does not mount fleet", () => {
     const overlay = resolveExecDirectorOverlay("builder");
-    expect(overlay.mountTask).toBe(false);
+    expect(overlay.mountFleet).toBe(false);
     expect(overlay.advertisedAllow).toBeDefined();
     expect(overlay.advertisedAllow).not.toContain("task");
     expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
     expect(overlay.systemPrompt).toContain("BuilderDirector");
   });
 
-  test("skywalker default still can mount task", () => {
-    expect(resolveExecDirectorOverlay(undefined).mountTask).toBe(true);
+  test("skywalker default still can mount fleet", () => {
+    expect(resolveExecDirectorOverlay(undefined).mountFleet).toBe(true);
     expect(resolveExecDirectorOverlay(undefined).systemPrompt).toBeUndefined();
     expect(resolveExecDirectorOverlay(undefined).advertisedAllow).toBeUndefined();
-    expect(resolveExecDirectorOverlay("skywalker").mountTask).toBe(true);
+    expect(resolveExecDirectorOverlay("skywalker").mountFleet).toBe(true);
     expect(resolveExecDirectorOverlay("skywalker").systemPrompt).toBeUndefined();
   });
 });

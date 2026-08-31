@@ -24,15 +24,18 @@ import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
 
 function makeFakeSessionPort(): {
   readonly sends: string[];
+  readonly delivers: string[];
   readonly interrupts: number;
   readonly send: ProductHostConfig["send"];
   readonly interrupt: ProductHostConfig["interrupt"];
-  readonly deliver: NonNullable<ProductHostConfig["deliver"]>;
+  readonly deliver: ProductHostConfig["deliver"];
 } {
   const sends: string[] = [];
+  const delivers: string[] = [];
   let interrupts = 0;
   return {
     sends,
+    delivers,
     get interrupts() {
       return interrupts;
     },
@@ -43,7 +46,7 @@ function makeFakeSessionPort(): {
       interrupts += 1;
     },
     deliver: (text) => {
-      sends.push(text);
+      delivers.push(text);
     },
   };
 }
@@ -224,6 +227,25 @@ describe("mountProductHost", () => {
     }
   });
 
+  test("session.clear drops queued steers and idles the run (CL-7268)", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      host.bridge.handle({ type: "run", state: "busy" });
+      host.bridge.submit("old steer", "steer");
+      expect(host.shell.session.run).toBe("busy");
+      expect(host.shell.session.items.length).toBe(1);
+
+      emitter.emit("event", { type: "user", text: "old prompt" });
+      emitter.emit("session.clear");
+
+      expect(host.shell.streamLog).toEqual([]);
+      expect(host.shell.session.items).toEqual([]);
+      expect(host.shell.session.run).toBe("idle");
+    } finally {
+      host.dispose();
+    }
+  });
+
   test("permission.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
     const { host, emitter } = await mountHeadless();
     try {
@@ -390,6 +412,7 @@ describe("flat type-to-filter model picker", () => {
       eventEmitter: new EventEmitter(),
       send: port.send,
       interrupt: port.interrupt,
+      deliver: port.deliver,
       createRenderer: async () => harness.renderer,
       models: catalog,
       onModelSelect: (id) => selected.push(id),
@@ -477,6 +500,7 @@ describe("flat type-to-filter model picker", () => {
       eventEmitter: new EventEmitter(),
       send: port.send,
       interrupt: port.interrupt,
+      deliver: port.deliver,
       createRenderer: async () => harness.renderer,
       models: catalog,
       activeModelId: () => modelOptionId("xai/thegreataxios", "grok-4.5"),
@@ -509,6 +533,7 @@ describe("flat type-to-filter model picker", () => {
       eventEmitter: new EventEmitter(),
       send: port.send,
       interrupt: port.interrupt,
+      deliver: port.deliver,
       createRenderer: async () => harness.renderer,
       models: catalog,
       activeModelId: () => modelOptionId("codex/abk-labs", "gpt-5.5"),
@@ -536,6 +561,7 @@ describe("flat type-to-filter model picker", () => {
         eventEmitter: new EventEmitter(),
         send: port.send,
         interrupt: port.interrupt,
+        deliver: port.deliver,
         createRenderer: async () => harness.renderer,
         models: catalog,
         onModelSelect: () => {},
@@ -865,6 +891,7 @@ describe("mount failure", () => {
         eventEmitter: emitter,
         send: port.send,
         interrupt: port.interrupt,
+        deliver: port.deliver,
         createRenderer: async () => harness.renderer,
       }),
     ).rejects.toThrow("gate wiring failed");

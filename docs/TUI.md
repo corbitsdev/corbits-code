@@ -41,7 +41,7 @@ Horizontally, every surface sits inside one shared gutter
 as a single column of content rather than stacked panes.
 `resolveGeometry` always returns `layoutMode: "stack"` — full-width
 y-stack, no dual-column rail. Live workers paint in the agents strip
-above the prompt; transcript `● Task …` rows remain spawn/final/fail
+above the prompt; transcript `spawn_agent` rows remain spawn/final/fail
 anchors (see Live agents chrome below).
 The side gutter is one column per side at every width that can afford it,
 and zero below `MARGIN_MIN_COLUMNS` (40), where every column belongs to
@@ -72,7 +72,7 @@ prose into a hard-capped inset paragraph (`LIVE_THINKING_MAX_LINES`, currently 1
 (assistant text, a tool call, or settle), the row collapses to its opening
 clause with the rest behind expand. Mid-turn thinking bursts fold onto that
 same one row per turn (`reasoning-fold`); `inference.text.delta` grows the
-open assistant streaming row in place. Sub-agent Task-row thinking is a
+open assistant streaming row in place. Sub-agent spawn_agent-row thinking is a
 separate path and is unchanged by this preview.
 
 The prompt box's border carries the metadata that would otherwise cost a
@@ -203,7 +203,7 @@ Because `formatChromeZones` parks task auto-paint, Alt+T does not
 surface a live `manage_tasks` list; it can still show preformatted task
 rows that tests or demos push via `setChromeZones`.
 
-The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
+The `manage_tasks` tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
 hydrate. `manage_tasks` calls paint no transcript rows; with the checklist
 parked, that list has no standing chrome surface until rebuild.
@@ -228,9 +228,9 @@ poll uses
 needed it **does not** call `bridge.syncAgentProgress` — chrome owns the live
 clocks.
 
-### Transcript Task rows (history anchors)
+### Transcript spawn_agent rows (history anchors)
 
-`runtime-bridge` still paints each `task` call as a transcript stream row for
+`runtime-bridge` paints each `spawn_agent` call as a transcript stream row for
 **spawn / final / fail anchors**. While the agents strip is sticky, sticky-poll
 `syncAgentProgress` rewrites are gated off so the transcript is not a dual live
 rail. Ordinary in-flight tool rows keep their own elapsed clock
@@ -239,7 +239,7 @@ rail. Ordinary in-flight tool rows keep their own elapsed clock
 ### Unprompted fleet reports
 
 Parent prose owns success narratives. Transcript fleet notices exist only for
-attention live Task rows cannot keep: a lane **failed** while other work is
+attention live spawn_agent rows cannot keep: a lane **failed** while other work is
 still running, and **one** dry-fleet line when the last lane finishes
 (`N done · nothing running`). Per-lane `done — summary` walls and live
 `dispatched` re-announcements are never printed.
@@ -457,17 +457,18 @@ the chord to point an operator at when Shift+Enter doesn't respond.
 Two mid-run gestures, two delivery times (CL-6290):
 
 - **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
-  next **parent** `tool.boundary` (the parent tool finishing, not a child). A
-  long parent `run_shell` or an awaiting `task()` is parent-busy and holds
+  next **parent** `tool.boundary` (the parent tool finishing, not a child) via
+  `Agent.deliver` into the live reactor, not a new `send`. A
+  long parent `run_shell` or an awaiting `wait_agents` is parent-busy and holds
   steers. The transcript row says `[will steer next]` while pending and
   `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
   `runtime-bridge.ts`).
 - **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
-  only on **session-idle** (parent-idle and no live fleet lanes). Does not
-  interrupt or reinject. The transcript row says `[will follow up]` while
-  pending and `[following up]` once delivered. Idle, or with an empty prompt,
-  Alt+Enter does nothing — there is nothing to wait for. (Internal `"reinject"`
-  remains in the submit API for tests; no product chord wires it.)
+  only on **session-idle** (parent-idle and no live fleet lanes) as a `send`.
+  Does not interrupt or reinject. The transcript row says `[will follow up]`
+  while pending and `[following up]` once delivered. Idle, or with an empty
+  prompt, Alt+Enter does nothing — there is nothing to wait for. (Internal
+  `"reinject"` remains in the submit API for tests; no product chord wires it.)
 
 When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
 (3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).
@@ -496,16 +497,14 @@ left waiting on an idle event the stop may never produce (`interrupt` in
 **Sub-agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
 (queued drain) leave running workers alone — they never call
 `runner.ts`'s `interrupt()`, so the parent's operation signal stays live and
-in-flight `task` dispatches keep running. Ctrl+C is the explicit fleet
-teardown: `doInterrupt` → `port.interrupt()` → `currentAgent.close()` aborts
-the shared operation signal the `task` tool was given, which the tool
-forwards to the child agent's own controller, so an in-flight sub-agent
-dispatch is aborted along with the parent's turn and reports back as
-cancelled by the operator rather than being left to finish silently detached
-(`src/subagent/task-tool.ts`). `/clear` and session exit still call
-`subAgentSessions.cancelAll` for an explicit session-wide cancel; that path
-is separate from interrupt and must stay off the soft-steer / follow-up
-gestures.
+spawned workers keep running. Ctrl+C is the explicit fleet teardown:
+`doInterrupt` → `port.interrupt()` → `currentAgent.close()` aborts the shared
+operation signal and routes cancellation through the fleet/session-store
+teardown path, so in-flight sub-agent dispatch reports back as cancelled by
+the operator rather than being left to finish silently detached. `/clear` and
+session exit still call `subAgentSessions.cancelAll` for an explicit
+session-wide cancel; that path is separate from interrupt and must stay off
+the soft-steer / follow-up gestures.
 
 Up/Down are caret motion first inside a multi-line buffer. History recall
 only fires when the caret is already at the first or last wrapped row of the

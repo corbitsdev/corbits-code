@@ -50,7 +50,7 @@ export interface ToolEnvelope {
 }
 
 export interface SpawnRights {
-  /** Whether this director may call `task`. */
+  /** Whether this director may call fleet delegation tools. */
   readonly maySpawn: boolean;
   /** When set, only these director ids may be spawned. */
   readonly allowlist?: readonly DirectorId[];

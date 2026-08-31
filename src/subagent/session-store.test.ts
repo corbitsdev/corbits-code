@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createSubAgentSessionStore } from "./session-store.js";
+import { createSubAgentSessionStore, DEFAULT_MAX_ENTRY_CHARS } from "./session-store.js";
 import { forcedStopReport } from "./stop-policy.js";
 import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
 import { formatAgentsPanel } from "../tui/chrome-state.js";
@@ -423,6 +423,32 @@ describe("CL-6943 reusable worker sessions", () => {
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
     store.complete(session.id, "## Summary\nDone.");
     expect(store.resumeOne(session.id, "more")).toEqual({ ok: false, status: "completed" });
+  });
+
+  test("resume_agent validates the message before starting a retained turn", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    let starts = 0;
+    store.registerFollowup(session.id, async () => {
+      starts++;
+      return "should not run";
+    });
+    store.complete(session.id, "## Summary\nDone.");
+
+    expect(store.resumeOne(session.id, "   ")).toEqual({
+      ok: false,
+      status: "completed",
+      hint: "resume_agent requires a non-empty message.",
+    });
+    expect(store.resumeOne(session.id, "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1))).toEqual({
+      ok: false,
+      status: "completed",
+      hint:
+        `resume_agent message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
+        `(got ${DEFAULT_MAX_ENTRY_CHARS + 1}).`,
+    });
+    expect(starts).toBe(0);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
   });
 
   test("resume_agent fails on an unknown id with not_found", () => {

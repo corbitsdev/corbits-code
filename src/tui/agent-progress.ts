@@ -2,7 +2,7 @@
  * Live progress for a dispatched sub-agent's pending row in the transcript,
  * and the fleet-level roll-up of those same lanes.
  *
- * A "task" tool call renders as one row for its whole lifetime (see
+ * A `spawn_agent` tool call renders as one row for its whole lifetime (see
  * `runtime-bridge.ts`'s `syncAgentProgress`). While the call is outstanding
  * this fills in what a bare pending mark cannot say: how long the worker has
  * been running, what it is doing right now, and whether it has gone quiet

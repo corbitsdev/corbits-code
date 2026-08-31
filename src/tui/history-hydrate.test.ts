@@ -202,12 +202,12 @@ describe("hydrateHistoryRows", () => {
   // block carries is what tells them apart on replay.
   test("resolves parallel same-name tool_call/tool_result pairs by callId", () => {
     const rows = hydrateHistoryRows([
-      { type: "tool_call", name: "task", arguments: '{"description":"Fix CL-5559"}', callId: "c1" },
-      { type: "tool_call", name: "task", arguments: '{"description":"Fix CL-5560"}', callId: "c2" },
-      { type: "tool_call", name: "task", arguments: '{"description":"Fix CL-5561"}', callId: "c3" },
-      { type: "tool_result", name: "task", content: "done c2", callId: "c2" },
-      { type: "tool_result", name: "task", content: "done c1", callId: "c1" },
-      { type: "tool_result", name: "task", content: "done c3", callId: "c3" },
+      { type: "tool_call", name: "spawn_agent", arguments: '{"description":"Fix CL-5559"}', callId: "c1" },
+      { type: "tool_call", name: "spawn_agent", arguments: '{"description":"Fix CL-5560"}', callId: "c2" },
+      { type: "tool_call", name: "spawn_agent", arguments: '{"description":"Fix CL-5561"}', callId: "c3" },
+      { type: "tool_result", name: "spawn_agent", content: "done c2", callId: "c2" },
+      { type: "tool_result", name: "spawn_agent", content: "done c1", callId: "c1" },
+      { type: "tool_result", name: "spawn_agent", content: "done c3", callId: "c3" },
     ]);
     expect(rows.length).toBe(3);
     expect(rows.every((r) => r.pending !== true)).toBe(true);

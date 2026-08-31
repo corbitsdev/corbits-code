@@ -15,7 +15,7 @@ How to reshape a branch's commit history without interactive prompts — squashi
 1. Read the techniques below. Identify the surgery (drop, squash, split, reword, edit-in-place, validate).
 2. If a step needs judgment (what to squash, which commits to drop, how to split, which message), `ask_operator` first. Do not guess.
 3. Copy the exact sequenced commands from this skill into an intern brief.
-4. Spawn `task(agent="intern")` with that sequenced command list. Intern executes via `run_shell`. Intern drives every editor via `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` / `-c core.editor` inline in the git command — do not tell intern to `write_file` an editor script. Intern runs git and resolves mechanical conflicts as the brief specifies.
+4. Spawn `spawn_agent(agent="intern")` with that sequenced command list, then collect the result with `wait_agents`. Intern executes via `run_shell`. Intern drives every editor via `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` / `-c core.editor` inline in the git command — do not tell intern to `write_file` an editor script. Intern runs git and resolves mechanical conflicts as the brief specifies.
 5. If intern hits a judgment call mid-rebase, `ask_operator` then re-dispatch intern with the decision.
 
 Plan and synthesize. Intern mutates git.

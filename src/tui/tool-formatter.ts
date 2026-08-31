@@ -127,7 +127,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       isShell: true,
     };
   }
-  if (toolName === "task") {
+  if (toolName === "spawn_agent") {
     const taskParsed = TaskArgSchema(tryParseObject(rawArgs));
     if (!(taskParsed instanceof type.errors)) {
       const agentName = taskParsed.agent?.trim();
@@ -139,7 +139,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       const display =
         agentName !== undefined && agentName.length > 0
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
-          : "Task";
+          : "Worker";
       // Collapsed row uses the abbreviated subject; Alt+E expands to the full text.
       return {
         display,
@@ -240,7 +240,7 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
       }
       break;
     }
-    case "task": {
+    case "spawn_agent": {
       // Spawns carry a large structured brief (prompt, intent, criteria). The
       // transcript only needs a short subject — prefer description, then prompt —
       // so the row never dumps the whole JSON payload.
@@ -409,7 +409,7 @@ export function mergedToolCollapsedPreview(
     return outcomePreview;
   }
 
-  if (toolName === "task") {
+  if (toolName === "spawn_agent") {
     // describeToolCall already curates the spawn brief to a short description;
     // reusing it here keeps the collapsed row free of prompt/intent/criteria dumps.
     const { display, summary } = describeToolCall(toolName, rawArgs);
@@ -583,7 +583,7 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
       }
       break;
     }
-    case "task": {
+    case "spawn_agent": {
       // Workers reply with a ## Summary / ## Findings envelope. Collapse to the
       // summary first line so raw markdown headings never leak into the transcript.
       preview = summarizeTaskResultPreview(content);

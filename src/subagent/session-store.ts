@@ -92,7 +92,7 @@ export interface SubAgentSession {
   stopReason?: string;
   // Session id of the orchestrator that dispatched this worker, when this is
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
-  // directly from the primary session's task tool.
+  // directly from the primary session's spawn_agent tool.
   parentSessionId?: string;
   // CL-6943: lifecycle status for the reusable-session verbs. Defaults to
   // "pending_init" until the run wires up markRunning(); see the type doc.
@@ -860,8 +860,8 @@ export function createSubAgentSessionStore(
       // "still open, resumable" when the caller says the agent genuinely
       // survived this turn.
       // Defaults true: complete() historically meant "clean completion," and
-      // task-tool.ts / tests call it that way with no opts at all. Only
-      // agent-fleet's spawn_agent path ever has a salvage to report, and it
+      // tests call it that way with no opts at all. Only agent-fleet's
+      // spawn_agent path ever has a salvage to report, and it
       // always passes this flag explicitly (see its call site).
       const agentRetained = opts?.agentRetained ?? true;
       mutate(id, (session) => {
@@ -1080,6 +1080,23 @@ export function createSubAgentSessionStore(
         }
         return { ok: false, status: "not_found" };
       }
+      const trimmedMessage = message.trim();
+      if (trimmedMessage.length === 0) {
+        return {
+          ok: false,
+          status: session.lifecycleStatus,
+          hint: "resume_agent requires a non-empty message.",
+        };
+      }
+      if (trimmedMessage.length > DEFAULT_MAX_ENTRY_CHARS) {
+        return {
+          ok: false,
+          status: session.lifecycleStatus,
+          hint:
+            `resume_agent message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
+            `(got ${trimmedMessage.length}).`,
+        };
+      }
       if (
         session.retained !== true ||
         (session.lifecycleStatus !== "completed" && session.lifecycleStatus !== "interrupted")
@@ -1089,7 +1106,7 @@ export function createSubAgentSessionStore(
       const followup = followupHandles.get(id);
       if (followup === undefined) return { ok: false, status: session.lifecycleStatus };
       const priorLifecycle = session.lifecycleStatus;
-      queueFollowupTurn(id, message, priorLifecycle, {
+      queueFollowupTurn(id, trimmedMessage, priorLifecycle, {
         ...(opts?.onReply !== undefined ? { onReply: opts.onReply } : {}),
         ...(opts?.onFail !== undefined ? { onFail: opts.onFail } : {}),
       });

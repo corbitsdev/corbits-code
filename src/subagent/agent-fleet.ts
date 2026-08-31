@@ -1,21 +1,17 @@
 /**
- * spawn_agent / wait_agents: the non-blocking half of fleet dispatch,
- * split out of `task()`'s fused spawn+wait.
+ * spawn_agent / wait_agents: the split fleet dispatch surface.
  *
- * `task()` (task-tool.ts) remains the deprecated fused spawn+wait fallback.
  * These two verbs are the supported fleet path: start several workers in one
  * turn (spawn_agent returns immediately) and later block on this caller's
- * own workers (wait_agents), instead of one task() call per worker
- * serializing the wait.
+ * own workers (wait_agents).
  *
  * Running state and the mailbox (`subscribe`) are the existing
  * SubAgentSessionStore's — wait_agents' blocking is driven by that
  * `subscribe` raced against a timeout timer, never polling. But the store's
  * finished-session retention is a TUI display cap (`maxCompleted`, default
  * 20): `complete()`/`fail()` evict the oldest finished session — report and
- * all — once more than that many have finished. task() never hit this
- * because it awaits its own single result before the tool call returns; here
- * a caller can spawn far more workers than the cap in one turn and only
+ * all — once more than that many have finished. A caller can spawn far more
+ * workers than the cap in one turn and only
  * `wait_agents` them later, so an evicted report would otherwise vanish
  * silently. `fleetRecords` below is a small, deliberately-separate map
  * (agent id -> terminal status/report/error), kept alive across the store's
@@ -29,12 +25,9 @@
  * never called wait_agents still gets a terminal status, never a bare
  * "unknown".
  *
- * Argument shape intentionally mirrors `task()`'s (description/prompt/
- * context/goals/intent/success_criteria/do_not/report_focus) so a
- * caller can swap one for the other. Closed-director dispatch also carries
- * task()'s isolation and spawn-matrix: worktree cwd, parent allowlist,
- * maySpawn nestedDispatch, and deadline. Custom AgentProfile lookup and the
- * re-dispatch ledger remain task()-only until task becomes a thin wrapper.
+ * Argument shape includes description/prompt/context/goals/intent/
+ * success_criteria/do_not/report_focus. Dispatch supports both closed
+ * directors and local/plugin AgentProfile ids returned by search_agents.
  *
  */
 
@@ -48,7 +41,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import type { ProviderCatalogEntry } from "../config/index.js";
+import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { generateSessionId } from "../session/index.js";
 import {
   isDirectorId,
@@ -60,7 +53,13 @@ import {
   formatDirectorSystemPrompt,
 } from "../agent/directors/identity.js";
 import type { Settings } from "../config/settings.js";
-import { resolveEffortForRole } from "../provider/reasoning-effort.js";
+import { resolveInferenceWithPolicy } from "../config/settings.js";
+import {
+  resolveEffortForRole,
+  validateEffort,
+  type ReasoningEffort,
+} from "../provider/reasoning-effort.js";
+import type { AgentProfile, CapabilityFilter } from "../agent/profiles.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
@@ -79,8 +78,14 @@ import { captureSubagentEnd } from "../telemetry/product-events.js";
 import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
 import type { DirectorPackage } from "../agent/directors/types.js";
 import { SPAWN_AGENT_TOOL_NAME } from "./tool-taxonomy.js";
+import {
+  assertCanTargetAgent,
+  FleetAuthorityError,
+  type FleetNode,
+  type SubagentTier,
+} from "./authority.js";
 
-import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
+import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
 import { isSubAgentCancelError } from "./dispose.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
@@ -127,6 +132,11 @@ class FleetRecords {
 
   register(id: string): void {
     this.records.set(id, { status: "running" });
+  }
+
+  hasUncollectedTerminal(id: string): boolean {
+    const record = this.records.get(id);
+    return record !== undefined && record.status !== "running" && record.collected !== true;
   }
 
   resolve(id: string, report: string): void {
@@ -268,7 +278,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: SPAWN_AGENT_TOOL_NAME,
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Same brief fields as task() (description/prompt/context/goals/intent/success_criteria/do_not/report_focus); pass agent= a director id or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them. task() is the deprecated fused spawn+wait fallback for a single blocking worker.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them.",
   inputSchema: {
     type: "object",
     properties: {
@@ -370,10 +380,11 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   useWorktree?: boolean;
   /** Optional wall-clock budget (ms) forwarded to runSubAgent. */
   deadlineMs?: number;
-  /** When false, tear the worker down on completion (task wrapper). Default true. */
+  /** When false, tear the worker down on completion. Default true. */
   persist?: boolean;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  profiles?: AgentProfile[] | (() => AgentProfile[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
   telemetry?: Telemetry;
@@ -388,7 +399,7 @@ function fleetResult(callId: string, content: string): ToolResult {
   return { callId, content, ...(isError ? { isError: true } : {}) };
 }
 
-/** Resolve agent=/intent= to a closed director. Mirrors task()'s director-only branch. */
+/** Resolve agent=/intent= to a closed director. */
 export function resolveDirectorDispatch(
   agentId: string | undefined,
   intent: TaskIntent | undefined,
@@ -441,6 +452,144 @@ export function resolveDirectorDispatch(
   };
 }
 
+interface ResolvedAgentDispatch {
+  directorId: string;
+  agentLabel: string;
+  systemPromptRole?: string;
+  capabilities?: CapabilityFilter;
+  roleDefault?: ReturnType<typeof defaultEffortForDirector>;
+  pkg?: DirectorPackage;
+  orchestrator: boolean;
+  orchestratorTier?: DirectorPackage["tier"];
+  nestedSpawnAllowlist?: readonly string[];
+  effortPin?: ReasoningEffort;
+}
+
+function resolveAgentDispatch(input: {
+  agentId: string | undefined;
+  intent: TaskIntent | undefined;
+  profiles: AgentProfile[] | undefined;
+  allowOrchestrator: boolean;
+  settings: Settings | undefined;
+  applyResolvedProvider: (
+    resolved: { provider: string; model: string; reasoningEffort?: ReasoningEffort },
+    label: string,
+  ) => string | null;
+}): ResolvedAgentDispatch | { error: string } {
+  const { agentId, intent, profiles, allowOrchestrator, settings, applyResolvedProvider } = input;
+  if (agentId !== undefined && agentId.length > 0) {
+    if (isDirectorId(agentId)) {
+      const resolved = resolveDirector({ agentId });
+      if (!resolved.ok) return { error: `Error: ${resolved.error} ${resolved.hint}` };
+      const pkg = resolved.package;
+      const profile = profiles?.find((p) => p.id === agentId);
+      let effortPin: ReasoningEffort | undefined;
+      if (profile?.inference !== undefined && settings !== undefined) {
+        const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+        if (outcome.kind === "unavailable") {
+          return {
+            error: `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+          };
+        }
+        if (outcome.kind === "resolved") {
+          const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+          if (err !== null) return { error: err };
+          effortPin = outcome.value.reasoningEffort;
+        }
+      }
+      const capabilities = packageToCapabilities(pkg);
+      const orchestrator = pkg.spawn.maySpawn === true && allowOrchestrator;
+      return {
+        directorId: pkg.id,
+        agentLabel: pkg.id,
+        systemPromptRole: formatDirectorSystemPrompt(pkg),
+        ...(capabilities !== undefined ? { capabilities } : {}),
+        roleDefault: defaultEffortForDirector(pkg),
+        pkg,
+        orchestrator,
+        ...(orchestrator ? { orchestratorTier: pkg.tier } : {}),
+        ...(orchestrator && pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0
+          ? { nestedSpawnAllowlist: pkg.spawn.allowlist }
+          : {}),
+        ...(effortPin !== undefined ? { effortPin } : {}),
+      };
+    }
+
+    if (profiles === undefined) {
+      return {
+        error: `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use intent=, or ensure profiles are available.`,
+      };
+    }
+    const profile = profiles.find((p) => p.id === agentId);
+    if (profile === undefined) {
+      const known = profiles.map((p) => p.id).sort();
+      const hint =
+        known.length > 0
+          ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
+          : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
+      return { error: `Error: unknown agent profile "${agentId}".${hint}` };
+    }
+    let effortPin: ReasoningEffort | undefined;
+    if (profile.inference !== undefined && settings !== undefined) {
+      const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+      if (outcome.kind === "unavailable") {
+        return {
+          error: `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+        };
+      }
+      if (outcome.kind === "resolved") {
+        const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+        if (err !== null) return { error: err };
+        effortPin = outcome.value.reasoningEffort;
+      }
+    }
+    if (profile.orchestrator === true) {
+      return {
+        error:
+          `Error: agent profile "${agentId}" requests orchestrator=true, but profile ` +
+          "orchestrators are not supported for spawn_agent. Use a built-in orchestrator " +
+          "director or remove orchestrator from the profile.",
+      };
+    }
+    return {
+      directorId: agentId,
+      agentLabel: agentId,
+      ...(profile.systemPromptRole !== undefined
+        ? { systemPromptRole: profile.systemPromptRole }
+        : {}),
+      ...(profile.capabilities !== undefined ? { capabilities: profile.capabilities } : {}),
+      orchestrator: false,
+      ...(effortPin !== undefined ? { effortPin } : {}),
+    };
+  }
+
+  if (intent !== undefined) {
+    const resolved = resolveDirector({ intent });
+    if (!resolved.ok) return { error: `Error: ${resolved.error} ${resolved.hint}` };
+    const pkg = resolved.package;
+    const capabilities = packageToCapabilities(pkg);
+    const orchestrator = pkg.spawn.maySpawn === true && allowOrchestrator;
+    return {
+      directorId: pkg.id,
+      agentLabel: pkg.id,
+      systemPromptRole: formatDirectorSystemPrompt(pkg),
+      ...(capabilities !== undefined ? { capabilities } : {}),
+      roleDefault: defaultEffortForDirector(pkg),
+      pkg,
+      orchestrator,
+      ...(orchestrator ? { orchestratorTier: pkg.tier } : {}),
+      ...(orchestrator && pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0
+        ? { nestedSpawnAllowlist: pkg.spawn.allowlist }
+        : {}),
+    };
+  }
+
+  return {
+    error:
+      "Error: No director selected. Pass spawn_agent(agent=...) for a named director/profile, or spawn_agent(intent=implement|explore|plan|review).",
+  };
+}
+
 export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   return tool({
@@ -478,44 +627,85 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const doNot = rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
       const reportFocus = rawReportFocus?.trim();
 
-      const resolved = resolveDirectorDispatch(agentId, intent);
-      if (!resolved.ok) return fleetResult(call.id, resolved.error);
+      let provider: SubAgentProvider = resolveDep(deps.provider);
+      const parentEffort = provider.reasoningEffort;
+      const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+      const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
+      const settings =
+        catalog !== undefined ? runtimeSettingsWithCatalog(diskSettings, catalog) : diskSettings;
+      const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
+      const applyResolvedProvider = (
+        resolved: { provider: string; model: string; reasoningEffort?: ReasoningEffort },
+        label: string,
+      ): string | null => {
+        if (settings === undefined) {
+          return `Error: ${label} requires settings with configured providers.`;
+        }
+        if (resolved.reasoningEffort !== undefined) {
+          const verdict = validateEffort(
+            resolved.model,
+            resolved.reasoningEffort,
+            isCodexProviderName(resolved.provider),
+          );
+          if (!verdict.ok) {
+            return `Error: ${label} has incompatible inference: ${verdict.error}`;
+          }
+        }
+        const providerSettings = settings.providers[resolved.provider];
+        if (providerSettings === undefined) {
+          return `Error: ${label} resolved to provider "${resolved.provider}" which is not configured.`;
+        }
+        provider = {
+          providerName: resolved.provider,
+          baseURL: providerSettings.baseURL,
+          ...(providerSettings.keyless === true ? { keyless: true } : {}),
+          ...(providerSettings.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+          ...(providerSettings.apiKey !== undefined ? { apiKey: providerSettings.apiKey } : {}),
+          model: resolved.model,
+        };
+        return null;
+      };
+
+      const resolved = resolveAgentDispatch({
+        agentId,
+        intent,
+        profiles,
+        allowOrchestrator: deps.allowOrchestrator !== false,
+        settings,
+        applyResolvedProvider,
+      });
+      if ("error" in resolved) return fleetResult(call.id, resolved.error);
       if (agentId === "skywalker" || resolved.directorId === "skywalker") {
         return fleetResult(
           call.id,
-          "Error: skywalker is the primary session identity, not a spawned worker. Pass spawn_agent(agent=…) for a specialist (builder, explorer, counsel, critic, …).",
+          "Error: skywalker is the primary session identity, not a spawned worker. Pass spawn_agent(agent=...) for a specialist (builder, explorer, counsel, critic, ...).",
         );
       }
       if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
-        if (!deps.spawnAllowlist.includes(resolved.directorId)) {
+        if (!deps.spawnAllowlist.includes(resolved.agentLabel)) {
           return fleetResult(
             call.id,
-            `Error: spawn of "${resolved.directorId}" is outside this director's allowlist. Allowed: ${deps.spawnAllowlist.join(", ")}.`,
+            `Error: spawn of "${resolved.agentLabel}" is outside this director's allowlist. Allowed: ${deps.spawnAllowlist.join(", ")}.`,
           );
         }
       }
 
-      const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
-
-      const orchestrator = resolved.pkg.spawn.maySpawn === true && deps.allowOrchestrator !== false;
-      const nestedSpawnAllowlist =
-        orchestrator &&
-        resolved.pkg.spawn.allowlist !== undefined &&
-        resolved.pkg.spawn.allowlist.length > 0
-          ? resolved.pkg.spawn.allowlist
-          : undefined;
-
-      let provider: SubAgentProvider = resolveDep(deps.provider);
+      const orchestrator = resolved.orchestrator;
+      const nestedSpawnAllowlist = resolved.nestedSpawnAllowlist;
       const effort = resolveEffortForRole({
         orchestrator,
-        roleDefault: resolved.roleDefault,
-        ...(provider.reasoningEffort !== undefined
-          ? { parentEffort: provider.reasoningEffort }
-          : {}),
+        ...(resolved.effortPin !== undefined ? { pin: resolved.effortPin } : {}),
+        ...(resolved.roleDefault !== undefined ? { roleDefault: resolved.roleDefault } : {}),
+        ...(parentEffort !== undefined ? { parentEffort } : {}),
         model: provider.model,
         isCodex: isCodexProviderName(provider.providerName),
       });
-      provider = effort !== undefined ? { ...provider, reasoningEffort: effort } : provider;
+      if (effort !== undefined) {
+        provider = { ...provider, reasoningEffort: effort };
+      } else {
+        const { reasoningEffort: _drop, ...rest } = provider;
+        provider = rest;
+      }
 
       const brief = buildDispatchBrief({
         description,
@@ -587,7 +777,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         deps.onEvent?.(event);
       };
 
-      const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       let worktreeCwd: string | undefined;
       let worktreeStashBaseline: readonly string[] | null = [];
       let worktreeHeadAtCreate: string | undefined;
@@ -629,6 +818,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             sessions: deps.sessions,
             ...(settings !== undefined ? { settings } : {}),
             ...(catalog !== undefined ? { catalog } : {}),
+            ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
             parentSessionId: session.id,
             ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
             ...(nestedSpawnAllowlist !== undefined ? { spawnAllowlist: nestedSpawnAllowlist } : {}),
@@ -658,7 +848,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const params: RunSubAgentParams = {
         // Name the trace directory after the session-store id so the
         // descendant-scoping check behind read_agent_trace can resolve this
-        // worker's parent chain (matches task-tool.ts).
+        // worker's parent chain.
         id: session.id,
         permissionGate: deps.permissionGate,
         ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
@@ -686,18 +876,22 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         },
         ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
         ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
-        systemPromptRole: resolved.systemPromptRole,
+        ...(resolved.systemPromptRole !== undefined
+          ? { systemPromptRole: resolved.systemPromptRole }
+          : {}),
         directorId: resolved.directorId,
         ...(orchestrator
           ? {
               orchestrator: true,
-              orchestratorTier: resolved.pkg.tier,
+              ...(resolved.orchestratorTier !== undefined
+                ? { orchestratorTier: resolved.orchestratorTier }
+                : {}),
               nestedDispatch: nestedDispatch!,
             }
           : {}),
         ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
-        tier: resolved.pkg.tier,
-        ...(resolved.pkg.reportContract?.outputType !== undefined
+        ...(resolved.pkg !== undefined ? { tier: resolved.pkg.tier } : {}),
+        ...(resolved.pkg?.reportContract?.outputType !== undefined
           ? { reportType: resolved.pkg.reportContract.outputType }
           : {}),
         // Keep the session open after a clean completion, and hand the
@@ -767,7 +961,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // Always terminalize fleetRecords — including pre-progress cancel that
           // rethrows with no salvage — so wait_agents does not hang. Prefer
           // cancel semantics over fail when the strip already cancelled or the
-          // throw is an AbortError (legacy task() parent contract).
+          // throw is an AbortError.
           const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
           if (alreadyCancelled || isSubAgentCancelError(err, childCtl.signal)) {
             if (!alreadyCancelled) {
@@ -777,9 +971,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             deps.fleetRecords.reject(session.id, message);
             return;
           }
-          // Auth failures keep the actionable Re-authenticate wording that
-          // task()'s fused path surfaces via formatSubAgentTaskAuthFailureMessage.
-          const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
+          // Auth failures keep the actionable Re-authenticate wording.
+          const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
           const failReason = authMessage ?? (err instanceof Error ? err.message : String(err));
           deps.fleetRecords.reject(session.id, failReason);
           deps.sessions.fail(session.id, failReason);
@@ -794,9 +987,16 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   });
 }
 
+interface WaitAgentsAuthority {
+  actorId: string | undefined;
+  tier: SubagentTier;
+  getNodes: () => readonly FleetNode[];
+}
+
 interface WaitAgentsDeps {
   sessions: SubAgentSessionStore;
   fleetRecords: FleetRecordsHandle;
+  authority?: WaitAgentsAuthority;
 }
 
 function isSoftInterrupted(
@@ -886,6 +1086,29 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
 
       if (targets.length === 0) {
         return fleetResult(call.id, JSON.stringify({ results: [], timed_out: false }));
+      }
+
+      if (deps.authority !== undefined) {
+        if (deps.authority.actorId === undefined) {
+          return fleetResult(
+            call.id,
+            "Error: wait_agents is unavailable for this worker (no resolvable session id to scope descendant access).",
+          );
+        }
+        try {
+          for (const target of targets) {
+            assertCanTargetAgent(
+              { id: deps.authority.actorId, tier: deps.authority.tier },
+              target,
+              deps.authority.getNodes(),
+            );
+          }
+        } catch (cause) {
+          if (cause instanceof FleetAuthorityError) {
+            return fleetResult(call.id, `Error: ${cause.message}`);
+          }
+          throw cause;
+        }
       }
 
       const timedOut = await waitForTerminal(

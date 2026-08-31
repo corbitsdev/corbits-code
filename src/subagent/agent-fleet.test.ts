@@ -48,7 +48,7 @@ function deferred<T>(): {
 
 function makeDeps(
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
-  opts: { cwd?: string } = {},
+  opts: Partial<Pick<AgentFleetDeps, "cwd" | "settings" | "catalog" | "profiles">> = {},
 ): AgentFleetDeps {
   return {
     permissionGate: testPermissionGate,
@@ -58,6 +58,9 @@ function makeDeps(
     run,
     sessions: createSubAgentSessionStore(),
     fleetRecords: createFleetRecords(),
+    ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
+    ...(opts.profiles !== undefined ? { profiles: opts.profiles } : {}),
   };
 }
 
@@ -105,6 +108,67 @@ describe("spawn_agent", () => {
     expect(deps.sessions.get(result.agent_id as string)?.status).toBe("running");
 
     gate.resolve({ report: "done" });
+  });
+
+  test("rejects unsupported profile orchestrators before starting a session", async () => {
+    let runCalled = false;
+    const deps = makeDeps(
+      async () => {
+        runCalled = true;
+        return { report: "done" };
+      },
+      {
+        profiles: [
+          {
+            id: "profile-orchestrator",
+            orchestrator: true,
+            systemPromptRole: "You coordinate work.",
+          },
+        ],
+      },
+    );
+    const spawn = createSpawnAgentTool(deps);
+    const result = await callToolRaw(spawn, {
+      description: "profile job",
+      prompt: "do it",
+      agent: "profile-orchestrator",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("profile orchestrators are not supported");
+    expect(runCalled).toBe(false);
+    expect(deps.sessions.list()).toEqual([]);
+  });
+
+  test("dispatches a local profile id returned by search_agents", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const deps = makeDeps(
+      async (params) => {
+        captured = params;
+        return { report: "done" };
+      },
+      {
+        profiles: [
+          {
+            id: "plugin-reviewer",
+            capabilities: { mode: "allow", tools: ["read_file"] },
+            systemPromptRole: "You are the plugin reviewer.",
+          },
+        ],
+      },
+    );
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callTool(spawn, {
+      description: "profile job",
+      prompt: "do it",
+      agent: "plugin-reviewer",
+    });
+
+    expect(result.status).toBe("running");
+    expect(captured?.directorId).toBe("plugin-reviewer");
+    expect(captured?.systemPromptRole).toBe("You are the plugin reviewer.");
+    expect(captured?.capabilities).toEqual({ mode: "allow", tools: ["read_file"] });
   });
 });
 
@@ -432,6 +496,60 @@ describe("wait_agents caller scope", () => {
     expect(results.every((r) => r.agent_id !== foreign.id)).toBe(true);
 
     gate.resolve({ report: "done" });
+  });
+
+  test("explicit targets respect nested orchestrator subtree authority", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const actor = sessions.start({
+      id: "actor",
+      description: "actor",
+      agentId: "builder",
+      brief: "b",
+    });
+    const child = sessions.start({
+      id: "child",
+      description: "child",
+      agentId: "explorer",
+      brief: "b",
+      parentSessionId: actor.id,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "sibling",
+      agentId: "explorer",
+      brief: "b",
+    });
+    for (const session of [child, sibling]) {
+      fleetRecords.register(session.id);
+      fleetRecords.resolve(session.id, `${session.id} done`);
+    }
+    const wait = createWaitAgentsTool({
+      sessions,
+      fleetRecords,
+      authority: {
+        actorId: actor.id,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+    });
+
+    const own = await callTool(wait, { targets: [child.id], timeout_ms: 1000 });
+    expect(own.timed_out).toBe(false);
+    const ownResults = own.results as { agent_id: string; status: string; report?: string }[];
+    expect(ownResults[0]).toEqual({ agent_id: child.id, status: "done", report: "child done" });
+
+    if (wait.kind !== "full") throw new Error("expected full tool");
+    const denied = await wait.handler(
+      {
+        id: "wait-denied",
+        name: "wait_agents",
+        arguments: { targets: [sibling.id], timeout_ms: 0 },
+      },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(String(denied.content)).toContain("outside its subtree");
   });
 
   test("mode=all stays blocked until every target is terminal", async () => {
@@ -967,7 +1085,7 @@ describe("list_agents", () => {
   });
 });
 
-describe("spawn_agent parity with task", () => {
+describe("spawn_agent dispatch contracts", () => {
   test("uses the parent tool call id as the session id", async () => {
     const deps = makeDeps(async () => ({ report: "done" }));
     const spawn = createSpawnAgentTool(deps);

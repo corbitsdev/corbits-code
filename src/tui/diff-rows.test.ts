@@ -115,18 +115,17 @@ describe("diff transcript rows", () => {
     }, WIDE);
   });
 
-  test("a task/dispatch call paints a sentence, never the full spawn JSON (CL-5762)", async () => {
+  test("a spawn_agent dispatch call paints a sentence, never the full spawn JSON (CL-5762)", async () => {
     const brief = {
       agent: "explorer",
       description: "map callers of leaveObserve",
       prompt: "Find every call site of leaveObserve.\nReport paths and line numbers.",
       intent: "explore",
-      maxTurns: 40,
       success_criteria: ["list call sites", "note tests"],
       do_not: ["edit code", "open PRs"],
     };
     const args = JSON.stringify(brief);
-    const row = toolCallRow({ name: "task", arguments: args });
+    const row = toolCallRow({ name: "spawn_agent", arguments: args });
 
     // Structural: summary set, not raw args; detail expands with real newlines.
     expect(row.summary).toBe("map callers of leaveObserve");
@@ -156,7 +155,7 @@ describe("diff transcript rows", () => {
     }, WIDE);
   });
 
-  test("a task without description still collapses — falls back to prompt, not raw JSON", () => {
+  test("a spawn_agent call without description still collapses — falls back to prompt, not raw JSON", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
     const args = JSON.stringify({
       agent: "explorer",
@@ -164,7 +163,7 @@ describe("diff transcript rows", () => {
       intent: "explore",
       success_criteria: ["list sites"],
     });
-    const row = toolCallRow({ name: "task", arguments: args });
+    const row = toolCallRow({ name: "spawn_agent", arguments: args });
     expect(row.summary).toBeDefined();
     expect(row.summary!.length).toBeGreaterThan(0);
     expect(row.summary).not.toContain("success_criteria");

@@ -409,7 +409,7 @@ describe("block labels", () => {
 
 describe("sub-agent dispatch row marks", () => {
   const dispatch = toolCallRow({
-    name: "task",
+    name: "spawn_agent",
     arguments: JSON.stringify({ description: "Review permission gate" }),
   });
 
@@ -442,7 +442,7 @@ describe("sub-agent dispatch row marks", () => {
   });
 
   test("a resolved dispatch drops back to the plain done mark", () => {
-    const result = toolResultRow({ name: "task", content: "8 lines", isError: false });
+    const result = toolResultRow({ name: "spawn_agent", content: "8 lines", isError: false });
     const merged = mergeToolRows({ ...dispatch, agentWorking: true }, result);
     expect(streamRowGutter(merged, SOLO).content).toContain("✓");
   });

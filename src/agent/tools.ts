@@ -36,7 +36,6 @@ import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import type { WorkflowCompleteResult } from "../workflows/types.js";
 import {
-  createTaskTool,
   runSubAgent,
   type SubAgentProvider,
   type SubAgentSessionStore,
@@ -47,6 +46,7 @@ import {
   createWaitAgentsTool,
   createListAgentsTool,
 } from "../subagent/agent-fleet.js";
+import { DEFAULT_CLOSE_DEADLINE_MS } from "../subagent/dispose.js";
 import {
   createCloseAgentTool,
   createResumeAgentTool,
@@ -150,7 +150,7 @@ export interface AgentToolsetArgs {
   // Records skill loads and sub-agent dispatch. Omitted (tests, ad-hoc
   // toolsets) means those events are never emitted.
   telemetry?: Telemetry;
-  // When provided, the agent gets a `task` tool that delegates to autonomous
+  // When provided, the agent gets fleet tools that delegate to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
     provider: SubAgentProvider | (() => SubAgentProvider);
@@ -323,36 +323,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   // Align the advertised run_shell timeout with shell-guard (no built-in default;
   // advertise settings.shell.timeoutMs when set).
-  // Orchestrator tools (task / search / trace / fleet) are assembled once so the
-  // fleet verbs can reuse the same sessions store the task tool already holds —
-  // never a private mailbox allocated only for spawn_agent/wait_agents.
+  // Orchestrator tools (search / trace / fleet) are assembled once so the fleet
+  // verbs share one sessions store — never a private mailbox allocated only for
+  // spawn_agent/wait_agents.
   const orchestratorTools: AgentTool[] = [];
+  let fleetSessionsForDispose: SubAgentSessionStore | undefined;
   if (subAgentsEnabled && args.subAgent !== undefined) {
     const sa = args.subAgent;
     const fleetRecords = sa.sessions !== undefined ? createFleetRecords() : undefined;
-    orchestratorTools.push(
-      createTaskTool({
-        cwd,
-        getWorkdirBase: sa.getWorkdirBase,
-        provider: sa.provider,
-        permissionGate,
-        inheritMcpTools: () => inheritedMcpTools,
-        run: runSubAgent,
-        ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-        ...(shellEnv !== undefined ? { shellEnv } : {}),
-        ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
-        ...(sa.onEvent !== undefined ? { onEvent: sa.onEvent } : {}),
-        ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),
-        ...(sa.sessions !== undefined ? { sessions: sa.sessions } : {}),
-        ...(sa.settings !== undefined ? { settings: sa.settings } : {}),
-        ...(sa.catalog !== undefined ? { catalog: sa.catalog } : {}),
-        ...(sa.profiles !== undefined ? { profiles: sa.profiles } : {}),
-        ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
-        ...(sa.useWorktree !== undefined ? { useWorktree: sa.useWorktree } : {}),
-        ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
-        ...(fleetRecords !== undefined ? { fleetRecords } : {}),
-      }),
-    );
     if (sa.profiles !== undefined) {
       orchestratorTools.push(
         createSearchAgentsTool(() => {
@@ -372,6 +350,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     // store only for these verbs. spawnAllowlist stays unwired on primary.
     if (sa.sessions !== undefined && fleetRecords !== undefined) {
       const fleetSessions = sa.sessions;
+      fleetSessionsForDispose = fleetSessions;
       const fleetDeps = {
         permissionGate,
         inheritMcpTools: () => inheritedMcpTools,
@@ -390,6 +369,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),
         ...(sa.settings !== undefined ? { settings: sa.settings } : {}),
         ...(sa.catalog !== undefined ? { catalog: sa.catalog } : {}),
+        ...(sa.profiles !== undefined ? { profiles: sa.profiles } : {}),
         ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
       };
       orchestratorTools.push(
@@ -612,6 +592,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       promoter.promote = promote;
     },
     dispose: async () => {
+      const fleetSessions = fleetSessionsForDispose;
+      if (fleetSessions !== undefined) {
+        fleetSessions.cancelAll("parent session closed");
+        for (const session of [...fleetSessions.list()].reverse()) {
+          await fleetSessions.closeOne(session.id, DEFAULT_CLOSE_DEADLINE_MS);
+        }
+      }
       for (const client of connectedClients) {
         permissionGate.unregisterMcpServer(client.serverName);
       }

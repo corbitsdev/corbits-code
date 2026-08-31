@@ -35,7 +35,7 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   }
 
   const header = [
-    `Identity: agent id \`${pkg.id}\` — spawn as task(agent="${pkg.id}").`,
+    `Identity: agent id \`${pkg.id}\` — spawn as spawn_agent(agent="${pkg.id}").`,
     `Model role: ${pkg.modelRole}.`,
     ...(skillsLine !== null ? [skillsLine] : []),
   ].join("\n");

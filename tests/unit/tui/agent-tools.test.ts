@@ -2,6 +2,7 @@ import { test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
 import { TOOL_NAMES } from "@intx/tools-posix";
 import { createPermissionGate } from "../../../src/permission/gate.js";
+import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
 import type { PermissionGate } from "../../../src/permission/gate.js";
 import { withMockedModule } from "../../helpers/mock-module.js";
 
@@ -326,10 +327,11 @@ const subAgentDeps = {
     model: "m",
   }),
   getWorkdirBase: () => "/tmp",
+  sessions: createSubAgentSessionStore(),
   profiles: () => [],
 };
 
-test("default session registers task and search_agents", async () => {
+test("default session registers split fleet tools and search_agents", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
@@ -338,7 +340,9 @@ test("default session registers task and search_agents", async () => {
     subAgent: subAgentDeps,
   });
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
-  expect(names).toContain("task");
+  expect(names).not.toContain("task");
+  expect(names).toContain("spawn_agent");
+  expect(names).toContain("wait_agents");
   expect(names).toContain("search_agents");
 });
 
@@ -360,6 +364,34 @@ test("headless MCP connection does not wait for interactive OAuth", async () => 
 
   expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
   expect(mockConnectMCPServer.mock.calls[0]?.[1]?.onAuthURL).toBeUndefined();
+});
+
+test("dispose closes retained sub-agent sessions", async () => {
+  const sessions = createSubAgentSessionStore();
+  const worker = sessions.start({
+    id: "worker-1",
+    description: "worker",
+    agentId: "builder",
+    brief: "b",
+    retained: true,
+  });
+  let closed = false;
+  sessions.registerClose(worker.id, async () => {
+    closed = true;
+  });
+  sessions.markRunning(worker.id);
+
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+    sessionMode: "orchestrator",
+    subAgent: { ...subAgentDeps, sessions },
+  });
+
+  await toolset.dispose();
+  expect(closed).toBe(true);
+  expect(sessions.get(worker.id)?.lifecycleStatus).toBe("shutdown");
 });
 
 test("dispose calls posixTools.dispose", async () => {

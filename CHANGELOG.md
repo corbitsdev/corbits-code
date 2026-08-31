@@ -13,6 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Breaking
+
+- `task` is removed. Use `spawn_agent` to start workers and `wait_agents` to
+  collect reports; `search_agents` profile ids now dispatch through
+  `spawn_agent(agent=...)`.
+
 ## [0.3.11] - 2026-08-31
 
 ### Changed
@@ -37,6 +43,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
+- Mid-run Enter delivers a steer into the live reactor (`Agent.deliver`)
+  instead of starting a second `send`. `/clear` and `/new` drop queued
+  input so it cannot land in the next session.
 - Failed sessions with an `error` string in `run.json` are valid resume
   candidates, not corrupt files. A truly unreadable session id prints one
   recovery line; parse diagnostics go to the structured log, not the
@@ -235,13 +244,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
-- Retained worker sessions (`spawn_agent`, resumable via `resume_agent`/`followup_task`) now have
-  their own retention cap, separate from the TUI's finished-session display cap. Previously they
-  shared that 20-item cap, so `resume_agent` on an early worker failed with a bare `not_found` once
-  a fan-out of more than 20 workers had finished. A session dropped by the retention cap still
-  releases its sidecars/reactor/lock entry, always evicts least-recently-used first, and never
-  evicts a running session. `resume_agent`/`followup_task` against an evicted session now report
-  its terminal status plus a pointer to `read_agent_trace`, instead of `not_found`.
+- Retained worker sessions (`spawn_agent`, resumable via `resume_agent`) now have their own
+  retention cap, separate from the TUI's finished-session display cap. Previously they shared that
+  20-item cap, so `resume_agent` on an early worker failed with a bare `not_found` once a fan-out
+  of more than 20 workers had finished. A session dropped by the retention cap still releases its
+  sidecars/reactor/lock entry, always evicts least-recently-used first, and never evicts a running
+  session. `resume_agent` against an evicted session now reports its terminal status plus a pointer
+  to `read_agent_trace`, instead of `not_found`.
 
 ## [0.3.0] - 2026-08-24
 
@@ -282,10 +291,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   operator interrupts it (`interrupt_agent`) rather than the harness enforcing
   a count.
 
-- Added `interrupt_agent({ target })` and `followup_task({ target, message })`,
+- Added `interrupt_agent({ target })` and `resume_agent({ target, message })`,
   the second half of reusable worker sessions: `interrupt_agent` stops a
   retained worker's current turn while keeping it and its context alive
-  (distinct from the permanent `close_agent`), and `followup_task` sends new
+  (distinct from the permanent `close_agent`), and `resume_agent` sends new
   work into a retained worker's existing session, reusing its prior context
   and tool outputs rather than starting fresh. Both are gated to orchestrator
   tiers via the existing fleet-verb mechanism, denied to leaves. `interrupt_agent`

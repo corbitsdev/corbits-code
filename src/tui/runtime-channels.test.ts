@@ -28,6 +28,7 @@ async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promis
     eventEmitter: emitter,
     send: () => {},
     interrupt: () => {},
+    deliver: () => {},
     createRenderer: async () => harness.renderer,
     ...overrides,
   });

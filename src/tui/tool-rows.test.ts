@@ -89,12 +89,12 @@ describe("a call and its answer", () => {
   test("a resolved sub-agent dispatch drops its live elapsed-time trailer for the real answer", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
-      name: "task",
+      name: "spawn_agent",
       arguments: JSON.stringify({ description: "Review mouse/paste" }),
     });
     rows[0] = { ...rows[0]!, agentWorking: true, stat: "0:42 · bash" };
 
-    pushToolResult(rows, { name: "task", content: "8 lines" });
+    pushToolResult(rows, { name: "spawn_agent", content: "8 lines" });
     expect(rows[0]?.pending).toBeUndefined();
     expect(rows[0]?.stat).toBe("8 lines");
   });
@@ -139,34 +139,34 @@ describe("a run of identical calls", () => {
 });
 
 describe("parallel calls to the same tool", () => {
-  // CL-5562: three `task` calls dispatched in one turn all carry
-  // meta === "task" — name alone cannot tell them apart, so a result must
-  // find its own row by call id or it resolves whichever pending "task" row
+  // CL-5562: three `spawn_agent` calls dispatched in one turn all carry
+  // meta === "spawn_agent" — name alone cannot tell them apart, so a result must
+  // find its own row by call id or it resolves whichever pending "spawn_agent" row
   // happens to be newest, leaving the others stranded pending forever and
   // turning any later same-name result into an orphaned extra row.
   test("each result resolves its own call by id, not the newest pending call of that name", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
-      name: "task",
+      name: "spawn_agent",
       arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5559 heading shake" }),
       callId: "c1",
     });
     pushToolCall(rows, {
-      name: "task",
+      name: "spawn_agent",
       arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5560 approval UI" }),
       callId: "c2",
     });
     pushToolCall(rows, {
-      name: "task",
+      name: "spawn_agent",
       arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5561 scroll/history" }),
       callId: "c3",
     });
     expect(rows.length).toBe(3);
 
     // Results land out of dispatch order, as real sub-agent completion does.
-    pushToolResult(rows, { name: "task", content: "done c2", callId: "c2" });
-    pushToolResult(rows, { name: "task", content: "done c1", callId: "c1" });
-    pushToolResult(rows, { name: "task", content: "done c3", callId: "c3" });
+    pushToolResult(rows, { name: "spawn_agent", content: "done c2", callId: "c2" });
+    pushToolResult(rows, { name: "spawn_agent", content: "done c1", callId: "c1" });
+    pushToolResult(rows, { name: "spawn_agent", content: "done c3", callId: "c3" });
 
     expect(rows.length).toBe(3);
     expect(rows.every((r) => r.pending !== true)).toBe(true);
@@ -186,12 +186,12 @@ describe("parallel calls to the same tool", () => {
   // here means the id genuinely does not belong to anything on the log.
   test("an id that matches nothing on the log answers nothing, not the newest pending call", () => {
     const rows: StreamRow[] = [
-      { role: "tool", text: "", meta: "task", pending: true, callId: "a1" },
-      { role: "tool", text: "", meta: "task", pending: true, callId: "b1" },
+      { role: "tool", text: "", meta: "spawn_agent", pending: true, callId: "a1" },
+      { role: "tool", text: "", meta: "spawn_agent", pending: true, callId: "b1" },
     ];
-    expect(pendingCallIndex(rows, "task", "zzz-does-not-exist")).toBe(-1);
+    expect(pendingCallIndex(rows, "spawn_agent", "zzz-does-not-exist")).toBe(-1);
 
-    pushToolResult(rows, { name: "task", content: "orphan", callId: "zzz-does-not-exist" });
+    pushToolResult(rows, { name: "spawn_agent", content: "orphan", callId: "zzz-does-not-exist" });
     // Answers nothing on the log — appended as its own row rather than
     // resolving (and thereby corrupting) an unrelated in-flight call.
     expect(rows.length).toBe(3);
@@ -207,12 +207,12 @@ describe("parallel calls to the same tool", () => {
   test("a failed call keeps its error text behind the expand arrow", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
-      name: "task",
+      name: "spawn_agent",
       arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5559 heading shake" }),
       callId: "c1",
     });
     pushToolResult(rows, {
-      name: "task",
+      name: "spawn_agent",
       content: 'Error: sub-agent "Fix CL-5559 heading shake" failed: boom',
       isError: true,
       callId: "c1",

@@ -44,7 +44,9 @@ describe("skywalkerPackage", () => {
 
   test("tools.allow mounts orchestrator surface plus product writes for DIY", () => {
     const allow = skywalkerPackage.tools?.allow ?? [];
-    expect(allow).toContain("task");
+    expect(allow).not.toContain("task");
+    expect(allow).toContain("spawn_agent");
+    expect(allow).toContain("wait_agents");
     expect(allow).toContain("search_agents");
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
@@ -96,7 +98,7 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("spawn_agent");
     expect(p).toContain("wait_agents");
     expect(p).toContain("Idle-orchestrator");
-    expect(p).toContain("deprecated fused spawn+wait");
+    expect(p).not.toContain("task()");
     expect(p).toContain('mode="all"');
     expect(p).toContain("uncollected spawns");
     expect(p).not.toContain("Present the plan when the change is large or ambiguous");

@@ -7,6 +7,7 @@
  */
 
 import {
+  createSessionQueue,
   drainOne,
   enqueue,
   enqueueSteer,
@@ -71,7 +72,7 @@ import {
 } from "./agent-progress.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
-const TASK_TOOL_NAME = "task";
+const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
 
 /**
  * Tool name the task checklist is written through. Its calls paint no
@@ -176,6 +177,12 @@ export interface SessionBridge {
   ) => void;
   interrupt: () => void;
   /**
+   * Drop mid-run queue items, pending echoes, and fleet hold so a session
+   * rotation cannot drain old input into the new reactor. Leaves the run idle
+   * so the next Enter is a send, not a steer.
+   */
+  clearQueuedDelivery: () => void;
+  /**
    * A permission or operator gate was raised — queued or already displayed.
    * Blocks the turn (and exempts it from the stall watchdog) until a matching
    * `gateClosed` call. Multiple outstanding gates nest correctly.
@@ -188,7 +195,7 @@ export interface SessionBridge {
   readonly turn: TurnState;
   readonly shell: AppShell;
   /**
-   * Refresh outstanding `task` rows with each worker's live progress. The
+   * Refresh outstanding `spawn_agent` rows with each worker's live progress. The
    * caller supplies the sessions (from `SubAgentSessionStore.listForStrip()`
    * or similar) on whatever cadence it already polls at.
    */
@@ -356,7 +363,7 @@ interface BridgeBag {
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number;
   /**
-   * callIds of outstanding `task` calls — a subset of `toolRows`' keys. Kept
+   * callIds of outstanding `spawn_agent` calls — a subset of `toolRows`' keys. Kept
    * separate so `syncAgentProgress` never has to walk every in-flight tool to
    * find the handful that are sub-agent dispatches.
    */
@@ -563,7 +570,7 @@ function applyToolCall(
   if (event.name === MANAGE_TASKS_TOOL_NAME) {
     // Remembered so the matching result is dropped too — suppressing only the
     // call would leave its result to land as an unpaired row. Checklist lives
-    // on the task panel; Task dispatches paint live transcript rows instead.
+    // on the task panel; spawn_agent dispatches paint live transcript rows instead.
     if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId);
     return;
   }
@@ -588,7 +595,7 @@ function applyToolCall(
       bag.toolCallStartedAt.set(event.callId, bag.now());
     }
   }
-  if (event.callId !== undefined && event.name === TASK_TOOL_NAME) {
+  if (event.callId !== undefined && event.name === SPAWN_AGENT_TOOL_NAME) {
     bag.taskCallIds.add(event.callId);
   }
   bag.lastToolRow = index;
@@ -633,7 +640,7 @@ function applyToolResult(
 }
 
 /**
- * Refresh every outstanding `task` call's row with its worker's live progress —
+ * Refresh every outstanding `spawn_agent` call's row with its worker's live progress —
  * elapsed time, current tool, and whether it has gone quiet. Rewrites each row
  * in place through `replaceStreamRowAt`; a session that finished, or is missing
  * from `sessions`, leaves its row untouched rather than reverting to a bare
@@ -678,7 +685,7 @@ function omitStat(row: StreamRow): StreamRow {
 
 /**
  * Refresh every plain in-flight tool call's row with how long it has been
- * running. A `task` dispatch already gets this (and more) from
+ * running. A `spawn_agent` dispatch already gets this (and more) from
  * `syncAgentProgress`, so those calls are skipped here rather than double
  * painted. Without a live clock an ordinary call's row sits on a static
  * pending mark for however long the tool takes — indistinguishable from a
@@ -1223,6 +1230,14 @@ export function attachSessionBridge(
     paintPhase();
   };
 
+  const clearQueuedDelivery = (): void => {
+    if (bag.disposed) return;
+    shell.session = createSessionQueue("idle");
+    bag.pendingEchoes.length = 0;
+    bag.liveFleet = 0;
+    paintChrome(shell);
+  };
+
   /**
    * A permission or operator gate was raised — queued or already on screen,
    * the turn does not distinguish. Called from the gate wiring itself, not
@@ -1330,6 +1345,7 @@ export function attachSessionBridge(
     },
     submit,
     interrupt: doInterrupt,
+    clearQueuedDelivery,
     gateOpened,
     gateClosed,
     get turn() {

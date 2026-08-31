@@ -3,7 +3,7 @@ import { CodexAuthError } from "../auth/codex/session.js";
 import { XaiAuthError } from "../auth/xai/session.js";
 import {
   classifySubAgentInferenceAuthFailure,
-  formatSubAgentTaskAuthFailureMessage,
+  formatSubAgentSpawnAuthFailureMessage,
 } from "./inference-auth-failure.js";
 
 describe("sub-agent inference auth failures", () => {
@@ -17,8 +17,8 @@ describe("sub-agent inference auth failures", () => {
     expect(classifySubAgentInferenceAuthFailure(new Error("nope"))).toBeNull();
   });
 
-  test("formats actionable task error with profile and re-login hint", () => {
-    const msg = formatSubAgentTaskAuthFailureMessage(
+  test("formats actionable spawn_agent error with profile and re-login hint", () => {
+    const msg = formatSubAgentSpawnAuthFailureMessage(
       "explore auth",
       new CodexAuthError("work", "refresh-failed", "Token refresh failed"),
     );

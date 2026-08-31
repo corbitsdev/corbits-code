@@ -9,8 +9,8 @@ export function classifySubAgentInferenceAuthFailure(err: unknown): SubAgentAuth
   return null;
 }
 
-/** Actionable task-tool error when OAuth refresh or inference auth fails for a sub-agent. */
-export function formatSubAgentTaskAuthFailureMessage(
+/** Actionable spawn_agent error when OAuth refresh or inference auth fails for a sub-agent. */
+export function formatSubAgentSpawnAuthFailureMessage(
   description: string,
   err: unknown,
 ): string | null {
@@ -24,6 +24,6 @@ export function formatSubAgentTaskAuthFailureMessage(
   // No "Error:" prefix — SessionStore.fail and tool-result surfaces add their own.
   return (
     `sub-agent "${description}" could not run inference (${providerLabel} profile "${profile}"). ` +
-    `${detailSentence} Re-authenticate the profile from /model (Alt+A to Connect) and retry the task.`
+    `${detailSentence} Re-authenticate the profile from /model (Alt+A to Connect) and retry spawn_agent.`
   );
 }

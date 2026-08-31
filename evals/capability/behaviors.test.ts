@@ -153,22 +153,24 @@ describe("deriveBehaviorMetrics", () => {
     expect(metrics.webFetchToolCallCount).toBe(0);
   });
 
-  test("counts task tool calls separately", () => {
+  test("counts spawn_agent tool calls separately", () => {
     const metrics = deriveBehaviorMetrics(
       summary([
         turn({
-          toolCalls: [{ name: "task", arguments: { intent: "implement", prompt: "add /readyz" } }],
+          toolCalls: [
+            { name: "spawn_agent", arguments: { intent: "implement", prompt: "add /readyz" } },
+          ],
         }),
         turn({ toolCalls: [{ name: "web_fetch", arguments: { url: "http://x" } }] }),
       ]),
     );
-    expect(metrics.taskToolCallCount).toBe(1);
+    expect(metrics.spawnAgentToolCallCount).toBe(1);
     expect(metrics.webFetchToolCallCount).toBe(1);
   });
 
-  test("task count is 0 when the tool is never called", () => {
+  test("spawn_agent count is 0 when the tool is never called", () => {
     const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
-    expect(metrics.taskToolCallCount).toBe(0);
+    expect(metrics.spawnAgentToolCallCount).toBe(0);
   });
 
   test("does not collide distinct name+argument fingerprints", () => {
@@ -234,7 +236,7 @@ describe("deriveBehaviorMetrics", () => {
     const metrics = deriveBehaviorMetrics(summary([]));
     expect(metrics.shellCommandCount).toBe(0);
     expect(metrics.webFetchToolCallCount).toBe(0);
-    expect(metrics.taskToolCallCount).toBe(0);
+    expect(metrics.spawnAgentToolCallCount).toBe(0);
     expect(metrics.longestToolOnlyStreak).toBe(0);
     expect(metrics.toolCallsByName).toEqual({});
   });
@@ -270,17 +272,23 @@ describe("parseBehaviorMetrics", () => {
     expect(parseBehaviorMetrics({ shellCommandCount: "many" })).toBeNull();
   });
 
-  test("defaults missing taskToolCallCount from the per-name map", () => {
+  test("defaults missing spawnAgentToolCallCount from the per-name map", () => {
     const metrics = deriveBehaviorMetrics(
-      summary([turn({ toolCalls: [{ name: "task", arguments: {} }] })]),
+      summary([turn({ toolCalls: [{ name: "spawn_agent", arguments: {} }] })]),
     );
-    const { taskToolCallCount: _dropped, ...legacy } = metrics;
-    expect(parseBehaviorMetrics(legacy)?.taskToolCallCount).toBe(1);
+    const { spawnAgentToolCallCount: _dropped, ...legacy } = metrics;
+    expect(parseBehaviorMetrics(legacy)?.spawnAgentToolCallCount).toBe(1);
   });
 
-  test("defaults missing taskToolCallCount to 0 when task was never called", () => {
+  test("defaults missing spawnAgentToolCallCount to 0 when spawn_agent was never called", () => {
     const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
-    const { taskToolCallCount: _dropped, ...legacy } = metrics;
-    expect(parseBehaviorMetrics(legacy)?.taskToolCallCount).toBe(0);
+    const { spawnAgentToolCallCount: _dropped, ...legacy } = metrics;
+    expect(parseBehaviorMetrics(legacy)?.spawnAgentToolCallCount).toBe(0);
+  });
+
+  test("accepts legacy taskToolCallCount reports", () => {
+    const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
+    const { spawnAgentToolCallCount: _dropped, ...legacy } = metrics;
+    expect(parseBehaviorMetrics({ ...legacy, taskToolCallCount: 2 })?.spawnAgentToolCallCount).toBe(2);
   });
 });

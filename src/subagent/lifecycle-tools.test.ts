@@ -5,9 +5,10 @@ import {
   createResumeAgentTool,
   createInterruptAgentTool,
   createSendInputTool,
+  resumeAgentToolDefinition,
 } from "./lifecycle-tools.js";
 import { createFleetRecords, createWaitAgentsTool } from "./agent-fleet.js";
-import { createSubAgentSessionStore } from "./session-store.js";
+import { createSubAgentSessionStore, DEFAULT_MAX_ENTRY_CHARS } from "./session-store.js";
 
 async function callTool(
   tool:
@@ -253,6 +254,39 @@ describe("resume_agent", () => {
     finish("done");
   });
 
+  test("rejects resume before an uncollected prior terminal fleet result is delivered", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.registerFollowup(worker.id, async () => "second report");
+    sessions.complete(worker.id, "first report");
+    fleetRecords.register(worker.id);
+    fleetRecords.resolve(worker.id, "first report");
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
+    const result = await resumeAgent.handler(
+      {
+        id: "resume-before-collect",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "next" },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("prior result is collected");
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const collected = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    const results = collected.results as { agent_id: string; status: string; report?: string }[];
+    expect(results[0]).toEqual({ agent_id: worker.id, status: "done", report: "first report" });
+  });
+
   test("wait_agents collects the resumed turn after resume_agent returns", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetRecords();
@@ -295,6 +329,93 @@ describe("resume_agent", () => {
     const results = collected.results as { status: string; report?: string }[];
     expect(results[0]!.status).toBe("done");
     expect(results[0]!.report).toBe("second report");
+  });
+
+  test("wait_agents collects a failed resumed turn instead of hanging", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.registerFollowup(worker.id, async () => {
+      throw new Error("resumed turn failed");
+    });
+    sessions.complete(worker.id, "first report");
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+
+    const resumed = await callTool(resumeAgent, { target: worker.id, message: "second turn" });
+    expect(resumed.status).toBe("running");
+    const collected = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+
+    expect(collected.timed_out).toBe(false);
+    const results = collected.results as { agent_id: string; status: string; error?: string }[];
+    expect(results[0]).toEqual({
+      agent_id: worker.id,
+      status: "failed",
+      error: "resumed turn failed",
+    });
+  });
+
+  test("rejects missing, empty, and oversize messages without starting a turn", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetRecords();
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    let starts = 0;
+    sessions.registerFollowup(worker.id, async () => {
+      starts++;
+      return "should not run";
+    });
+    sessions.complete(worker.id, "first report");
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
+
+    const missing = await resumeAgent.handler(
+      { id: "missing-message", name: "resume_agent", arguments: { target: worker.id } },
+      new AbortController().signal,
+    );
+    expect(missing.isError).toBe(true);
+    expect(String(missing.content)).toContain("message");
+
+    const empty = await resumeAgent.handler(
+      {
+        id: "empty-message",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "   " },
+      },
+      new AbortController().signal,
+    );
+    expect(empty.isError).toBe(true);
+    expect(String(empty.content)).toContain("non-empty message");
+
+    const oversize = await resumeAgent.handler(
+      {
+        id: "oversize-message",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1) },
+      },
+      new AbortController().signal,
+    );
+    expect(oversize.isError).toBe(true);
+    expect(String(oversize.content)).toContain(`exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters`);
+    expect(starts).toBe(0);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("completed");
+  });
+
+  test("schema requires message and exposes no followup_task alias", () => {
+    expect(resumeAgentToolDefinition.name).toBe("resume_agent");
+    expect(resumeAgentToolDefinition.inputSchema.required).toEqual(["target", "message"]);
+    expect(JSON.stringify(resumeAgentToolDefinition)).not.toContain("followup_task");
   });
 });
 

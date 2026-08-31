@@ -62,13 +62,17 @@ describe("DOCS_TOOLS", () => {
 });
 
 describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
-  test("both mount product writes and task", () => {
+  test("both mount product writes and split fleet tools", () => {
     for (const name of PRODUCT_WRITE_TOOLS) {
       expect(SKYWALKER_TOOLS as readonly string[]).toContain(name);
       expect(ORCHESTRATOR_TOOLS as readonly string[]).toContain(name);
     }
-    expect(SKYWALKER_TOOLS).toContain("task");
-    expect(ORCHESTRATOR_TOOLS).toContain("task");
+    for (const name of ["spawn_agent", "wait_agents"] as const) {
+      expect(SKYWALKER_TOOLS as readonly string[]).toContain(name);
+      expect(ORCHESTRATOR_TOOLS as readonly string[]).toContain(name);
+    }
+    expect(SKYWALKER_TOOLS as readonly string[]).not.toContain("task");
+    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("task");
   });
 
   // CL-7051: fleet discovery is Tier-1 only.
@@ -86,11 +90,11 @@ describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
     }
   });
 
-  test("intern stays shell-first without grep/search/task", () => {
+  test("intern stays shell-first without grep/search/spawn", () => {
     expect(INTERN_TOOLS).toContain("run_shell");
     expect(INTERN_TOOLS).toContain("read_file");
     expect(INTERN_TOOLS).toContain("list_dir");
-    for (const name of ["grep", "search_files", "task"] as const) {
+    for (const name of ["grep", "search_files", "spawn_agent", "wait_agents"] as const) {
       expect(INTERN_TOOLS as readonly string[]).not.toContain(name);
     }
   });

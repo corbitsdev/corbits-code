@@ -15,7 +15,7 @@ import {
 } from "./ai-observability.js";
 import { getCurrentTurnTraceId, resetFeedbackStateForTests } from "./feedback.js";
 
-const SUBAGENT_TOOL_NAME = "task";
+const SUBAGENT_TOOL_NAME = "spawn_agent";
 const SESSION_ID = "0199-parent-session";
 
 afterEach(() => {
@@ -94,8 +94,7 @@ describe("secondsFromMs", () => {
 });
 
 describe("classifySpanKind", () => {
-  test("classifies both subagent dispatch tools as subagent_call", () => {
-    expect(classifySpanKind("task")).toBe("subagent_call");
+  test("classifies spawn_agent as a subagent_call", () => {
     expect(classifySpanKind("spawn_agent")).toBe("subagent_call");
   });
 

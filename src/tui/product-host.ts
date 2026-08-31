@@ -119,7 +119,7 @@ export interface ProductHostConfig {
    */
   readonly classifySubmit?: ProductHostClassifySubmit;
   readonly interrupt: ProductHostInterrupt;
-  readonly deliver?: ProductHostDeliver;
+  readonly deliver: ProductHostDeliver;
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[];
   /**
@@ -161,7 +161,7 @@ export interface ProductHostConfig {
   readonly onObserveRequest?: PaletteOnObserveRequest;
   /**
    * Live sub-agent sessions read on the chrome poll cadence to refresh
-   * outstanding `task` rows with elapsed time, current tool, and stall state.
+   * outstanding `spawn_agent` rows with elapsed time, current tool, and stall state.
    * Omitted hosts (tests, the demo shell) simply paint bare pending rows.
    */
   readonly subAgentSessions?: () => readonly TaskProgressSession[];
@@ -319,8 +319,8 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   const port = createLiveSessionPort({
     send: config.send,
     interrupt: config.interrupt,
+    deliver: config.deliver,
     ...(config.classifySubmit !== undefined ? { classifySubmit: config.classifySubmit } : {}),
-    ...(config.deliver !== undefined ? { deliver: config.deliver } : {}),
   });
   // Empty options accept the defaults (real clock, 250 ms tick, 15 min stall)
   // while still opting this host into the quota-retry / stall timers.
@@ -508,6 +508,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   function onSessionClear(): void {
     if (disposed) return;
     clearTranscript(shell);
+    bridge.clearQueuedDelivery();
   }
 
   let currentModels = config.models ?? [];

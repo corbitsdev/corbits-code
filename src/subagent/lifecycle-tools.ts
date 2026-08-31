@@ -215,18 +215,13 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
       const target = parsed.target.trim();
       const denied = gateTarget(deps, "resume_agent", target, call.id);
       if (denied !== undefined) return denied;
-      const message = parsed.message.trim();
-      if (message.length === 0) {
-        return lifecycleResult(call.id, "Error: resume_agent requires a non-empty message.");
-      }
-      if (message.length > DEFAULT_MAX_ENTRY_CHARS) {
+      if (deps.fleetRecords.hasUncollectedTerminal(target)) {
         return lifecycleResult(
           call.id,
-          `Error: resume_agent message exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters ` +
-            `(got ${message.length}).`,
+          `Error: cannot resume "${target}" before its prior result is collected. Call wait_agents for this agent_id first.`,
         );
       }
-      const outcome = deps.sessions.resumeOne(target, message, {
+      const outcome = deps.sessions.resumeOne(target, parsed.message, {
         onStart: () => {
           deps.fleetRecords.register(target);
         },
