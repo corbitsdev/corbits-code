@@ -29,7 +29,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   immediately (canonical schemas restore when switching away).
 - A failed write of a project, global, or provider-model approval no longer
   crashes the session. The grant still applies in memory, the approved tool
-  call still completes, and a concise diagnostic is logged.
+  call still completes, and the operator is told remember did not stick.
 
 ## [0.3.10] - 2026-08-30
 

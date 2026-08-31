@@ -10,6 +10,7 @@ import * as permissionStore from "../permission/store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { GrantScope } from "../permission/types.js";
 import {
+  APPROVAL_PERSIST_FAILURE_NOTICE,
   buildSubAgentProvider,
   createApprovalPersist,
   createLiveSubAgentSources,
@@ -260,11 +261,18 @@ describe("createApprovalPersist", () => {
   }
 
   for (const { scope, reject } of persistedScopes) {
-    test(`a rejected ${scope} write is contained, logged, and never becomes an unhandled rejection`, async () => {
+    test(`a rejected ${scope} write is contained, logged, noticed, and never becomes an unhandled rejection`, async () => {
       const message = `${scope} disk full`;
       reject(message);
+      const notices: string[] = [];
 
-      const persist = createApprovalPersist("/tmp/proj", () => "openai:gpt-5");
+      const persist = createApprovalPersist(
+        "/tmp/proj",
+        () => "openai:gpt-5",
+        (text) => {
+          notices.push(text);
+        },
+      );
       persist({ tool: "run_shell", pattern: "npm *" }, scope);
 
       expect(await flushUnhandledRejections()).toBeNull();
@@ -276,6 +284,22 @@ describe("createApprovalPersist", () => {
           error: message,
         },
       );
+      expect(notices).toEqual([APPROVAL_PERSIST_FAILURE_NOTICE]);
+    });
+
+    test(`a throwing ${scope} persist notice is contained and never becomes an unhandled rejection`, async () => {
+      reject(`${scope} EIO`);
+
+      const persist = createApprovalPersist(
+        "/tmp/proj",
+        () => "openai:gpt-5",
+        () => {
+          throw new Error("notice exploded");
+        },
+      );
+      persist({ tool: "run_shell", pattern: "npm *" }, scope);
+
+      expect(await flushUnhandledRejections()).toBeNull();
     });
 
     test(`an approved call still completes and the in-memory ${scope} grant still applies when persist rejects`, async () => {

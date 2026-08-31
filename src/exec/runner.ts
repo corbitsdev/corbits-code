@@ -376,7 +376,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model: config.model,
       requestApproval: (request: PermissionRequest): Promise<ApprovalOutcome> =>
         promptPermission(request, interactive),
-      persist: createApprovalPersist(config.cwd, () => `${config.providerName}:${config.model}`),
+      persist: createApprovalPersist(
+        config.cwd,
+        () => `${config.providerName}:${config.model}`,
+        (text) => {
+          stderr.write(`${text}\n`);
+        },
+      ),
       approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,

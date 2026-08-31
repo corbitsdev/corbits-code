@@ -857,6 +857,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const isXaiAuthError = (err: unknown): boolean =>
       err instanceof Error && err.name === "XaiAuthError";
 
+    const approvalPersistNotice: { notify?: (text: string) => void } = {};
+
     // Shared by the permission gate and every operator-gate emission site: an
     // unattended auto-continue run must not park on any gate forever, whichever
     // kind it is. No caller arms this today — the goal subsystem was the only
@@ -880,7 +882,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         emitGate: (event) => emitter.emit("permission.gate", event),
         approvalTimeout,
       }),
-      persist: createApprovalPersist(config.cwd, () => `${config.providerName}:${config.model}`),
+      persist: createApprovalPersist(
+        config.cwd,
+        () => `${config.providerName}:${config.model}`,
+        (text) => approvalPersistNotice.notify?.(text),
+      ),
       approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
       interactive: true,
       skipPermissions: config.dangerouslySkipPermissions,
@@ -2125,6 +2131,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const systemNotice = (text: string): void => {
       surfaceSystemNotice(host.shell, text);
     };
+    approvalPersistNotice.notify = systemNotice;
 
     /** Settle the shell after a rejected send so the run does not look live. */
     const handleSendFailure = (err: unknown): void => {
