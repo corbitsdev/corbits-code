@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { createHarness, type Harness } from "./harness.js";
-import { runListModal } from "./list-modal.js";
+import { runListModal, type ListModalConfig } from "./list-modal.js";
 
 let harness: Harness | undefined;
 
@@ -10,7 +10,7 @@ afterEach(() => {
   harness = undefined;
 });
 
-async function mountModal(): Promise<{
+async function mountModal(overrides: Partial<ListModalConfig> = {}): Promise<{
   choice: Promise<string | null>;
   harness: Harness;
 }> {
@@ -22,6 +22,7 @@ async function mountModal(): Promise<{
       { id: "s-2", label: "Second session" },
     ],
     createRenderer: async () => harness!.renderer,
+    ...overrides,
   });
   await harness.renderOnce();
   return { choice, harness };
@@ -61,5 +62,41 @@ describe("runListModal", () => {
     expect(frame).toContain("Second session");
     harness.pressKey("Escape");
     await choice;
+  });
+
+  test("type-to-filter narrows the list and Enter selects the match", async () => {
+    const { choice, harness } = await mountModal({ typeToFilter: true });
+    await harness.renderOnce();
+    expect(harness.captureCharFrame()).toContain("Second session");
+    for (const ch of "Second") {
+      harness.pressKey(ch);
+    }
+    await harness.renderOnce();
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("Second session");
+    expect(frame).not.toContain("First session");
+    harness.pressKey("Enter");
+    expect(await choice).toBe("s-2");
+  });
+
+  test("type-to-filter no-match Enter stays open", async () => {
+    const { choice, harness } = await mountModal({ typeToFilter: true });
+    await harness.renderOnce();
+    for (const ch of "zzzzz") {
+      harness.pressKey(ch);
+    }
+    await harness.renderOnce();
+    expect(harness.captureCharFrame()).toContain("(no matches)");
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    const afterEnter = harness.captureCharFrame();
+    expect(afterEnter).toContain("(no matches)");
+    expect(afterEnter).toContain(">");
+    for (let i = 0; i < 5; i++) {
+      harness.pressKey("Backspace");
+    }
+    await harness.renderOnce();
+    harness.pressKey("Enter");
+    expect(await choice).toBe("s-1");
   });
 });

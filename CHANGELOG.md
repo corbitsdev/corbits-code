@@ -23,6 +23,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   or interrupted worker and returns immediately. `wait_agents` collects the
   reply. `send_input` steers only an in-flight running turn. Closed workers
   stay closed.
+- `corbits resume` lists completed, failed, and crashed sessions alongside
+  in-progress ones, ordered by last persist rather than start time.
+  `--force` is no longer required to see finished threads. The picker shows
+  the 10 most recent sessions and type-to-filter narrows that list.
 
 ### Fixed
 

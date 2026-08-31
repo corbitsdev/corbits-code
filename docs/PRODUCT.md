@@ -76,7 +76,8 @@ Local multi-model capability checks use this path (`bun run eval:capability`); s
 $ corbits resume
 ```
 
-Opens a picker of saved conversations for the working directory. Plain
+Opens a picker of the 10 most recently persisted conversations for this
+checkout, including completed ones. Type to filter by name. Plain
 `corbits` always starts a fresh conversation; `corbits resume <session-id>`
 is the direct, explicit resume path.
 

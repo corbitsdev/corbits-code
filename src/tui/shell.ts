@@ -3564,7 +3564,7 @@ export interface OpenListOverlayOpts {
   readonly echoChoice?: boolean;
   /**
    * Claim printable keys for a `>` filter row so the list narrows as you type.
-   * Opt-in per open (model picker, palette). Overlays without it keep j/k
+   * Opt-in per open (model picker, palette, resume). Overlays without it keep j/k
    * navigation; with it, j/k type into the filter and arrows still navigate.
    */
   readonly typeToFilter?: boolean;
@@ -3839,9 +3839,9 @@ function repaintPalette(shell: AppShell): void {
  * Keys a type-to-filter list claims while it is open, so the `>` row filters
  * as you type.
  *
- * Opt-in per open (`typeToFilter`): palette and the flat model picker give up
- * j/k navigation so printable keys feed the filter. Overlays without
- * type-to-filter (permissions, resume, workers, copy, …) keep j/k. Arrow and
+ * Opt-in per open (`typeToFilter`): palette, the flat model picker, and the
+ * resume picker give up j/k navigation so printable keys feed the filter.
+ * Overlays without type-to-filter (permissions, workers, copy, …) keep j/k. Arrow and
  * page keys are never claimed here, so they keep working in every overlay
  * including type-to-filter ones.
  */
@@ -4338,22 +4338,25 @@ export function acceptOverlaySelection(shell: AppShell): void {
   const idx = shell.overlayList.activeIndex;
   const label = shell.overlayItems[idx] ?? `item ${idx}`;
   const kind = shell.overlayKind ?? "demo";
+  const bag = internals.get(shell);
 
   if (kind === "palette") {
     const cmd = shell.paletteCommands[idx];
-    closeInsetOverlay(shell);
-    if (cmd) dispatchPaletteSelection(shell, cmd);
-    else {
-      appendStreamRow(shell, {
-        role: "system",
-        text: `palette: no action for ${label}`,
-      });
+    if (!cmd) {
+      // Type-to-filter plants a "(no matches)" row with no command. Stay open.
+      // Slash popup (`typeToFilter: false`) still closes — intentional dismiss.
+      if (bag?.paletteFilter?.typeToFilter === true && !isSlashPopupOpen(shell)) return;
+      closeInsetOverlay(shell);
+      return;
     }
+    closeInsetOverlay(shell);
+    dispatchPaletteSelection(shell, cmd);
     return;
   }
 
-  const bag = internals.get(shell);
   const id = bag?.overlayItemIds[idx];
+  // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
+  if (id === "") return;
   const value = bag?.overlayItemValues[idx];
   const selection: OverlaySelection = {
     kind,

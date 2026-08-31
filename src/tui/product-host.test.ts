@@ -569,6 +569,8 @@ describe("flat type-to-filter model picker", () => {
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
       acceptOverlaySelection(host.shell);
       expect(selected).toEqual([]);
+      expect(host.shell.overlayList).not.toBeNull();
+      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
     } finally {
       host.dispose();
       harness.destroy();
