@@ -171,7 +171,7 @@ describe("createApprovalPersist", () => {
       undefined,
     );
 
-    const persist = createApprovalPersist("/tmp/proj", "openai:gpt-5");
+    const persist = createApprovalPersist("/tmp/proj", () => "openai:gpt-5");
     const approval = { tool: "run_shell", pattern: "npm *" };
 
     persist(approval, "project");
@@ -186,6 +186,22 @@ describe("createApprovalPersist", () => {
     expect(project).toHaveBeenCalledTimes(1);
     expect(global).toHaveBeenCalledTimes(1);
     expect(providerModel).toHaveBeenCalledTimes(1);
+  });
+
+  test("a live identity change stores the next provider-model grant under the new key", () => {
+    const providerModel = spyOn(permissionStore, "saveProviderModelApproval").mockResolvedValue(
+      undefined,
+    );
+    let identity = "openai:gpt-5";
+    const persist = createApprovalPersist("/tmp/proj", () => identity);
+    const approval = { tool: "run_shell", pattern: "npm *" };
+
+    persist(approval, "provider-model");
+    identity = "anthropic:claude-opus";
+    persist(approval, "provider-model");
+
+    expect(providerModel).toHaveBeenNthCalledWith(1, "openai:gpt-5", approval);
+    expect(providerModel).toHaveBeenNthCalledWith(2, "anthropic:claude-opus", approval);
   });
 });
 

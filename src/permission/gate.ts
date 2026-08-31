@@ -327,6 +327,10 @@ export interface PermissionGate {
   // TUI wires the toggle here so a switch takes effect on the next tool call —
   // including pre-gate sandboxes that read getSkipPermissions live.
   setSkipPermissions: (value: boolean) => void;
+  // Point matching and newly minted provider-model grants at a different
+  // providerName:model. A live `/model` switch calls this so a grant scoped to
+  // the previous pair no longer auto-allows, and new grants tag the new pair.
+  setProviderIdentity: (providerName: string, model: string) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
 }
@@ -359,7 +363,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   let skipPermissions = options.skipPermissions;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
-  const activeProviderModel =
+  let activeProviderModel =
     providerName !== undefined && model !== undefined ? `${providerName}:${model}` : undefined;
   // Session grants live only in this array; persisted grants are seeded in via
   // options.approvals and re-routed to a store by the persist callback.
@@ -733,6 +737,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     getSkipPermissions: () => skipPermissions,
     setSkipPermissions: (value: boolean) => {
       skipPermissions = value;
+    },
+    setProviderIdentity: (nextProviderName: string, nextModel: string) => {
+      activeProviderModel = `${nextProviderName}:${nextModel}`;
     },
     registerMcpClient,
     unregisterMcpServer,
