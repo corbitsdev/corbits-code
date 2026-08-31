@@ -31,6 +31,7 @@ import { generateSessionId, initSessionDir, sessionDir } from "./session/index.j
 import { saveState } from "./session/state.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
 import { createExaMCPServerConfig } from "./mcp/exa.js";
+import { withFileLogSink } from "../tests/helpers/file-log-sink.js";
 
 const BUILTIN_EXA_MCP = createExaMCPServerConfig();
 
@@ -528,28 +529,18 @@ describe("loadConfig", () => {
         );
       }
 
-      const chunks: string[] = [];
-      const orig = process.stderr.write.bind(process.stderr);
-      process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
-        return orig(chunk, ...(rest as []));
-      }) as typeof process.stderr.write;
       let config: Awaited<ReturnType<typeof loadConfig>>;
-      try {
+      const logged = await withFileLogSink(async () => {
         config = await loadConfig(["resume", targetId, "--force", "--cwd", cwd], {
           globalSettingsPath: globalPath,
           home,
         });
-      } finally {
-        process.stderr.write = orig;
-      }
-      assertConfigured(config);
-      expect(config.sessionId).toBe(targetId);
-      expect(config.task).toBe("target failed session");
-      const text = chunks.join("");
-      expect(text).not.toContain("ignoring unreadable");
-      expect(text).not.toContain(home);
-      expect(text).not.toContain("invalid shape");
+      });
+      assertConfigured(config!);
+      expect(config!.sessionId).toBe(targetId);
+      expect(config!.task).toBe("target failed session");
+      expect(logged).not.toContain("unreadable session state");
+      expect(logged).not.toContain(home);
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
@@ -654,25 +645,20 @@ describe("loadConfig", () => {
       const globalPath = await writeGlobalSettings(cwd);
       const sessionId = generateSessionId();
       await initSessionDir(cwd, sessionId, home);
-      await writeFile(join(sessionDir(cwd, sessionId, home), "run.json"), "{ not json");
+      const runPath = join(sessionDir(cwd, sessionId, home), "run.json");
+      await writeFile(runPath, "{ not json");
 
-      const chunks: string[] = [];
-      const orig = process.stderr.write.bind(process.stderr);
-      process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
-        return orig(chunk, ...(rest as []));
-      }) as typeof process.stderr.write;
       let thrown: unknown;
-      try {
-        await loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-          home,
-        });
-      } catch (err) {
-        thrown = err;
-      } finally {
-        process.stderr.write = orig;
-      }
+      const logged = await withFileLogSink(async () => {
+        try {
+          await loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
+            globalSettingsPath: globalPath,
+            home,
+          });
+        } catch (err) {
+          thrown = err;
+        }
+      });
 
       expect(thrown).toBeInstanceOf(CliUserError);
       const message = thrown instanceof Error ? thrown.message : String(thrown);
@@ -687,9 +673,8 @@ describe("loadConfig", () => {
       if (thrown instanceof CliUserError) {
         expect(thrown.exitCode).toBe(1);
       }
-      const text = chunks.join("");
-      expect(text).not.toContain("ignoring unreadable");
-      expect(text).not.toContain(home);
+      expect(logged).toContain(runPath);
+      expect(logged).toContain("corrupt JSON");
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });

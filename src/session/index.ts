@@ -293,7 +293,10 @@ export async function renameSession(
   }
   await migrateLegacySessionIfNeeded(cwd, sessionId, home);
   const existing = await loadState(cwd, sessionId, home);
-  if (existing.kind !== "ok") {
+  if (existing.kind === "unreadable") {
+    throw new Error("Session state is unreadable");
+  }
+  if (existing.kind === "missing") {
     let startedAt = Date.now();
     try {
       const dirStat = await stat(sessionDir(cwd, sessionId, home));

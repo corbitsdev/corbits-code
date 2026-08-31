@@ -81,8 +81,9 @@ Opens a picker of saved conversations for the working directory. Plain
 is the direct, explicit resume path.
 
 A session that ended in `failed` (including one that recorded an `error`
-string in `run.json`) is a failed session, not a corrupt one — it still
-appears in the picker. Passing a corrupt session id prints one short
+string in `run.json`) is a failed session, not a corrupt one. The default
+picker still shows only running and cancelled sessions; pass `--force` to
+include failed and done. Passing a corrupt session id prints one short
 recovery line instead of dumping the file path and parse details.
 
 ## Safety Model
