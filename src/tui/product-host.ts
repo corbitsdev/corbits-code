@@ -43,6 +43,7 @@ import {
   clearTranscript,
   closeInsetOverlay,
   createAppShell,
+  isAddProviderShortcutKey,
   paintChrome,
   setChromeZones,
   setHeader,
@@ -585,13 +586,16 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
         onSetDefault !== undefined
           ? {
               onAction: (itemId, key) => {
-                if (key.ctrl || !(key.meta || key.option)) return false;
-                const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
-                // Alt+A / Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
-                if (name === "a" && openAddProvider !== undefined) {
+                if (key.ctrl) return false;
+                // Alt+A / composed Option+A (å/Å) — never bare ASCII `a`;
+                // type-to-filter claims ordinary printables.
+                if (openAddProvider !== undefined && isAddProviderShortcutKey(key)) {
                   openAddProvider();
                   return true;
                 }
+                if (!(key.meta || key.option)) return false;
+                const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
+                // Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
                 if (name === "f" && onFavoriteToggle !== undefined) {
                   // Empty id is the "(no matches)" filter sentinel — not a model.
                   if (itemId.length === 0) return false;

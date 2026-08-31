@@ -3867,6 +3867,26 @@ export function handlePaletteFilterKey(shell: AppShell, key: KeyEvent): boolean 
 }
 
 /**
+ * Glyphs macOS emits for Option+A on common layouts (US, ABC, Nordic).
+ * Non-US input sources often deliver these without meta/option set.
+ */
+const OPTION_A_COMPOSED_CHARS = new Set(["å", "Å"]);
+
+/**
+ * True when a key event is the model-picker Alt+A add-provider chord.
+ * US layouts send name `"a"` with meta/option; non-US layouts often emit
+ * å/Å with neither modifier, so type-to-filter would otherwise claim them.
+ */
+export function isAddProviderShortcutKey(key: KeyEvent): boolean {
+  if (key.ctrl) return false;
+  const name = typeof key.name === "string" ? key.name : "";
+  const seq = typeof key.sequence === "string" ? key.sequence : "";
+  if ((key.meta || key.option) && name.toLowerCase() === "a") return true;
+  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq)) return true;
+  return false;
+}
+
+/**
  * Keys a type-to-filter list overlay claims while open, so the `>` row
  * narrows as you type. Mirrors the palette filter, but updates the open
  * list in place via setOverlayItems (openListOverlay is a no-op when a
@@ -3878,6 +3898,16 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   if (!state || shell.overlayList === null) return false;
   if (shell.overlayKind === "palette") return false;
   if (key.ctrl || key.meta || key.option) return false;
+
+  // When Alt+A add-provider is wired, leave Option+A composed glyphs (å/Å)
+  // for runOverlayAction — non-US macOS layouts emit them without meta/option.
+  if (
+    bag?.overlayAddProviderHint === true &&
+    shell.overlayKind === "model_picker" &&
+    isAddProviderShortcutKey(key)
+  ) {
+    return false;
+  }
 
   if (key.name === "backspace") {
     if (state.query.length === 0) return true;

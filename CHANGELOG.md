@@ -23,6 +23,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   API endpoints keep dollar estimates.
 - CLI `--help` / `-h` is recognized in any argument position. Value flags no
   longer swallow `--*` or `-h` as their option values.
+- `/model` Alt+A opens Add Provider on non-US macOS layouts that emit å/Å
+  for Option+A without the option modifier, instead of type-to-filter
+  claiming the glyph.
 
 ## [0.3.11] - 2026-08-31
 

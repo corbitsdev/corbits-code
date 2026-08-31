@@ -11,6 +11,7 @@ import { createHarness } from "./harness.js";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
+  handleListFilterKey,
   moveOverlaySelection,
   runOverlayAction,
 } from "./shell.js";
@@ -726,6 +727,55 @@ describe("flat type-to-filter model picker", () => {
         "OpenAI — 0 accounts",
         "Custom — 0 accounts",
       ]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed Option+A (å) opens add-provider and is not claimed by type-to-filter", async () => {
+    // Non-US macOS layouts often emit å/Å for Option+A without meta/option set.
+    // Type-to-filter used to claim that printable before runOverlayAction ran.
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = {
+        name: "å",
+        sequence: "å",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, composed)).toBe(false);
+      expect(runOverlayAction(host.shell, composed)).toBe(true);
+      expect(host.shell.overlayKind).toBe("add_provider");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("ordinary letters still type-to-filter when add-provider is wired", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const letter = {
+        name: "g",
+        sequence: "g",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, letter)).toBe(true);
+      expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
       harness.destroy();
