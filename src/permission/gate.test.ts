@@ -8,6 +8,7 @@ import { createPermissionGate, isRequestCoveredByGrant, preGrantGuardReason } fr
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
 import type { Approval, PermissionRequest } from "./types.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 const shellCall = (command: string): ToolCall => ({
   id: "c",
@@ -112,9 +113,7 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
   const sessionCwd = join(root, "main");
   const git = (args: string[], cwd: string) => execFileSync("git", args, { cwd, stdio: "ignore" });
   mkdirSync(sessionCwd);
-  git(["init", "-q"], sessionCwd);
-  git(["config", "user.email", "t@example.com"], sessionCwd);
-  git(["config", "user.name", "t"], sessionCwd);
+  initTemporaryGitRepo(sessionCwd, { initArgs: ["-q"] });
   writeFileSync(join(sessionCwd, "seed.txt"), "seed\n");
   git(["add", "."], sessionCwd);
   git(["commit", "-qm", "seed"], sessionCwd);
@@ -171,9 +170,7 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
   const sessionCwd = join(root, "main");
   const git = (args: string[], cwd: string) => execFileSync("git", args, { cwd, stdio: "ignore" });
   mkdirSync(sessionCwd);
-  git(["init", "-q"], sessionCwd);
-  git(["config", "user.email", "t@example.com"], sessionCwd);
-  git(["config", "user.name", "t"], sessionCwd);
+  initTemporaryGitRepo(sessionCwd, { initArgs: ["-q"] });
   writeFileSync(join(sessionCwd, "seed.txt"), "seed\n");
   git(["add", "."], sessionCwd);
   git(["commit", "-qm", "seed"], sessionCwd);

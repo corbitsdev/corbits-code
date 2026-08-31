@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { initTemporaryGitRepo } from "../helpers/temporary-git-repo.js";
+
 const repoRoot = join(import.meta.dirname, "../..");
 const scopeScript = join(repoRoot, "scripts/verify-corbits-only-scope.sh");
 
@@ -29,9 +31,7 @@ async function initGitRepo(dir: string): Promise<void> {
         if (code !== 0) throw new Error(`git ${args.join(" ")} failed with ${code}`);
       },
     );
-  await run(["init"]);
-  await run(["config", "user.email", "scope-test@example.com"]);
-  await run(["config", "user.name", "scope-test"]);
+  initTemporaryGitRepo(dir);
   await writeFile(join(dir, "README.md"), "ok\n");
   await run(["add", "README.md"]);
   await run(["commit", "-m", "init"]);

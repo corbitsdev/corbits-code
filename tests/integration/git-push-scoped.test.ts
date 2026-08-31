@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { initTemporaryGitRepo } from "../helpers/temporary-git-repo.js";
 
 const SCRIPT = join(import.meta.dir, "../../bin/git-push-scoped");
 
@@ -39,9 +40,7 @@ import { spawnSync } from "node:child_process";
 function initWorkingRepo(name: string, remotePath: string): string {
   const path = join(root, name);
   mkdirSync(path);
-  spawnSync("git", ["init", "-q", "-b", "main", path]);
-  spawnSync("git", ["-C", path, "config", "user.email", "test@example.com"]);
-  spawnSync("git", ["-C", path, "config", "user.name", "Test"]);
+  initTemporaryGitRepo(path, { initArgs: ["-q", "-b", "main"] });
   writeFileSync(join(path, "file.txt"), name);
   spawnSync("git", ["-C", path, "add", "file.txt"]);
   spawnSync("git", ["-C", path, "commit", "-q", "-m", "initial commit"]);

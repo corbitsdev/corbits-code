@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { gatherEnvironment, getGitBranch } from "./environment.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 const run = promisify(execFile);
 
@@ -22,9 +23,7 @@ test("gatherEnvironment detects a git work tree and lists its top level", async 
   // a runner may check out a detached HEAD, which has no branch name.
   const dir = await mkdtemp(join(tmpdir(), "corbits-env-repo-"));
   try {
-    await run("git", ["init"], { cwd: dir });
-    await run("git", ["config", "user.email", "t@t.test"], { cwd: dir });
-    await run("git", ["config", "user.name", "t"], { cwd: dir });
+    initTemporaryGitRepo(dir);
     await run("git", ["checkout", "-b", "trunk"], { cwd: dir });
     await mkdir(join(dir, "src"));
     await writeFile(join(dir, "src", "seed.ts"), "export const seed = 1;\n");
@@ -43,9 +42,7 @@ test("gatherEnvironment detects a git work tree and lists its top level", async 
 test("gatherEnvironment gathers branch and dirty status from the same work tree", async () => {
   const dir = await mkdtemp(join(tmpdir(), "corbits-env-"));
   try {
-    await run("git", ["init"], { cwd: dir });
-    await run("git", ["config", "user.email", "t@t.test"], { cwd: dir });
-    await run("git", ["config", "user.name", "t"], { cwd: dir });
+    initTemporaryGitRepo(dir);
     await run("git", ["checkout", "-b", "trunk"], { cwd: dir });
     await writeFile(join(dir, "seed.txt"), "seed");
     await run("git", ["add", "."], { cwd: dir });

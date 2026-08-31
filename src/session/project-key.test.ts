@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
 import { projectKeyFor, projectRootFor, projectSessionsRoot, projectsRoot } from "./project-key.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 let root = "";
 
@@ -17,12 +18,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
-
-function initGitRepo(dir: string): void {
-  execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "test"], { cwd: dir, stdio: "ignore" });
-}
 
 async function commitReadme(dir: string): Promise<void> {
   await writeFile(join(dir, "README"), "x");
@@ -38,7 +33,7 @@ test("projectKeyFor is stable across calls for the same path", () => {
 });
 
 test("projectKeyFor shares nested dirs under the same git toplevel", async () => {
-  initGitRepo(root);
+  initTemporaryGitRepo(root);
   await commitReadme(root);
 
   const nested = join(root, "nested", "deep");
@@ -49,7 +44,7 @@ test("projectKeyFor shares nested dirs under the same git toplevel", async () =>
 });
 
 test("linked worktrees have distinct project roots and keys from main and each other", async () => {
-  initGitRepo(root);
+  initTemporaryGitRepo(root);
   await commitReadme(root);
 
   const wtA = join(root, "..", `wt-a-${Date.now()}-${Math.random().toString(16).slice(2)}`);

@@ -10,6 +10,7 @@ import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import type { Telemetry } from "../telemetry/index.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 const run = promisify(execFile);
 
@@ -49,9 +50,7 @@ afterEach(async () => {
 
 async function makeRepo(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "corbits-spawn-wt-"));
-  await run("git", ["init"], { cwd: dir });
-  await run("git", ["config", "user.email", "t@t.test"], { cwd: dir });
-  await run("git", ["config", "user.name", "t"], { cwd: dir });
+  initTemporaryGitRepo(dir);
   await writeFile(join(dir, "seed.txt"), "seed");
   await run("git", ["add", "."], { cwd: dir });
   await run("git", ["commit", "-m", "seed"], { cwd: dir });

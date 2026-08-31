@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import { initTemporaryGitRepo } from "../helpers/temporary-git-repo.js";
+
 const execFileAsync = promisify(execFile);
 const script = join(import.meta.dir, "../../scripts/prepare-homebrew-tap-release.sh");
 
@@ -16,10 +18,10 @@ describe("prepare-homebrew-tap-release", () => {
     root = await mkdtemp(join(tmpdir(), "corbits-release-tap-"));
     const origin = join(root, "origin.git");
     tapDir = join(root, "tap");
-    await execFileAsync("git", ["init", "--bare", "--initial-branch=main", origin]);
+    await mkdir(origin);
+    initTemporaryGitRepo(origin, { initArgs: ["--bare", "--initial-branch=main"] });
     await execFileAsync("git", ["clone", origin, tapDir]);
-    await execFileAsync("git", ["-C", tapDir, "config", "user.name", "Release Test"]);
-    await execFileAsync("git", ["-C", tapDir, "config", "user.email", "release@example.test"]);
+    initTemporaryGitRepo(tapDir);
 
     await mkdir(join(tapDir, "Formula"));
     await writeFile(join(tapDir, "Formula/corbits-code.rb"), "version one\n");
