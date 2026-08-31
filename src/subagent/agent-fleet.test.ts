@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  createFleetRecords,
+  createFleetMailbox,
   createSpawnAgentTool,
   createWaitAgentsTool,
   createListAgentsTool,
@@ -58,7 +58,7 @@ function makeDeps(
     provider,
     run,
     sessions,
-    fleetRecords: createFleetRecords(sessions),
+    fleetRecords: createFleetMailbox(sessions),
   };
 }
 
@@ -205,8 +205,8 @@ describe("spawn_agent + wait_agents", () => {
   test("reports survive well past the session store's display cap (20) until wait_agents collects them", async () => {
     // DEFAULT_MAX_COMPLETED on SubAgentSessionStore is 20 finished sessions;
     // spawn (and complete) enough workers to blow well past it before any of
-    // them is collected, proving fleetRecords does not depend on the store's
-    // cap.
+    // them is collected, proving the wait mailbox pin keeps reports past the
+    // store's display cap.
     //
     // CL-7007: this test previously asserted (as CL-7001's fix left it) that
     // the store itself had already evicted and released the earliest
@@ -215,8 +215,8 @@ describe("spawn_agent + wait_agents", () => {
     // ticket fixes (resume_agent failed with a bare
     // "not_found" past 20 spawned workers, blaming the caller for nothing).
     // Open retained sessions now have their own cap (`maxRetained`, default
-    // 50), so 25 of them all stay resumable; fleetRecords/wait_agents is
-    // still asserted below as the durable source of truth regardless.
+    // 50), so 25 of them all stay resumable; mailbox pin + wait_agents is
+    // still asserted below as the collect path regardless.
     const COUNT = 25;
     const deps = makeDeps(async () => ({ report: "irrelevant", agentRetained: true }));
     const spawn = createSpawnAgentTool(deps);
@@ -250,7 +250,7 @@ describe("spawn_agent + wait_agents", () => {
   });
 
   // CL-6915: operator cancel aborts the child signal, but run() still returns a
-  // salvage body (partial findings). Dropping that body left fleetRecords
+  // salvage body (partial findings). Dropping that body left the wait mailbox
   // "running" forever so wait_agents never saw the salvage.
   test("cancelled spawn_agent still resolves wait_agents with salvage findings", async () => {
     const deps = makeDeps(async (params) => {
@@ -356,7 +356,7 @@ describe("spawn_agent same-cwd concurrency", () => {
   });
 });
 
-describe("fleetRecords retention cap", () => {
+describe("wait mailbox session tombstone and pin", () => {
   test("many spawned-and-completed workers whose reports are never collected leave memory bounded", async () => {
     const COUNT = MAX_FLEET_RECORDS + 50;
     const deps = makeDeps(async () => ({ report: "x".repeat(1000) }));
@@ -838,7 +838,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
   test("soft-interrupt wait collects so a later followup cannot resurrect done", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords(sessions);
+    const fleetRecords = createFleetMailbox(sessions);
     const worker = sessions.start({
       id: "soft-int",
       description: "looping",

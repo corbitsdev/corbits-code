@@ -10,9 +10,9 @@
  *
  * Running state is the session store's `WorkerLifecycle`. wait_agents blocks
  * on that store's `subscribe` raced against a timeout timer, never polling.
- * Wait JSON is a projection of stored lifecycle plus a per-install overlay
- * (`fleetRecords`): membership, pin, collected, and an optional wait-status
- * override. Spawn/resume settlement writes only the session store.
+ * Wait JSON is a projection of stored lifecycle plus a per-install wait
+ * mailbox (`FleetMailbox`): membership, pin, collected, and an optional
+ * wait-status override. Spawn/resume settlement writes only the session store.
  *
  * The store's finished-session retention is a TUI display cap (`maxCompleted`,
  * default 20): `complete()`/`fail()` evict the oldest finished session —
@@ -20,7 +20,7 @@
  * this because it awaits its own single result before the tool call returns;
  * here a caller can spawn far more workers than the cap in one turn and only
  * `wait_agents` them later, so an evicted report would otherwise vanish
- * silently. Overlay `register` pins the session (honored by pruneCompleted
+ * silently. Mailbox `register` pins the session (honored by pruneCompleted
  * and pruneRetained) until collect unpins. Heavy payloads are still capped at
  * `MAX_FLEET_RECORDS`: past that, the oldest never-collected pin is compacted
  * to a tombstone (status only, plus a pointer at `read_agent_trace`).
@@ -114,29 +114,17 @@ const RECOVERY_HINT =
 export const MAX_FLEET_RECORDS = 200;
 
 /**
- * Per-install wait overlay. Session lifecycle is the source of wait status
- * unless this overlay forces interrupted or has frozen a collected result.
- * See the module doc for pin/tombstone policy.
+ * Per-install wait mailbox over the session store. Session lifecycle is the
+ * source of wait status unless this overlay forces interrupted or has frozen
+ * a collected result. See the module doc for pin/tombstone policy.
  */
-class FleetRecords {
+class FleetMailbox {
   private readonly records = new Map<string, FleetOverlay>();
-  private readonly listeners = new Set<() => void>();
   private readonly sessions: SubAgentSessionStore;
 
   constructor(sessions: SubAgentSessionStore) {
     this.sessions = sessions;
     sessions?.subscribe(() => this.enforceCap());
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  private notify(): void {
-    for (const listener of this.listeners) listener();
   }
 
   register(id: string): void {
@@ -149,16 +137,6 @@ class FleetRecords {
   }
 
   /**
-   * Leftover dual-write. Settlement writes the session store; commit 3 deletes this.
-   */
-  resolve(_id: string, _report: string): void {}
-
-  /**
-   * Leftover dual-write. Settlement writes the session store; commit 3 deletes this.
-   */
-  reject(_id: string, _error: string): void {}
-
-  /**
    * Overlay wait-status override so wait unblocks while the session may still
    * be running (send_input interrupt:true followup, close_agent teardown).
    * No-op on an already-collected mailbox — frozen status stays interrupted.
@@ -168,13 +146,11 @@ class FleetRecords {
     if (existing === undefined) return;
     if (existing.collected === true) {
       this.sessions?.wake();
-      this.notify();
       return;
     }
     existing.forceInterrupted = true;
     this.sessions?.wake();
     this.enforceCap();
-    this.notify();
   }
 
   /**
@@ -188,7 +164,6 @@ class FleetRecords {
     if (existing.forceInterrupted !== true) return;
     delete existing.forceInterrupted;
     this.sessions?.wake();
-    this.notify();
   }
 
   ids(): string[] {
@@ -296,9 +271,9 @@ class FleetRecords {
 // One overlay per orchestrator install (shared by its spawn_agent and
 // wait_agents tool instances), not a module singleton — created in
 // createSpawnAgentTool and threaded to createWaitAgentsTool by the caller.
-export type FleetRecordsHandle = FleetRecords;
-export function createFleetRecords(sessions: SubAgentSessionStore): FleetRecordsHandle {
-  return new FleetRecords(sessions);
+export type FleetMailboxHandle = FleetMailbox;
+export function createFleetMailbox(sessions: SubAgentSessionStore): FleetMailboxHandle {
+  return new FleetMailbox(sessions);
 }
 
 const SpawnAgentArgs = type({
@@ -403,7 +378,7 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   provider: SubAgentProvider | (() => SubAgentProvider);
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
   sessions: SubAgentSessionStore;
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
   /**
    * Session id of the caller that is mounting this spawn_agent. Nested
    * orchestrators pass their own worker id so close_agent can walk the tree.
@@ -833,10 +808,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
 interface WaitAgentsDeps {
   sessions: SubAgentSessionStore;
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 }
 
-function isWaitTerminal(id: string, fleetRecords: FleetRecordsHandle): boolean {
+function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   const record = fleetRecords.peek(id);
   return record !== undefined && record.status !== "running";
 }
@@ -850,7 +825,7 @@ function isWaitTerminal(id: string, fleetRecords: FleetRecordsHandle): boolean {
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
-  fleetRecords: FleetRecordsHandle,
+  fleetRecords: FleetMailboxHandle,
   targets: readonly string[],
   timeoutMs: number,
   mode: "any" | "all",

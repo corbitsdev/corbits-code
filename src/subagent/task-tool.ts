@@ -34,12 +34,12 @@ import {
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
 import {
-  createFleetRecords,
+  createFleetMailbox,
   createSpawnAgentTool,
   createWaitAgentsTool,
   MAX_WAIT_TIMEOUT_MS,
   type AgentFleetDeps,
-  type FleetRecordsHandle,
+  type FleetMailboxHandle,
 } from "./agent-fleet.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import { appendSubAgentParentHints, type ForcedStopReason } from "./stop-policy.js";
@@ -206,7 +206,7 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // process-wide dependency; omitting it makes dispatch silent.
   telemetry?: Telemetry;
   /** Shared with spawn_agent/wait_agents when this task tool is fleet-backed. */
-  fleetRecords?: FleetRecordsHandle;
+  fleetRecords?: FleetMailboxHandle;
 };
 
 function taskToolResult(
@@ -284,7 +284,7 @@ async function runTaskViaFleet(input: {
   reportFocus: string | undefined;
   deps: TaskToolDeps;
   sessions: SubAgentSessionStore;
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 }): Promise<ToolResult> {
   const fleetDeps: AgentFleetDeps = {
     permissionGate: input.deps.permissionGate,
@@ -452,7 +452,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const fleetSessions = deps.sessions;
   const fleetRecords =
     deps.fleetRecords ??
-    (fleetSessions !== undefined ? createFleetRecords(fleetSessions) : undefined);
+    (fleetSessions !== undefined ? createFleetMailbox(fleetSessions) : undefined);
   // Every completed dispatch gets an outcome record — the log otherwise
   // carries shape and run state but never what the run actually produced.
   // Tagged with the dispatched child's provider/model/family so

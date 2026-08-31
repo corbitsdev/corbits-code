@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { createFleetRecords, createSpawnAgentTool } from "./agent-fleet.js";
+import { createFleetMailbox, createSpawnAgentTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
@@ -105,7 +105,7 @@ describe("spawn_agent worktree isolation", () => {
         return { report: "done" };
       },
       sessions,
-      fleetRecords: createFleetRecords(sessions),
+      fleetRecords: createFleetMailbox(sessions),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
     const result = await tool.handler(
@@ -144,7 +144,7 @@ describe("spawn_agent worktree isolation", () => {
         return { report: "no" };
       },
       sessions,
-      fleetRecords: createFleetRecords(sessions),
+      fleetRecords: createFleetMailbox(sessions),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
     const result = await tool.handler(
@@ -209,7 +209,7 @@ describe("spawn_agent worktree isolation", () => {
         throw error;
       },
       sessions,
-      fleetRecords: createFleetRecords(sessions),
+      fleetRecords: createFleetMailbox(sessions),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
 
@@ -260,7 +260,7 @@ describe("spawn_agent worktree isolation", () => {
         return settle.promise;
       },
       sessions,
-      fleetRecords: createFleetRecords(sessions),
+      fleetRecords: createFleetMailbox(sessions),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
     const spawned = await tool.handler(
@@ -333,7 +333,7 @@ describe("spawn_agent worktree isolation", () => {
         return result;
       },
       sessions,
-      fleetRecords: createFleetRecords(sessions),
+      fleetRecords: createFleetMailbox(sessions),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
     const spawned = await tool.handler(
@@ -393,7 +393,7 @@ describe("spawn_agent worktree isolation", () => {
         return { report: "## Summary\nSalvaged." };
       },
       sessions,
-      fleetRecords: createFleetRecords(sessions),
+      fleetRecords: createFleetMailbox(sessions),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
     await tool.handler(
