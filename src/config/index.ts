@@ -1,8 +1,15 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { stat } from "node:fs/promises";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
+import {
+  generateSessionId,
+  isSessionId,
+  migrateLegacySessionIfNeeded,
+  sessionDir,
+} from "../session/index.js";
 import { loadState } from "../session/state.js";
+import { COMMAND_NAME } from "../branding.js";
 
 import { isDirectorId } from "../agent/directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
@@ -840,8 +847,20 @@ export async function loadConfig(
     await migrateLegacySessionIfNeeded(cwd, id, options.home);
     const state = await loadState(cwd, id, options.home);
     if (state === null) {
+      let runJsonPresent = false;
+      try {
+        await stat(join(sessionDir(cwd, id, options.home), "run.json"));
+        runJsonPresent = true;
+      } catch {
+        // Missing run.json: treat as no session for this project.
+      }
+      if (runJsonPresent) {
+        throw new Error(
+          `Session ${id} is unreadable. Use \`${COMMAND_NAME} resume\` to choose another.`,
+        );
+      }
       throw new Error(
-        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (this checkout's git toplevel). Use \`corbits resume\` to choose one.`,
+        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (this checkout's git toplevel). Use \`${COMMAND_NAME} resume\` to choose one.`,
       );
     }
     sessionId = id;

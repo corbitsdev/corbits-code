@@ -44,6 +44,30 @@ describe("state persistence", () => {
     expect(loaded).toEqual(baseRunState);
   });
 
+  test("loadState returns a failed run that recorded an error string", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      status: "failed",
+      finishedAt: 1_700_000_005_000,
+      error: "Cycle commit failed\nhook dump: pre-commit rejected",
+    };
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
+    expect(loaded).toEqual(state);
+  });
+
+  test("loadState returns a crashed run that recorded an error string", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      status: "crashed",
+      finishedAt: 1_700_000_005_000,
+      error: "uncaughtException: boom",
+    };
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
+    expect(loaded).toEqual(state);
+  });
+
   test("saveState round-trips optional fields", async () => {
     const state: RunState = {
       ...baseRunState,
@@ -76,6 +100,29 @@ describe("state persistence", () => {
 
     const result = await loadState(cwd, SESSION_ID, home);
     expect(result).toBeNull();
+  });
+
+  test("loadState does not print unreadable-state diagnostics to stderr", async () => {
+    const stateDir = dir();
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
+
+    const chunks: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      return orig(chunk, ...(rest as []));
+    }) as typeof process.stderr.write;
+    try {
+      expect(await loadState(cwd, SESSION_ID, home)).toBeNull();
+    } finally {
+      process.stderr.write = orig;
+    }
+    const text = chunks.join("");
+    expect(text).not.toContain("ignoring unreadable");
+    expect(text).not.toContain(home);
+    expect(text).not.toContain("invalid shape");
   });
 
   // ---------------------------------------------------------------------------

@@ -250,6 +250,14 @@ export async function listSessions(
       });
       continue;
     }
+    // Present but unreadable run.json is not a picker candidate — diagnostics
+    // already went to the structured log from loadState.
+    try {
+      await stat(join(sessionDir(cwd, entry, home), "run.json"));
+      continue;
+    } catch {
+      // Missing run.json: fall through to the context-only crashed fallback.
+    }
     // A session directory with context/ but no readable run.json never
     // reached its first saveState call (see src/tui/runner.ts's early
     // "running" write) and therefore isn't actually running: report it as

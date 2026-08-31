@@ -89,3 +89,48 @@ test("listSessions ignores a leftover goal.json from a pre-removal session", asy
   expect(row).toBeDefined();
   expect(row?.task).toBe("pre-removal session");
 });
+
+test("listSessions skips a session whose run.json is unreadable", async () => {
+  const sessionId = generateSessionId();
+  await initSessionDir(cwd, sessionId, home);
+  await writeFile(join(sessionDir(cwd, sessionId, home), "run.json"), "{ not json");
+  const listed = await listSessions(cwd, home);
+  expect(listed.find((s) => s.sessionId === sessionId)).toBeUndefined();
+});
+
+test("listSessions stays silent when many sibling run.json files are unreadable", async () => {
+  const validId = generateSessionId();
+  await initSessionDir(cwd, validId, home);
+  await writeFile(
+    join(sessionDir(cwd, validId, home), "run.json"),
+    JSON.stringify({
+      status: "running",
+      turnsUsed: 1,
+      task: "keep me",
+      startedAt: 1_700_000_000_000,
+    }),
+  );
+  for (let i = 0; i < 8; i++) {
+    const id = generateSessionId();
+    await initSessionDir(cwd, id, home);
+    await writeFile(join(sessionDir(cwd, id, home), "run.json"), '{ "turnsUsed": ');
+  }
+
+  const chunks: string[] = [];
+  const orig = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+    return orig(chunk, ...(rest as []));
+  }) as typeof process.stderr.write;
+  let listed: Awaited<ReturnType<typeof listSessions>> = [];
+  try {
+    listed = await listSessions(cwd, home);
+  } finally {
+    process.stderr.write = orig;
+  }
+
+  expect(listed.map((s) => s.sessionId)).toEqual([validId]);
+  const text = chunks.join("");
+  expect(text).not.toContain("ignoring unreadable");
+  expect(text).not.toContain(home);
+});

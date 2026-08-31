@@ -2,10 +2,13 @@ import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { type } from "arktype";
+import { getLogger } from "@intx/log";
 
 import { sessionDir } from "./index.js";
 import { clearActiveRun, getTestWriteGate, isCrashed } from "./active-run.js";
-import { COMMAND_NAME } from "../branding.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "session", "state"]);
 
 const ConnectedMcpServerSchema = type({
   name: "string",
@@ -50,11 +53,10 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
 }
 
 // A corrupt or shape-invalid state file means resume is silently starting over
-// and prior progress is being discarded. Surface it rather than swallowing it.
+// and prior progress is being discarded. Log it rather than printing a path and
+// parse dump on the terminal the TUI is about to own.
 export function warnUnreadableState(path: string, reason: string): void {
-  process.stderr.write(
-    `${COMMAND_NAME}: ignoring unreadable state at ${path} (${reason}); starting fresh\n`,
-  );
+  log.warn("unreadable session state at {path}: {reason}", { path, reason });
 }
 
 // Concurrent saveState calls for the same session (a straggler progress
@@ -159,11 +161,14 @@ export async function saveCrashState(
   await atomicWrite(path, JSON.stringify(state, null, 2));
 }
 
-// Returns the parsed state, or the arktype error summary when the shape is
-// invalid, so callers can surface a specific reason rather than "invalid shape".
-function parseRunState(data: unknown): RunState | { error: string } {
+type ParseRunStateResult = { ok: true; state: RunState } | { ok: false; reason: string };
+
+// Tagged so a valid RunState.error string cannot be mistaken for a parse failure.
+function parseRunState(data: unknown): ParseRunStateResult {
   const result = RunStateSchema(data);
-  return result instanceof type.errors ? { error: result.summary } : result;
+  return result instanceof type.errors
+    ? { ok: false, reason: result.summary }
+    : { ok: true, state: result };
 }
 
 export async function loadState(
@@ -176,11 +181,11 @@ export async function loadState(
   try {
     const raw = await readFile(path, "utf8");
     const parsed = parseRunState(JSON.parse(raw));
-    if ("error" in parsed) {
-      warnUnreadableState(path, `invalid shape: ${parsed.error}`);
+    if (!parsed.ok) {
+      warnUnreadableState(path, `invalid shape: ${parsed.reason}`);
       return null;
     }
-    return parsed;
+    return parsed.state;
   } catch (err) {
     if (err instanceof SyntaxError) {
       warnUnreadableState(path, "corrupt JSON");
