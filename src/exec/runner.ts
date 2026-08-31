@@ -45,7 +45,11 @@ import {
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
-import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
+import {
+  createSubAgentSessionStore,
+  type SubAgentProvider,
+  type SubAgentSessionStore,
+} from "../subagent/index.js";
 import type {
   ContextStore,
   InferenceSource,
@@ -114,6 +118,33 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 /** Normalize unknown catch values for structured warn/error logs. */
 export function formatCaughtError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Headless analogue of TUI `runtime-shutdown`: abort live workers, then close
+ * the primary agent and dispose the toolset. `cancelAll` is fire-and-forget —
+ * it does not serialize `closeOne`.
+ */
+export async function disposeExecRuntime(args: {
+  agent: { close: () => Promise<unknown> } | null;
+  toolset: { dispose: () => Promise<unknown> } | null;
+  subAgentSessions: Pick<SubAgentSessionStore, "cancelAll"> | null;
+}): Promise<void> {
+  args.subAgentSessions?.cancelAll("Session closed");
+  if (args.agent !== null) {
+    await args.agent.close().catch((err: unknown) => {
+      logger.debug("agent.close during exec finally failed: {error}", {
+        error: formatCaughtError(err),
+      });
+    });
+  }
+  if (args.toolset !== null) {
+    await args.toolset.dispose().catch((err: unknown) => {
+      logger.debug("toolset.dispose during exec finally failed: {error}", {
+        error: formatCaughtError(err),
+      });
+    });
+  }
 }
 
 /**
@@ -248,6 +279,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let connectedMcp: ConnectedMcpServer[] = [];
   let agent: Agent | null = null;
   let toolset: AgentToolset | null = null;
+  let subAgentSessions: SubAgentSessionStore | null = null;
   let textOut = "";
   let finalized = false;
   let turnsUsed = 0;
@@ -392,7 +424,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const liveSubAgentProvider: { current: SubAgentProvider } = {
       current: buildSubAgentProvider(config),
     };
-    const subAgentSessions = createSubAgentSessionStore();
+    const fleetSessions = createSubAgentSessionStore();
+    subAgentSessions = fleetSessions;
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     const toolWatchdog = toolWatchdogFromSettings(config.settings);
     const toolAvailability: ToolAvailability = {
@@ -447,7 +480,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         ? {
             subAgent: {
               provider: () => liveSubAgentProvider.current,
-              sessions: subAgentSessions,
+              sessions: fleetSessions,
               getWorkdirBase: () => sessionDir(config.cwd, sessionId),
               onProgress: () => undefined,
               ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
@@ -888,21 +921,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model: config.model,
     };
   } finally {
-    if (agent !== null) {
-      await agent.close().catch((err: unknown) => {
-        logger.debug("agent.close during exec finally failed: {error}", {
-          error: formatCaughtError(err),
-        });
-      });
-    }
-    // Match TUI: always dispose toolset (MCP clients + posix/plugin resources).
-    if (toolset !== null) {
-      await toolset.dispose().catch((err: unknown) => {
-        logger.debug("toolset.dispose during exec finally failed: {error}", {
-          error: formatCaughtError(err),
-        });
-      });
-    }
+    await disposeExecRuntime({ agent, toolset, subAgentSessions });
   }
 }
 

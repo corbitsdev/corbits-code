@@ -100,7 +100,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - Entry: `corbits exec "prompt"` (alias `corbits run`); `loadConfig` sets `command: "exec"`
 - Streams assistant text deltas to stdout; lifecycle errors to stderr
 - Shares ChatDirector compaction continuation (`requestContinuation` → content-less deliver after compact) so long runs do not stall post-compact
-- Single primary `agent.send(task)` turn; samples run-sink status/error **before** close (close emits `reactor.done` which would clear sticky errors); then closes the agent before draining the stream so the process exits; toolset is always disposed in `finally`
+- Single primary `agent.send(task)` turn; samples run-sink status/error **before** close (close emits `reactor.done` which would clear sticky errors); then closes the agent before draining the stream so the process exits; `finally` cancels live sub-agents (`subAgentSessions.cancelAll("Session closed")`, matching TUI runtime-shutdown), closes the agent, and always disposes the toolset
 - Status: chat sessions rarely emit `reactor.done` before close, so a completed `send()` maps to `done` unless the pre-close run sink holds a real error
 - Used by `scripts/demo.ts` (mode `exec`) and the capability eval suite (`scripts/eval-capability.ts` / `evals/capability/`)
 
