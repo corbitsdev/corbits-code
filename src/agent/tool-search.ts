@@ -49,7 +49,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "close_agent",
   "resume_agent",
   "interrupt_agent",
-  "followup_task",
   "send_input",
 ];
 
@@ -62,7 +61,6 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
   "close_agent",
   "resume_agent",
   "interrupt_agent",
-  "followup_task",
   "send_input",
 ];
 

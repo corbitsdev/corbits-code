@@ -704,7 +704,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // store a bounded close for close_agent to call later.
         // Worktree cleanup is deferred until that close when the session
         // stays alive for followup (agentRetained / interrupt keep-alive) —
-        // matching run.ts's persisting gate so followup_task does not hit a
+        // matching run.ts's persisting gate so resume_agent does not hit a
         // removed cwd.
         persist: deps.persist !== false,
         onAgentReady: ({ close, interrupt, followup, deliver }) => {
@@ -802,7 +802,7 @@ interface WaitAgentsDeps {
 function isSoftInterrupted(
   session: ReturnType<SubAgentSessionStore["get"]>,
 ): session is NonNullable<ReturnType<SubAgentSessionStore["get"]>> {
-  // interrupt_agent keeps strip status "running" so followup_task can reuse
+  // interrupt_agent keeps strip status "running" so resume_agent can reuse
   // the session. cancel() also sets lifecycleStatus "interrupted" but flips
   // status to "cancelled" — that path still owes wait_agents a salvage
   // report via fleetRecords, so it is not wait-terminal on its own.

@@ -19,7 +19,7 @@ describe("retained session lifecycle", () => {
     store.complete(s.id, "Stopped: deadline\n\nPartial work...", { agentRetained: false });
     const after = store.get(s.id);
     console.log("lifecycleStatus:", after?.lifecycleStatus, "retained:", after?.retained);
-    const outcome = store.resumeOne(s.id);
+    const outcome = store.resumeOne(s.id, "more");
     console.log("resumeOne outcome:", JSON.stringify(outcome));
     expect(outcome.ok).toBe(false);
   });
@@ -44,7 +44,7 @@ describe("retained session lifecycle", () => {
 
   // CL-7007: retained completed sessions are no longer bounded by
   // `maxCompleted` (the TUI display cap) at all — that was CL-7002's fix,
-  // and it created a new bug: resume_agent/followup_task started failing
+  // and it created a new bug: resume_agent started failing
   // with a bare "not_found" once more than `maxCompleted` (default 20)
   // workers had spawned in a turn, even though every one of them was still
   // perfectly reusable. Open retained sessions now get their own explicit
@@ -83,7 +83,8 @@ describe("retained session lifecycle", () => {
     // Mirrors agent-fleet's real call: only a clean turnSucceeded completion
     // sets agentRetained.
     store.complete(s.id, "done", { agentRetained: true });
-    expect(store.resumeOne(s.id).ok).toBe(true);
+    store.registerFollowup(s.id, async () => "next");
+    expect(store.resumeOne(s.id, "more").ok).toBe(true);
     expect(closed).toBe(false);
     store.cancelAll("parent stop");
     expect(closed).toBe(true);

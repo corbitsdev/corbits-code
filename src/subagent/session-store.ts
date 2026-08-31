@@ -126,7 +126,7 @@ export interface SubAgentSessionStoreOptions {
   // ("completed"/"interrupted" with retained:true) — see maxRetained.
   maxCompleted?: number;
   // CL-7007: cap on open retained sessions (spawn_agent workers a caller may
-  // still resume_agent/followup_task). Sized for fan-out (dozens of
+  // still resume_agent). Sized for fan-out (dozens of
   // concurrent workers), independent of maxCompleted's TUI display cap.
   // Least-recently-used is evicted first; a "running" session is never
   // evicted regardless of this bound. Non-finite/undefined values (and a
@@ -180,15 +180,24 @@ export interface SubAgentSessionStore {
   // "not_found" for an unknown id without throwing (callers need the status,
   // not an exception, to report per-target results across a descendant walk).
   closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus>;
-  // Transitions a retained, still-open ("completed") session back to
-  // "running" for further input. Fails closed on anything else — a
-  // "shutdown" session is gone for good (close_agent is permanent), an
-  // "interrupted" one already tore its agent down, and "running"/
+  // Transitions a retained, still-open ("completed" or "interrupted") session
+  // back to "running", starts the next turn through the registered followup
+  // handle, and returns immediately. wait_agents collects the reply. Fails
+  // closed on anything else — a "shutdown" session is gone for good
+  // (close_agent is permanent), a still-running turn is concurrent, and
   // "pending_init"/"not_found" have nothing to resume.
   // CL-7007: a session dropped by pruneRetained still reports its terminal
   // lifecycleStatus plus `hint` pointing at read_agent_trace — never a bare
   // "not_found" that reads like a bad id.
-  resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus; hint?: string };
+  resumeOne(
+    id: string,
+    message: string,
+    opts?: {
+      onStart?: () => void;
+      onReply?: (reply: string) => void;
+      onFail?: (error: unknown) => void;
+    },
+  ): { ok: true; status: "running" } | { ok: false; status: AgentLifecycleStatus; hint?: string };
   // CL-6997: registers the per-session interrupt/followup handles run.ts
   // hands back via onAgentReady. Distinct maps from registerClose/closeOne
   // above (interrupt must never route through close's codepath).
@@ -199,16 +208,6 @@ export interface SubAgentSessionStore {
   // run's promise to settle. Fails closed on anything not currently running
   // or with no interrupt handle registered (e.g. a session past init).
   interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus };
-  // Sends `message` through the registered followup handle (the same live
-  // agent, same context) and records the reply as this session's new report
-  // on success. Fails closed on a session that is not retained or not in a
-  // resumable state ("completed" or "interrupted").
-  followupOne(
-    id: string,
-    message: string,
-  ): Promise<
-    { ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus; hint?: string }
-  >;
   registerDeliver(id: string, deliver: (message: string) => void): void;
   sendInputOne(
     id: string,
@@ -377,7 +376,7 @@ export function createSubAgentSessionStore(
   const listeners = new Set<() => void>();
   // CL-7007: tombstones for sessions dropped by pruneRetained, keyed by id,
   // insertion-ordered (Map preserves it) so the oldest can be dropped first
-  // once MAX_EVICTED_TOMBSTONES is exceeded. Lets resume_agent/followup_task
+  // once MAX_EVICTED_TOMBSTONES is exceeded. Lets resume_agent
   // report an actionable terminal status instead of a bare "not_found" for a
   // session evicted purely to bound retention memory.
   const evicted = new Map<string, EvictedRecord>();
@@ -436,7 +435,8 @@ export function createSubAgentSessionStore(
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
     });
     cancelHandles.delete(session.id);
-    closeHandles.delete(session.id);
+    // closeHandles are owned by releaseHandles / closeOne — dropping them
+    // here would skip teardown for a retained session that is mid-turn.
     bumpRevision(session.id);
     pruneCompleted();
   };
@@ -537,7 +537,7 @@ export function createSubAgentSessionStore(
   // candidate (excluded by isOpenRetained requiring "completed"/
   // "interrupted"). Handles are released exactly like pruneCompleted's
   // eviction — sidecars, reactor, and the lock entry are not simply
-  // forgotten — and a tombstone is kept so resume_agent/followup_task can
+  // forgotten — and a tombstone is kept so resume_agent can
   // still report an actionable status afterward instead of "not_found".
   const pruneRetained = (): void => {
     const openRetained = [...sessions.values()]
@@ -600,9 +600,10 @@ export function createSubAgentSessionStore(
   // A follow-up turn takes the lane back over: the worker is live again, so
   // the interrupt's linger stamp must not outlive the new turn. Completion
   // re-stamps through the caller's own mutate; a rejected turn restores the
-  // addressable state it started from so followup_task can retry.
+  // addressable state it started from so resume_agent can retry.
   const beginFollowupTurn = (id: string): void => {
     mutate(id, (s) => {
+      s.status = "running";
       s.lifecycleStatus = "running";
       delete s.finishedAt;
     });
@@ -612,6 +613,38 @@ export function createSubAgentSessionStore(
       s.lifecycleStatus = lifecycleStatus;
       s.finishedAt = now();
     });
+  };
+  const queueFollowupTurn = (
+    id: string,
+    message: string,
+    failLifecycle: AgentLifecycleStatus,
+    opts?: { onReply?: (reply: string) => void; onFail?: (error: unknown) => void },
+  ): void => {
+    const followup = followupHandles.get(id);
+    if (followup === undefined) return;
+    beginFollowupTurn(id);
+    void followup(message)
+      .then((reply) => {
+        const still = sessions.get(id);
+        if (still === undefined || still.lifecycleStatus === "shutdown") return;
+        mutate(id, (s) => {
+          s.status = "done";
+          s.lifecycleStatus = "completed";
+          s.finishedAt = now();
+          s.report = reply;
+          pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+        });
+        opts?.onReply?.(reply);
+        pruneRetained();
+      })
+      .catch((err: unknown) => {
+        endFollowupTurn(id, failLifecycle);
+        opts?.onFail?.(err);
+        log.error("followup turn failed for {id}: {error}", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   };
 
   return {
@@ -983,7 +1016,9 @@ export function createSubAgentSessionStore(
     ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
-      if (session.status !== "running") return { ok: false, status: session.lifecycleStatus };
+      if (session.status !== "running" || session.lifecycleStatus !== "running") {
+        return { ok: false, status: session.lifecycleStatus };
+      }
 
       if (opts?.interrupt === true) {
         const interrupt = interruptHandles.get(id);
@@ -992,28 +1027,9 @@ export function createSubAgentSessionStore(
           return { ok: false, status: session.lifecycleStatus };
         }
         interrupt();
-        beginFollowupTurn(id);
-        void followup(message)
-          .then((reply) => {
-            const still = sessions.get(id);
-            if (still === undefined || still.lifecycleStatus === "shutdown") return;
-            mutate(id, (s) => {
-              s.status = "done";
-              s.lifecycleStatus = "completed";
-              s.finishedAt = now();
-              s.report = reply;
-              pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
-            });
-            opts.onFollowupReply?.(reply);
-            pruneRetained();
-          })
-          .catch((err: unknown) => {
-            endFollowupTurn(id, "interrupted");
-            log.error("send_input followup failed for {id}: {error}", {
-              id,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
+        queueFollowupTurn(id, message, "interrupted", {
+          ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
+        });
         pruneRetained();
         return { ok: true, status: "interrupted" };
       }
@@ -1039,12 +1055,16 @@ export function createSubAgentSessionStore(
       return { ok: true };
     },
 
-    async followupOne(
+    resumeOne(
       id: string,
       message: string,
-    ): Promise<
-      { ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus; hint?: string }
-    > {
+      opts?: {
+        onStart?: () => void;
+        onReply?: (reply: string) => void;
+        onFail?: (error: unknown) => void;
+      },
+    ):
+      { ok: true; status: "running" } | { ok: false; status: AgentLifecycleStatus; hint?: string } {
       const session = sessions.get(id);
       if (session === undefined) {
         const tombstone = evicted.get(id);
@@ -1062,43 +1082,13 @@ export function createSubAgentSessionStore(
       const followup = followupHandles.get(id);
       if (followup === undefined) return { ok: false, status: session.lifecycleStatus };
       const priorLifecycle = session.lifecycleStatus;
-      beginFollowupTurn(id);
-      let reply: string;
-      try {
-        reply = await followup(message);
-      } catch (err) {
-        endFollowupTurn(id, priorLifecycle);
-        throw err;
-      }
-      mutate(id, (s) => {
-        s.status = "done";
-        s.lifecycleStatus = "completed";
-        s.finishedAt = now();
-        s.report = reply;
-        pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+      queueFollowupTurn(id, message, priorLifecycle, {
+        ...(opts?.onReply !== undefined ? { onReply: opts.onReply } : {}),
+        ...(opts?.onFail !== undefined ? { onFail: opts.onFail } : {}),
       });
+      opts?.onStart?.();
       pruneRetained();
-      return { ok: true, reply };
-    },
-
-    resumeOne(
-      id: string,
-    ): { ok: true } | { ok: false; status: AgentLifecycleStatus; hint?: string } {
-      const session = sessions.get(id);
-      if (session === undefined) {
-        const tombstone = evicted.get(id);
-        if (tombstone !== undefined) {
-          return { ok: false, status: tombstone.lifecycleStatus, hint: tombstone.hint };
-        }
-        return { ok: false, status: "not_found" };
-      }
-      if (session.lifecycleStatus !== "completed" || session.retained !== true) {
-        return { ok: false, status: session.lifecycleStatus };
-      }
-      mutate(id, (s) => {
-        s.lifecycleStatus = "running";
-      });
-      return { ok: true };
+      return { ok: true, status: "running" };
     },
 
     cancel(id: string, reason = DEFAULT_CANCEL_REASON): boolean {

@@ -211,7 +211,7 @@ describe("spawn_agent + wait_agents", () => {
     // the store itself had already evicted and released the earliest
     // session, because a retained session shared the 20-item display cap
     // with every other finished session — exactly the shipped defect this
-    // ticket fixes (resume_agent/followup_task failed with a bare
+    // ticket fixes (resume_agent failed with a bare
     // "not_found" past 20 spawned workers, blaming the caller for nothing).
     // Open retained sessions now have their own cap (`maxRetained`, default
     // 50), so 25 of them all stay resumable; fleetRecords/wait_agents is

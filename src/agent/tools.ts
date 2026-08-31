@@ -51,7 +51,6 @@ import {
   createCloseAgentTool,
   createResumeAgentTool,
   createInterruptAgentTool,
-  createFollowupTaskTool,
   createSendInputTool,
 } from "../subagent/lifecycle-tools.js";
 import { parseManageTasksArgs } from "./tasks.js";
@@ -398,9 +397,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createResumeAgentTool({ sessions: fleetSessions }),
+        createResumeAgentTool({ sessions: fleetSessions, fleetRecords }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createFollowupTaskTool({ sessions: fleetSessions }),
         createSendInputTool({ sessions: fleetSessions, fleetRecords }),
       );
     }

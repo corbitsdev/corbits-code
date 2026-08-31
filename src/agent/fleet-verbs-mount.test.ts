@@ -17,7 +17,6 @@ const FLEET_VERBS = [
   "close_agent",
   "resume_agent",
   "interrupt_agent",
-  "followup_task",
   "send_input",
 ] as const;
 

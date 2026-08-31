@@ -6,7 +6,7 @@
  *
  *  - assertTierMayMountFleetVerb: a Tier 3 leaf may never mount a fleet verb
  *    (task, spawn_agent, wait_agents, list_agents, interrupt_agent, close_agent,
- *    resume_agent, followup_task, send_input, read_agent_trace, search_agents).
+ *    resume_agent, send_input, read_agent_trace, search_agents).
  *    Fleet *discovery* of the director catalog (search_agents) is Tier 1 only
  *    (CL-7051). list_agents is not catalog discovery — it lists this install's
  *    own spawn_agent workers, the same scoped mailbox wait_agents uses, so
@@ -38,7 +38,6 @@ export const FLEET_VERBS = new Set([
   "close_agent",
   "resume_agent",
   "read_agent_trace",
-  "followup_task",
 ]);
 
 /**
@@ -114,7 +113,7 @@ function isDescendant(
  * always fails closed here too.
  *
  * Production call sites: `read_agent_trace`, `send_input`, `interrupt_agent`,
- * `close_agent`, `resume_agent`, and `followup_task` (nested mounts pass
+ * `close_agent`, and `resume_agent` (nested mounts pass
  * authority from run.ts; Tier-1 primary omits it and stays unrestricted).
  */
 export function assertCanTargetAgent(
