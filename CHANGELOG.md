@@ -22,7 +22,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   reports Codex cost as covered by ChatGPT subscription. Metered OpenAI
   API endpoints keep dollar estimates.
 - CLI `--help` / `-h` is recognized in any argument position. Value flags no
-  longer swallow help or other flag-shaped tokens as their option values.
+  longer swallow `--*` or `-h` as their option values.
 
 ## [0.3.11] - 2026-08-31
 
