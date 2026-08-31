@@ -28,6 +28,7 @@ import {
 import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktree-roots.js";
 import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 
@@ -3275,8 +3276,8 @@ describe("listWorktreeRoots", () => {
     const repo = join(base, "repo");
     const worktree = join(base, "secondary");
     mkdirSync(repo);
-    git(repo, "init", "-b", "main");
-    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init");
+    initTemporaryGitRepo(repo, { initArgs: ["-b", "main"] });
+    git(repo, "commit", "--allow-empty", "-m", "init");
     git(repo, "worktree", "add", worktree);
     return { repo, worktree };
   };
@@ -3376,8 +3377,8 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     const base = mkdtempSync(join(tmpdir(), "corbits-lazy-"));
     const repo = join(base, "repo");
     mkdirSync(repo);
-    git(repo, "init", "-b", "main");
-    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init");
+    initTemporaryGitRepo(repo, { initArgs: ["-b", "main"] });
+    git(repo, "commit", "--allow-empty", "-m", "init");
     return repo;
   };
 
@@ -3707,8 +3708,8 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     const repo = join(base, "repo");
     const worktree = join(base, "sibling-worktree");
     mkdirSync(repo);
-    git(repo, "init", "-b", "main");
-    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init");
+    initTemporaryGitRepo(repo, { initArgs: ["-b", "main"] });
+    git(repo, "commit", "--allow-empty", "-m", "init");
     git(repo, "worktree", "add", worktree);
     return { repo, worktree };
   };

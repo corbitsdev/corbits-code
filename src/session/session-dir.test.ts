@@ -13,6 +13,7 @@ import {
   migrateLegacySessionIfNeeded,
   sessionDir,
 } from "./index.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 let cwd = "";
 let home = "";
@@ -84,9 +85,7 @@ test("listSessions finds legacy sessions and migrates them", async () => {
 test("migrateLegacySessionIfNeeded does not migrate main-repo .agent-state from a worktree cwd", async () => {
   const main = join(cwd, "main");
   await mkdir(main, { recursive: true });
-  execFileSync("git", ["init"], { cwd: main, stdio: "ignore" });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: main, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "test"], { cwd: main, stdio: "ignore" });
+  initTemporaryGitRepo(main);
   await writeFile(join(main, "README"), "x");
   execFileSync("git", ["add", "README"], { cwd: main, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", "init"], { cwd: main, stdio: "ignore" });

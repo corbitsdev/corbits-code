@@ -9,6 +9,7 @@ import { createTaskTool } from "./task-tool.js";
 import type { RunSubAgentParams } from "./types.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { Telemetry } from "../telemetry/index.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 const run = promisify(execFile);
 
@@ -51,9 +52,7 @@ async function callTask(
 
 async function makeRepo(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "corbits-worktree-"));
-  await run("git", ["init"], { cwd: dir });
-  await run("git", ["config", "user.email", "t@t.test"], { cwd: dir });
-  await run("git", ["config", "user.name", "t"], { cwd: dir });
+  initTemporaryGitRepo(dir);
   await writeFile(join(dir, "seed.txt"), "seed");
   await run("git", ["add", "."], { cwd: dir });
   await run("git", ["commit", "-m", "seed"], { cwd: dir });

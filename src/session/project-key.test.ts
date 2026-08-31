@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
 import { projectKeyFor, projectRootFor, projectSessionsRoot, projectsRoot } from "./project-key.js";
+import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 let root = "";
 
@@ -19,9 +20,7 @@ afterEach(async () => {
 });
 
 function initGitRepo(dir: string): void {
-  execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "test"], { cwd: dir, stdio: "ignore" });
+  initTemporaryGitRepo(dir);
 }
 
 async function commitReadme(dir: string): Promise<void> {

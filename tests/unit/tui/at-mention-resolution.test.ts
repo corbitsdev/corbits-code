@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { resolveAtMentions } from "../../../src/tui/mention-resolution.js";
+import { initTemporaryGitRepo } from "../../helpers/temporary-git-repo.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -224,9 +225,7 @@ describe("resolveAtMentions", () => {
     const worktree = await mkdtemp(join(tmpdir(), "at-mention-resolution-worktree-"));
     await rm(worktree, { recursive: true, force: true });
     try {
-      await execFileAsync("git", ["init"], { cwd: repo });
-      await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
-      await execFileAsync("git", ["config", "user.name", "Test"], { cwd: repo });
+      initTemporaryGitRepo(repo);
       await writeFile(join(repo, "README.md"), "root\n");
       await execFileAsync("git", ["add", "README.md"], { cwd: repo });
       await execFileAsync("git", ["commit", "-m", "initial"], { cwd: repo });
