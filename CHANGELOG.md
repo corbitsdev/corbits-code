@@ -25,7 +25,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   stay closed.
 - `corbits resume` lists completed, failed, and crashed sessions alongside
   in-progress ones, ordered by last persist rather than start time.
-  `--force` is no longer required to see finished threads.
+  `--force` is no longer required to see finished threads. The picker shows
+  the 10 most recent sessions and type-to-filter narrows that list.
 
 ### Fixed
 

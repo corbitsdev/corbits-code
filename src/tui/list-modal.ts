@@ -28,6 +28,11 @@ export interface ListModalConfig {
   readonly heading?: readonly string[];
   readonly options: readonly ResidualCatalogEntry[];
   readonly activeIndex?: number;
+  /**
+   * Claim printable keys for a `>` filter row so the list narrows as you type.
+   * Off by default so other satellite lists keep j/k navigation.
+   */
+  readonly typeToFilter?: boolean;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
 }
@@ -100,8 +105,12 @@ export async function runListModal(config: ListModalConfig): Promise<string | nu
     itemIds,
     frameId: "overlay-list-modal",
     activeIndex: config.activeIndex ?? 0,
+    ...(config.typeToFilter === true ? { typeToFilter: true } : {}),
     onAccept: (selection) => {
-      settle(residualIdFromSelection(selection, itemIds) ?? null);
+      const id = residualIdFromSelection(selection, itemIds);
+      // Type-to-filter plants "(no matches)" with an empty id. Stay open.
+      if (id === undefined || id.length === 0) return;
+      settle(id);
     },
   });
 

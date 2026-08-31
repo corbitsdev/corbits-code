@@ -3564,7 +3564,7 @@ export interface OpenListOverlayOpts {
   readonly echoChoice?: boolean;
   /**
    * Claim printable keys for a `>` filter row so the list narrows as you type.
-   * Opt-in per open (model picker, palette). Overlays without it keep j/k
+   * Opt-in per open (model picker, palette, resume). Overlays without it keep j/k
    * navigation; with it, j/k type into the filter and arrows still navigate.
    */
   readonly typeToFilter?: boolean;
@@ -3839,9 +3839,9 @@ function repaintPalette(shell: AppShell): void {
  * Keys a type-to-filter list claims while it is open, so the `>` row filters
  * as you type.
  *
- * Opt-in per open (`typeToFilter`): palette and the flat model picker give up
- * j/k navigation so printable keys feed the filter. Overlays without
- * type-to-filter (permissions, resume, workers, copy, …) keep j/k. Arrow and
+ * Opt-in per open (`typeToFilter`): palette, the flat model picker, and the
+ * resume picker give up j/k navigation so printable keys feed the filter.
+ * Overlays without type-to-filter (permissions, workers, copy, …) keep j/k. Arrow and
  * page keys are never claimed here, so they keep working in every overlay
  * including type-to-filter ones.
  */

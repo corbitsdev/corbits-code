@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 
-import { sessionResumeLabel } from "./pick-session.js";
+import { sessionResumeLabel, recentResumeSessions, RESUME_PICKER_LIMIT } from "./pick-session.js";
 import type { SessionSummary } from "../session/index.js";
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
@@ -35,5 +35,26 @@ describe("sessionResumeLabel", () => {
   test("falls back to Untitled session when the task is blank", () => {
     const label = sessionResumeLabel(summary({ task: "   " }));
     expect(label.startsWith("Untitled session ·")).toBe(true);
+  });
+});
+
+describe("recentResumeSessions", () => {
+  test("keeps at most ten newest-first rows", () => {
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      summary({
+        sessionId: `00000000-0000-7000-8000-${String(i).padStart(12, "0")}`,
+        task: `session ${i}`,
+      }),
+    );
+    const kept = recentResumeSessions(rows);
+    expect(kept).toHaveLength(RESUME_PICKER_LIMIT);
+    expect(kept[0]?.task).toBe("session 0");
+    expect(kept[9]?.task).toBe("session 9");
+    expect(kept.some((row) => row.task === "session 10")).toBe(false);
+  });
+
+  test("leaves a shorter catalog unchanged", () => {
+    const rows = [summary({ task: "only" })];
+    expect(recentResumeSessions(rows)).toEqual(rows);
   });
 });
