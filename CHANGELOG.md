@@ -19,6 +19,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   candidates, not corrupt files. A truly unreadable session id prints one
   recovery line; parse diagnostics go to the structured log, not the
   terminal.
+- `ask_operator` no longer pre-authorizes a model-authored shell command when
+  the operator picks any option, including Reject. Clarification choices
+  cannot mint shell grants.
 
 ## [0.3.10] - 2026-08-30
 

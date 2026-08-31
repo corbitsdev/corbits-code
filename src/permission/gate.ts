@@ -12,7 +12,6 @@ import {
   buildRequests,
   isAutoAllowedShellCall,
   isAutoAllowedShellSegment,
-  isSingleShellCommand,
   callTargetsRestricted,
   commandTargetsRestricted,
 } from "./classify.js";
@@ -328,13 +327,6 @@ export interface PermissionGate {
   // TUI wires the toggle here so a switch takes effect on the next tool call —
   // including pre-gate sandboxes that read getSkipPermissions live.
   setSkipPermissions: (value: boolean) => void;
-  // Grant a session-only approval outside the normal ask flow, e.g. when the
-  // operator already approved a literal command through ask_operator — so the
-  // matching run_shell call that follows does not prompt a second time. The
-  // grant always covers the literal `pattern` string, never an interpreted
-  // glob; a `run_shell` pattern that is not a single real command is dropped
-  // rather than minted.
-  preApprove: (tool: string, pattern: string) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
 }
@@ -719,18 +711,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     approvals.push(...seeded, ...sessionGrants);
   };
 
-  const preApprove = (tool: string, pattern: string): void => {
-    // run_shell pre-approvals come from ask_operator's free-text `command`
-    // argument. Reject anything that is not a single real command, and store
-    // the grant as the escaped literal — never as a glob — so it can only
-    // ever match the exact command the operator approved.
-    const normalizedPattern = tool === "run_shell" ? stripCommentLines(pattern).trim() : pattern;
-    if (tool === "run_shell" && !isSingleShellCommand(normalizedPattern)) return;
-    const approval: Approval = { tool, pattern: escapeGlobLiteral(normalizedPattern) };
-    approvals.push(approval);
-    sessionGrants.push(approval);
-  };
-
   const registerMcpClient = (client: MCPClient): void => {
     registerMcpClientTools(mcpTiers, client.serverName, client.tools);
   };
@@ -754,7 +734,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     setSkipPermissions: (value: boolean) => {
       skipPermissions = value;
     },
-    preApprove,
     registerMcpClient,
     unregisterMcpServer,
   };

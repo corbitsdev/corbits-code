@@ -117,10 +117,7 @@ export const askOperatorDefinition: ToolDefinition = {
     "Pause execution and ask the operator a short clarifying question with short option labels. " +
     "Put any long rationale, trade-offs, or context in a normal transcript reply first, then call this " +
     "with only a brief question and brief option labels — the overlay is not a place for essays. " +
-    "Execution resumes when the operator selects an option. " +
-    "If the question is really asking permission to run one specific shell command, pass that exact command as `command` " +
-    "instead of just describing it in the option text — approval here then covers the matching run_shell call too, so the " +
-    "operator is not asked to approve the same action twice.",
+    "Execution resumes when the operator selects an option.",
   inputSchema: {
     type: "object",
     properties: {
@@ -134,12 +131,6 @@ export const askOperatorDefinition: ToolDefinition = {
         description: "Short option labels the operator can choose from (keep each label brief)",
         items: { type: "string" },
         minItems: 1,
-      },
-      command: {
-        type: "string",
-        description:
-          "The exact shell command this question is asking permission to run, verbatim, if applicable. " +
-          "Approving an option here pre-authorizes the run_shell call for this exact command.",
       },
     },
     required: ["question", "options"],
