@@ -1196,6 +1196,22 @@ export function createSubAgentSessionStore(
       if (!isResumableLifecycle(session.retained, session.lifecycle)) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
+      if (message.trim().length === 0) {
+        return {
+          ok: false,
+          status: projectLifecycleStatus(session.lifecycle),
+          hint: "resume_agent requires a non-empty message.",
+        };
+      }
+      if (message.length > maxEntryChars) {
+        return {
+          ok: false,
+          status: projectLifecycleStatus(session.lifecycle),
+          hint:
+            `resume_agent message exceeds ${maxEntryChars} characters ` +
+            `(got ${message.length}).`,
+        };
+      }
       const followup = followupHandles.get(id);
       if (followup === undefined) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
