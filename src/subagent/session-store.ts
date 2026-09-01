@@ -158,6 +158,12 @@ export interface SubAgentSessionStoreOptions {
 export interface SubAgentSessionStore {
   list(): readonly SubAgentSession[];
   get(id: string): SubAgentSession | undefined;
+  /**
+   * Verb lifecycle of a session dropped by pruneRetained, if a tombstone remains.
+   * `get` does not surface these — they exist so wait/resume can recover a
+   * terminal status instead of treating the id as never-seen.
+   */
+  evictedLifecycle(id: string): AgentLifecycleStatus | undefined;
   // Running + recent completed, newest first — surface for the Agents strip.
   listForStrip(): readonly SubAgentSession[];
   start(input: StartSessionInput): SubAgentSession;
@@ -736,6 +742,10 @@ export function createSubAgentSessionStore(
     get(id: string): SubAgentSession | undefined {
       const session = sessions.get(id);
       return session === undefined ? undefined : snapshotOf(session);
+    },
+
+    evictedLifecycle(id: string): AgentLifecycleStatus | undefined {
+      return evicted.get(id)?.lifecycleStatus;
     },
 
     listForStrip(): readonly SubAgentSession[] {

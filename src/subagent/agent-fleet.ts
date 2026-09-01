@@ -59,7 +59,11 @@ import type { Settings } from "../config/settings.js";
 import { resolveEffortForRole } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
-import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
+import {
+  DEFAULT_CANCEL_REASON,
+  type AgentLifecycleStatus,
+  type SubAgentSessionStore,
+} from "./session-store.js";
 import { projectWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 import type {
   NestedDispatchDeps,
@@ -103,12 +107,22 @@ interface FleetOverlay {
   forceInterrupted?: boolean;
   /** Frozen wait status after collect. Later session completed must not resurrect this mailbox. */
   frozenStatus?: WaitJSONStatus;
+  /** Last wait projection seen while the session still existed. */
+  lastWaitStatus?: WaitJSONStatus;
   tombstoned?: boolean;
   hint?: string;
 }
 
 const RECOVERY_HINT =
   "Report evicted to bound fleet memory; recover full detail via read_agent_trace(agent_id).";
+
+function waitStatusFromVerbLifecycle(
+  status: AgentLifecycleStatus | undefined,
+): WaitJSONStatus | undefined {
+  if (status === "completed") return "done";
+  if (status === "interrupted" || status === "shutdown") return "interrupted";
+  return undefined;
+}
 
 /** Payload cap: uncollected pinned terminal records still holding a report. */
 export const MAX_FLEET_RECORDS = 200;
@@ -124,7 +138,10 @@ class FleetMailbox {
 
   constructor(sessions: SubAgentSessionStore) {
     this.sessions = sessions;
-    sessions?.subscribe(() => this.enforceCap());
+    sessions?.subscribe(() => {
+      this.rememberLiveWaitStatuses();
+      this.enforceCap();
+    });
   }
 
   register(id: string): void {
@@ -132,7 +149,11 @@ class FleetMailbox {
     // start() drops pinCounts on call-id reuse. Re-pin whenever the overlay
     // thought it still held a pin, so wait cannot desync against an empty map.
     if (existing?.pinHeld === true) this.sessions.unpin(id);
-    this.records.set(id, { pinHeld: true });
+    const wait = this.sessionWaitStatus(id);
+    this.records.set(id, {
+      pinHeld: true,
+      ...(wait !== undefined ? { lastWaitStatus: wait } : {}),
+    });
     this.sessions.pin(id);
     this.enforceCap();
   }
@@ -204,6 +225,17 @@ class FleetMailbox {
     return this.snapshot(id);
   }
 
+  private rememberLiveWaitStatuses(): void {
+    for (const [id, overlay] of this.records) {
+      const wait = this.sessionWaitStatus(id);
+      if (wait !== undefined) overlay.lastWaitStatus = wait;
+    }
+  }
+
+  private waitStatusFromEvicted(id: string): WaitJSONStatus | undefined {
+    return waitStatusFromVerbLifecycle(this.sessions.evictedLifecycle(id));
+  }
+
   private sessionWaitStatus(id: string): WaitJSONStatus | undefined {
     const session = this.sessions?.get(id);
     if (session === undefined) return undefined;
@@ -213,7 +245,16 @@ class FleetMailbox {
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
     if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
     if (overlay.forceInterrupted === true) return "interrupted";
-    return this.sessionWaitStatus(id) ?? "interrupted";
+    const live = this.sessionWaitStatus(id);
+    if (live !== undefined) {
+      overlay.lastWaitStatus = live;
+      return live;
+    }
+    const last = overlay.lastWaitStatus;
+    if (last !== undefined && last !== "running") return last;
+    const evicted = this.waitStatusFromEvicted(id);
+    if (evicted !== undefined && evicted !== "running") return evicted;
+    return "interrupted";
   }
 
   snapshot(id: string): FleetRecord {
@@ -229,7 +270,7 @@ class FleetMailbox {
     ) {
       overlay.tombstoned = true;
       overlay.hint = RECOVERY_HINT;
-      overlay.frozenStatus = "interrupted";
+      overlay.frozenStatus = this.projectedStatus(id, overlay);
       if (overlay.pinHeld === true) {
         overlay.pinHeld = false;
         this.sessions.unpin(id);

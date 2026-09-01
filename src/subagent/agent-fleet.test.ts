@@ -62,6 +62,33 @@ function makeDeps(
   };
 }
 
+function waitUntilMailboxTerminal(
+  mailbox: ReturnType<typeof createFleetMailbox>,
+  sessions: ReturnType<typeof createSubAgentSessionStore>,
+  id: string,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): boolean => {
+      const snap = mailbox.peek(id);
+      return snap !== undefined && snap.status !== "running";
+    };
+    if (done()) {
+      resolve();
+      return;
+    }
+    const unsub = sessions.subscribe(() => {
+      if (done()) {
+        unsub();
+        resolve();
+      }
+    });
+    if (done()) {
+      unsub();
+      resolve();
+    }
+  });
+}
+
 async function callToolRaw(
   tool: ReturnType<typeof createSpawnAgentTool> | ReturnType<typeof createWaitAgentsTool>,
   args: Record<string, unknown>,
@@ -422,7 +449,16 @@ describe("wait mailbox session tombstone and pin", () => {
       maxCompleted: 1,
       now: () => ++t,
     });
-    const deps = makeDeps(async () => ({ report: "ok" }), { sessions });
+    const firstRun = deferred<RunSubAgentResult>();
+    const secondRun = deferred<RunSubAgentResult>();
+    let calls = 0;
+    const deps = makeDeps(
+      async () => {
+        calls += 1;
+        return (calls === 1 ? firstRun : secondRun).promise;
+      },
+      { sessions },
+    );
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({ sessions, fleetRecords: deps.fleetRecords });
     if (spawn.kind !== "full") throw new Error("expected full tool");
@@ -430,9 +466,12 @@ describe("wait mailbox session tombstone and pin", () => {
     const signal = new AbortController().signal;
 
     await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    firstRun.resolve({ report: "ok" });
+    await callTool(wait, { targets: ["reuse-id"], timeout_ms: 5000 });
+
     await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    secondRun.resolve({ report: "ok" });
+    await waitUntilMailboxTerminal(deps.fleetRecords, sessions, "reuse-id");
 
     const extra1 = sessions.start({ description: "flood-1", agentId: "a", brief: "b" });
     sessions.complete(extra1.id, "flood-1");
@@ -464,9 +503,18 @@ describe("wait mailbox session tombstone and pin", () => {
     sessions.complete(extra2.id, "prune");
     expect(sessions.get("reuse")).toBeUndefined();
     const snap = mailbox.peek("reuse");
-    expect(snap?.status).not.toBe("running");
+    expect(snap?.status).toBe("done");
     expect(snap?.tombstoned).toBe(true);
     expect(snap?.hint).toContain("read_agent_trace");
+  });
+
+  test("wait on a mailbox member with no session history is interrupted", () => {
+    const sessions = createSubAgentSessionStore();
+    const mailbox = createFleetMailbox(sessions);
+    mailbox.register("ghost");
+    const snap = mailbox.peek("ghost");
+    expect(snap?.status).toBe("interrupted");
+    expect(snap?.tombstoned).toBe(true);
   });
 });
 
