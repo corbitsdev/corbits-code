@@ -782,13 +782,22 @@ describe("mcp surface", () => {
   test("Enter on an unauthorized server opens the browser and copies the link", async () => {
     await withShell((shell) => {
       const opened: string[] = [];
+      const retried: string[] = [];
       openCommandSurface(shell, "mcp", {
         notify: () => {},
-        mcp: { list: () => entries, openAuthURL: (url) => opened.push(url) },
+        mcp: {
+          list: () => entries,
+          openAuthURL: (url) => opened.push(url),
+          retryServer: async (name) => {
+            retried.push(name);
+            return { ok: true, message: "should not retry" };
+          },
+        },
       });
       moveOverlaySelection(shell, 1);
       acceptOverlaySelection(shell);
       expect(opened).toEqual(["https://notion.test/auth"]);
+      expect(retried).toEqual([]);
       expect(shell.statusFlash).toContain("notion");
       // The echo would quote "notion — needs auth" back forever, moments
       // after the operator authorized it.
@@ -796,23 +805,27 @@ describe("mcp surface", () => {
     });
   });
 
-  test("Enter on non-auth rows releases the status subscription", async () => {
-    const nonAuthEntries: readonly McpEntry[] = [
+  test("Enter on connecting and connected rows releases the status subscription", async () => {
+    const nonActionEntries: readonly McpEntry[] = [
       { name: "connected", state: "connected", toolCount: 1 },
       { name: "connecting", state: "connecting" },
-      { name: "failed", state: "failed", error: "offline" },
     ];
 
-    for (const entry of nonAuthEntries) {
+    for (const entry of nonActionEntries) {
       await withShell((shell) => {
         const listeners = new Set<() => void>();
         let unsubscribeCalls = 0;
         const opened: string[] = [];
+        const retried: string[] = [];
         openCommandSurface(shell, "mcp", {
           notify: () => {},
           mcp: {
             list: () => [entry],
             openAuthURL: (url) => opened.push(url),
+            retryServer: async (name) => {
+              retried.push(name);
+              return { ok: true, message: "should not retry" };
+            },
             subscribe: (listener) => {
               listeners.add(listener);
               return () => {
@@ -826,10 +839,118 @@ describe("mcp surface", () => {
         expect(listeners.size).toBe(1);
         acceptOverlaySelection(shell);
         expect(opened).toEqual([]);
+        expect(retried).toEqual([]);
         expect(unsubscribeCalls).toBe(1);
         expect(listeners.size).toBe(0);
       });
     }
+  });
+
+  test("Enter on a failed server retries connect once without adding again", async () => {
+    await withShell(async (shell) => {
+      const added: { name: string; url: string }[] = [];
+      const retried: string[] = [];
+      const opened: string[] = [];
+      const notes: string[] = [];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "sentry", state: "failed", error: "ECONNREFUSED" },
+      ];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: (url) => opened.push(url),
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "should not add" };
+          },
+          retryServer: async (name) => {
+            retried.push(name);
+            liveEntries = [{ name, state: "connecting" }];
+            return { ok: true, message: `Retrying ${name}; connecting now.` };
+          },
+        },
+      });
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(retried).toEqual(["sentry"]);
+      expect(added).toEqual([]);
+      expect(opened).toEqual([]);
+      expect(notes).toEqual(["Retrying sentry; connecting now."]);
+      expect(shell.overlayItems[0]).toBe("sentry — connecting");
+    });
+  });
+
+  test("Enter on a failed row without retry still releases the status subscription", async () => {
+    await withShell((shell) => {
+      const listeners = new Set<() => void>();
+      let unsubscribeCalls = 0;
+      const added: { name: string; url: string }[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => [{ name: "sentry", state: "failed", error: "offline" }],
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return { ok: true, message: "should not add" };
+          },
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => {
+              unsubscribeCalls += 1;
+              listeners.delete(listener);
+            };
+          },
+        },
+      });
+
+      expect(listeners.size).toBe(1);
+      acceptOverlaySelection(shell);
+      expect(added).toEqual([]);
+      expect(unsubscribeCalls).toBe(1);
+      expect(listeners.size).toBe(0);
+    });
+  });
+
+  test("Alt+A of a failed name still persists through addServer", async () => {
+    await withShell(async (shell) => {
+      const added: { name: string; url: string }[] = [];
+      const retried: string[] = [];
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => [{ name: "sentry", state: "failed" as const, error: "offline" }],
+          openAuthURL: () => {},
+          addServer: async (name, url) => {
+            added.push({ name, url });
+            return {
+              ok: false,
+              message: `An MCP server named "${name}" already exists or is connecting.`,
+            };
+          },
+          retryServer: async (name) => {
+            retried.push(name);
+            return { ok: true, message: "should not retry" };
+          },
+        },
+      });
+
+      expect(runOverlayAction(shell, altKey("a"))).toBe(true);
+      for (const ch of "sentry") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      for (const ch of "https://sentry.test/mcp") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(added).toEqual([{ name: "sentry", url: "https://sentry.test/mcp" }]);
+      expect(retried).toEqual([]);
+      expect(notes.at(-1)).toContain("already exists");
+    });
   });
 
   test("Alt+A collects a name and absolute HTTP URL before adding", async () => {

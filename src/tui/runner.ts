@@ -43,6 +43,7 @@ import {
   type Settings,
   type LocalSettings,
   type PluginConfig,
+  type MCPServerConfig,
 } from "../config/settings.js";
 import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
 import { persistConnectedSelection } from "./provider-setup-submit.js";
@@ -2291,6 +2292,23 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
     };
 
+    const connectLateMCPServer = (server: MCPServerConfig): void => {
+      void toolset
+        .connectMCPServer(server, mcpConnectCallbacks, mcpConnectController.signal)
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name === "AbortError") return;
+          tuiLogger.error("Late MCP connect failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    };
+
+    const persistedMCPServer = (name: string): MCPServerConfig | undefined =>
+      (config.mcpServers ?? []).find((server) => server.name === name) ??
+      (config.settings?.mcpServers ?? []).find(
+        (server): server is MCPServerConfig => server.name === name && !("enabled" in server),
+      );
+
     const host = await mountRunnerHost({
       // An unnamed session shows nothing rather than a placeholder.
       title: runTaskTitle,
@@ -2647,16 +2665,27 @@ export async function runTUI(initialConfig: Config): Promise<number> {
                         : "Enter an absolute HTTP(S) URL first.";
               return { ok: false, message };
             }
-            config = { ...config, settings: result.settings };
-            void toolset
-              .connectMCPServer(result.server, mcpConnectCallbacks, mcpConnectController.signal)
-              .catch((err: unknown) => {
-                if (err instanceof Error && err.name === "AbortError") return;
-                tuiLogger.error("Late MCP connect failed: {error}", {
-                  error: err instanceof Error ? err.message : String(err),
-                });
-              });
+            config = {
+              ...config,
+              settings: result.settings,
+              mcpServers: [
+                ...(config.mcpServers ?? []).filter((server) => server.name !== result.server.name),
+                result.server,
+              ],
+            };
+            connectLateMCPServer(result.server);
             return { ok: true, message: `Added ${result.server.name}; connecting now.` };
+          },
+          retryServer: async (name) => {
+            const server = persistedMCPServer(name);
+            if (server === undefined) {
+              return {
+                ok: false,
+                message: `No persisted MCP server named "${name}" to retry.`,
+              };
+            }
+            connectLateMCPServer(server);
+            return { ok: true, message: `Retrying ${server.name}; connecting now.` };
           },
         },
         hooks: {

@@ -145,6 +145,8 @@ export interface McpSurfaceDeps {
   readonly openAuthURL: (url: string) => void;
   readonly subscribe?: (listener: () => void) => () => void;
   readonly addServer?: (name: string, url: string) => Promise<PluginActionResult>;
+  /** Reconnect a failed persisted server without writing a second settings row. */
+  readonly retryServer?: (name: string) => Promise<PluginActionResult>;
   readonly mcpServersSource?: "local" | "global" | "none";
 }
 
@@ -960,12 +962,40 @@ function mcpDescription(entry: McpEntry): ItemDescription {
         impact: "Enter opens the authorization page and copies the link.",
       };
     case "failed":
-      return { what: entry.error ?? "Did not connect.", tone: "consequence" };
+      return {
+        what: entry.error ?? "Did not connect.",
+        impact: "Enter retries the existing persisted config without adding a second server.",
+        tone: "consequence",
+      };
   }
 }
 
 function canAddMCPServer(mcp: McpSurfaceDeps): boolean {
   return mcp.mcpServersSource !== "local";
+}
+
+function runMcpSurfaceAction(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  action: Promise<PluginActionResult>,
+  failPrefix: string,
+): void {
+  const continuation = captureOverlayContinuation(shell);
+  void action
+    .then(
+      (result) => {
+        if (!isOverlayContinuationCurrent(shell, continuation)) return;
+        deps.notify(result.message);
+        if (isOverlayContinuationCurrent(shell, continuation)) openMcpSurface(shell, deps);
+      },
+      (err: unknown) => {
+        if (!isOverlayContinuationCurrent(shell, continuation)) return;
+        deps.notify(`${failPrefix}: ${errorText(err)}`);
+      },
+    )
+    .catch(() => {
+      // UI continuation failures must not escape a fire-and-forget command.
+    });
 }
 
 function mcpSurfaceRows(entries: readonly McpEntry[], canAdd: boolean): ResidualCatalogEntry[] {
@@ -1002,22 +1032,7 @@ function openAddMcpURLPane(
           deps.notify("Adding MCP servers is not available in this session.");
           return;
         }
-        const continuation = captureOverlayContinuation(shell);
-        void addServer(name, url)
-          .then(
-            (result) => {
-              if (!isOverlayContinuationCurrent(shell, continuation)) return;
-              deps.notify(result.message);
-              if (isOverlayContinuationCurrent(shell, continuation)) openMcpSurface(shell, deps);
-            },
-            (err: unknown) => {
-              if (!isOverlayContinuationCurrent(shell, continuation)) return;
-              deps.notify(`Add failed: ${errorText(err)}`);
-            },
-          )
-          .catch(() => {
-            // UI continuation failures must not escape a fire-and-forget command.
-          });
+        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed");
       },
     },
     buffer,
@@ -1049,7 +1064,7 @@ function openAddMcpNamePane(
   );
 }
 
-/** Configured MCP servers and their live state; Enter authorizes an unauthorized one. */
+/** Configured MCP servers and their live state; Enter authorizes or retries. */
 export function openMcpSurface(
   shell: AppShell,
   deps: CommandSurfaceDeps,
@@ -1092,8 +1107,15 @@ export function openMcpSurface(
         return;
       }
       const target = byName.get(id);
-      const url = target?.authURL;
-      if (target === undefined || target.state !== "needs-auth" || url === undefined) return;
+      if (target === undefined) return;
+      if (target.state === "failed") {
+        const retryServer = mcp.retryServer;
+        if (retryServer === undefined) return;
+        runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed");
+        return;
+      }
+      const url = target.authURL;
+      if (target.state !== "needs-auth" || url === undefined) return;
       mcp.openAuthURL(url);
       // The copy is the fallback that makes this work over SSH, where the
       // browser that must receive the redirect is not on this machine.
