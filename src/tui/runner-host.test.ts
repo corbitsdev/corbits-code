@@ -466,6 +466,7 @@ describe("bottom border cost run", () => {
       eventEmitter: new EventEmitter(),
       send: () => {},
       interrupt: () => {},
+      deliver: () => {},
       providers: {
         xai: { models: ["grok-4"] },
         "codex/abk-labs": { models: ["gpt-5.5"] },
@@ -515,6 +516,7 @@ describe("bottom border cost run", () => {
       eventEmitter: new EventEmitter(),
       send: () => {},
       interrupt: () => {},
+      deliver: () => {},
       providers: {
         "codex/abk-labs": { models: ["gpt-5.5"] },
         xai: { models: ["grok-4"] },
