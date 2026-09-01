@@ -83,8 +83,10 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - Bridges reactor events to the OpenTUI host via a plain `EventEmitter`
 - **Mid-run injection** — Shell `session-queue` items drain at the parent
   `tool.boundary` through `SessionPort.deliver`. Production `routeQueuedDelivery`
-  sends steers via `agentProxy.deliver` (`Agent.deliver`) into the live reactor
-  and idle follow-ups via the existing send path. `/clear` and `/new` bump a
+  live-injects in-flight parent-boundary steers via `agentProxy.deliver`
+  (`Agent.deliver`) into the live reactor. Idle leftover, idle-with-fleet, and
+  post-interrupt steers, plus follow-ups (`kind === "queue"`), use the existing
+  send path. `/clear` and `/new` bump a
   delivery generation and call `SessionBridge.clearQueuedDelivery()` so queued
   input from the previous session cannot enter the new one.
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.

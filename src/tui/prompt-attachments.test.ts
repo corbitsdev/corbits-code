@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AttachImageResult, PendingImageAttachment } from "./image-attachments.js";
-import { ingestPathMentions, spliceMentionCompletion } from "./prompt-attachments.js";
+import {
+  ingestOperatorPrompt,
+  ingestPathMentions,
+  spliceMentionCompletion,
+} from "./prompt-attachments.js";
 
 function attachment(name: string): PendingImageAttachment {
   return {
@@ -36,6 +40,30 @@ describe("ingestPathMentions", () => {
     const load = async (): Promise<AttachImageResult> => ({ ok: false, reason: "nope" });
     const result = await ingestPathMentions("./shot.png", "/repo", load);
     expect(result.text).toBe("./shot.png");
+    expect(result.attachments).toEqual([]);
+  });
+});
+
+describe("ingestOperatorPrompt", () => {
+  test("merges pending attachments and expands a missing @mention", async () => {
+    const pending = attachment("clip.png");
+    const result = await ingestOperatorPrompt(
+      "use @missing.ts",
+      "/repo",
+      async () => {
+        throw new Error("must not load");
+      },
+      [pending],
+    );
+    expect(result.text).toContain("@missing.ts (not found)");
+    expect(result.attachments).toEqual([pending]);
+  });
+
+  test("does not send — only returns ingested text and attachments", async () => {
+    const result = await ingestOperatorPrompt("just words", "/repo", async () => {
+      throw new Error("must not load");
+    });
+    expect(result.text).toBe("just words");
     expect(result.attachments).toEqual([]);
   });
 });

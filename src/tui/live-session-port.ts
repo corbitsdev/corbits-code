@@ -23,7 +23,7 @@ export interface LiveSessionPortDeps {
   ) => SubmitClassification;
   /** Hard interrupt current run (runner close/rebuild). */
   interrupt: () => void;
-  /** Drained queue/steer item at tool boundary (or idle). Always forwarded. */
+  /** Drained queue/steer item. Kind routing (live inject vs send) is the host's. */
   deliver: (text: string, kind: QueueKind, attachments?: readonly PendingImageAttachment[]) => void;
 }
 

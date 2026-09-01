@@ -207,9 +207,8 @@ import {
   classifyAgentSendFailure,
   shouldSettleUiAfterSendFailure,
 } from "./session-chrome.js";
-import { ingestPathMentions } from "./prompt-attachments.js";
+import { ingestOperatorPrompt } from "./prompt-attachments.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
-import { resolveAtMentions } from "./mention-resolution.js";
 import { imageAttachmentFromPath, type PendingImageAttachment } from "./image-attachments.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import type { OperatorGateEvent } from "./gate-events.js";
@@ -2224,10 +2223,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           });
         });
       }
-      const ingested = await ingestPathMentions(text, config.cwd, imageAttachmentFromPath);
-      const resolved = await resolveAtMentions(ingested.text, config.cwd);
-      const attachments = [...pending, ...ingested.attachments];
-      await agentProxy.send(userInboundMessage(resolved, attachments));
+      const ingested = await ingestOperatorPrompt(
+        text,
+        config.cwd,
+        imageAttachmentFromPath,
+        pending,
+      );
+      await agentProxy.send(userInboundMessage(ingested.text, ingested.attachments));
     };
 
     const dispatchCommand = (name: string, args: string): void => {
@@ -2291,8 +2293,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       interrupt,
       deliver: routeQueuedDelivery({
         send,
+        parentCycleLive: () => host.bridge.parentCycleLive,
         deliverSteer: (text, attachments) => {
-          agentProxy.deliver(userInboundMessage(text, attachments ?? []));
+          const stillCurrent = deliveryGeneration.capture();
+          void (async () => {
+            if (!stillCurrent()) return;
+            const ingested = await ingestOperatorPrompt(
+              text,
+              config.cwd,
+              imageAttachmentFromPath,
+              attachments ?? [],
+            );
+            if (!stillCurrent()) return;
+            agentProxy.deliver(userInboundMessage(ingested.text, ingested.attachments));
+          })().catch(handleSendFailure);
         },
       }),
       // Consent by proceeding requires the disclosure to be on screen before the

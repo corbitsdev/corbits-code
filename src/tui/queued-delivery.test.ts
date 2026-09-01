@@ -10,54 +10,69 @@ const image: PendingImageAttachment = {
   contentHash: "hash-1",
 };
 
+function recordHops(parentCycleLive: () => boolean) {
+  const sends: string[] = [];
+  const steers: string[] = [];
+  const deliver = routeQueuedDelivery({
+    send: (text) => {
+      sends.push(text);
+    },
+    deliverSteer: (text) => {
+      steers.push(text);
+    },
+    parentCycleLive,
+  });
+  return { deliver, sends, steers };
+}
+
 describe("routeQueuedDelivery", () => {
-  test("steer calls deliverSteer only", () => {
-    const sends: string[] = [];
-    const steers: string[] = [];
-    const deliver = routeQueuedDelivery({
-      send: (text) => {
-        sends.push(text);
-      },
-      deliverSteer: (text) => {
-        steers.push(text);
-      },
-    });
+  test("live parent-boundary steer calls deliverSteer only", () => {
+    const { deliver, sends, steers } = recordHops(() => true);
     deliver("asap", "steer");
     expect(steers).toEqual(["asap"]);
     expect(sends).toEqual([]);
   });
 
-  test("queue calls send only", () => {
-    const sends: string[] = [];
-    const steers: string[] = [];
-    const deliver = routeQueuedDelivery({
-      send: (text) => {
-        sends.push(text);
-      },
-      deliverSteer: (text) => {
-        steers.push(text);
-      },
-    });
+  test("leftover steer (idle / fleet-hold / post-interrupt) calls send only", () => {
+    const { deliver, sends, steers } = recordHops(() => false);
+    deliver("leftover", "steer");
+    expect(sends).toEqual(["leftover"]);
+    expect(steers).toEqual([]);
+  });
+
+  test("queue calls send only, even while the parent cycle is live", () => {
+    const { deliver, sends, steers } = recordHops(() => true);
     deliver("later", "queue");
     expect(sends).toEqual(["later"]);
     expect(steers).toEqual([]);
   });
 
-  test("forwards attachments on both kinds", () => {
+  test("forwards attachments on both hops", () => {
     const sent: (readonly PendingImageAttachment[] | undefined)[] = [];
     const steered: (readonly PendingImageAttachment[] | undefined)[] = [];
-    const deliver = routeQueuedDelivery({
+    const live = routeQueuedDelivery({
       send: (_text, attachments) => {
         sent.push(attachments);
       },
       deliverSteer: (_text, attachments) => {
         steered.push(attachments);
       },
+      parentCycleLive: () => true,
     });
-    deliver("asap", "steer", [image]);
-    deliver("later", "queue", [image]);
+    const leftover = routeQueuedDelivery({
+      send: (_text, attachments) => {
+        sent.push(attachments);
+      },
+      deliverSteer: (_text, attachments) => {
+        steered.push(attachments);
+      },
+      parentCycleLive: () => false,
+    });
+    live("asap", "steer", [image]);
+    leftover("later", "steer", [image]);
+    leftover("follow", "queue", [image]);
     expect(steered).toEqual([[image]]);
-    expect(sent).toEqual([[image]]);
+    expect(sent).toEqual([[image], [image]]);
   });
 });
 

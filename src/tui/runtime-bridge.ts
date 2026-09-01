@@ -183,6 +183,13 @@ export interface SessionBridge {
    */
   clearQueuedDelivery: () => void;
   /**
+   * True only while draining steers at a live parent tool.boundary (or
+   * inference.done with tools still outstanding). Last-hop routing reads this
+   * when the deliver op runs: leftover / fleet-hold / post-interrupt drains
+   * are false and must send().
+   */
+  readonly parentCycleLive: boolean;
+  /**
    * A permission or operator gate was raised — queued or already displayed.
    * Blocks the turn (and exempts it from the stall watchdog) until a matching
    * `gateClosed` call. Multiple outstanding gates nest correctly.
@@ -393,6 +400,11 @@ interface BridgeBag {
    * into fragments that each read as half a sentence.
    */
   turnThinking: TurnThinking | null;
+  /**
+   * Set only around drainSteersAtBoundary at a live parent tool.boundary.
+   * Last-hop routing (routeQueuedDelivery) reads this when deliver runs.
+   */
+  liveSteerInject: boolean;
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>();
@@ -790,6 +802,20 @@ function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
 }
 
 /**
+ * Live parent-cycle inject: routeQueuedDelivery reads parentCycleLive while
+ * this drain's port.deliver runs. Idle leftover, fleet-hold, and interrupt
+ * use drainSteersAtBoundary / drainAtBoundary without this flag so they send.
+ */
+function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  bag.liveSteerInject = true;
+  try {
+    drainSteersAtBoundary(shell, bag);
+  } finally {
+    bag.liveSteerInject = false;
+  }
+}
+
+/**
  * Release the run to idle and drain everything queued — but only at true
  * session-idle. A live fleet holds the run busy after the parent turn settles
  * (idle-with-fleet): Enter upgrades to a new primary turn during the hold and
@@ -802,8 +828,8 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   shell.inFlightTool = null;
   if (bag.liveFleet > 0) {
     // Hold: the fleet is still live, so the run stays busy. Steers left
-    // pending deliver now — the parent they were steering has stopped, so
-    // each one just starts its own turn — while follow-ups keep waiting.
+    // pending send now — the parent they were steering has stopped, so
+    // each one starts its own turn — while follow-ups keep waiting.
     drainSteersAtBoundary(shell, bag);
     return;
   }
@@ -869,7 +895,7 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
 
   if (event.type === "tool.boundary") {
     // Soft steer only — follow-ups wait until the run goes idle.
-    drainSteersAtBoundary(shell, bag);
+    drainLiveSteersAtBoundary(shell, bag);
     return;
   }
 
@@ -927,6 +953,7 @@ export function attachSessionBridge(
     panelOnlyCallIds: new Set(),
     attemptRow: null,
     turnThinking: null,
+    liveSteerInject: false,
   };
   bridges.set(shell, bag);
 
@@ -1099,7 +1126,7 @@ export function attachSessionBridge(
       // turn (see turn-state.ts) — the cycle continues, but a soft-steer
       // boundary still passed. Follow-ups wait for idle.
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
-        drainSteersAtBoundary(shell, bag);
+        drainLiveSteersAtBoundary(shell, bag);
       }
       if (settled) settleRun();
       return;
@@ -1346,6 +1373,9 @@ export function attachSessionBridge(
     submit,
     interrupt: doInterrupt,
     clearQueuedDelivery,
+    get parentCycleLive() {
+      return bag.liveSteerInject;
+    },
     gateOpened,
     gateClosed,
     get turn() {

@@ -481,7 +481,7 @@ events carrying the live-lane count and the bridge holds the run busy on it.
 During the hold, Enter upgrades to a new primary turn sent immediately —
 there is no parent tool left to steer — while Alt+Enter follow-ups keep
 waiting for true session-idle. A steer still pending when the hold engages
-delivers at once (the parent it was steering has stopped), and the last lane
+sends at once (the parent it was steering has stopped), and the last lane
 terminalizing releases the hold, drains follow-ups, and returns the session
 to idle.
 
