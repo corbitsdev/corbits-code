@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-09-01
+
 ### TUI
 
 - `/connect` opens Add Provider from any layout.
@@ -29,8 +31,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Changed
 
-- Cancelling a `task` or `wait_agents` worker reports wait status `interrupted`,
-  not `failed`.
+- Cancelling a spawned worker or `wait_agents` reports wait status
+  `interrupted`, not `failed`.
 - Inference no longer fails over to a backup provider. A selected-provider
   failure stays on that provider; switch with `/model`.
 
