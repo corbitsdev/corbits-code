@@ -7,6 +7,7 @@ import {
   isPluginModuleEnabled,
 } from "../../src/plugins/register.js";
 import type { PluginModule } from "../../src/plugins/loader.js";
+import { getCommand } from "../../src/tui/commands/registry.js";
 
 function cmdModule(id: string, extra: Partial<PluginModule> = {}): PluginModule {
   return {
@@ -53,6 +54,17 @@ test("registerCommandPlugins registers only enabled command plugins", () => {
   const mods = [cmdModule("reg-on"), cmdModule("reg-off")];
   const registered = registerCommandPlugins(mods, { "reg-on": { enabled: true } });
   expect(registered).toEqual(["reg-on"]);
+});
+
+test("registerCommandPlugins restores a disabled-at-startup command without re-registering", () => {
+  const mods = [cmdModule("reg-off-live")];
+  const config: Record<string, { enabled: boolean }> = { "reg-off-live": { enabled: false } };
+  const registered = registerCommandPlugins(mods, config);
+  expect(registered).toEqual([]);
+  expect(getCommand("reg-off-live")).toBeUndefined();
+
+  config["reg-off-live"] = { enabled: true };
+  expect(getCommand("reg-off-live")).toBeDefined();
 });
 
 test("enablePluginConfig marks enabled and preserves credentials/consented", () => {

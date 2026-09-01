@@ -149,7 +149,7 @@ export interface ProductHostConfig {
    */
   readonly addProviderChoices?: () => readonly ProductHostAddProviderChoice[];
   /** Command palette catalog (registry-backed). */
-  readonly commands?: readonly PaletteCommand[];
+  readonly commands?: readonly PaletteCommand[] | (() => readonly PaletteCommand[]);
   readonly onCommand?: (name: string) => void;
   /** Optional initial chrome snapshot. */
   readonly chrome?: ChromeLiveState | null;
@@ -326,7 +326,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   // while still opting this host into the quota-retry / stall timers.
   const bridge = attachSessionBridge(shell, port, config.turnMonitor ?? {});
 
-  if (config.commands !== undefined && config.commands.length > 0) {
+  if (config.commands !== undefined) {
     setPaletteCatalog(shell, config.commands);
   }
   if (config.onCommand) {

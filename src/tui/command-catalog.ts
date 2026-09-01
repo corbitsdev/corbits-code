@@ -4,7 +4,7 @@
  * Pure: host injects `listCommands()` results (or fixtures). No registry import
  * here — avoids circular / heavy deps from `src/tui/commands`.
  *
- *   setPaletteCatalog(shell, commandItemsFromRegistry(listCommands()))
+ *   setPaletteCatalog(shell, () => commandItemsFromRegistry(listCommands()))
  */
 
 import { sliceToWidth, stringWidth } from "./view/height.js";

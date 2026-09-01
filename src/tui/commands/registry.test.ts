@@ -69,6 +69,18 @@ describe("command registry", () => {
     expect(def?.handler("", ctx)).toEqual({ type: "message", text: "built-in" });
   });
 
+  it("keeps command-specific availability visibility-only", () => {
+    registerCommand({
+      name: "unavailable-but-callable",
+      description: "visibility gated",
+      available: () => false,
+      handler: () => ({ type: "noop" }),
+    });
+
+    expect(listCommands().map((command) => command.name)).not.toContain("unavailable-but-callable");
+    expect(getCommand("unavailable-but-callable")).toBeDefined();
+  });
+
   it("invokes handler with args and context", () => {
     let receivedArgs = "";
     let clearCalled = false;
@@ -101,6 +113,141 @@ describe("registerCommandPlugin", () => {
     });
     expect(getCommand("plugin-cmd-a")).toBeDefined();
     expect(getCommand("plugin-cmd-b")).toBeDefined();
+  });
+
+  it("re-resolves activation for discovery and execution", () => {
+    let active = true;
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "live-plugin-cmd",
+            description: "live plugin",
+            handler: () => ({ type: "message", text: "ran" }),
+          },
+        ],
+      },
+      () => active,
+    );
+
+    expect(listCommands().map((command) => command.name)).toContain("live-plugin-cmd");
+    expect(getCommand("live-plugin-cmd")?.handler("", ctx)).toEqual({
+      type: "message",
+      text: "ran",
+    });
+
+    active = false;
+    expect(listCommands().map((command) => command.name)).not.toContain("live-plugin-cmd");
+    expect(getCommand("live-plugin-cmd")).toBeUndefined();
+
+    active = true;
+    expect(listCommands().map((command) => command.name)).toContain("live-plugin-cmd");
+    expect(getCommand("live-plugin-cmd")).toBeDefined();
+  });
+
+  it("serves the next candidate when the first plugin deactivates", () => {
+    let firstActive = true;
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "plugin-live-fallback",
+            description: "first",
+            handler: () => ({ type: "noop" }),
+          },
+        ],
+      },
+      () => firstActive,
+    );
+    registerCommandPlugin({
+      commands: [
+        {
+          name: "plugin-live-fallback",
+          description: "second",
+          handler: () => ({ type: "noop" }),
+        },
+      ],
+    });
+
+    expect(getCommand("plugin-live-fallback")?.description).toBe("first");
+    expect(
+      listCommands().find((command) => command.name === "plugin-live-fallback")?.description,
+    ).toBe("first");
+
+    firstActive = false;
+    expect(getCommand("plugin-live-fallback")?.description).toBe("second");
+    expect(
+      listCommands().find((command) => command.name === "plugin-live-fallback")?.description,
+    ).toBe("second");
+  });
+
+  it("does not execute a typed slash name after the plugin deactivates", () => {
+    let active = true;
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "typed-after-disable",
+            description: "typed",
+            handler: () => ({ type: "message", text: "ran" }),
+          },
+        ],
+      },
+      () => active,
+    );
+
+    const stalePaletteRow = "typed-after-disable";
+    expect(getCommand(stalePaletteRow)).toBeDefined();
+    active = false;
+    expect(getCommand(stalePaletteRow)).toBeUndefined();
+  });
+
+  it("lets an enabled plugin claim a name ahead of a disabled candidate", () => {
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "plugin-candidate-collision",
+            description: "disabled candidate",
+            handler: () => ({ type: "noop" }),
+          },
+        ],
+      },
+      () => false,
+    );
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "plugin-candidate-collision",
+            description: "enabled candidate",
+            handler: () => ({ type: "noop" }),
+          },
+        ],
+      },
+      () => true,
+    );
+
+    expect(getCommand("plugin-candidate-collision")?.description).toBe("enabled candidate");
+  });
+
+  it("never lets a plugin collision replace a built-in command", () => {
+    registerCommand({
+      name: "built-in-plugin-collision",
+      description: "built-in",
+      handler: () => ({ type: "noop" }),
+    });
+    registerCommandPlugin({
+      commands: [
+        {
+          name: "built-in-plugin-collision",
+          description: "plugin",
+          handler: () => ({ type: "noop" }),
+        },
+      ],
+    });
+
+    expect(getCommand("built-in-plugin-collision")?.description).toBe("built-in");
   });
 });
 

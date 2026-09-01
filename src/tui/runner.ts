@@ -90,15 +90,14 @@ import {
   type PathTrustStore,
 } from "../trust/path-trust.js";
 import {
+  registerCommandPluginModule,
   registerCommandPlugins,
   registerWorkflowPlugins,
-  isEnabledCommandPlugin,
   enablePluginConfig,
 } from "../plugins/register.js";
 import {
   getCommand,
   listCommands,
-  registerCommandPlugin,
   setHiddenCommands,
   type CommandContext,
   type CommandResult,
@@ -586,11 +585,11 @@ export function telemetryStartupNotice(
 export function setUpCommandRegistry(
   settings: Settings | undefined,
   plugins: PluginModule[],
+  getPluginConfig: () => Record<string, PluginConfig> = () => settings?.plugins ?? {},
 ): void {
-  const pluginConfig = settings?.plugins ?? {};
   registerBuiltInCommands();
-  registerWorkflowPlugins(plugins, pluginConfig);
-  registerCommandPlugins(plugins, pluginConfig);
+  registerWorkflowPlugins(plugins, getPluginConfig());
+  registerCommandPlugins(plugins, getPluginConfig);
   setHiddenCommands(settings?.hiddenCommands ?? []);
 }
 
@@ -659,9 +658,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
   const executablePlugins = () => livePluginModules.filter((m) => m.metadataOnly !== true);
-  // Command plugins are wired in only when explicitly enabled in settings.
-  const pluginConfig = config.settings?.plugins ?? {};
-  setUpCommandRegistry(config.settings, executablePlugins());
+  let livePluginConfig: Record<string, PluginConfig> = { ...(config.settings?.plugins ?? {}) };
+  setUpCommandRegistry(config.settings, executablePlugins(), () => livePluginConfig);
   // loadConfig already bootstrapped pricing metadata; re-read cache here so a
   // TUI-only entry (tests) still picks up the tool-home cache path.
   await seedPricingMetadataFromCache({
@@ -978,7 +976,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(typeof a["description"] === "string" ? { description: a["description"] } : {}),
         }));
     }
-    let livePluginConfig: Record<string, PluginConfig> = { ...(config.settings?.plugins ?? {}) };
     let liveWebOverride: string | undefined = config.settings?.web;
     const livePluginPaths: string[] = [...(config.settings?.pluginPaths ?? [])];
     const persistPluginSettings = async (): Promise<void> => {
@@ -1048,20 +1045,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
                 if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
                 else toolPluginCandidates.push(cand);
               }
-              if (
-                full.commandPlugin !== undefined &&
-                isEnabledCommandPlugin(full, livePluginConfig)
-              ) {
-                registerCommandPlugin(full.commandPlugin);
-              }
+              registerCommandPluginModule(full, () => livePluginConfig);
             }
           }
-        }
-        // Live-wire a command plugin the moment it is enabled (no restart needed);
-        // disabling takes effect on the next launch.
-        const mod = livePluginModules.find((m) => m.manifest?.id === id);
-        if (mod !== undefined && isEnabledCommandPlugin(mod, livePluginConfig)) {
-          registerCommandPlugin(mod.commandPlugin!);
         }
         await persistPluginSettings();
         return trustGrantMessage === undefined ? undefined : { message: trustGrantMessage };
@@ -1173,13 +1159,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
           else toolPluginCandidates.push(cand);
         }
-        // Register slash commands immediately so they show up without a restart.
-        // Also persist enabled: true — path-add is consent to use the plugin; without
-        // this, restart loads the path but isPluginEnabled stays false and commands vanish.
+        // Path-add is consent to use the plugin, so persist activation and make
+        // its commands available from the registry without requiring a restart.
         livePluginConfig = enablePluginConfig(livePluginConfig, descriptor.id);
-        if (mod.commandPlugin !== undefined && isEnabledCommandPlugin(mod, livePluginConfig)) {
-          registerCommandPlugin(mod.commandPlugin);
-        }
+        registerCommandPluginModule(mod, () => livePluginConfig);
         // Persist the resolved absolute path so it reloads regardless of the cwd
         // the next session starts from.
         if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
@@ -1242,7 +1225,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Skill directories from enabled plugins, in addition to project-local
     // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
-    const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginConfig);
+    const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), livePluginConfig);
 
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     // Mutable so Settings → waitForApproval takes effect on the next tool call
@@ -2493,7 +2476,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           });
         });
       },
-      commands: listCommands().map((c) => ({ name: c.name, description: c.description })),
+      commands: () => listCommands().map((c) => ({ name: c.name, description: c.description })),
       onCommand: (name) => {
         const route = routeSubmission(name);
         if (route.kind === "empty") return;

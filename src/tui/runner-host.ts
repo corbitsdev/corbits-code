@@ -115,7 +115,7 @@ export interface RunnerHostDeps {
    * then hidden. Defaults to false (off) when omitted.
    */
   readonly showPromptCost?: () => boolean;
-  readonly commands: readonly RegistryCommandSource[];
+  readonly commands: readonly RegistryCommandSource[] | (() => readonly RegistryCommandSource[]);
   readonly onCommand: (name: string) => void;
   /** Live chrome snapshot source, read on mount and on every notify. */
   readonly chrome: () => ChromeSessionInput;
@@ -274,7 +274,10 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     },
     onModelSelect,
     describeModel,
-    commands: commandItemsFromRegistry(deps.commands),
+    commands: () =>
+      commandItemsFromRegistry(
+        typeof deps.commands === "function" ? deps.commands() : deps.commands,
+      ),
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
     onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),
