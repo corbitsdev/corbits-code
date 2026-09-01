@@ -98,7 +98,7 @@ prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode
 ### What auto allows
 
 - File tools inside the workspace: `write_file`, `edit_file`, `delete_file` (and
-  other non-shell built-ins such as `manage_tasks`, `task`, …)
+  other non-shell built-ins such as `manage_tasks`, `spawn_agent`, `wait_agents`, …)
 - Unconstrained shell (builds, tests, git, one-off commands that match no
   deny/ask rule)
 - Read-only tools (`read_file`, `grep`, `search_files`, `list_dir`, `lsp`, …)
@@ -152,9 +152,8 @@ Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md`
 
 Corbits Code is a single-process CLI built on Interchange primitives. The primary
 session is always the **orchestrator** (Skywalker): it can act directly and
-delegates substantial work through a closed director fleet via `spawn_agent` /
-`wait_agents` / `search_agents` (`task` remains a fused spawn-plus-wait
-wrapper).
+delegates substantial work through a closed director fleet via `spawn_agent`,
+`wait_agents`, and `search_agents`.
 
 ```
 CLI (src/index.ts)
@@ -202,10 +201,9 @@ Corbits Code keeps repository guidance and the closed director fleet separate:
 - `.agents/agents/` — optional local profile additions; this directory is not
   required and may be absent
 
-Named workers resolve through `spawn_agent` / `task` (`resolveDirector`): closed
-directors first, then enabled agent plugins, then local
-`.agents/agents/*.json|*.yaml` profiles. Use `search_agents` to discover ids
-before dispatching.
+Named workers resolve through `spawn_agent(agent=...)`: closed directors first,
+then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles.
+Use `search_agents` to discover ids before dispatching.
 
 ## Contributing
 

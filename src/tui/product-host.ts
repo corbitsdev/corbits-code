@@ -162,7 +162,7 @@ export interface ProductHostConfig {
   readonly onObserveRequest?: PaletteOnObserveRequest;
   /**
    * Live sub-agent sessions read on the chrome poll cadence to refresh
-   * outstanding `task` rows with elapsed time, current tool, and stall state.
+   * outstanding `spawn_agent` rows with elapsed time, current tool, and stall state.
    * Omitted hosts (tests, the demo shell) simply paint bare pending rows.
    */
   readonly subAgentSessions?: () => readonly TaskProgressSession[];

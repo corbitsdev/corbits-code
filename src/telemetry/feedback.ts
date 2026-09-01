@@ -173,7 +173,7 @@ export function getLastTurnTraceId(): string | undefined {
 
 /**
  * Remember the in-flight turn's `$ai_trace_id` so `subagent_end` can link to the
- * turn that is still running when `task` / `spawn_agent` dispatch (not the
+ * turn that is still running when `spawn_agent` dispatch (not the
  * previous completed turn).
  */
 export function noteCurrentTurnTraceId(traceId: string): void {

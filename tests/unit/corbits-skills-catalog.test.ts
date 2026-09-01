@@ -103,10 +103,10 @@ test("corbits-skills catalog lists 16 skills with name and description", async (
   }
 });
 
-test("spawn-recipe skills contain task(agent=", async () => {
+test("spawn-recipe skills contain spawn_agent(agent=", async () => {
   for (const name of SPAWN_RECIPE_SKILLS) {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
-    expect(skill).toContain("task(agent=");
+    expect(skill).toContain("spawn_agent(agent=");
   }
 });
 
@@ -128,8 +128,8 @@ test("typescript skill guides TS quality without fake enforcement", async () => 
 
 test("implement skill is a per-commit workflow without a false 4-cap", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
-  expect(skill).toContain('task(agent="greybeard")');
-  expect(skill).toContain('task(agent="critic")');
+  expect(skill).toContain('spawn_agent(agent="greybeard")');
+  expect(skill).toContain('spawn_agent(agent="critic")');
   expect(skill).toContain("Do not invent a worker-count or fan-out ceiling");
   expect(skill).toContain("Close the loop");
   expect(skill).not.toContain("once or twice");

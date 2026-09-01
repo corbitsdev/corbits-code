@@ -113,11 +113,13 @@ function guidanceFor(step: WorkflowStep): string[] {
     const agents = Array.isArray(step.agent) ? step.agent : [step.agent];
     if (step.parallel === true && agents.length > 1) {
       out.push(
-        `Delegate this step to these sub-agents in parallel via the task tool: ${agents.join(", ")}.` +
-          ` Wait for all of them before advancing.`,
+        `Delegate this step to these sub-agents in parallel via spawn_agent: ${agents.join(", ")}.` +
+          ` Use wait_agents to collect all of them before advancing.`,
       );
     } else {
-      out.push(`Delegate this step to the ${agents.join(", ")} sub-agent via the task tool.`);
+      out.push(
+        `Delegate this step to the ${agents.join(", ")} sub-agent via spawn_agent, then collect it with wait_agents.`,
+      );
     }
   }
   if (step.type === "gate") {

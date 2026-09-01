@@ -6,7 +6,7 @@ import {
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
-import { BUILD_TOOLS } from "../../../src/agent/directors/tool-sets.js";
+import { BUILD_TOOLS, SKYWALKER_TOOLS } from "../../../src/agent/directors/tool-sets.js";
 import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
 
 function bareConfig(task: string): Config {
@@ -87,20 +87,25 @@ describe("disposeExecRuntime", () => {
 });
 
 describe("resolveExecDirectorOverlay", () => {
-  test("builder exec primary does not mount task", () => {
+  test("builder exec primary does not mount fleet", () => {
     const overlay = resolveExecDirectorOverlay("builder");
-    expect(overlay.mountTask).toBe(false);
+    expect(overlay.mountFleet).toBe(false);
     expect(overlay.advertisedAllow).toBeDefined();
-    expect(overlay.advertisedAllow).not.toContain("task");
     expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
+    const buildToolSet = new Set<string>(BUILD_TOOLS);
+    const fleetVerbs = SKYWALKER_TOOLS.filter((name) => !buildToolSet.has(name));
+    expect(fleetVerbs.length).toBeGreaterThan(0);
+    for (const verb of fleetVerbs) {
+      expect(overlay.advertisedAllow).not.toContain(verb);
+    }
     expect(overlay.systemPrompt).toContain("BuilderDirector");
   });
 
-  test("skywalker default still can mount task", () => {
-    expect(resolveExecDirectorOverlay(undefined).mountTask).toBe(true);
+  test("skywalker default still can mount fleet", () => {
+    expect(resolveExecDirectorOverlay(undefined).mountFleet).toBe(true);
     expect(resolveExecDirectorOverlay(undefined).systemPrompt).toBeUndefined();
     expect(resolveExecDirectorOverlay(undefined).advertisedAllow).toBeUndefined();
-    expect(resolveExecDirectorOverlay("skywalker").mountTask).toBe(true);
+    expect(resolveExecDirectorOverlay("skywalker").mountFleet).toBe(true);
     expect(resolveExecDirectorOverlay("skywalker").systemPrompt).toBeUndefined();
   });
 });

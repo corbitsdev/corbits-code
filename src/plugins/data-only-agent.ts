@@ -56,28 +56,29 @@ const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
 // skills (frontmatter list, in addition to body `Load the X skill` lines).
 
 // Upstream tool-name aliases mapped to Corbits Code tool ids. Case-insensitive.
-const TOOL_ALIASES: Record<string, string> = {
-  read: "read_file",
-  write: "write_file",
-  edit: "edit_file",
-  bash: "run_shell",
-  shell: "run_shell",
-  glob: "search_files",
-  find: "search_files",
-  grep: "grep",
-  ls: "list_dir",
-  task: "task",
-  subagent: "task",
-  websearch: "web_search",
-  webfetch: "web_fetch",
-  fetch: "web_fetch",
-  lsp: "lsp",
+const TOOL_ALIASES: Record<string, readonly string[]> = {
+  read: ["read_file"],
+  write: ["write_file"],
+  edit: ["edit_file"],
+  bash: ["run_shell"],
+  shell: ["run_shell"],
+  glob: ["search_files"],
+  find: ["search_files"],
+  grep: ["grep"],
+  ls: ["list_dir"],
+  task: ["spawn_agent", "wait_agents"],
+  subagent: ["spawn_agent", "wait_agents"],
+  websearch: ["web_search"],
+  webfetch: ["web_fetch"],
+  fetch: ["web_fetch"],
+  lsp: ["lsp"],
 };
 
-function aliasTool(raw: string): string {
-  const lower = raw.trim().toLowerCase();
-  if (lower.length === 0) return raw;
-  return TOOL_ALIASES[lower] ?? raw;
+function aliasTools(raw: string): string[] {
+  const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.length === 0) return [raw];
+  return [...(TOOL_ALIASES[lower] ?? [trimmed])];
 }
 
 function isReasoningEffort(v: unknown): v is ReasoningEffort {
@@ -116,14 +117,14 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
     if (!(mode instanceof type.errors) && Array.isArray(cap.tools)) {
       return {
         mode,
-        tools: cap.tools.filter((t): t is string => typeof t === "string").map(aliasTool),
+        tools: cap.tools.filter((t): t is string => typeof t === "string").flatMap(aliasTools),
       };
     }
   }
 
   // Claude Code: tools: [Read, Grep]  (allowlist)
   if (Array.isArray(fm.tools) && fm.tools.length > 0 && fm.disallowedTools === undefined) {
-    const tools = fm.tools.filter((t): t is string => typeof t === "string").map(aliasTool);
+    const tools = fm.tools.filter((t): t is string => typeof t === "string").flatMap(aliasTools);
     if (tools.length > 0) return { mode: "allow", tools };
   }
 
@@ -131,7 +132,7 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
   if (Array.isArray(fm.disallowedTools) && fm.disallowedTools.length > 0) {
     const tools = fm.disallowedTools
       .filter((t): t is string => typeof t === "string")
-      .map(aliasTool);
+      .flatMap(aliasTools);
     if (tools.length > 0) return { mode: "exclude", tools };
   }
 
@@ -147,8 +148,8 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
     const allowed: string[] = [];
     const excluded: string[] = [];
     for (const [k, v] of Object.entries(map)) {
-      if (v === true) allowed.push(aliasTool(k));
-      else if (v === false) excluded.push(aliasTool(k));
+      if (v === true) allowed.push(...aliasTools(k));
+      else if (v === false) excluded.push(...aliasTools(k));
     }
     if (allowed.length > 0 && excluded.length === 0) return { mode: "allow", tools: allowed };
     if (excluded.length > 0 && allowed.length === 0) return { mode: "exclude", tools: excluded };
@@ -203,11 +204,11 @@ function normalizePermission(perm: Record<string, unknown>): CapabilityFilter | 
   const denied: string[] = [];
   for (const [k, v] of Object.entries(flat)) {
     if (k === "*" || k === "**") continue;
-    if (v === "allow") allowed.push(aliasTool(k));
-    else if (v === "deny") denied.push(aliasTool(k));
+    if (v === "allow") allowed.push(...aliasTools(k));
+    else if (v === "deny") denied.push(...aliasTools(k));
     // "ask" is treated as allowed for v1 — the ask-vs-allow distinction needs
     // a permission UI that doesn't exist for sub-agents yet.
-    else if (v === "ask") allowed.push(aliasTool(k));
+    else if (v === "ask") allowed.push(...aliasTools(k));
   }
 
   if (hasWildcardDeny && allowed.length > 0) {
@@ -431,10 +432,9 @@ export async function loadDataOnlyAgentPlugin(
     if (description !== undefined) profile.description = description;
     if (inference !== undefined) profile.inference = inference;
     if (capabilities !== undefined) profile.capabilities = capabilities;
-    // `orchestrator: true` opts the agent into the recursion exception. Stored
-    // as a boolean rather than inferred from `mode: primary` because primary
-    // also collapses to "inherit all tools" for permissions — conflating the
-    // two would force every primary-style agent to recurse, which is wrong.
+    // Preserve the declaration for schema/search visibility. Dispatch rejects
+    // profile orchestrators until profile-sourced tiers have authority semantics.
+    // Do not infer this from `mode: primary`; primary also means inherit tools.
     if (frontmatter.orchestrator === true) profile.orchestrator = true;
     profile.systemPromptRole = systemPromptRole;
 

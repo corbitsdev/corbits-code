@@ -112,7 +112,7 @@ export function buildGuidelines(
     ...(subAgent
       ? []
       : [
-          "- Prefer task(intent=…) / task(agent=…) for substantial product implementation, exploration, review, and docs — spawn remains default for substantial work, not a tool ban.",
+          "- Prefer spawn_agent(agent=…) / wait_agents for substantial product implementation, exploration, review, and docs — spawn remains default for substantial work, not a tool ban.",
         ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     subAgent
@@ -150,11 +150,11 @@ export function buildGuidelines(
       : [
           "",
           "Orchestration:",
-          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle, and `wait_agents` / `list_agents` on a later turn collect their reports without holding this conversation blocked. `task` remains the deprecated fused spawn+wait fallback for a single blocking worker.",
+          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle, and `wait_agents` / `list_agents` on a later turn collect their reports without holding this conversation blocked.",
           "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
           "- If a worker comes back without finishing, change the brief rather than repeating it: narrow the scope, name the files, or state the done-when more sharply.",
-          "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent` / `wait_agents` (or deprecated `task`), not manage_tasks.",
+          "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent` / `wait_agents`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
   ].join("\n");
@@ -215,9 +215,11 @@ const TOOL_SUMMARIES: Record<string, string> = {
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
-  task: "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
+  spawn_agent:
+    "start a worker agent and return immediately with agent_id; pass returned ids from search_agents as agent=...",
+  wait_agents: "wait for spawned workers by agent_id and collect their reports",
   search_agents:
-    "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
+    "find agent profiles by role or team before spawning with spawn_agent(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
   submit_output: "signal the task is complete, or complete a workflow step by passing its step id",
   ask_operator:
@@ -327,26 +329,26 @@ export function buildChatSystemPrompt(
 }
 
 // Notes appended to every sub-agent's system prompt so corbitsdev-format
-// agent definitions translate cleanly to Corbits Code: the `task` tool is the
-// *spawn* surface (wire name kept for compatibility), tool names are
-// Corbits Code-native, and the upstream `mode: primary` distinction collapses.
+// agent definitions translate cleanly to Corbits Code: `spawn_agent` is the
+// spawn surface, tool names are Corbits Code-native, and the upstream
+// `mode: primary` distinction collapses.
 //
 // Vocabulary: an *agent* is a runtime entity; a *task* is a checklist item
 // owned via manage_tasks; a *sub-agent* is a short-lived child agent. Do not
 // conflate spawn with checklist.
 //
 // `orchestrator` flips the recursion rule: by default a sub-agent must NOT
-// call `task` (no recursion past depth 1). An orchestrator profile is the
-// documented exception — its purpose IS to fan work out to other agents —
-// so the appendix grants permission and links the syntax.
+// call `spawn_agent` (no recursion past depth 1). A built-in orchestrator
+// director is the documented exception — its purpose IS to fan work out to
+// other agents — so the appendix grants permission and links the syntax.
 export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
-  // Workers must not be told both "spawn with task" and "do not call task".
+  // Workers must not be told both "you may spawn" and "do not spawn".
   // Orchestrators get the spawn instruction; everyone else gets the no-recursion
   // rule only.
   const recursionRule =
     opts.orchestrator === true
-      ? '- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent="greybeard", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
-      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
+      ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other sub-agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own after `wait_agents`. `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
+      : `- Only the primary ${PRODUCT_NAME} session (or a built-in orchestrator director) may call \`spawn_agent\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
     `## ${PRODUCT_NAME} notes`,
     "",

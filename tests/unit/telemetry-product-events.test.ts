@@ -15,7 +15,13 @@ import type { Settings } from "../../src/config/settings.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
 import { loadPluginEntry } from "../../src/plugins/loader.js";
 import { createSessionPruningCompactor } from "../../src/session/runtime-assembly.js";
-import { createTaskTool } from "../../src/subagent/task-tool.js";
+import {
+  createFleetMailbox,
+  createSpawnAgentTool,
+  createWaitAgentsTool,
+} from "../../src/subagent/agent-fleet.js";
+
+import { createSubAgentSessionStore } from "../../src/subagent/session-store.js";
 import {
   classifyAgentName,
   classifyErrorClass,
@@ -244,7 +250,9 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
   const cwd = await tempDir("corbits-agent-");
   const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
 
-  const tool = createTaskTool({
+  const sessions = createSubAgentSessionStore();
+  const fleetRecords = createFleetMailbox(sessions);
+  const tool = createSpawnAgentTool({
     cwd,
     getWorkdirBase: () => cwd,
     permissionGate: gate,
@@ -252,6 +260,8 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     profiles: [
       { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
     ],
+    sessions,
+    fleetRecords,
     run: async (params) => {
       params.onRunSettled?.({
         turn_count: 2,
@@ -272,12 +282,18 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     telemetry,
   });
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  const wait = createWaitAgentsTool({ sessions, fleetRecords });
+  if (wait.kind !== "full") throw new Error(`expected full tool, got ${wait.kind}`);
   await tool.handler(
     {
       id: "call-1",
-      name: "task",
+      name: "spawn_agent",
       arguments: { description: "Ship", prompt: "Ship it", agent: "acmecorp-release-captain" },
     },
+    new AbortController().signal,
+  );
+  await wait.handler(
+    { id: "wait-1", name: "wait_agents", arguments: { mode: "all", timeout_ms: 5000 } },
     new AbortController().signal,
   );
 
@@ -311,7 +327,9 @@ test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last 
   noteLastTurnTraceId("sess:turn:0");
   noteCurrentTurnTraceId("sess:turn:1");
 
-  const tool = createTaskTool({
+  const sessions = createSubAgentSessionStore();
+  const fleetRecords = createFleetMailbox(sessions);
+  const tool = createSpawnAgentTool({
     cwd,
     getWorkdirBase: () => cwd,
     permissionGate: gate,
@@ -319,16 +337,24 @@ test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last 
     profiles: [
       { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
     ],
+    sessions,
+    fleetRecords,
     run: async () => ({ report: "done" }),
     telemetry,
   });
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  const wait = createWaitAgentsTool({ sessions, fleetRecords });
+  if (wait.kind !== "full") throw new Error(`expected full tool, got ${wait.kind}`);
   await tool.handler(
     {
       id: "call-1",
-      name: "task",
+      name: "spawn_agent",
       arguments: { description: "Ship", prompt: "Ship it", agent: "acmecorp-release-captain" },
     },
+    new AbortController().signal,
+  );
+  await wait.handler(
+    { id: "wait-1", name: "wait_agents", arguments: { mode: "all", timeout_ms: 5000 } },
     new AbortController().signal,
   );
 

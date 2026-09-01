@@ -38,7 +38,7 @@ Tool-discipline baits (shell editing, env prefixes, curl instead of
 `web_fetch`, search loops, skipped dispatch) used to be separate cases. They
 validate _behavior_, not capability, so they now ride on the tier cases as
 `requireBehaviors` bounds — the same mechanism that lets a case demand
-`taskToolCallCount >= 1`:
+`spawnAgentToolCallCount >= 1`:
 
 ```json
 "requireBehaviors": [
@@ -108,7 +108,7 @@ shell parser.
 | `maxChainSegmentsPerCommand` | largest chain in one command                                                | lower is better    |
 | `networkCommandCount`        | segments invoking curl/wget/nc/...                                          | lower is better    |
 | `webFetchToolCallCount`      | `web_fetch` tool calls (0 when the tool is absent or unused)                | informational      |
-| `taskToolCallCount`          | `task` tool calls (0 when the tool is absent or unused)                     | informational      |
+| `spawnAgentToolCallCount`    | `spawn_agent` tool calls (0 when the tool is absent or unused)              | informational      |
 | `editViaShellCount`          | sed/perl/awk `-i` edits or heredoc writes                                   | lower is better    |
 | `repeatedSearchCount`        | tool calls repeating an earlier call's name with normalized-equal arguments | lower is better    |
 | `longestToolOnlyStreak`      | longest run of assistant turns with tool calls and no text                  | lower is better    |
@@ -183,21 +183,21 @@ change that justifies it.
 
 Flags:
 
-| Flag                                 | Meaning                                                                                                                                                                                                                                                      |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--case <id\|all>`                   | Case id or `all` (default)                                                                                                                                                                                                                                   |
-| `--provider <name>` / `--model <id>` | Required unless `--matrix`. Single-variant via `loadConfig`. Not inferred from local settings                                                                                                                                                                |
-| `--matrix <cells>`                   | Alternative to `--provider`/`--model`. Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated). Every cell must include both sides                                                                                                                       |
-| `--config <path>`                    | Settings file override (CI injection)                                                                                                                                                                                                                        |
-| `--out <path>`                       | Write machine-readable results JSON                                                                                                                                                                                                                          |
-| `--baseline <path>`                  | Compare this run to a prior results file (improve/regress + metric deltas)                                                                                                                                                                                   |
-| `--ask-permissions`                  | Do **not** pass `--dangerously-skip-permissions`                                                                                                                                                                                                             |
-| `--agent-timeout-ms <n>`             | Wall-clock limit for `runExec` (default `1200000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`)                                                                                                                                                                      |
-| `--verify-timeout-ms <n>`            | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`)                                                                                                                                                                    |
-| `--repeats <n>`                      | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates                                                                                                                      |
-| `--concurrency <n>`                  | Independent case×variant×repeat cells in parallel (default `1`, env `CORBITS_EVAL_CONCURRENCY`). Each cell still uses its own temp workdir. Use `--concurrency 4` (or similar) to run a live matrix faster                                                   |
-| `--dry-run`                          | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix`                                                                                                                                                      |
-| `--director <id>`                    | Exec overlay: run the product `corbits exec` path with this director's system prompt and initially-advertised tool set (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `task`. |
+| Flag                                 | Meaning                                                                                                                                                                                                                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--case <id\|all>`                   | Case id or `all` (default)                                                                                                                                                                                                                                                          |
+| `--provider <name>` / `--model <id>` | Required unless `--matrix`. Single-variant via `loadConfig`. Not inferred from local settings                                                                                                                                                                                       |
+| `--matrix <cells>`                   | Alternative to `--provider`/`--model`. Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated). Every cell must include both sides                                                                                                                                              |
+| `--config <path>`                    | Settings file override (CI injection)                                                                                                                                                                                                                                               |
+| `--out <path>`                       | Write machine-readable results JSON                                                                                                                                                                                                                                                 |
+| `--baseline <path>`                  | Compare this run to a prior results file (improve/regress + metric deltas)                                                                                                                                                                                                          |
+| `--ask-permissions`                  | Do **not** pass `--dangerously-skip-permissions`                                                                                                                                                                                                                                    |
+| `--agent-timeout-ms <n>`             | Wall-clock limit for `runExec` (default `1200000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`)                                                                                                                                                                                             |
+| `--verify-timeout-ms <n>`            | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`)                                                                                                                                                                                           |
+| `--repeats <n>`                      | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates                                                                                                                                             |
+| `--concurrency <n>`                  | Independent case×variant×repeat cells in parallel (default `1`, env `CORBITS_EVAL_CONCURRENCY`). Each cell still uses its own temp workdir. Use `--concurrency 4` (or similar) to run a live matrix faster                                                                          |
+| `--dry-run`                          | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix`                                                                                                                                                                             |
+| `--director <id>`                    | Exec overlay: run the product `corbits exec` path with this director's system prompt and initially-advertised tool set (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `spawn_agent` / `wait_agents`. |
 
 ## Case format
 
@@ -287,7 +287,7 @@ verify.sh   # objective grader (exit 0 = pass)
         "maxChainSegmentsPerCommand": 2,
         "networkCommandCount": 0,
         "webFetchToolCallCount": 0,
-        "taskToolCallCount": 0,
+        "spawnAgentToolCallCount": 0,
         "editViaShellCount": 0,
         "repeatedSearchCount": 0,
         "longestToolOnlyStreak": 2,

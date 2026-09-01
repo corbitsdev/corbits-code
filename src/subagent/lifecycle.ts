@@ -81,11 +81,21 @@ export type WaitJSONStatus = "running" | "done" | "failed" | "interrupted";
 /**
  * Wait JSON projection of stored lifecycle. Operator cancel (`cancelled`) is
  * wait-running while a run/followup is still in flight so the first collect
- * can still attach salvage. `interrupted` and `shutdown` are immediately
- * terminal. Never leaks `cancelled` into wait JSON.
+ * can still attach salvage. A followup that has been queued (`inFlight`) must
+ * not collect the prior `completed` / `interrupted` stamp — resume_agent
+ * flips the session to running on the next mutate, but `runInFlight` is set
+ * first. `interrupted` and `shutdown` are immediately terminal once the run
+ * has settled. Never leaks `cancelled` into wait JSON.
  */
 export function projectWaitStatus(lifecycle: WorkerLifecycle, inFlight: boolean): WaitJSONStatus {
-  if (lifecycle.state === "cancelled" && inFlight) return "running";
+  if (
+    inFlight &&
+    (lifecycle.state === "cancelled" ||
+      lifecycle.state === "completed" ||
+      lifecycle.state === "interrupted")
+  ) {
+    return "running";
+  }
   switch (lifecycle.state) {
     case "completed":
       return "done";

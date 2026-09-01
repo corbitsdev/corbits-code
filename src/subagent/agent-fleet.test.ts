@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   createFleetMailbox,
@@ -19,6 +22,7 @@ import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
 import { AGENTS_PANEL_LINGER_MS, formatAgentsPanel } from "../tui/chrome-state.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
+import { INTERVENTION_FILE } from "./intervention-log.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -48,7 +52,10 @@ function deferred<T>(): {
 
 function makeDeps(
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
-  opts: { cwd?: string; sessions?: ReturnType<typeof createSubAgentSessionStore> } = {},
+  opts: {
+    cwd?: string;
+    sessions?: ReturnType<typeof createSubAgentSessionStore>;
+  } & Partial<Pick<AgentFleetDeps, "settings" | "catalog" | "profiles">> = {},
 ): AgentFleetDeps {
   const sessions = opts.sessions ?? createSubAgentSessionStore();
   return {
@@ -59,6 +66,9 @@ function makeDeps(
     run,
     sessions,
     fleetRecords: createFleetMailbox(sessions),
+    ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
+    ...(opts.profiles !== undefined ? { profiles: opts.profiles } : {}),
   };
 }
 
@@ -133,6 +143,67 @@ describe("spawn_agent", () => {
     expect(deps.sessions.get(result.agent_id as string)?.status).toBe("running");
 
     gate.resolve({ report: "done" });
+  });
+
+  test("rejects unsupported profile orchestrators before starting a session", async () => {
+    let runCalled = false;
+    const deps = makeDeps(
+      async () => {
+        runCalled = true;
+        return { report: "done" };
+      },
+      {
+        profiles: [
+          {
+            id: "profile-orchestrator",
+            orchestrator: true,
+            systemPromptRole: "You coordinate work.",
+          },
+        ],
+      },
+    );
+    const spawn = createSpawnAgentTool(deps);
+    const result = await callToolRaw(spawn, {
+      description: "profile job",
+      prompt: "do it",
+      agent: "profile-orchestrator",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("profile orchestrators are not supported");
+    expect(runCalled).toBe(false);
+    expect(deps.sessions.list()).toEqual([]);
+  });
+
+  test("dispatches a local profile id returned by search_agents", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const deps = makeDeps(
+      async (params) => {
+        captured = params;
+        return { report: "done" };
+      },
+      {
+        profiles: [
+          {
+            id: "plugin-reviewer",
+            capabilities: { mode: "allow", tools: ["read_file"] },
+            systemPromptRole: "You are the plugin reviewer.",
+          },
+        ],
+      },
+    );
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callTool(spawn, {
+      description: "profile job",
+      prompt: "do it",
+      agent: "plugin-reviewer",
+    });
+
+    expect(result.status).toBe("running");
+    expect(captured?.directorId).toBe("plugin-reviewer");
+    expect(captured?.systemPromptRole).toBe("You are the plugin reviewer.");
+    expect(captured?.capabilities).toEqual({ mode: "allow", tools: ["read_file"] });
   });
 });
 
@@ -381,6 +452,46 @@ describe("spawn_agent same-cwd concurrency", () => {
     gates[0]!.resolve({ report: "one done" });
     gates[1]!.resolve({ report: "two done" });
   });
+
+  test("two concurrent shared-cwd spawn_agent lanes log concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-"));
+    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    let callIndex = 0;
+    const deps = makeDeps(async () => gates[callIndex++]!.promise, { cwd: "/repo" });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    await callTool(spawn, {
+      description: "build one",
+      prompt: "implement thing one",
+      intent: "implement",
+    });
+    await callTool(spawn, {
+      description: "build two",
+      prompt: "implement thing two",
+      intent: "implement",
+    });
+
+    const path = join(dir, INTERVENTION_FILE);
+    let log = "";
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (log.includes("concurrent-lane-overlap")) break;
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(log).toContain("concurrent-lane-overlap");
+    expect(log).toContain("conflict");
+    expect(log).toContain("/repo");
+    expect(log).toContain("build one");
+    expect(log).toContain("build two");
+
+    gates[0]!.resolve({ report: "one done" });
+    gates[1]!.resolve({ report: "two done" });
+  });
 });
 
 describe("wait mailbox session tombstone and pin", () => {
@@ -567,6 +678,60 @@ describe("wait_agents caller scope", () => {
     expect(results.every((r) => r.agent_id !== foreign.id)).toBe(true);
 
     gate.resolve({ report: "done" });
+  });
+
+  test("explicit targets respect nested orchestrator subtree authority", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const actor = sessions.start({
+      id: "actor",
+      description: "actor",
+      agentId: "builder",
+      brief: "b",
+    });
+    const child = sessions.start({
+      id: "child",
+      description: "child",
+      agentId: "explorer",
+      brief: "b",
+      parentSessionId: actor.id,
+    });
+    const sibling = sessions.start({
+      id: "sibling",
+      description: "sibling",
+      agentId: "explorer",
+      brief: "b",
+    });
+    for (const session of [child, sibling]) {
+      fleetRecords.register(session.id);
+      sessions.complete(session.id, `${session.id} done`);
+    }
+    const wait = createWaitAgentsTool({
+      sessions,
+      fleetRecords,
+      authority: {
+        actorId: actor.id,
+        tier: "nested-orchestrator",
+        getNodes: () => sessions.list(),
+      },
+    });
+
+    const own = await callTool(wait, { targets: [child.id], timeout_ms: 1000 });
+    expect(own.timed_out).toBe(false);
+    const ownResults = own.results as { agent_id: string; status: string; report?: string }[];
+    expect(ownResults[0]).toEqual({ agent_id: child.id, status: "done", report: "child done" });
+
+    if (wait.kind !== "full") throw new Error("expected full tool");
+    const denied = await wait.handler(
+      {
+        id: "wait-denied",
+        name: "wait_agents",
+        arguments: { targets: [sibling.id], timeout_ms: 0 },
+      },
+      new AbortController().signal,
+    );
+    expect(denied.isError).toBe(true);
+    expect(String(denied.content)).toContain("outside its subtree");
   });
 
   test("mode=all stays blocked until every target is terminal", async () => {
@@ -868,8 +1033,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    // interruptOne is wait-terminal via session interrupted; collect freezes it.
+    // Soft interrupt leaves the run in flight; the mailbox overlay is what
+    // makes wait terminal (same path interrupt_agent takes).
     expect(deps.sessions.interruptOne(id).ok).toBe(true);
+    deps.fleetRecords.interrupt(id);
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
@@ -951,6 +1118,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
     fleetRecords.register(worker.id);
     sessions.registerInterrupt(worker.id, () => {});
     sessions.interruptOne(worker.id);
+    // Mirror interrupt_agent: soft interrupt alone projects as running while
+    // in-flight, so the mailbox must flip for wait to see "interrupted".
+    fleetRecords.interrupt(worker.id);
+    fleetRecords.interrupt(worker.id);
 
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
     const waited = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
@@ -1137,7 +1308,7 @@ describe("list_agents", () => {
   });
 });
 
-describe("spawn_agent parity with task", () => {
+describe("spawn_agent dispatch contracts", () => {
   test("uses the parent tool call id as the session id", async () => {
     const deps = makeDeps(async () => ({ report: "done" }));
     const spawn = createSpawnAgentTool(deps);

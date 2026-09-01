@@ -1,6 +1,6 @@
 /**
- * Shared sub-agent types used by both run.ts and task-tool.ts.
- * Kept separate so task-tool does not import run (breaks the ESM cycle).
+ * Shared sub-agent types used by both run.ts and agent-fleet.ts.
+ * Kept separate so agent-fleet does not import run (breaks the ESM cycle).
  */
 
 import type { AgentTool } from "@intx/agent";
@@ -37,7 +37,7 @@ export interface SubAgentProvider {
 }
 
 // Dependencies an orchestrator sub-agent needs to spawn further workers via
-// `task`. Nested dispatch always sets allowOrchestrator: false so the
+// `spawn_agent`. Nested dispatch always sets allowOrchestrator: false so the
 // recursion bottoms out at one hop of orchestration.
 export interface SubAgentSandboxDeps {
   permissionGate: PermissionGate;
@@ -64,23 +64,23 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // The orchestrator's own session id, so workers it dispatches record as
   // nested (one-hop) sessions the Agents strip can indent under it.
   parentSessionId?: string;
-  // Forwarded from the outer TaskToolDeps so nested workers get the same
+  // Forwarded from the outer fleet deps so nested workers get the same
   // worktree-isolation behavior as their orchestrator.
   useWorktree?: boolean;
   /**
-   * When set (e.g. greybeard → intern/explorer/critic), nested `task` may only
-   * spawn these director/profile ids. Omitted = no allowlist filter (primary).
+   * When set (e.g. greybeard -> intern/explorer/critic), nested `spawn_agent`
+   * may only spawn these director/profile ids. Omitted = no allowlist filter (primary).
    */
   spawnAllowlist?: readonly string[];
 };
 
-/** Typed spawn intent — optional on `task`; omit Intent section when unset. */
+/** Typed spawn intent — optional on `spawn_agent`; omit Intent section when unset. */
 export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
   /**
    * Stable id for this worker's on-disk trace directory (subagents/<id>).
-   * Callers that track a session store (task-tool.ts) pass the same id as
+   * Callers that track a session store (agent-fleet.ts) pass the same id as
    * the SubAgentSessionStore record so read_agent_trace's descendant check
    * can reuse the store's existing parentSessionId chain instead of a
    * second identity scheme. Falls back to a fresh generated id when unset
@@ -97,7 +97,7 @@ export type RunSubAgentParams = {
   // the dispatch brief as a suggested manage_tasks seed — the child's list is
   // still its own; the parent does not share a checklist.
   goals?: readonly string[];
-  /** Spawn intent for the brief (no tool filtering here — that is a later task). */
+  /** Spawn intent for the brief; tool filtering is owned by the dispatcher. */
   intent?: TaskIntent;
   /** Concrete done checks preferred over free-form prompt alone. */
   successCriteria?: readonly string[];
@@ -114,22 +114,22 @@ export type RunSubAgentParams = {
   /** Resolved closed-director id (e.g. "critic") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
   directorId?: string;
   // When true, the assembled system prompt grants this sub-agent permission
-  // to call `task` to spawn further agents (orchestrator exception to the
-  // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.
-  // Requires nestedDispatch so the task tool can actually be installed —
-  // advertising permission without the tool is a hard break.
+  // to call `spawn_agent` to spawn further agents (orchestrator exception to
+  // the no-recursion rule). Set only for built-in director packages.
+  // Requires nestedDispatch so fleet tools can actually be installed —
+  // advertising permission without the tools is a hard break.
   orchestrator?: boolean;
   /**
    * Fleet authority tier for this dispatch, resolved by the caller
-   * (task-tool.ts) from either the closed DirectorPackage.tier or an explicit
-   * AgentProfile.tier opt-in. Required whenever orchestrator is true:
-   * runSubAgent fails closed (denies task/search_agents) when orchestrator is
-   * true and this is undefined or "leaf" — an unrecognized or unresolved tier
+   * (agent-fleet.ts) from the closed DirectorPackage.tier. Required whenever
+   * orchestrator is true:
+   * runSubAgent fails closed (denies fleet tools) when orchestrator is true
+   * and this is undefined or "leaf" — an unrecognized or unresolved tier
    * must never mount a fleet verb. See src/subagent/authority.ts.
    */
   orchestratorTier?: SubagentTier;
-  // Present only when orchestrator is true. Installs task + search_agents so
-  // the orchestrator can actually dispatch workers.
+  // Present only when orchestrator is true. Installs fleet tools so the
+  // orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;
   /**
    * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
@@ -139,7 +139,7 @@ export type RunSubAgentParams = {
   deadlineMs?: number;
   /**
    * Resolved director tier, independent of `orchestratorTier` (which
-   * is only ever set when `orchestrator` is true). Set by task-tool.ts from
+   * is only ever set when `orchestrator` is true). Set by agent-fleet.ts from
    * `DirectorPackage.tier`. runSubAgent mounts `submit_result` only when this
    * is `"leaf"` — the existing tier machinery (authority.ts / directors/types.ts)
    * gates it, not a new mechanism.

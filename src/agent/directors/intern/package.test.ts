@@ -38,7 +38,7 @@ describe("internPackage", () => {
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
-    for (const name of ["grep", "search_files", "task", "apply_patch"]) {
+    for (const name of ["grep", "search_files", "spawn_agent", "wait_agents", "apply_patch"]) {
       expect(allow).not.toContain(name);
     }
   });

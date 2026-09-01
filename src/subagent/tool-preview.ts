@@ -81,7 +81,7 @@ function extractSubject(name: string, rawArgs: string): string | null {
     return stringField(args, "query") ?? stringField(args, "url");
   }
 
-  if (tool === "task") {
+  if (tool === "spawn_agent") {
     return stringField(args, "description") ?? stringField(args, "prompt");
   }
 

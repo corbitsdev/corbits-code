@@ -153,7 +153,7 @@ describe("agentProgress", () => {
 
   test("default stall window tolerates a multi-minute Grok think gap", () => {
     // DEFAULT_STALL_MS is 300s — 180s of quiet with no tool outstanding must
-    // still read working, or Task rows false-stall on healthy Responses thinks.
+    // still read working, or worker/spawn_agent rows false-stall on healthy Responses thinks.
     const progress = agentProgress({ ...base, currentToolName: null, lastActivityAt: 0 }, 180_000);
     expect(progress?.state).toBe("working");
     expect(progress?.stalled).toBe(false);

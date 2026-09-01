@@ -66,7 +66,7 @@ export interface InterventionRecord {
   model?: string;
   /** Model family the policy resolved, e.g. "grok" | "default". */
   family?: string;
-  /** task() intent when the run had one. */
+  /** spawn_agent intent when the run had one. */
   intent?: string;
   measurement?: InterventionMeasurement;
   /** Present on `class: "outcome"` records only. */

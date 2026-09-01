@@ -170,7 +170,7 @@ describe("mountRunnerHost chrome wiring", () => {
   // CL-5731: subscribeChrome must stay wired end-to-end. formatChromeZones
   // now parks both chrome strips (always null), so a tasks push must not
   // paint the checklist — this test asserts the notify path still runs and
-  // leaves the task panel empty (rebuild later; live work is ● Task rows).
+  // leaves the task panel empty (rebuild later; live work is spawn_agent rows).
   test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
     const harness = await createHarness({ width: 80, height: 24 });
     let liveTasks: readonly { title: string; status: "todo" | "doing" | "done" | "cancelled" }[] =

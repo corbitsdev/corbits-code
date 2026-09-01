@@ -1147,7 +1147,7 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
   // cannot silently reintroduce CL-5562's misattribution on the parent
   // transcript specifically (the observe overlay and resumed history are
   // covered separately in tool-rows.test.ts / history-hydrate.test.ts).
-  test("three parallel task calls resolve to three rows, each with its own result", async () => {
+  test("three parallel spawn_agent calls resolve to three rows, each with its own result", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -1161,32 +1161,44 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
             { type: "inference.start", data: {} },
             {
               type: "inference.tool_call.end",
-              data: { name: "task", callId: "c1", arguments: { description: "Fix CL-5559" } },
+              data: {
+                name: "spawn_agent",
+                callId: "c1",
+                arguments: { description: "Fix CL-5559" },
+              },
             },
             {
               type: "inference.tool_call.end",
-              data: { name: "task", callId: "c2", arguments: { description: "Fix CL-5560" } },
+              data: {
+                name: "spawn_agent",
+                callId: "c2",
+                arguments: { description: "Fix CL-5560" },
+              },
             },
             {
               type: "inference.tool_call.end",
-              data: { name: "task", callId: "c3", arguments: { description: "Fix CL-5561" } },
+              data: {
+                name: "spawn_agent",
+                callId: "c3",
+                arguments: { description: "Fix CL-5561" },
+              },
             },
             { type: "inference.done", data: {} },
-            { type: "tool.start", data: { call: { id: "c1", name: "task" } } },
-            { type: "tool.start", data: { call: { id: "c2", name: "task" } } },
-            { type: "tool.start", data: { call: { id: "c3", name: "task" } } },
+            { type: "tool.start", data: { call: { id: "c1", name: "spawn_agent" } } },
+            { type: "tool.start", data: { call: { id: "c2", name: "spawn_agent" } } },
+            { type: "tool.start", data: { call: { id: "c3", name: "spawn_agent" } } },
             // Completion order does not follow dispatch order.
             {
               type: "tool.done",
-              data: { result: { callId: "c2", name: "task", content: "done c2" } },
+              data: { result: { callId: "c2", name: "spawn_agent", content: "done c2" } },
             },
             {
               type: "tool.done",
-              data: { result: { callId: "c1", name: "task", content: "done c1" } },
+              data: { result: { callId: "c1", name: "spawn_agent", content: "done c1" } },
             },
             {
               type: "tool.done",
-              data: { result: { callId: "c3", name: "task", content: "done c3" } },
+              data: { result: { callId: "c3", name: "spawn_agent", content: "done c3" } },
             },
             { type: "reactor.done", data: {} },
           ] as const;
@@ -1419,7 +1431,7 @@ describe("syncAgentProgress", () => {
           bridge.handle({
             type: "inference.tool_call.end",
             data: {
-              name: "task",
+              name: "spawn_agent",
               callId: "task-1",
               arguments: { description: "Review permission gate" },
             },
@@ -1473,19 +1485,68 @@ describe("syncAgentProgress", () => {
           bridge.handle({
             type: "inference.tool_call.end",
             data: {
-              name: "task",
+              name: "spawn_agent",
               callId: "task-1",
               arguments: { description: "Review mouse/paste" },
             },
           });
           bridge.handle({
             type: "tool.done",
-            data: { result: { callId: "task-1", name: "task", content: "done", isError: false } },
+            data: {
+              result: { callId: "task-1", name: "spawn_agent", content: "done", isError: false },
+            },
           });
           const index = shell.streamLog.length - 1;
           bridge.syncAgentProgress([taskSession({ status: "done" })]);
           expect(shell.streamLog[index]!.pending).not.toBe(true);
           expect(shell.streamLog[index]!.agentWorking).toBeUndefined();
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("live progress continues after spawn_agent's immediate running result", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+        });
+        try {
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "spawn_agent",
+              callId: "task-1",
+              arguments: { description: "Review permission gate" },
+            },
+          });
+          bridge.handle({
+            type: "tool.done",
+            data: {
+              result: {
+                callId: "task-1",
+                name: "spawn_agent",
+                content: JSON.stringify({ agent_id: "task-1", status: "running" }),
+                isError: false,
+              },
+            },
+          });
+          const index = shell.streamLog.length - 1;
+          nowMs = 42_000;
+          bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })]);
+          const row = shell.streamLog[index]!;
+          expect(row.agentWorking).toBe(true);
+          expect(row.stat).toContain("grep");
         } finally {
           bridge.dispose();
           shell.dispose();

@@ -438,7 +438,7 @@ function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
       // (pending/in_progress/completed) — this proxy never produces it, so a
       // Codex model cannot cancel a step through update_plan. That is a
       // lossy-but-safe narrowing (dropped, not misrepresented), not a bug fix
-      // for the underlying task tool, which stays out of scope here.
+      // for the underlying manage_tasks tool, which stays out of scope here.
       const tasks = parsed.plan.map((item, i) => ({
         id: `p${i + 1}`,
         title: item.step,

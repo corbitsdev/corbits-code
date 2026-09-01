@@ -73,7 +73,7 @@ Before writing any code, describe your implementation approach to Greybeard and 
 - You don't need to agree with every suggestion, but you need a reason to disagree
 - Once you're aligned on approach, move to Step 2
 
-Use `task(agent="greybeard")` for this step.
+Use `spawn_agent(agent="greybeard")`, then `wait_agents`, for this step.
 
 ### Step 2: Implement and Test
 
@@ -124,7 +124,7 @@ Ask critic to review the committed change.
 
 **How to run:**
 
-1. Spawn `task(agent="critic")` and ask it to review the output of `git show HEAD`. Include the intent from Step 1 (what the change is meant to accomplish and the approach agreed with Greybeard) so Critique can evaluate whether the implementation matches the plan, not just surface-level quality. Tell critic to limit its findings to the scope of the current commit -- pre-existing issues in touched files are out of scope.
+1. Spawn `spawn_agent(agent="critic")`, then `wait_agents`, and ask it to review the output of `git show HEAD`. Include the intent from Step 1 (what the change is meant to accomplish and the approach agreed with Greybeard) so Critique can evaluate whether the implementation matches the plan, not just surface-level quality. Tell critic to limit its findings to the scope of the current commit -- pre-existing issues in touched files are out of scope.
 2. Read its findings
 3. For each issue marked VERIFIED or HIGH confidence: fix it
 4. Re-run the build gate (Step 3) to verify fixes

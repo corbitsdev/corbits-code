@@ -1791,7 +1791,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   syncTranscriptSpacer(shell);
 
   // Agents strip: full-width flex stack under the transcript when present.
-  // Live chrome keeps the zone empty (● Task transcript rows instead).
+  // Live chrome keeps the zone empty (spawn_agent transcript rows instead).
   shell.agentsBox.position = "relative";
   shell.agentsBox.left = 0;
   shell.agentsBox.top = 0;
@@ -2054,7 +2054,7 @@ interface ShellInternals {
      * Rendered task rows — empty when there is nothing to show OR the panel
      * is hidden by the operator toggle. `tasksRaw` holds the live data
      * independent of that toggle, so un-hiding shows the current list
-     * without waiting on the next task-tool write.
+     * without waiting on the next manage_tasks write.
      */
     task: readonly TaskPanelRow[];
     /** Last live task rows pushed via setChromeZones, regardless of hidden state. */
@@ -4725,7 +4725,7 @@ const PANEL_TOGGLE_FLASH_MS = 3000;
 
 /**
  * Toggle the task-list panel visible/hidden without touching the live task
- * data underneath it — un-hiding shows whatever the task tool last wrote,
+ * data underneath it — un-hiding shows whatever manage_tasks last wrote,
  * not a stale snapshot from before the hide. The flag lives on the shell's
  * internals in memory for the shell's lifetime; nothing is written to
  * storage, so it does not survive a restart.

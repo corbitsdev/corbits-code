@@ -212,7 +212,7 @@ export function clampEffort(
 }
 
 export interface ResolveEffortForRoleOpts {
-  /** True when the spawn is an orchestrator profile (may call task). */
+  /** True when the spawn is a built-in orchestrator director (may call fleet tools). */
   orchestrator: boolean;
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
   pin?: ReasoningEffort;
@@ -240,7 +240,7 @@ export interface ResolveEffortForRoleOpts {
  *
  * Pins are still highest precedence, but an unsupported pin is clamped so the
  * pure API owns the "never emit an unsupported effort" invariant (callers that
- * want hard-fail on bad pins should validateEffort first, as task-tool does).
+ * want hard-fail on bad pins should validateEffort first, as spawn_agent does).
  */
 export function pickEffortFromCascade(opts: {
   pin?: ReasoningEffort;

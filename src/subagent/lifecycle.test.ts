@@ -6,6 +6,7 @@ import {
   isResumableLifecycle,
   projectLifecycleStatus,
   projectStripStatus,
+  projectWaitStatus,
   type StripStatus,
   type WorkerLifecycle,
 } from "./lifecycle.js";
@@ -64,5 +65,13 @@ describe("WorkerLifecycle projections", () => {
     expect(isAlreadyClosed({ state: "interrupted" })).toBe(false);
     expect(isAlreadyClosed({ state: "completed", report: "ok" })).toBe(false);
     expect(isAlreadyClosed({ state: "cancelled" })).toBe(false);
+  });
+
+  test("in-flight followup is wait-running over a prior completed or interrupted stamp", () => {
+    expect(projectWaitStatus({ state: "completed", report: "first" }, true)).toBe("running");
+    expect(projectWaitStatus({ state: "interrupted" }, true)).toBe("running");
+    expect(projectWaitStatus({ state: "cancelled" }, true)).toBe("running");
+    expect(projectWaitStatus({ state: "completed", report: "first" }, false)).toBe("done");
+    expect(projectWaitStatus({ state: "failed", error: "boom" }, true)).toBe("failed");
   });
 });

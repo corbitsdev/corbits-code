@@ -90,7 +90,9 @@ describe("greybeardPackage", () => {
 
   test("tools.allow is orchestrator surface with product writes but without fleet discovery", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
-    expect(allow).toContain("task");
+    expect(allow).not.toContain("task");
+    expect(allow).toContain("spawn_agent");
+    expect(allow).toContain("wait_agents");
     // CL-7051: search_agents is Skywalker-only — nested directors spawn from allowlist.
     expect(allow).not.toContain("search_agents");
     expect(allow).toContain("write_file");

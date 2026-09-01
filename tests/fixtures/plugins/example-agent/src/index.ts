@@ -1,5 +1,5 @@
 // A minimal worked example of a `kind: "agent"` plugin. It contributes one
-// sub-agent profile, "scout", that can be dispatched via the `task` tool with
+// sub-agent profile, "scout", that can be dispatched via `spawn_agent` with
 // `agent: "scout"`. The profile restricts the sub-agent to read-only tools and
 // assigns it to the "fast" tier (resolved via settings.tiers to a concrete
 // provider and model). Kept self-contained — it declares only the small slice

@@ -1868,7 +1868,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // and follow-up (queued drain / deliver) must never call this — those paths
     // leave in-flight workers running. Closing the agent is the only thing that
     // aborts the reactor mid-inference (the send signal only rejects the send
-    // promise); that close cascades: operationController.abort → task-tool parent
+    // promise); that close cascades: operationController.abort → wait_agents parent
     // signal → child abort. Do not add cancelAll here — fleet cancelAll is
     // reserved for /clear (newSession) and shutdown.
     // Close it, drain the old stream, and rebuild a fresh agent so the next send

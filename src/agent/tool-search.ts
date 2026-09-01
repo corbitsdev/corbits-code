@@ -35,10 +35,8 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "use_skill",
   "search_agents",
   // Multi-agent dispatch is a first-class loop capability — always advertised so
-  // the model can call task immediately after search_agents without a tool_search
-  // round-trip. Catalog-only placement left the model discovering profiles then
-  // failing on an unloaded task tool.
-  "task",
+  // the model can call spawn_agent immediately after search_agents without a
+  // tool_search round-trip.
   // Fleet verbs (non-blocking spawn + lifecycle). Mounted on primary when
   // subAgent is wired; advertised here so the model does not tool_search for
   // them. Package allowlists (ORCHESTRATOR_TOOLS / SKYWALKER_TOOLS) are a
@@ -54,7 +52,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
 
 const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
   "search_agents",
-  "task",
   "spawn_agent",
   "wait_agents",
   "list_agents",
@@ -181,7 +178,7 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are dispatchable but not advertised in the tools list. Core tools (read_file, run_shell, web_fetch, web_search, task, …) are already on the wire — do not tool_search for them. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. The returned tools are already callable — invoke them directly, no separate load step.",
+    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are dispatchable but not advertised in the tools list. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, wait_agents, …) are already on the wire — do not tool_search for them. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. The returned tools are already callable — invoke them directly, no separate load step.",
   inputSchema: {
     type: "object",
     properties: {

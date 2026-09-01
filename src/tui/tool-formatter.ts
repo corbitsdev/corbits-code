@@ -127,7 +127,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       isShell: true,
     };
   }
-  if (toolName === "task") {
+  if (toolName === "spawn_agent" || toolName === "task") {
     const taskParsed = TaskArgSchema(tryParseObject(rawArgs));
     if (!(taskParsed instanceof type.errors)) {
       const agentName = taskParsed.agent?.trim();
@@ -139,7 +139,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       const display =
         agentName !== undefined && agentName.length > 0
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
-          : "Task";
+          : "Worker";
       // Collapsed row uses the abbreviated subject; Alt+E expands to the full text.
       return {
         display,
@@ -240,6 +240,7 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
       }
       break;
     }
+    case "spawn_agent":
     case "task": {
       // Spawns carry a large structured brief (prompt, intent, criteria). The
       // transcript only needs a short subject — prefer description, then prompt —
@@ -409,7 +410,7 @@ export function mergedToolCollapsedPreview(
     return outcomePreview;
   }
 
-  if (toolName === "task") {
+  if (toolName === "spawn_agent" || toolName === "task") {
     // describeToolCall already curates the spawn brief to a short description;
     // reusing it here keeps the collapsed row free of prompt/intent/criteria dumps.
     const { display, summary } = describeToolCall(toolName, rawArgs);
@@ -441,7 +442,7 @@ function pathFromResult(_toolName: string, content: string): string | null {
   return null;
 }
 
-// Task tool results are either "Sub-agent \"desc\" reported:\n\n## Summary\n..."
+// Worker reports are either "Sub-agent \"desc\" reported:\n\n## Summary\n..."
 // or a cancel notice. Pull a one-line human preview without leaking markdown headers.
 function summarizeTaskResultPreview(content: string): string {
   const trimmed = content.trim();
@@ -464,6 +465,36 @@ function summarizeTaskResultPreview(content: string): string {
     .filter((l) => l.length > 0 && !/^##\s+/.test(l));
   const first = withoutHeadings[0] ?? "";
   return first.length > 0 ? abbreviate(first, 64) : "(no output)";
+}
+
+function summarizeSpawnAgentResultPreview(content: string): string {
+  const obj = tryParseObject(content);
+  if (obj !== null && typeof obj.status === "string") {
+    const id = typeof obj.agent_id === "string" ? obj.agent_id.trim() : "";
+    return id.length > 0 ? `${obj.status} ${id}` : obj.status;
+  }
+  return summarizeTaskResultPreview(content);
+}
+
+function summarizeWaitAgentsResultPreview(content: string): string {
+  const obj = tryParseObject(content);
+  if (obj === null) return summarizeTaskResultPreview(content);
+  const results = Array.isArray(obj.results) ? obj.results : [];
+  for (const item of results) {
+    if (typeof item !== "object" || item === null) continue;
+    const rec = item as Record<string, unknown>;
+    if (typeof rec.report === "string" && rec.report.trim().length > 0) {
+      return summarizeTaskResultPreview(rec.report);
+    }
+  }
+  if (obj.timed_out === true) return "timed out";
+  const statuses = results.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const rec = item as Record<string, unknown>;
+    return typeof rec.status === "string" ? [rec.status] : [];
+  });
+  if (statuses.length > 0) return statuses.join(", ");
+  return abbreviate(content, 64) || "(no output)";
 }
 
 const WebSearchItemSchema = type({ "title?": "string", "url?": "string", "snippet?": "string" });
@@ -583,9 +614,21 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
       }
       break;
     }
+    case "spawn_agent": {
+      // Live payload is `{"agent_id","status":"running"}`. Historical fused
+      // spawn+wait bodies still peel the report envelope.
+      preview = summarizeSpawnAgentResultPreview(content);
+      break;
+    }
+    case "wait_agents": {
+      // Collect returns `{results:[{report}], timed_out}`. Peel ## Summary from
+      // the first report so raw markdown headings never leak into the transcript.
+      preview = summarizeWaitAgentsResultPreview(content);
+      break;
+    }
     case "task": {
-      // Workers reply with a ## Summary / ## Findings envelope. Collapse to the
-      // summary first line so raw markdown headings never leak into the transcript.
+      // Resume of a retired fused spawn: format the old report envelope without
+      // remounting a callable `task` tool.
       preview = summarizeTaskResultPreview(content);
       break;
     }

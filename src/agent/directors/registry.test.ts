@@ -175,7 +175,9 @@ describe("director registry", () => {
     expect(s.systemPrompt).toContain("DIY tiny/single-file/one-route");
     expect(s.systemPrompt).toContain("You are Skywalker");
     expect(s.systemPrompt).toMatch(/No catch-all worker/i);
-    expect(s.tools?.allow).toContain("task");
+    expect(s.tools?.allow).not.toContain("task");
+    expect(s.tools?.allow).toContain("spawn_agent");
+    expect(s.tools?.allow).toContain("wait_agents");
     expect(s.tools?.allow).toContain("write_file");
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
@@ -200,7 +202,7 @@ describe("director registry", () => {
     for (const id of DIRECTOR_IDS) {
       const profile = packageToProfile(DIRECTOR_REGISTRY[id]);
       expect(profile.systemPromptRole).toContain(`agent id \`${id}\``);
-      expect(profile.systemPromptRole).toContain(`task(agent="${id}")`);
+      expect(profile.systemPromptRole).toContain(`spawn_agent(agent="${id}")`);
       expect(profile.description).toContain(`agent id: ${id}`);
     }
   });

@@ -9,8 +9,8 @@
  * `formatChromeZones` paints the agents zone from `formatAgentsPanel` and keeps
  * the task checklist parked (`task: null`). Live fleet status is a flat strip
  * above the prompt (label / status / current tool) — same shape as transcript
- * `● Task …` anchors, without a FLEET header board. Transcript Task rows remain
- * as spawn/final/fail anchors; live progress clocks belong to chrome only
+ * `spawn_agent` anchors, without a FLEET header board. Transcript spawn_agent
+ * rows remain as spawn/final/fail anchors; live progress clocks belong to chrome only
  * (product-host gates `syncAgentProgress` while this strip needs a tick).
  *
  * ## Product host push contract
@@ -78,7 +78,7 @@ export interface ChromeAgentSession {
   readonly finishedAt?: number;
 }
 
-/** Lightweight task row: title + status, as written by the task tool. */
+/** Lightweight task row: title + status, as written by manage_tasks. */
 export interface ChromeTaskRow {
   readonly title: string;
   readonly status: "todo" | "doing" | "done" | "cancelled";
@@ -100,8 +100,8 @@ export interface TaskPanelRow {
  */
 export interface ChromeLiveState {
   /**
-   * Task list: the structured rows the task tool writes. Distinct from
-   * `agents` — a task is a unit of work with a status, not an executor.
+   * Task list: the structured rows manage_tasks writes. Distinct from
+   * `agents` — a task is a checklist item with a status, not an executor.
    */
   readonly task?: readonly ChromeTaskRow[] | null;
   /** Subagent sessions for the strip summary (running preferred). */

@@ -490,17 +490,17 @@ describe("stall watchdog", () => {
   });
 
   // CL-5640: live sub-agent progress must keep the parent stream's silence
-  // exempt from abort even though the parent's own `task` call is the only
-  // thing in `activeToolCalls` — a future change to task-lifecycle handling
+  // exempt from abort even though the parent's own `wait_agents` call is the only
+  // thing in `activeToolCalls` — a future change to fleet-lifecycle handling
   // must not silently drop this exemption.
-  test("live sub-agent progress under an outstanding task call is never auto-aborted", async () => {
+  test("live sub-agent progress under an outstanding wait_agents call is never auto-aborted", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h);
       try {
         t.bridge.submit("build it", "immediate");
         t.bridge.handle({
           type: "inference.tool_call.end",
-          data: { name: "task", callId: "c1" },
+          data: { name: "wait_agents", callId: "c1" },
         });
         t.port.clear();
 
@@ -589,7 +589,7 @@ describe("stall watchdog", () => {
         t.bridge.submit("build it", "immediate");
         t.bridge.handle({
           type: "inference.tool_call.end",
-          data: { name: "task", callId: "c1" },
+          data: { name: "spawn_agent", callId: "c1" },
         });
         t.bridge.gateOpened();
         t.port.clear();

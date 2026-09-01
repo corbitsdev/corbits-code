@@ -19,7 +19,7 @@ describe("formatDirectorSystemPrompt", () => {
   test("prefixes agent id, model role, and optional skills", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
-    expect(text).toContain('task(agent="builder")');
+    expect(text).toContain('spawn_agent(agent="builder")');
     expect(text).toContain("Model role: implement.");
     expect(text).toContain("style, philosophy, typescript");
     expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);

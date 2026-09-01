@@ -26,7 +26,7 @@ import {
   type TaskIntent,
 } from "./types.js";
 
-/** Intent → default director when `task(agent=…)` is omitted. No general director. */
+/** Intent -> default director when `spawn_agent(agent=...)` is omitted. No general director. */
 export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "general">, DirectorId>> =
   {
     implement: "builder",
@@ -94,7 +94,7 @@ export function resolveDirector(input: ResolveDirectorInput): ResolveDirectorRes
     return {
       ok: false,
       error: "No director selected.",
-      hint: "Pass task(agent=…) for a named director, or task(intent=implement|explore|plan|review).",
+      hint: "Pass spawn_agent(agent=...) for a named director, or spawn_agent(intent=implement|explore|plan|review).",
     };
   }
   if (intent === "general") {
@@ -128,7 +128,7 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
     id: pkg.id,
     description: `${pkg.description} (agent id: ${pkg.id})`,
     systemPromptRole: formatDirectorSystemPrompt(pkg),
-    // Nested spawn is still gated by allowOrchestrator on the parent task tool.
+    // Nested spawn is still gated by allowOrchestrator on the parent fleet tools.
     // Greybeard/skywalker maySpawn marks intent; leaves stay non-orchestrator.
     orchestrator: pkg.spawn.maySpawn,
     ...(capabilities !== undefined ? { capabilities } : {}),

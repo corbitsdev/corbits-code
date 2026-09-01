@@ -121,7 +121,7 @@ export type CloseAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetMailboxHandle;
 };
 
-/** interrupt_agent stamps session interrupted; wait JSON projects that lifecycle. */
+/** interrupt_agent stamps session interrupted and flips the wait mailbox overlay. */
 export type InterruptAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetMailboxHandle;
 };
@@ -226,6 +226,12 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
             `(got ${message.length}).`,
         );
       }
+      if (deps.fleetRecords.hasUncollectedTerminal(target)) {
+        return lifecycleResult(
+          call.id,
+          `Error: cannot resume "${target}" before its prior result is collected. Call wait_agents for this agent_id first.`,
+        );
+      }
       const outcome = deps.sessions.resumeOne(target, message, {
         onStart: () => {
           deps.fleetRecords.register(target);
@@ -293,6 +299,10 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
           `Error: cannot interrupt "${target}" (status: ${outcome.status}).`,
         );
       }
+      // Soft interrupt leaves the run in flight; projectWaitStatus treats
+      // interrupted+inFlight as running so resume cannot collect a stale stamp.
+      // Flip the wait mailbox overlay here (same as send_input interrupt:true).
+      deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
         JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),

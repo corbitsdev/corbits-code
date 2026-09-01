@@ -48,7 +48,7 @@ export const RUN_SHELL_WATCHDOG_SLACK_MS = 1_000;
 
 /**
  * After budget/parent abort wins the race, wait this long for the in-flight
- * execute to settle with a usable (non-error) body — e.g. task-tool salvage —
+ * execute to settle with a usable (non-error) body — e.g. wait_agents salvage —
  * before returning the synthetic abort/timeout message.
  */
 export const TOOL_EXECUTION_SALVAGE_GRACE_MS = 5_000;
@@ -70,9 +70,11 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  * layer cannot beat shell-guard). A requested run_shell timeout is not clamped
  * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
  *
- * The task tool is exempt: it runs an entire sub-agent that carries its own
- * bound (an opt-in deadline), so the generic per-tool budget would
- * abort healthy long-running workers mid-run.
+ * spawn_agent returns immediately; wait_agents is the long block. Both are
+ * exempt: wait_agents can outlast settings.tools.timeoutMs while workers
+ * still run, and aborting collect would not stop those workers. spawn_agent
+ * stays exempt so the generic per-tool budget cannot abort a dispatch that
+ * should return at once (or a worker that carries its own bound).
  *
  * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
  * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
@@ -83,7 +85,7 @@ export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
   call?: ToolCall,
 ): number | undefined {
-  if (call?.name === "task") return undefined;
+  if (call?.name === "spawn_agent" || call?.name === "wait_agents") return undefined;
   if (call?.name === "run_shell") {
     const requested = requestedRunShellTimeoutMs(call);
     if (requested !== undefined) {
@@ -271,7 +273,7 @@ export function withPauseableTimeout(
 }
 
 /**
- * Composite pause token for a chained budget (task tool → child tool call):
+ * Composite pause token for a chained budget (wait_agents → child tool call):
  * one entry per budget in the enclosing chain, each keyed to that budget's
  * own generation.
  */
@@ -335,7 +337,7 @@ export async function settleWithGrace<T>(
 }
 
 /**
- * After budget abort, prefer a late non-error execute body (task salvage) when
+ * After budget abort, prefer a late non-error execute body (wait_agents salvage) when
  * it settles within grace. Errors / empty bodies / grace expiry → undefined so
  * the caller can emit the synthetic abort/timeout result.
  */
@@ -370,7 +372,7 @@ export interface ToolExecutionWatchdogOptions {
  *
  * When budget/parent abort wins the race, the signal is still aborted, but we
  * give the in-flight execute a short grace to return a usable non-error body
- * (e.g. task-tool structured salvage) before synthesizing "aborted"/timeout.
+ * (e.g. wait_agents structured salvage) before synthesizing "aborted"/timeout.
  * This closes the CL-4611 race where salvage was discarded wholesale.
  */
 export async function runWithToolExecutionWatchdog(
@@ -392,9 +394,9 @@ export async function runWithToolExecutionWatchdog(
             pause: (): PauseToken => 0,
             resume: (_token: PauseToken) => {},
           };
-  // Nested runs (task tool → child tool call) shadow the parent store: the
+  // Nested runs (wait_agents → child tool call) shadow the parent store: the
   // gate captures the innermost budget, so pause/resume must chain outward or
-  // the parent `task` budget keeps ticking under the permission modal.
+  // the parent `wait_agents` budget keeps ticking under the permission modal.
   const enclosing = toolApprovalBudgetAls.getStore();
   const approvalBudget: ToolApprovalBudget = {
     signal: budget.signal,

@@ -4,7 +4,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPermissionGate } from "../permission/gate.js";
-import { createTaskTool } from "../subagent/task-tool.js";
 import { clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver, currentTurnId } from "./reactor-spans.js";
 
@@ -32,18 +31,6 @@ function event(type: string, data: unknown = {}): ReactorEmittedEvent {
 
 const shellCall = (command: string) =>
   ({ id: "c1", name: "run_shell", arguments: { command } }) as const;
-
-const provider = {
-  providerName: "test-provider",
-  baseURL: "http://localhost",
-  model: "test-model",
-};
-
-const skipGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-});
 
 describe("permission.wait spans", () => {
   test("records allow decision when operator approves a shell ask", async () => {
@@ -218,153 +205,5 @@ describe("permission.wait spans", () => {
     expect(wait.parentId).toBe(turnId!);
 
     obs.reset();
-  });
-});
-
-describe("subagent spans", () => {
-  test("records a completed subagent span around run()", async () => {
-    let runEntered = false;
-    const tool = createTaskTool({
-      permissionGate: skipGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => {
-        runEntered = true;
-        // Span must still be open while the child runs.
-        const open = snapshot().filter((s) => s.name === "subagent" && s.endNs === undefined);
-        expect(open).toHaveLength(1);
-        expect(open[0]!.tags?.subagent_id).toBe("call-sa-1");
-        return { report: "## Summary\n\nok\n" };
-      },
-    });
-    if (tool.kind !== "full") throw new Error("expected full tool");
-
-    const result = await tool.handler(
-      {
-        id: "call-sa-1",
-        name: "task",
-        arguments: { description: "Job", prompt: "Do it", intent: "explore" },
-      },
-      new AbortController().signal,
-    );
-    expect(runEntered).toBe(true);
-    expect(typeof result.content === "string" ? result.content : "").toContain("ok");
-
-    const agents = byName(completed(snapshot()), "subagent");
-    expect(agents).toHaveLength(1);
-    expect(agents[0]!.tags?.subagent_id).toBe("call-sa-1");
-    expect(agents[0]!.endNs).toBeDefined();
-    expect(agents[0]!.endNs! >= agents[0]!.startNs).toBe(true);
-  });
-
-  test("nests under the open turn with turn_id tag for fanout rollup", async () => {
-    const obs = createPerfReactorObserver();
-    obs.observe(event("inference.start", { model: "m" }));
-    obs.observe(
-      event("inference.done", {
-        turn: {
-          role: "assistant",
-          content: [{ type: "tool_call", id: "task-1", name: "task", arguments: {} }],
-          model: "m",
-          timestamp: 0,
-        },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-        source: { provider: "p", model: "m" },
-      }),
-    );
-    const turnId = obs.currentTurnId();
-    expect(turnId).not.toBeNull();
-
-    const tool = createTaskTool({
-      permissionGate: skipGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => ({ report: "## Summary\n\nchild done\n" }),
-    });
-    if (tool.kind !== "full") throw new Error("expected full tool");
-
-    await tool.handler(
-      {
-        id: "call-child",
-        name: "task",
-        arguments: { description: "Child", prompt: "Work", intent: "explore" },
-      },
-      new AbortController().signal,
-    );
-
-    const agent = byName(completed(snapshot()), "subagent")[0]!;
-    expect(agent.parentId).toBe(turnId!);
-    expect(agent.tags?.subagent_id).toBe("call-child");
-    expect(agent.tags?.turn_id).toBe(turnId!);
-
-    // Wall time under the child is attributable via parentId (fanout rollup).
-    const turn = byName(snapshot(), "turn").find((s) => s.id === turnId);
-    expect(turn).toBeDefined();
-    expect(agent.startNs >= turn!.startNs).toBe(true);
-
-    obs.reset();
-  });
-
-  test("closes the span when run() rejects", async () => {
-    const tool = createTaskTool({
-      permissionGate: skipGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => {
-        throw new Error("boom");
-      },
-    });
-    if (tool.kind !== "full") throw new Error("expected full tool");
-
-    const result = await tool.handler(
-      {
-        id: "call-fail",
-        name: "task",
-        arguments: { description: "Fail", prompt: "Work", intent: "explore" },
-      },
-      new AbortController().signal,
-    );
-    expect(typeof result.content === "string" ? result.content : "").toContain("Error:");
-
-    const agents = byName(completed(snapshot()), "subagent");
-    expect(agents).toHaveLength(1);
-    expect(agents[0]!.tags?.subagent_id).toBe("call-fail");
-    expect(agents[0]!.endNs).toBeDefined();
-  });
-
-  test("opens and closes subagent span when worktree setup fails before run", async () => {
-    let runEntered = false;
-    const tool = createTaskTool({
-      permissionGate: skipGate,
-      // Not a git repo — createSubAgentWorktree fails before run.
-      cwd: "/tmp/not-a-git-repo-for-subagent-span",
-      getWorkdirBase: () => "/tmp/not-a-git-repo-for-subagent-span/.corbits",
-      provider,
-      useWorktree: true,
-      run: async () => {
-        runEntered = true;
-        return { report: "## Summary\n\nshould not run\n" };
-      },
-    });
-    if (tool.kind !== "full") throw new Error("expected full tool");
-
-    const result = await tool.handler(
-      {
-        id: "call-wt-fail",
-        name: "task",
-        arguments: { description: "Worktree fail", prompt: "Work", intent: "explore" },
-      },
-      new AbortController().signal,
-    );
-    expect(runEntered).toBe(false);
-    expect(typeof result.content === "string" ? result.content : "").toContain("Error:");
-
-    const agents = byName(completed(snapshot()), "subagent");
-    expect(agents).toHaveLength(1);
-    expect(agents[0]!.tags?.subagent_id).toBe("call-wt-fail");
-    expect(agents[0]!.endNs).toBeDefined();
   });
 });

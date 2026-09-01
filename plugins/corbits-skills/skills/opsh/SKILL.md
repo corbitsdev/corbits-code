@@ -6,7 +6,7 @@ description: Write scripts using opsh and its built-in libraries. Tiny scripts: 
 
 # opsh Scripting
 
-How to write scripts with opsh and its libraries. Tiny / single-file scripts: DIY with write_file/edit_file using these rules. Substantial script work: spawn `task(agent="builder")` with these rules copied into the brief (workers do not mount `use_skill`). For a review, spawn `task(agent="critic")` (or `task(agent="neckbeard")` for hygiene-only) with the same rules copied in.
+How to write scripts with opsh and its libraries. Tiny / single-file scripts: DIY with write_file/edit_file using these rules. Substantial script work: spawn `spawn_agent(agent="builder")` with these rules copied into the brief, then collect with `wait_agents` (workers do not mount `use_skill`). For a review, spawn `spawn_agent(agent="critic")` (or `spawn_agent(agent="neckbeard")` for hygiene-only) with the same rules copied in, then `wait_agents`.
 
 Shell for agent commands is `run_shell`. Bash-the-language in the examples below stays — opsh scripts are bash.
 

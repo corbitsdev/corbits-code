@@ -7,7 +7,7 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-/** Typed spawn intent — optional on `task`; omit Intent section when unset. */
+/** Typed spawn intent — optional on `spawn_agent`; omit Intent section when unset. */
 export type TaskIntent = "explore" | "implement" | "review" | "plan" | "general";
 
 // Extract the tool name from a sub-agent stream event. tool.start carries the

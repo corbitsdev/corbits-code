@@ -76,11 +76,12 @@ describe("createToolIndex", () => {
     expect(index.search("read a file")).not.toContain("read_file");
   });
 
-  test("orchestrator mode advertises task and search_agents", () => {
-    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("task");
-    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain(
-      "search_agents",
-    );
+  test("orchestrator mode advertises split fleet tools and search_agents", () => {
+    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(advertised).not.toContain("task");
+    expect(advertised).toContain("spawn_agent");
+    expect(advertised).toContain("wait_agents");
+    expect(advertised).toContain("search_agents");
   });
 
   test("orchestrator mode advertises the fleet verbs", () => {
@@ -233,7 +234,7 @@ describe("advertisedTools", () => {
 
   test("orchestrator wire prefix names include multi-agent tools", () => {
     const prefix = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
-    expect(prefix).toContain("task");
+    expect(prefix).not.toContain("task");
     expect(prefix).toContain("search_agents");
     for (const name of [
       "spawn_agent",

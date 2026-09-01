@@ -29,10 +29,10 @@ describe("toolCallPreview", () => {
     ).toBe("currentToolPreview");
   });
 
-  test("task prefers description over prompt", () => {
+  test("spawn_agent prefers description over prompt", () => {
     expect(
       toolCallPreview(
-        "task",
+        "spawn_agent",
         JSON.stringify({
           description: "map callers",
           prompt: "Find every call site of leaveObserve.",

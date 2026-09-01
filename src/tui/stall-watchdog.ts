@@ -11,7 +11,7 @@ export const STALL_TIMEOUT_MS = 900_000;
 // break working runs to fix a wording problem. Grok-4.6 on the Responses path
 // streams only sparse reasoning *summaries* while billing tens of thousands of
 // thinking tokens, so 60–180s of true client silence mid-think is routine;
-// the notice sits above that band and matches DEFAULT_STALL_MS on Task rows.
+// the notice sits above that band and matches DEFAULT_STALL_MS on spawn_agent rows.
 export const STALL_NOTICE_MS = 300_000;
 
 export interface ShouldAbortForStallArgs {
