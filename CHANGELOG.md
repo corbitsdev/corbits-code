@@ -13,6 +13,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Fixed
+
+- Codex ChatGPT subscription sessions no longer show a public-rate dollar
+  cost estimate. Hide follows the live provider identity after `/model`
+  switches, not the launch base URL. Coding-plan (Z.AI) hide uses the same
+  live-identity rule. Context usage and `/cost` still work; `/cost`
+  reports Codex cost as covered by ChatGPT subscription. Metered OpenAI
+  API endpoints keep dollar estimates.
+
 ## [0.3.11] - 2026-08-31
 
 ### Changed

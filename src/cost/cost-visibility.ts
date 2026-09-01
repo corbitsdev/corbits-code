@@ -1,3 +1,5 @@
+import { CODEX_BASE_URL } from "../auth/codex/constants.js";
+import { isCodexProviderName } from "../config/codex-providers.js";
 import { lookupModelPricing, type PricingCache } from "./pricing-fetcher.js";
 
 // Free-model naming conventions: OpenRouter appends ":free", some gateways use
@@ -24,6 +26,38 @@ export function isCodingPlanBaseURL(baseURL: string | undefined): boolean {
   }
 }
 
+// First-class Z.AI Coding Plan catalog id, plus connect instance names
+// (`zai/default`, `zai/work`). Live /model identity uses these names, not the
+// launch baseURL, so a switch onto or off zai updates $ now.
+export function isCodingPlanProviderName(name: string): boolean {
+  return name === "zai" || name.startsWith("zai/");
+}
+
+// Codex OAuth bills against the user's ChatGPT subscription via
+// chatgpt.com/backend-api. Public per-token rates for the same model ids do
+// not apply there, so dollar estimates must be suppressed. Matched against
+// the canonical Codex base (origin + path prefix) so api.openai.com stays
+// metered and a bare chatgpt.com host does not hide costs.
+const CODEX_BASE = new URL(CODEX_BASE_URL);
+const CODEX_ORIGIN = CODEX_BASE.origin;
+const CODEX_PATH = CODEX_BASE.pathname.replace(/\/$/, "").toLowerCase();
+// Host-anchored: a scheme or start of string must precede chatgpt.com so
+// notchatgpt.com/backend-api never matches. Query/hash after the path still
+// count. Unparseable noise that merely contains the substring does not.
+const CHATGPT_SUBSCRIPTION_FALLBACK = /(?:^|\/\/)chatgpt\.com\/backend-api(?:\/|$|\?|#)/i;
+
+export function isChatGPTSubscriptionBaseURL(baseURL: string | undefined): boolean {
+  if (baseURL === undefined) return false;
+  try {
+    const url = new URL(baseURL);
+    if (url.origin !== CODEX_ORIGIN) return false;
+    const path = url.pathname.replace(/\/$/, "").toLowerCase() || "/";
+    return path === CODEX_PATH || path.startsWith(`${CODEX_PATH}/`);
+  } catch {
+    return CHATGPT_SUBSCRIPTION_FALLBACK.test(baseURL);
+  }
+}
+
 export function isFreeModelByPricing(cache: PricingCache | null, modelId: string): boolean {
   const pricing = lookupModelPricing(cache, modelId);
   if (pricing === null) return false;
@@ -32,20 +66,44 @@ export function isFreeModelByPricing(cache: PricingCache | null, modelId: string
 
 export interface CostVisibilityInput {
   baseURL?: string | undefined;
+  // Live /model identity. When set, it wins over a stale launch baseURL for
+  // ChatGPT-subscription and coding-plan hides: Codex names hide even on
+  // api.openai.com, zai names hide even on a metered URL; a present
+  // non-matching name shows even when launch URL would hide. Undefined
+  // falls back to URL.
+  providerName?: string | undefined;
   modelId: string;
   providerFree?: boolean | undefined;
   pricingCache: PricingCache | null;
 }
 
-export type CostHiddenReason = "provider-free" | "coding-plan" | "free-model" | "zero-priced";
+export type CostHiddenReason =
+  "provider-free" | "coding-plan" | "chatgpt-subscription" | "free-model" | "zero-priced";
+
+function isCodingPlanSession(input: CostVisibilityInput): boolean {
+  if (input.providerName !== undefined) {
+    return isCodingPlanProviderName(input.providerName);
+  }
+  return isCodingPlanBaseURL(input.baseURL);
+}
+
+function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
+  if (input.providerName !== undefined) {
+    return isCodexProviderName(input.providerName);
+  }
+  return isChatGPTSubscriptionBaseURL(input.baseURL);
+}
 
 // Non-null when the dollar cost should be suppressed: a manual provider
-// override, a coding-plan endpoint, a free-named model, or a model the pricing
-// registry reports as zero-cost. The reason is carried to the display so /cost
-// can say which condition hid the figure.
+// override, a coding-plan session (live zai identity, else /coding URL), a
+// ChatGPT/Codex subscription (live provider identity, else Codex URL), a
+// free-named model, or a model the pricing registry reports as zero-cost.
+// The reason is carried to the display so /cost can say which condition hid
+// the figure.
 export function costHiddenReason(input: CostVisibilityInput): CostHiddenReason | null {
   if (input.providerFree === true) return "provider-free";
-  if (isCodingPlanBaseURL(input.baseURL)) return "coding-plan";
+  if (isCodingPlanSession(input)) return "coding-plan";
+  if (isChatGPTSubscriptionSession(input)) return "chatgpt-subscription";
   if (isFreeModelId(input.modelId)) return "free-model";
   return isFreeModelByPricing(input.pricingCache, input.modelId) ? "zero-priced" : null;
 }

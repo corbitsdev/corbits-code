@@ -4,11 +4,13 @@
 
 import { contextWindowFor } from "../provider/context-window.js";
 import { costHiddenReason, type CostHiddenReason } from "./cost-visibility.js";
+import type { SessionBillingMix } from "./session-cost.js";
 import type { PricingCache } from "./pricing-fetcher.js";
 
 export interface CostSummaryInput {
   modelId: string;
   baseURL?: string | undefined;
+  providerName?: string | undefined;
   providerFree?: boolean | undefined;
   pricingCache: PricingCache | null;
   totalCost: number;
@@ -23,10 +25,17 @@ export interface CostSummaryInput {
   // approximate instead of implying provider-grade precision. The caller
   // building this input owns the decision; nothing downstream re-derives it.
   contextIsEstimate: boolean;
+  // Session mix from the per-turn accumulator. Absent or "none" falls back to
+  // the live identity for /cost hide copy (fresh launch, post-/clear).
+  sessionBillingMix?: SessionBillingMix | undefined;
+  // Hidden reason of the last hidden-identity turn. Used for hidden-only /cost
+  // copy so a later live metered identity does not rewrite history.
+  sessionHiddenReason?: CostHiddenReason | null | undefined;
 }
 
 export type CostSummary = CostSummaryInput & {
   costHiddenReason: CostHiddenReason | null;
+  sessionBillingMix: SessionBillingMix;
   contextWindow: number;
   // Null when the model's context window is unknown (non-positive), so the
   // display can distinguish "unknown" from a genuine 0% usage.
@@ -45,9 +54,11 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
     costHiddenReason: costHiddenReason({
       modelId: input.modelId,
       baseURL: input.baseURL,
+      providerName: input.providerName,
       providerFree: input.providerFree,
       pricingCache: input.pricingCache,
     }),
+    sessionBillingMix: input.sessionBillingMix ?? "none",
     contextWindow,
     contextPercentUsed,
   };
@@ -90,20 +101,52 @@ export function formatStatusBarSegments(summary: CostSummary): StatusBarCostSegm
   };
 }
 
-const HIDDEN_REASON_TEXT: Record<CostHiddenReason, string> = {
+const HIDDEN_REASON_TEXT: Record<Exclude<CostHiddenReason, "chatgpt-subscription">, string> = {
   "provider-free": "provider marked free",
   "coding-plan": "coding-plan endpoint",
   "free-model": "free model",
   "zero-priced": "zero-priced in the pricing registry",
 };
 
+const MIXED_SESSION_COST_SUFFIX = " (metered portion only; session mixed billed and hidden usage)";
+
+export function formatSessionCostCopy(args: {
+  mix: SessionBillingMix;
+  formattedCost: string;
+  sessionHiddenReason?: CostHiddenReason | null | undefined;
+  liveHiddenReason?: CostHiddenReason | null | undefined;
+}): string {
+  if (args.mix === "mixed") {
+    return `${args.formattedCost}${MIXED_SESSION_COST_SUFFIX}`;
+  }
+  if (args.mix === "metered-only") {
+    return args.formattedCost;
+  }
+  const hide =
+    args.mix === "hidden-only"
+      ? (args.sessionHiddenReason ?? args.liveHiddenReason ?? null)
+      : (args.liveHiddenReason ?? null);
+  if (hide === null) return args.formattedCost;
+  if (hide === "chatgpt-subscription") {
+    return "covered by ChatGPT subscription (not billed per token)";
+  }
+  return `hidden (${HIDDEN_REASON_TEXT[hide]})`;
+}
+
+function formatCostLine(summary: CostSummary): string {
+  return `Cost: ${formatSessionCostCopy({
+    mix: summary.sessionBillingMix,
+    formattedCost: summary.formattedCost,
+    sessionHiddenReason: summary.sessionHiddenReason,
+    liveHiddenReason: summary.costHiddenReason,
+  })}`;
+}
+
 export function formatCostCommandOutput(summary: CostSummary): string {
   const window = summary.contextWindow > 0 ? String(summary.contextWindow) : "unknown";
   const lines = [
     `Model: ${summary.modelId}`,
-    summary.costHiddenReason === null
-      ? `Cost: ${summary.formattedCost}`
-      : `Cost: hidden (${HIDDEN_REASON_TEXT[summary.costHiddenReason]})`,
+    formatCostLine(summary),
     `Tokens: ${String(summary.inputTokens)} in / ${String(summary.outputTokens)} out / ${String(summary.cacheReadTokens)} cache-read`,
     `Context: ${String(summary.contextTokens)}/${window} (${formatContextPercentLabel(summary.contextPercentUsed, summary.contextIsEstimate)})`,
   ];
