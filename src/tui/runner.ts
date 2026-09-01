@@ -185,7 +185,11 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
-import { createDeliveryGeneration, routeQueuedDelivery } from "./queued-delivery.js";
+import {
+  createDeliveryGeneration,
+  createLiveSteerDeliver,
+  routeQueuedDelivery,
+} from "./queued-delivery.js";
 import { createRuntimeShutdown } from "./runtime-shutdown.js";
 import {
   applyFocus,
@@ -2294,20 +2298,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       deliver: routeQueuedDelivery({
         send,
         parentCycleLive: () => host.bridge.parentCycleLive,
-        deliverSteer: (text, attachments) => {
-          const stillCurrent = deliveryGeneration.capture();
-          void (async () => {
-            if (!stillCurrent()) return;
-            const ingested = await ingestOperatorPrompt(
-              text,
-              config.cwd,
-              imageAttachmentFromPath,
-              attachments ?? [],
-            );
-            if (!stillCurrent()) return;
-            agentProxy.deliver(userInboundMessage(ingested.text, ingested.attachments));
-          })().catch(handleSendFailure);
-        },
+        deliverSteer: createLiveSteerDeliver({
+          enqueue: sessionOps.enqueue,
+          ingest: (text, pending) =>
+            ingestOperatorPrompt(text, config.cwd, imageAttachmentFromPath, pending),
+          deliver: (text, pending) => {
+            agentProxy.deliver(userInboundMessage(text, pending));
+          },
+          captureGeneration: deliveryGeneration.capture,
+          onFailure: handleSendFailure,
+        }),
       }),
       // Consent by proceeding requires the disclosure to be on screen before the
       // first prompt activates the held telemetry instance: the landing shows it,

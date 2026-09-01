@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { PendingImageAttachment } from "./image-attachments.js";
-import { createDeliveryGeneration, routeQueuedDelivery } from "./queued-delivery.js";
+import {
+  createDeliveryGeneration,
+  createLiveSteerDeliver,
+  routeQueuedDelivery,
+} from "./queued-delivery.js";
+import { createSessionOperationQueue } from "./session-operation-queue.js";
 
 const image: PendingImageAttachment = {
   id: "img-1",
@@ -104,5 +109,71 @@ describe("createDeliveryGeneration", () => {
     generation.bump();
     expect(first()).toBe(false);
     expect(second()).toBe(false);
+  });
+});
+
+describe("createLiveSteerDeliver", () => {
+  test("slow first ingest does not let a later steer deliver first", async () => {
+    const delivered: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    let resolveSlow!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
+    const deliverSteer = createLiveSteerDeliver({
+      enqueue,
+      ingest: async (text) => {
+        if (text.startsWith("@mention")) await slow;
+        return { text, attachments: [] };
+      },
+      deliver: (text) => {
+        delivered.push(text);
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+
+    deliverSteer("@mention A");
+    deliverSteer("plain B");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(delivered).toEqual([]);
+
+    resolveSlow();
+    await awaitTail();
+    expect(delivered).toEqual(["@mention A", "plain B"]);
+  });
+
+  test("generation bump during ingest drops both in-flight live steers", async () => {
+    const delivered: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const generation = createDeliveryGeneration();
+    let resolveSlow!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
+    const deliverSteer = createLiveSteerDeliver({
+      enqueue,
+      ingest: async (text) => {
+        if (text === "A") await slow;
+        return { text, attachments: [] };
+      },
+      deliver: (text) => {
+        delivered.push(text);
+      },
+      captureGeneration: generation.capture,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+
+    deliverSteer("A");
+    deliverSteer("B");
+    generation.bump();
+    resolveSlow();
+    await awaitTail();
+    expect(delivered).toEqual([]);
   });
 });

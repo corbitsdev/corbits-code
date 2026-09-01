@@ -44,3 +44,43 @@ export function createDeliveryGeneration() {
     },
   };
 }
+
+export interface IngestedSteer {
+  readonly text: string;
+  readonly attachments: readonly PendingImageAttachment[];
+}
+
+export interface CreateLiveSteerDeliverArgs {
+  /**
+   * FIFO session queue. Ingest must run on this queue — not in a
+   * fire-and-forget IIFE — so two steers at one boundary cannot reverse
+   * if the second ingest finishes first.
+   */
+  enqueue: (op: () => Promise<void>) => Promise<void>;
+  ingest: (text: string, attachments: readonly PendingImageAttachment[]) => Promise<IngestedSteer>;
+  /** Agent.deliver (or the sessionOps enqueue that wraps it). */
+  deliver: (text: string, attachments: readonly PendingImageAttachment[]) => void;
+  captureGeneration: () => () => boolean;
+  onFailure: (err: unknown) => void;
+}
+
+/**
+ * Live inject: enqueue ingest, then deliver, in drain order. Previously
+ * each item started ingest immediately, so Agent.deliver could reverse.
+ */
+export function createLiveSteerDeliver(
+  args: CreateLiveSteerDeliverArgs,
+): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+  return (text, attachments) => {
+    const stillCurrent = args.captureGeneration();
+    const pending = attachments ?? [];
+    void args
+      .enqueue(async () => {
+        if (!stillCurrent()) return;
+        const ingested = await args.ingest(text, pending);
+        if (!stillCurrent()) return;
+        args.deliver(ingested.text, ingested.attachments);
+      })
+      .catch(args.onFailure);
+  };
+}
