@@ -58,6 +58,15 @@ test("TUI send failures retain the in-flight provider identity across model swit
   ).toBe('Codex Provider failed. Try again or switch with "/model" and select another.');
 });
 
+test("TUI auth failures tell the user to log in again instead of switching models", () => {
+  expect(
+    tuiSendFailureMessage(new Error("401 refresh token rejected"), "auth", false, {
+      providerId: "codex/work",
+      displayLabel: "Codex",
+    }),
+  ).toBe("Authentication failed — log in again.");
+});
+
 test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async () => {
   // Absent → empty base (safe to write a single key).
   expect(await loadLocalSettingsWriteBase("/nope", async () => null)).toEqual({});

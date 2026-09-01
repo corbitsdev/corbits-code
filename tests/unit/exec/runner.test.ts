@@ -58,9 +58,7 @@ describe("selected provider refresh failures", () => {
     } catch (err) {
       expect(formatCaughtError(err)).toBe(rawDiagnostic);
       const userMessage = execUserFailureMessage(config, err, false);
-      expect(userMessage).toBe(
-        'Codex Provider failed. Try again or switch with "/model" and select another.',
-      );
+      expect(userMessage).toBe("Authentication failed — log in again.");
       expect(userMessage).not.toContain(rawDiagnostic);
     }
   });

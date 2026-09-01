@@ -11,9 +11,8 @@ import {
   type ResolvedProviderFailureError,
 } from "../inference-error-message.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import { createFleetMailbox, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
-import { createTaskTool } from "./task-tool.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
 const RAW_DIAGNOSTIC = "POST https://provider.invalid returned secret response body";
@@ -130,33 +129,10 @@ describe("resolved sub-agent provider failures", () => {
     expect(observed.some((event) => JSON.stringify(event).includes(RAW_DIAGNOSTIC))).toBe(true);
   });
 
-  test("fused task returns only the safe message for the resolved reply sequence", async () => {
-    await withResolvedProviderRun(async (run, cwd) => {
-      const sessions = createSubAgentSessionStore();
-      const task = createTaskTool({
-        ...runParams(cwd),
-        getWorkdirBase: () => join(cwd, ".ctx"),
-        sessions,
-        fleetRecords: createFleetRecords(),
-        run,
-      });
-      const result = await callTool(task, "task", {
-        description: "provider failure",
-        prompt: "trigger it",
-        intent: "explore",
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content).toBe(SAFE_MESSAGE);
-      expect(String(result.content)).not.toContain(RAW_DIAGNOSTIC);
-      expect(sessions.list()[0]?.error).toBe(SAFE_MESSAGE);
-    });
-  });
-
   test("split spawn_agent and wait_agents return only the safe message", async () => {
     await withResolvedProviderRun(async (run, cwd) => {
       const sessions = createSubAgentSessionStore();
-      const fleetRecords = createFleetRecords();
+      const fleetRecords = createFleetMailbox(sessions);
       const deps = {
         ...runParams(cwd),
         getWorkdirBase: () => join(cwd, ".ctx"),

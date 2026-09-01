@@ -217,6 +217,7 @@ import {
 } from "./session-chrome.js";
 import { ingestOperatorPrompt } from "./prompt-attachments.js";
 import {
+  CREDENTIAL_FAILURE_USER_MESSAGE,
   isResolvedProviderFailureError,
   terminalProviderFailureMessage,
 } from "../inference-error-message.js";
@@ -619,11 +620,10 @@ export function tuiSendFailureMessage(
   providerFailureObserved: boolean,
   attempt: InferenceAttemptIdentity,
 ): string {
-  if (
-    failureKind !== "auth" &&
-    !providerFailureObserved &&
-    !isResolvedProviderFailureError(error)
-  ) {
+  if (failureKind === "auth") {
+    return CREDENTIAL_FAILURE_USER_MESSAGE;
+  }
+  if (!providerFailureObserved && !isResolvedProviderFailureError(error)) {
     return error instanceof Error ? error.message : String(error);
   }
   const providerId = isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId;

@@ -31,6 +31,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - Cancelling a `task` or `wait_agents` worker reports wait status `interrupted`,
   not `failed`.
+- Inference no longer fails over to a backup provider. A selected-provider
+  failure stays on that provider; switch with `/model`.
 
 ### Fixed
 
@@ -46,6 +48,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   when a followup is already in flight.
 - `interrupt_agent` flips the wait mailbox so soft interrupt unblocks
   `wait_agents` while the background run is still in flight.
+- Credential-refresh and auth send failures tell the user to log in again
+  instead of suggesting `/model`.
 
 ## [0.3.11] - 2026-08-31
 

@@ -63,6 +63,7 @@ import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js"
 import { liveTelemetry } from "../telemetry/singleton.js";
 import { createTurnObserver } from "../telemetry/ai-observability.js";
 import {
+  CREDENTIAL_FAILURE_USER_MESSAGE,
   isResolvedProviderFailureError,
   terminalProviderFailureMessage,
 } from "../inference-error-message.js";
@@ -136,11 +137,10 @@ export function execUserFailureMessage(
   err: unknown,
   providerFailureObserved: boolean,
 ): string {
-  if (
-    providerFailureObserved ||
-    isResolvedProviderFailureError(err) ||
-    (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE)
-  ) {
+  if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
+    return CREDENTIAL_FAILURE_USER_MESSAGE;
+  }
+  if (providerFailureObserved || isResolvedProviderFailureError(err)) {
     return terminalProviderFailureMessage(
       config.providerName,
       config.settings?.providers[config.providerName]?.name,
