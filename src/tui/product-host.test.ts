@@ -10,7 +10,6 @@ import { AGENTS_PANEL_LINGER_MS } from "./chrome-state.js";
 import { createHarness } from "./harness.js";
 import {
   acceptOverlaySelection,
-  closeInsetOverlay,
   handleListFilterKey,
   moveOverlaySelection,
   runOverlayAction,
@@ -690,7 +689,7 @@ describe("flat type-to-filter model picker", () => {
 
   const altA = { name: "a", ctrl: false, meta: false, option: true } as KeyEvent;
 
-  test("the model picker footer advertises Alt+A", async () => {
+  test("the model picker footer advertises Alt+A and /connect", async () => {
     const { harness, host } = await mountPicker({
       // The hint requires the full wiring — choices AND the connect handler —
       // because that is exactly when the key actually works.
@@ -700,7 +699,9 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      expect(harness.captureCharFrame()).toContain("Alt+A");
+      const frame = harness.captureCharFrame();
+      expect(frame).toContain("Alt+A");
+      expect(frame).toContain("/connect");
     } finally {
       host.dispose();
       harness.destroy();
@@ -792,6 +793,74 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       harness.pressKey("å");
       await harness.renderOnce();
+      expect(host.shell.overlayKind).toBe("add_provider");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("closed-prompt å stays in the prompt and does not open add-provider", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      expect(host.shell.overlayKind).toBeNull();
+      harness.pressKey("å");
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).toBeNull();
+      expect(host.shell.prompt.value).toContain("å");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("other composed glyphs still type-to-filter in the model picker", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      for (const glyph of ["ø", "ä", "æ"] as const) {
+        const composed = {
+          name: glyph,
+          sequence: glyph,
+          ctrl: false,
+          meta: false,
+          option: false,
+        } as KeyEvent;
+        expect(handleListFilterKey(host.shell, composed)).toBe(true);
+        expect(host.shell.overlayKind).toBe("model_picker");
+      }
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("sequence-only å with name a opens add-provider from the model picker", async () => {
+    // Terminals can report Option+A as sequence å while name stays ASCII a
+    // and option/meta stay false (#482).
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const sequenceOnly = {
+        name: "a",
+        sequence: "å",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, sequenceOnly)).toBe(false);
+      expect(runOverlayAction(host.shell, sequenceOnly)).toBe(true);
       expect(host.shell.overlayKind).toBe("add_provider");
     } finally {
       host.dispose();
@@ -901,7 +970,8 @@ describe("flat type-to-filter model picker", () => {
       runOverlayAction(host.shell, altA);
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("add_provider");
-      closeInsetOverlay(host.shell);
+      harness.pressKey("Escape");
+      await new Promise((r) => setTimeout(r, 60));
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("model_picker");
       expect(host.shell.overlayItems).toEqual(modelItems);
@@ -921,9 +991,45 @@ describe("flat type-to-filter model picker", () => {
       host.openAddProvider?.();
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("add_provider");
-      closeInsetOverlay(host.shell);
+      harness.pressKey("Escape");
+      await new Promise((r) => setTimeout(r, 60));
       await harness.renderOnce();
       expect(host.shell.overlayKind).not.toBe("model_picker");
+      expect(host.shell.overlayKind).toBeNull();
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("typed /connect then Enter opens add-provider and Esc leaves overlay null", async () => {
+    const queued: { open?: () => void } = {};
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
+      commands: [
+        {
+          id: "connect",
+          label: "/connect",
+          description: "Add a provider account",
+          keywords: ["connect", "Add a provider account", "slash", "command"],
+        },
+      ],
+      onCommand: (name) => {
+        if (name === "connect") queued.open?.();
+      },
+    });
+    queued.open = () => host.openAddProvider?.();
+    try {
+      expect(host.shell.overlayKind).toBeNull();
+      for (const ch of "/connect") harness.pressKey(ch);
+      await harness.renderOnce();
+      harness.pressKey("Enter");
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).toBe("add_provider");
+      harness.pressKey("Escape");
+      await new Promise((r) => setTimeout(r, 60));
+      await harness.renderOnce();
       expect(host.shell.overlayKind).toBeNull();
     } finally {
       host.dispose();

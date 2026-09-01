@@ -175,7 +175,7 @@ export interface OpenModelPickerOpts {
    * as you type. Off by default so other list overlays keep j/k.
    */
   readonly typeToFilter?: boolean;
-  /** Advertise Alt+A in the footer — only when the caller wired the handler. */
+  /** Advertise Alt+A /connect in the footer — only when the caller wired the handler. */
   readonly addProviderHint?: boolean;
   /** Advertise Alt+D in the footer — only when the caller wired the handler. */
   readonly setDefaultHint?: boolean;

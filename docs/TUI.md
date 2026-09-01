@@ -410,15 +410,20 @@ not-yet-configured provider kind, filtered out once that kind had any
 connected account. That filtering made a second OAuth account (a second
 Codex or xAI login) unreachable — OAuth accounts are per-profile, so
 kind-level "already connected" filtering hid the connect path the moment the
-first profile existed. **Alt+A** now opens `add_provider`
+first profile existed. **Alt+A** (US-style Option+A, including composed å/Å)
+and **/connect** now open `add_provider`
 (`src/tui/overlays.ts:openAddProviderOverlay`), a separate `PrimaryOverlayKind`
 listing every first-class provider kind from `providerChoices()` — OAuth,
 API-key, keyless local, and Custom alike — each annotated with its live
-connected-account count and none of them filtered out. Custom uses the full
-manual form (name, base URL, key, model); OAuth and API-key kinds keep their
-auth-only or browser login paths, while Ollama has a keyless local setup path.
-Esc returns to the model list through the same
-`openModels()` entry point the picker itself uses. Picking a row runs the
+connected-account count and none of them filtered out. `/connect` is the
+layout-proof path: layouts whose Option+A is not å/Å still type a printable
+glyph, so Alt+A is a dead chord there. Custom uses the full manual form
+(name, base URL, key, model); OAuth and API-key kinds keep their auth-only
+or browser login paths, while Ollama has a keyless local setup path. Esc
+after Alt+A from `/model` returns to the model list through the same
+`openModels()` entry point the picker itself uses. Esc after `/connect`
+from a closed prompt dismisses the selector without reopening `/model`.
+Picking a row runs the
 existing inline connect flow (`provider-connect.ts`); first-class kinds (OAuth
 and API-key) both ask for an instance/account name before auth so multiple
 instances coexist as `kind/slug` catalog rows, and reusing a name confirms

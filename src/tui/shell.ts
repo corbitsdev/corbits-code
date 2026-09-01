@@ -1332,8 +1332,8 @@ const DEFAULT_OVERLAY_HINTS = ["Esc cancel · Enter choose", "Esc · Enter"] as 
  */
 /** Model picker only: same three-tier fallback shape as DEFAULT_OVERLAY_HINTS. */
 const MODEL_PICKER_HINTS = [
-  "Esc cancel · Enter choose · Alt+A add provider",
-  "Esc · Enter · Alt+A add",
+  "Esc cancel · Enter choose · Alt+A /connect add provider",
+  "Esc · Enter · Alt+A /connect",
   "Esc · Enter",
 ] as const;
 
@@ -1355,8 +1355,8 @@ function overlayHints(shell: AppShell): readonly string[] {
       const setDefault = bag?.overlaySetDefaultHint === true;
       if (addProvider && setDefault) {
         return [
-          "Esc cancel · Enter choose · Alt+A add provider · Alt+D set default",
-          "Esc · Enter · Alt+A add · Alt+D default",
+          "Esc cancel · Enter choose · Alt+A /connect add provider · Alt+D set default",
+          "Esc · Enter · Alt+A /connect · Alt+D default",
           "Esc · Enter · Alt+A · Alt+D",
           "Esc · Enter",
         ];
@@ -3569,9 +3569,9 @@ export interface OpenListOverlayOpts {
    */
   readonly typeToFilter?: boolean;
   /**
-   * Advertise Alt+A in the footer and yield composed Option+A (å/Å) from
-   * type-to-filter. Set only when the caller actually wired an Alt+A handler
-   * via `onAction`, so the hint can never name a key that is a dead end.
+   * Advertise Alt+A and /connect in the footer and yield composed Option+A
+   * (å/Å) from type-to-filter. Set only when the caller actually wired an
+   * add-provider handler via `onAction`, so the hint never names a dead chord.
    */
   readonly addProviderHint?: boolean;
   /**
