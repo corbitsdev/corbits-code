@@ -77,14 +77,15 @@ test("leaf harness facts advertise product write tools", () => {
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
 });
 
-test("leaf harness facts state turn budget and wrap-up report behavior", () => {
+test("leaf harness facts state no-budget report completion behavior", () => {
   const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
-  expect(facts).toContain("Turn budget is real");
-  expect(facts).toContain("wrap-up nudge");
-  expect(facts).toContain("Summary/Findings/Blockers/Paths");
-  expect(facts).toContain("Do not thrash re-reads");
-  // Primary harness facts omit leaf turn-budget language.
-  expect(buildHarnessFacts()).not.toContain("Turn budget is real");
+  expect(facts).toContain("There is no turn budget");
+  expect(facts).toContain("one incomplete-report nudge");
+  expect(facts).toContain("next tool-less reply still omits the envelope");
+  expect(facts).toContain("completion, cancellation, an opt-in deadline, or a stall");
+  expect(facts).not.toContain("Turn budget is real");
+  expect(facts).not.toContain("wrap-up nudge may fire");
+  expect(facts).not.toContain("as the budget ends");
 });
 
 test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {
@@ -374,7 +375,11 @@ test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => 
   expect(prompt).toContain(note);
   expect(prompt).toContain("prefer the structured report");
   expect(prompt).toContain("re-open paths you already read");
-  expect(prompt).toContain("Leave the last turn for the report envelope");
+  expect(prompt).toContain(
+    "When the dispatch brief's done-definition is met, write the report envelope",
+  );
+  expect(prompt).not.toContain("Leave the last turn");
+  expect(prompt).not.toContain("spend the budget");
   // Appendix still last.
   expect(prompt.indexOf("Finish bias (xAI / Grok worker)")).toBeLessThan(
     prompt.indexOf("## Corbits Code notes"),
