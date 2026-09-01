@@ -65,7 +65,7 @@ export interface RunnerHostDeps {
     attachments?: readonly PendingImageAttachment[],
   ) => "agent" | "local" | "empty";
   readonly interrupt: () => void;
-  readonly deliver?: (
+  readonly deliver: (
     text: string,
     kind: QueueKind,
     attachments?: readonly PendingImageAttachment[],
@@ -259,8 +259,8 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     eventEmitter: deps.eventEmitter,
     send: deps.send,
     interrupt: deps.interrupt,
+    deliver: deps.deliver,
     ...(deps.classifySubmit !== undefined ? { classifySubmit: deps.classifySubmit } : {}),
-    ...(deps.deliver !== undefined ? { deliver: deps.deliver } : {}),
     ...(deps.onConnectProvider !== undefined ? { onConnectProvider: deps.onConnectProvider } : {}),
     ...(deps.onFavoriteToggle !== undefined ? { onFavoriteToggle: deps.onFavoriteToggle } : {}),
     ...(deps.onSetDefault !== undefined ? { onSetDefault: deps.onSetDefault } : {}),

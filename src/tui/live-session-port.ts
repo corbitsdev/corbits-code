@@ -23,15 +23,8 @@ export interface LiveSessionPortDeps {
   ) => SubmitClassification;
   /** Hard interrupt current run (runner close/rebuild). */
   interrupt: () => void;
-  /**
-   * Optional: drained queue/steer item at tool boundary (or idle).
-   * Defaults to `send(text)` for both kinds — v1 runner shares send.
-   */
-  deliver?: (
-    text: string,
-    kind: QueueKind,
-    attachments?: readonly PendingImageAttachment[],
-  ) => void;
+  /** Drained queue/steer item. Kind routing (live inject vs send) is the host's. */
+  deliver: (text: string, kind: QueueKind, attachments?: readonly PendingImageAttachment[]) => void;
 }
 
 /**
@@ -57,11 +50,7 @@ export function createLiveSessionPort(deps: LiveSessionPortDeps): SessionPort {
       deps.interrupt();
     },
     deliver: (item: QueueItem): void => {
-      if (deps.deliver) {
-        deps.deliver(item.text, item.kind, item.attachments);
-        return;
-      }
-      deps.send(item.text, item.attachments);
+      deps.deliver(item.text, item.kind, item.attachments);
     },
   };
 }

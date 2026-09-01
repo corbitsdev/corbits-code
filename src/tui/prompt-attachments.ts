@@ -9,6 +9,7 @@ import {
   type AttachImageResult,
   type PendingImageAttachment,
 } from "./image-attachments.js";
+import { resolveAtMentions } from "./mention-resolution.js";
 
 export type { PendingImageAttachment };
 
@@ -40,6 +41,21 @@ export async function ingestPathMentions(
     out = out.replace(mention.raw, `[Attached image: ${result.attachment.name}]`);
   }
   return { text: out, attachments };
+}
+
+/**
+ * Shared operator-prompt ingest for send and live-steer deliver: inline image
+ * paths become attachments and @mentions are expanded. Does not send.
+ */
+export async function ingestOperatorPrompt(
+  text: string,
+  cwd: string,
+  load: (path: string) => Promise<AttachImageResult>,
+  pending: readonly PendingImageAttachment[] = [],
+): Promise<PathMentionIngestion> {
+  const ingested = await ingestPathMentions(text, cwd, load);
+  const resolved = await resolveAtMentions(ingested.text, cwd);
+  return { text: resolved, attachments: [...pending, ...ingested.attachments] };
 }
 
 export interface MentionSplice {

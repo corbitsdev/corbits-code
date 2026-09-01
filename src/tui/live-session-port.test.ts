@@ -8,7 +8,7 @@ type Call =
   | { op: "interrupt" }
   | { op: "deliver"; text: string; kind: QueueKind };
 
-function fakeDeps(opts?: { withDeliver?: boolean }) {
+function fakeDeps() {
   const calls: Call[] = [];
   const deps = {
     send: (text: string) => {
@@ -17,13 +17,9 @@ function fakeDeps(opts?: { withDeliver?: boolean }) {
     interrupt: () => {
       calls.push({ op: "interrupt" });
     },
-    ...(opts?.withDeliver
-      ? {
-          deliver: (text: string, kind: QueueKind) => {
-            calls.push({ op: "deliver", text, kind });
-          },
-        }
-      : {}),
+    deliver: (text: string, kind: QueueKind) => {
+      calls.push({ op: "deliver", text, kind });
+    },
   };
   return { calls, deps };
 }
@@ -69,22 +65,12 @@ describe("createLiveSessionPort", () => {
     expect(calls).toEqual([{ op: "interrupt" }]);
   });
 
-  test("deliver without deps.deliver falls back to send", () => {
+  test("deliver never calls send for steer or queue", () => {
     const { calls, deps } = fakeDeps();
     const port = createLiveSessionPort(deps);
     port.deliver(item("queued msg", "queue"));
     port.deliver(item("steer msg", "steer", "q2"));
-    expect(calls).toEqual([
-      { op: "send", text: "queued msg" },
-      { op: "send", text: "steer msg" },
-    ]);
-  });
-
-  test("deliver with deps.deliver passes text and kind", () => {
-    const { calls, deps } = fakeDeps({ withDeliver: true });
-    const port = createLiveSessionPort(deps);
-    port.deliver(item("queued msg", "queue"));
-    port.deliver(item("steer msg", "steer", "q2"));
+    expect(calls.some((c) => c.op === "send")).toBe(false);
     expect(calls).toEqual([
       { op: "deliver", text: "queued msg", kind: "queue" },
       { op: "deliver", text: "steer msg", kind: "steer" },
@@ -92,7 +78,7 @@ describe("createLiveSessionPort", () => {
   });
 
   test("full wiring: immediate → enqueue → deliver → interrupt", () => {
-    const { calls, deps } = fakeDeps({ withDeliver: true });
+    const { calls, deps } = fakeDeps();
     const port = createLiveSessionPort(deps);
 
     port.sendImmediate("start");
@@ -122,6 +108,7 @@ describe("attachment passthrough", () => {
     const port = createLiveSessionPort({
       send: (_text, attachments) => seen.push(attachments),
       interrupt: () => {},
+      deliver: () => {},
     });
     port.sendImmediate("look", [image]);
     expect(seen).toEqual([[image]]);

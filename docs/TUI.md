@@ -468,17 +468,18 @@ the chord to point an operator at when Shift+Enter doesn't respond.
 Two mid-run gestures, two delivery times (CL-6290):
 
 - **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
-  next **parent** `tool.boundary` (the parent tool finishing, not a child). A
+  next **parent** `tool.boundary` (the parent tool finishing, not a child) via
+  `Agent.deliver` into the live reactor, not a new `send`. A
   long parent `run_shell` or an awaiting `task()` is parent-busy and holds
   steers. The transcript row says `[will steer next]` while pending and
   `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
   `runtime-bridge.ts`).
 - **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
-  only on **session-idle** (parent-idle and no live fleet lanes). Does not
-  interrupt or reinject. The transcript row says `[will follow up]` while
-  pending and `[following up]` once delivered. Idle, or with an empty prompt,
-  Alt+Enter does nothing — there is nothing to wait for. (Internal `"reinject"`
-  remains in the submit API for tests; no product chord wires it.)
+  only on **session-idle** (parent-idle and no live fleet lanes) as a `send`.
+  Does not interrupt or reinject. The transcript row says `[will follow up]`
+  while pending and `[following up]` once delivered. Idle, or with an empty
+  prompt, Alt+Enter does nothing — there is nothing to wait for. (Internal
+  `"reinject"` remains in the submit API for tests; no product chord wires it.)
 
 When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
 (3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).
@@ -491,7 +492,7 @@ events carrying the live-lane count and the bridge holds the run busy on it.
 During the hold, Enter upgrades to a new primary turn sent immediately —
 there is no parent tool left to steer — while Alt+Enter follow-ups keep
 waiting for true session-idle. A steer still pending when the hold engages
-delivers at once (the parent it was steering has stopped), and the last lane
+sends at once (the parent it was steering has stopped), and the last lane
 terminalizing releases the hold, drains follow-ups, and returns the session
 to idle.
 
