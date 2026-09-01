@@ -73,6 +73,12 @@ describe("isCodingPlanProviderName", () => {
     expect(isCodingPlanProviderName("openai")).toBe(false);
     expect(isCodingPlanProviderName("codex/default")).toBe(false);
   });
+
+  it("matches first-class connect instance names", () => {
+    expect(isCodingPlanProviderName("zai/default")).toBe(true);
+    expect(isCodingPlanProviderName("zai/work")).toBe(true);
+    expect(isCodingPlanProviderName("openai/default")).toBe(false);
+  });
 });
 
 describe("isChatGPTSubscriptionBaseURL", () => {
@@ -144,6 +150,28 @@ describe("costHiddenReason", () => {
     ).toBe("coding-plan");
   });
 
+  it("hides on a zai instance name even when baseURL is still the metered API", () => {
+    expect(
+      costHiddenReason({
+        modelId: "glm-5.1",
+        providerName: "zai/default",
+        baseURL: "https://api.openai.com/v1",
+        pricingCache,
+      }),
+    ).toBe("coding-plan");
+  });
+
+  it("hides on a zai instance name with a coding-plan URL", () => {
+    expect(
+      costHiddenReason({
+        modelId: "glm-5.1",
+        providerName: "zai/default",
+        baseURL: "https://api.z.ai/api/coding/paas/v4",
+        pricingCache,
+      }),
+    ).toBe("coding-plan");
+  });
+
   it("shows cost on live non-coding-plan identity even when baseURL is still a coding-plan endpoint", () => {
     expect(
       costHiddenReason({
@@ -210,6 +238,17 @@ describe("costHiddenReason", () => {
       costHiddenReason({
         modelId: "gpt-5.6-luna",
         providerName: "openai",
+        baseURL: "https://api.openai.com/v1",
+        pricingCache,
+      }),
+    ).toBeNull();
+  });
+
+  it("shows cost for a metered OpenAI instance name", () => {
+    expect(
+      costHiddenReason({
+        modelId: "gpt-5.6-luna",
+        providerName: "openai/default",
         baseURL: "https://api.openai.com/v1",
         pricingCache,
       }),

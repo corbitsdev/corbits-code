@@ -26,10 +26,11 @@ export function isCodingPlanBaseURL(baseURL: string | undefined): boolean {
   }
 }
 
-// First-class Z.AI Coding Plan catalog id. Live /model identity uses this
-// name, not the launch baseURL, so a switch onto or off zai updates $ now.
+// First-class Z.AI Coding Plan catalog id, plus connect instance names
+// (`zai/default`, `zai/work`). Live /model identity uses these names, not the
+// launch baseURL, so a switch onto or off zai updates $ now.
 export function isCodingPlanProviderName(name: string): boolean {
-  return name === "zai";
+  return name === "zai" || name.startsWith("zai/");
 }
 
 // Codex OAuth bills against the user's ChatGPT subscription via
