@@ -72,6 +72,25 @@ function isRecoverableAuthError(err: unknown): boolean {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
+/**
+ * Fetch that always attaches the connect AbortSignal. SDK 403 upscoping calls
+ * `auth()` with raw `_fetch` (no `requestInit.signal`); `_fetchWithInit` still
+ * uses this same function, so both paths abort when connect is cancelled.
+ */
+export function fetchWithConnectAbort(
+  connectSignal: AbortSignal,
+  baseFetch: (url: string | URL, init?: RequestInit) => Promise<Response> = fetch,
+): (url: string | URL, init?: RequestInit) => Promise<Response> {
+  return (url, init) => {
+    const requestSignal = init?.signal ?? undefined;
+    const signal =
+      requestSignal === undefined || requestSignal === connectSignal
+        ? connectSignal
+        : AbortSignal.any([connectSignal, requestSignal]);
+    return baseFetch(url, { ...init, signal });
+  };
+}
+
 function streamableHTTPTransportOptions(
   authProvider: CorbitsOAuthProvider | undefined,
   signal: AbortSignal | undefined,
@@ -79,7 +98,9 @@ function streamableHTTPTransportOptions(
   if (authProvider === undefined && signal === undefined) return undefined;
   return {
     ...(authProvider === undefined ? {} : { authProvider }),
-    ...(signal === undefined ? {} : { requestInit: { signal } }),
+    ...(signal === undefined
+      ? {}
+      : { requestInit: { signal }, fetch: fetchWithConnectAbort(signal) }),
   };
 }
 

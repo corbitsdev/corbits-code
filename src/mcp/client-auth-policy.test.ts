@@ -82,7 +82,10 @@ await withMockedModule(
     StreamableHTTPClientTransport: class {
       constructor(
         _url: URL,
-        private readonly options?: { requestInit?: RequestInit },
+        private readonly options?: {
+          requestInit?: RequestInit;
+          fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>;
+        },
       ) {
         transportOptions.push(options);
         lastTransportAuth = () => this.auth();
@@ -101,6 +104,9 @@ await withMockedModule(
         }
       }
       async auth(): Promise<void> {
+        // SDK 403 upscoping uses raw `_fetch` with no init.signal. Hang on the
+        // connect signal the product also installs as `fetch`, so abort still
+        // settles this path.
         const signal = this.options?.requestInit?.signal;
         tokenRefreshSignals.push(signal);
         await hangUntilAbort(
@@ -149,7 +155,7 @@ await withMockedModule(
   }),
 );
 
-const { connectMCPServer } = await import("./client.js");
+const { connectMCPServer, fetchWithConnectAbort } = await import("./client.js");
 
 describe("HTTP MCP auth policy", () => {
   beforeEach(() => {
@@ -257,7 +263,9 @@ describe("HTTP MCP auth policy", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(transportOptions).toEqual([{ authProvider, requestInit: { signal: abort.signal } }]);
+    expect(transportOptions).toEqual([
+      { authProvider, requestInit: { signal: abort.signal }, fetch: expect.any(Function) },
+    ]);
 
     const call = result.client.call("ping", {}, abort.signal);
     while (tokenRefreshSignals.length === 0) await Promise.resolve();
@@ -265,6 +273,14 @@ describe("HTTP MCP auth policy", () => {
     abort.abort(new Error("toolset disposed"));
     await expect(call).rejects.toThrow("toolset disposed");
     expect(tokenRefreshAborts).toBe(1);
+
+    const fetchFn = (
+      transportOptions[0] as {
+        fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>;
+      }
+    ).fetch;
+    expect(fetchFn).toBeTypeOf("function");
+    await expect(fetchFn!("https://auth.test/token")).rejects.toThrow();
   });
 
   test("ordinary HTTP creates endpoint-scoped OAuth and passes it to transport", async () => {
@@ -279,5 +295,42 @@ describe("HTTP MCP auth policy", () => {
     expect(providerCreates).toBe(1);
     expect(providerServerURL).toBe("https://custom.example/mcp?mode=full");
     expect(transportOptions).toEqual([{ authProvider }]);
+  });
+});
+
+describe("fetchWithConnectAbort", () => {
+  test("rejects when the connect signal aborts OAuth HTTP with no init.signal", async () => {
+    const abort = new AbortController();
+    let seen: AbortSignal | undefined;
+    const fetchFn = fetchWithConnectAbort(abort.signal, (_url, init) => {
+      seen = init?.signal ?? undefined;
+      return hangUntilAbort(init?.signal, () => undefined, "aborted").then(
+        () => new Response(null, { status: 200 }),
+      );
+    });
+
+    const pending = fetchFn("https://auth.test/token");
+    expect(seen).toBe(abort.signal);
+    abort.abort(new Error("toolset disposed"));
+    await expect(pending).rejects.toThrow("toolset disposed");
+  });
+
+  test("composes connect abort with a caller request signal", async () => {
+    const connect = new AbortController();
+    const request = new AbortController();
+    let seen: AbortSignal | undefined;
+    const fetchFn = fetchWithConnectAbort(connect.signal, (_url, init) => {
+      seen = init?.signal ?? undefined;
+      return hangUntilAbort(init?.signal, () => undefined, "aborted").then(
+        () => new Response(null, { status: 200 }),
+      );
+    });
+
+    const pending = fetchFn("https://auth.test/token", { signal: request.signal });
+    expect(seen).toBeDefined();
+    expect(seen).not.toBe(connect.signal);
+    expect(seen).not.toBe(request.signal);
+    connect.abort(new Error("toolset disposed"));
+    await expect(pending).rejects.toThrow("toolset disposed");
   });
 });

@@ -213,6 +213,9 @@ export interface AgentToolset {
     callbacks: MCPConnectCallbacks,
     signal?: AbortSignal,
   ) => Promise<void>;
+  // True while this name is connected or a connection is in flight — not after
+  // a failed connect. Persist uses this to block a second add of an active name;
+  // failed rows retry through connectMCPServer without a second persist.
   hasMCPServer: (name: string) => boolean;
   // Wire the callback the `tool_search` tool invokes to make matched tools
   // advertised. Set by the runner once the director + reload loop exist.
@@ -539,7 +542,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerHolder.current = dynamicRunner;
 
-  const reservedMCPServerNames = new Set(mcpServers.map((server) => server.name));
   const connectedClients = new Map<string, MCPClient>();
   const inFlightConnections = new Map<string, Promise<void>>();
   const mcpAbortController = new AbortController();
@@ -552,7 +554,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     signal?: AbortSignal,
   ): Promise<void> => {
     if (disposed) return Promise.resolve();
-    reservedMCPServerNames.add(config.name);
     if (connectedClients.has(config.name)) return Promise.resolve();
     const existing = inFlightConnections.get(config.name);
     if (existing !== undefined) return existing;
@@ -703,7 +704,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     dynamicRunner,
     connectMCP,
     connectMCPServer: connectOneMCPServer,
-    hasMCPServer: (name) => reservedMCPServerNames.has(name),
+    hasMCPServer: (name) => connectedClients.has(name) || inFlightConnections.has(name),
     setToolPromoter: (promote) => {
       promoter.promote = promote;
     },

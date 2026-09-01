@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ToolResult } from "@intx/types/runtime";
 import { stringTool, type AgentTool } from "@intx/agent";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
-import type { ResolvedMCPServerConfig } from "../mcp/exa.js";
+import { createExaMCPServerConfig, type ResolvedMCPServerConfig } from "../mcp/exa.js";
 import type { MCPConnectOptions } from "../mcp/client.js";
 import { createGlobalSettingsWriter, persistGlobalHTTPMCPServer } from "../mcp/add-server.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -395,13 +395,13 @@ describe("built-in Exa web_fetch alias", () => {
     }
   });
 
-  test("failed implicit Exa remains reserved and cannot be persisted explicitly", async () => {
+  test("failed implicit Exa is not active and retries without a second persist", async () => {
     connectMode = "failed";
     const toolset = await makeToolset();
     const path = join(mkdtempSync(join(tmpdir(), "corbits-mcp-failed-exa-")), "settings.json");
     try {
       await connect(toolset);
-      expect(toolset.hasMCPServer("exa")).toBe(true);
+      expect(toolset.hasMCPServer("exa")).toBe(false);
       expect(
         await persistGlobalHTTPMCPServer(
           createGlobalSettingsWriter(path),
@@ -410,8 +410,15 @@ describe("built-in Exa web_fetch alias", () => {
           "none",
           toolset.hasMCPServer,
         ),
-      ).toEqual({ ok: false, reason: "active" });
-      expect(await Bun.file(path).exists()).toBe(false);
+      ).toMatchObject({ ok: true, server: { name: "exa" } });
+
+      connectMode = "success";
+      await toolset.connectMCPServer(createExaMCPServerConfig(), {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      expect(toolset.hasMCPServer("exa")).toBe(true);
     } finally {
       await toolset.dispose();
     }
@@ -477,7 +484,7 @@ describe("built-in Exa web_fetch alias", () => {
       expect(
         toolset.dynamicRunner.currentDefinitions().some((tool) => tool.name.includes("linear")),
       ).toBe(false);
-      expect(toolset.hasMCPServer("linear")).toBe(true);
+      expect(toolset.hasMCPServer("linear")).toBe(false);
 
       connectMode = "failed";
       const retryStates: string[] = [];
@@ -518,6 +525,29 @@ describe("built-in Exa web_fetch alias", () => {
 
       expect(states.map((status) => status.state)).toEqual(["connecting", "failed"]);
       expect(states[1]?.error).toContain("connection exploded");
+      expect(toolset.hasMCPServer("linear")).toBe(false);
+      expect(await Bun.file(path).json()).toMatchObject({
+        mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      });
+      expect(
+        await persistGlobalHTTPMCPServer(
+          createGlobalSettingsWriter(path),
+          "linear",
+          "https://mcp.linear.app/mcp",
+          "none",
+          toolset.hasMCPServer,
+        ),
+      ).toEqual({ ok: false, reason: "duplicate" });
+
+      connectMode = "success";
+      const retryStates: string[] = [];
+      await toolset.connectMCPServer(persisted.server, {
+        interactiveAuth: true,
+        onStatus: (status) => retryStates.push(status.state),
+        onToolsChanged: () => undefined,
+      });
+      expect(retryStates).toEqual(["connecting", "connected"]);
+      expect(toolset.hasMCPServer("linear")).toBe(true);
       expect(await Bun.file(path).json()).toMatchObject({
         mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
       });
