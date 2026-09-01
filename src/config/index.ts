@@ -555,6 +555,10 @@ export interface LoadConfigOptions {
   pricing?: PricingFetcherOptions;
 }
 
+function isFlagToken(arg: string): boolean {
+  return arg.startsWith("--") || arg === "-h";
+}
+
 export async function loadConfig(
   argv: readonly string[],
   options?: LoadConfigOptions & { allowUnconfigured?: false },
@@ -567,6 +571,12 @@ export async function loadConfig(
   argv: readonly string[],
   options: LoadConfigOptions = {},
 ): Promise<Config | UnconfiguredConfig> {
+  // Help wins in any position, including after subcommands and immediately
+  // after a value flag that would otherwise swallow the token as its value.
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    throw new CliHelpError();
+  }
+
   const args = [...argv];
 
   // Leading subcommand: `corbits exec "prompt"` (alias: `run`). Default is TUI.
@@ -589,7 +599,7 @@ export async function loadConfig(
     if (next === "--pick" || next === "--list") {
       resumeMode = "pick";
       args.shift();
-    } else if (next !== undefined && !next.startsWith("--")) {
+    } else if (next !== undefined && !isFlagToken(next)) {
       if (!isSessionId(next)) {
         throw new Error(
           `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
@@ -601,10 +611,6 @@ export async function loadConfig(
     } else {
       resumeMode = "pick";
     }
-  }
-
-  if (args[0] === "--help" || args[0] === "-h") {
-    throw new CliHelpError();
   }
 
   let cwd = process.cwd();
@@ -626,7 +632,10 @@ export async function loadConfig(
   const positional: string[] = [];
 
   const requireValue = (flag: string, value: string | undefined): string => {
-    if (value === undefined) {
+    // Flag-shaped tokens are never option values. `--provider --force` and a
+    // trailing `--provider` both surface as a missing value rather than binding
+    // the next flag (or accepting `--help`, which is already handled above).
+    if (value === undefined || isFlagToken(value)) {
       throw new Error(`${flag} requires a value`);
     }
     return value;
