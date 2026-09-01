@@ -54,6 +54,13 @@ describe("/connect command", () => {
   });
 });
 
+describe("MCP commands", () => {
+  it("keeps /mcp and aliases /mcps to the same surface", () => {
+    expect(getCommand("mcp")?.handler("", makeCtx())).toEqual({ type: "overlay", overlay: "mcp" });
+    expect(getCommand("mcps")?.handler("", makeCtx())).toEqual({ type: "overlay", overlay: "mcp" });
+  });
+});
+
 describe("/status command", () => {
   it("answers from the live fleet without sending anything to the model", () => {
     const ctx: CommandContext = {

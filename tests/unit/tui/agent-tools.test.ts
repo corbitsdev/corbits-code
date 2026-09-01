@@ -3,6 +3,7 @@ import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
 import { TOOL_NAMES } from "@intx/tools-posix";
 import { createPermissionGate } from "../../../src/permission/gate.js";
 import type { PermissionGate } from "../../../src/permission/gate.js";
+import { mcpServerFingerprint } from "../../../src/trust/project-trust.js";
 import { withMockedModule } from "../../helpers/mock-module.js";
 
 const mockDispose = mock(async () => {});
@@ -360,6 +361,136 @@ test("headless MCP connection does not wait for interactive OAuth", async () => 
 
   expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
   expect(mockConnectMCPServer.mock.calls[0]?.[1]?.onAuthURL).toBeUndefined();
+});
+
+const localStdioServer = { name: "evil", command: "evil-bin" };
+const globalHttpServer = {
+  name: "linear",
+  type: "http" as const,
+  url: "https://mcp.example.test/mcp",
+};
+
+test("late connect of an untrusted local-source server does not spawn", async () => {
+  mockConnectMCPServer.mockClear();
+  const statuses: { name: string; state: string; error?: string }[] = [];
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+  });
+
+  await toolset.connectMCPServer(localStdioServer, {
+    interactiveAuth: false,
+    onStatus: (status) => statuses.push(status),
+    onToolsChanged: () => {},
+  });
+
+  expect(mockConnectMCPServer).not.toHaveBeenCalled();
+  expect(statuses).toHaveLength(1);
+  expect(statuses[0]?.name).toBe("evil");
+  expect(statuses[0]?.state).toBe("failed");
+  expect(statuses[0]?.error).toMatch(/Not trusted for this project/);
+  await toolset.dispose();
+});
+
+test("late connect of an untrusted local-source server fail-closes when requestMcpTrust denies", async () => {
+  mockConnectMCPServer.mockClear();
+  let trustAsks = 0;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+    requestMcpTrust: async () => {
+      trustAsks += 1;
+      return false;
+    },
+  });
+
+  await toolset.connectMCPServer(localStdioServer, {
+    interactiveAuth: false,
+    onStatus: () => {},
+    onToolsChanged: () => {},
+  });
+
+  expect(trustAsks).toBe(1);
+  expect(mockConnectMCPServer).not.toHaveBeenCalled();
+  await toolset.dispose();
+});
+
+test("late connect of a trusted local-source server still connects", async () => {
+  mockConnectMCPServer.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [mcpServerFingerprint(localStdioServer)],
+    },
+  });
+
+  await toolset.connectMCPServer(localStdioServer, {
+    interactiveAuth: false,
+    onStatus: () => {},
+    onToolsChanged: () => {},
+  });
+
+  expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
+  expect(mockConnectMCPServer.mock.calls[0]?.[0]).toEqual(localStdioServer);
+  await toolset.dispose();
+});
+
+test("late connect of a global-source HTTP server does not require trust", async () => {
+  mockConnectMCPServer.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [globalHttpServer],
+    mcpServersSource: "global",
+    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+  });
+
+  await toolset.connectMCPServer(globalHttpServer, {
+    interactiveAuth: false,
+    onStatus: () => {},
+    onToolsChanged: () => {},
+  });
+
+  expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
+  expect(mockConnectMCPServer.mock.calls[0]?.[0]).toEqual(globalHttpServer);
+  await toolset.dispose();
+});
+
+test("startup connectMCP still fail-closes untrusted local servers", async () => {
+  mockConnectMCPServer.mockClear();
+  const statuses: { name: string; state: string; error?: string }[] = [];
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+  });
+
+  await toolset.connectMCP({
+    interactiveAuth: false,
+    onStatus: (status) => statuses.push(status),
+    onToolsChanged: () => {},
+  });
+
+  expect(mockConnectMCPServer).not.toHaveBeenCalled();
+  expect(statuses.some((s) => s.name === "evil" && s.state === "failed")).toBe(true);
+  await toolset.dispose();
 });
 
 test("dispose calls posixTools.dispose", async () => {

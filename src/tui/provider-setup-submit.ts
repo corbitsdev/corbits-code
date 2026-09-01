@@ -45,10 +45,17 @@ export async function persistConnectedSelection(
  * callers that already own it — never re-derived here so tests and the
  * mid-session connect path can pass an explicit file).
  */
+export type PersistProviderSettings = (apply: (base: Settings) => Settings) => Promise<Settings>;
+
 export function buildProviderSubmitHandler(
   settingsPath: string,
   existing: Settings | null,
   localSettingsFile: string | null,
+  persistSettings: PersistProviderSettings = async (apply) => {
+    const next = apply(existing ?? { providers: {} });
+    await saveGlobalSettings(settingsPath, next);
+    return next;
+  },
 ): ProviderSetupSubmit {
   return async (values, setPhase, { skipValidation, preset, oauth }) => {
     const { name, baseURL, apiKey, model } = values;
@@ -74,8 +81,7 @@ export function buildProviderSubmitHandler(
       }
       setPhase("saving");
       await oauth.commit();
-      const base = existing ?? { providers: {} };
-      await saveGlobalSettings(settingsPath, {
+      await persistSettings((base) => ({
         ...base,
         defaultProvider: oauth.providerName,
         providers: {
@@ -86,7 +92,7 @@ export function buildProviderSubmitHandler(
             defaultModel: selectedModel,
           },
         },
-      });
+      }));
       await persistConnectedSelection(localSettingsFile, oauth.providerName, selectedModel);
       return;
     }
@@ -140,8 +146,7 @@ export function buildProviderSubmitHandler(
     // stays open (phase label) until saveGlobalSettings resolves, so the user
     // sees confirmation before the screen is cleared. Full-spread merge so
     // plugins/pluginPaths/sessionMode/shell/tools survive re-onboarding.
-    const merged = mergeProviderIntoSettings(existing, providerName, newProvider);
-    await saveGlobalSettings(settingsPath, merged);
+    await persistSettings((base) => mergeProviderIntoSettings(base, providerName, newProvider));
     // Same project-local selection contract as OAuth: credentials stay in
     // global storage; the local file is selection only so a restart in this
     // repo resolves to the provider just connected.

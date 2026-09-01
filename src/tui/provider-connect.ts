@@ -6,7 +6,10 @@
  */
 
 import type { Settings } from "../config/settings.js";
-import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
+import {
+  buildProviderSubmitHandler,
+  type PersistProviderSettings,
+} from "./provider-setup-submit.js";
 import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js";
 
 export interface ConnectProviderInput {
@@ -15,6 +18,7 @@ export interface ConnectProviderInput {
   /** Project-local selection file, or null when it aliases global settings. */
   readonly localSettingsPath: string | null;
   readonly existing: Settings | null;
+  readonly persistSettings?: PersistProviderSettings;
   readonly createRenderer?: ProviderSetupConfig["createRenderer"];
   readonly startLogin?: ProviderSetupConfig["startLogin"];
   readonly discoverOllamaModels?: ProviderSetupConfig["discoverOllamaModels"];
@@ -40,6 +44,7 @@ export async function connectProviderInline(
     input.settingsPath,
     input.existing,
     input.localSettingsPath,
+    input.persistSettings,
   );
 
   const submitted = await runProviderSetup({

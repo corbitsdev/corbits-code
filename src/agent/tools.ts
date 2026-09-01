@@ -22,12 +22,20 @@ import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
 import type { SpillBlobWriter } from "../plugins/result-truncation-plugin.js";
-import { connectMCPServer, type MCPClient, type MCPConnectResult } from "../mcp/client.js";
+import {
+  connectMCPServer as connectMCPClient,
+  type MCPClient,
+  type MCPConnectResult,
+} from "../mcp/client.js";
 import { createExaMCPServerConfig, isBuiltinExaMCPServer } from "../mcp/exa.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
-import { filterMcpServersForConnect, type ProjectTrustStore } from "../trust/project-trust.js";
+import {
+  filterMcpServersForConnect,
+  mcpServerFingerprint,
+  type ProjectTrustStore,
+} from "../trust/project-trust.js";
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
@@ -203,6 +211,16 @@ export interface AgentToolset {
   // Connect configured MCP servers in the background. Resolves once every server
   // has either connected or failed; authorization waits are bounded by `signal`.
   connectMCP: (callbacks: MCPConnectCallbacks, signal?: AbortSignal) => Promise<void>;
+  // Connect one newly persisted server through the same lifecycle as startup MCP.
+  connectMCPServer: (
+    config: MCPServerConfig,
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ) => Promise<void>;
+  // True while this name is connected or a connection is in flight — not after
+  // a failed connect. Persist uses this to block a second add of an active name;
+  // failed rows retry through connectMCPServer without a second persist.
+  hasMCPServer: (name: string) => boolean;
   // Wire the callback the `tool_search` tool invokes to make matched tools
   // advertised. Set by the runner once the director + reload loop exist.
   setToolPromoter: (promote: (names: string[]) => void) => void;
@@ -528,34 +546,89 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerHolder.current = dynamicRunner;
 
-  const connectedClients: MCPClient[] = [];
+  const connectedClients = new Map<string, MCPClient>();
+  const inFlightConnections = new Map<string, Promise<void>>();
+  const mcpAbortController = new AbortController();
+  let disposed = false;
+  let disposal: Promise<void> | undefined;
+  let mcpTrustStore: ProjectTrustStore = projectTrust ?? {
+    trustedPluginPaths: [],
+    trustedMcpFingerprints: [],
+  };
+  const untrustedLocalError = `Not trusted for this project (see ${SETTINGS_DIR_NAME}/trust.json)`;
 
-  const connectMCP = async (
-    callbacks: MCPConnectCallbacks,
-    signal?: AbortSignal,
-  ): Promise<void> => {
-    const toConnect = await filterMcpServersForConnect(mcpServers, {
+  const filterServersForConnect = async (
+    servers: MCPServerConfig[],
+  ): Promise<MCPServerConfig[]> => {
+    const allowed = await filterMcpServersForConnect(servers, {
       source: mcpServersSource,
-      store: projectTrust ?? { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+      store: mcpTrustStore,
       cwd,
       ...(requestMcpTrust !== undefined ? { requestTrust: requestMcpTrust } : {}),
     });
-    await Promise.all(
-      toConnect.map(async (config) => {
-        callbacks.onStatus({ name: config.name, state: "connecting" });
-        const connection = connectMCPServer(config, {
+    if (mcpServersSource !== "local") return allowed;
+    // Remember grants so connectOneMCPServer does not re-prompt after startup TOFU.
+    let fingerprints = mcpTrustStore.trustedMcpFingerprints;
+    let changed = false;
+    for (const server of allowed) {
+      if (isBuiltinExaMCPServer(server)) continue;
+      const fp = mcpServerFingerprint(server);
+      if (!fingerprints.includes(fp)) {
+        fingerprints = [...fingerprints, fp];
+        changed = true;
+      }
+    }
+    if (changed) {
+      mcpTrustStore = { ...mcpTrustStore, trustedMcpFingerprints: fingerprints };
+    }
+    return allowed;
+  };
+
+  const connectOneMCPServer = (
+    config: MCPServerConfig,
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    if (disposed) return Promise.resolve();
+    if (connectedClients.has(config.name)) return Promise.resolve();
+    const existing = inFlightConnections.get(config.name);
+    if (existing !== undefined) return existing;
+    const connectionSignal =
+      signal === undefined
+        ? mcpAbortController.signal
+        : AbortSignal.any([mcpAbortController.signal, signal]);
+
+    const run = (async () => {
+      if (mcpServersSource === "local") {
+        const allowed = await filterServersForConnect([config]);
+        if (disposed) return;
+        if (allowed.length === 0) {
+          callbacks.onStatus({
+            name: config.name,
+            state: "failed",
+            error: untrustedLocalError,
+          });
+          return;
+        }
+      }
+      callbacks.onStatus({ name: config.name, state: "connecting" });
+      let result: MCPConnectResult;
+      try {
+        result = await connectMCPClient(config, {
           stderr: "ignore",
           ...(callbacks.interactiveAuth
             ? {
-                onAuthURL: (name: string, url: string) =>
-                  callbacks.onStatus({ name, state: "needs-auth", url }),
+                onAuthURL: (name: string, url: string) => {
+                  if (!disposed) callbacks.onStatus({ name, state: "needs-auth", url });
+                },
               }
             : {}),
           // Mid-session re-auth fires needs-auth again without a later connected
           // event. Re-emit connected only when tools are already registered so
           // first-connect still waits for the real post-connect status.
           onAuthorized: (name) => {
-            const client = connectedClients.find((c) => c.serverName === name);
+            if (disposed) return;
+            const client = connectedClients.get(name);
             if (client === undefined) return;
             callbacks.onStatus({
               name,
@@ -563,33 +636,79 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
               tools: client.tools.map((t) => t.name),
             });
           },
-          ...(signal !== undefined ? { signal } : {}),
+          signal: connectionSignal,
         });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
         if (isBuiltinExaMCPServer(config)) {
-          connection.then((result) => resolveBuiltinExaConnection?.(result));
+          resolveBuiltinExaConnection?.({ ok: false, serverName: config.name, error });
         }
-        const result = await connection;
-        if (!result.ok) {
-          callbacks.onStatus({ name: config.name, state: "failed", error: result.error });
-          return;
+        if (!disposed) callbacks.onStatus({ name: config.name, state: "failed", error });
+        return;
+      }
+      if (disposed) {
+        if (result.ok) await result.client.close().catch(() => undefined);
+        if (isBuiltinExaMCPServer(config)) {
+          resolveBuiltinExaConnection?.({
+            ok: false,
+            serverName: config.name,
+            error: "MCP toolset disposed during connection",
+          });
         }
-        connectedClients.push(result.client);
+        return;
+      }
+      if (!result.ok) {
+        if (isBuiltinExaMCPServer(config)) resolveBuiltinExaConnection?.(result);
+        callbacks.onStatus({ name: config.name, state: "failed", error: result.error });
+        return;
+      }
+
+      try {
         permissionGate.registerMcpClient(result.client);
         const mcpTools = mcpClientToAgentTools(result.client, permissionGate, {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
           ...(isBuiltinExaMCPServer(config) ? { excludeToolNames: ["web_fetch_exa"] } : {}),
         });
-        inheritedMcpTools.push(...mcpTools);
         dynamicRunner.addTools(mcpTools);
-        callbacks.onStatus({
-          name: config.name,
-          state: "connected",
-          tools: result.client.tools.map((t) => t.name),
-        });
-        callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
-      }),
+        inheritedMcpTools.push(...mcpTools);
+        connectedClients.set(config.name, result.client);
+      } catch (err) {
+        permissionGate.unregisterMcpServer(config.name);
+        await result.client.close().catch(() => undefined);
+        const error = err instanceof Error ? err.message : String(err);
+        if (isBuiltinExaMCPServer(config)) {
+          resolveBuiltinExaConnection?.({ ok: false, serverName: config.name, error });
+        }
+        callbacks.onStatus({ name: config.name, state: "failed", error });
+        return;
+      }
+
+      if (isBuiltinExaMCPServer(config)) resolveBuiltinExaConnection?.(result);
+      callbacks.onStatus({
+        name: config.name,
+        state: "connected",
+        tools: result.client.tools.map((t) => t.name),
+      });
+      callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
+    })();
+    inFlightConnections.set(config.name, run);
+    void run.then(
+      () => inFlightConnections.delete(config.name),
+      () => inFlightConnections.delete(config.name),
     );
+    return run;
+  };
+
+  const connectMCP = async (
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    if (disposed) return;
+    const toConnect = await filterServersForConnect(mcpServers);
+    if (disposed) return;
+    await Promise.all(toConnect.map((config) => connectOneMCPServer(config, callbacks, signal)));
+    if (disposed) return;
     // Report untrusted local servers as failed (fail closed) so the UI is honest.
     if (mcpServersSource === "local") {
       const connectedNames = new Set(toConnect.map((s) => s.name));
@@ -598,26 +717,40 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           callbacks.onStatus({
             name: server.name,
             state: "failed",
-            error: `Not trusted for this project (see ${SETTINGS_DIR_NAME}/trust.json)`,
+            error: untrustedLocalError,
           });
         }
       }
     }
   };
 
+  const dispose = (): Promise<void> => {
+    if (disposal !== undefined) return disposal;
+    disposed = true;
+    mcpAbortController.abort(new Error("MCP toolset disposed"));
+    disposal = (async () => {
+      await Promise.allSettled([...inFlightConnections.values()]);
+      for (const client of connectedClients.values()) {
+        permissionGate.unregisterMcpServer(client.serverName);
+      }
+      await Promise.all(
+        [...connectedClients.values()].map((client) => client.close().catch(() => undefined)),
+      );
+      connectedClients.clear();
+      await posixTools.dispose();
+      await disposeWebSearchClients();
+    })();
+    return disposal;
+  };
+
   return {
     dynamicRunner,
     connectMCP,
+    connectMCPServer: connectOneMCPServer,
+    hasMCPServer: (name) => connectedClients.has(name) || inFlightConnections.has(name),
     setToolPromoter: (promote) => {
       promoter.promote = promote;
     },
-    dispose: async () => {
-      for (const client of connectedClients) {
-        permissionGate.unregisterMcpServer(client.serverName);
-      }
-      await Promise.all(connectedClients.map((c) => c.close().catch(() => undefined)));
-      await posixTools.dispose();
-      await disposeWebSearchClients();
-    },
+    dispose,
   };
 }

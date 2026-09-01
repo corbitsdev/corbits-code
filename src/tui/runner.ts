@@ -26,7 +26,6 @@ import {
 import {
   globalSettingsPath,
   loadLocalSettings,
-  loadGlobalSettingsWriteBase,
   listFavoriteModels,
   listRecentModels,
   loadSettings,
@@ -34,7 +33,6 @@ import {
   markTelemetryNoticeShown,
   persistSkipPermissionsDefault,
   pushRecentModel,
-  saveGlobalSettings,
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
   markLastChangelogVersion,
@@ -45,6 +43,7 @@ import {
   type Settings,
   type LocalSettings,
   type PluginConfig,
+  type MCPServerConfig,
 } from "../config/settings.js";
 import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
 import { persistConnectedSelection } from "./provider-setup-submit.js";
@@ -53,6 +52,11 @@ import { modelOptionId } from "./model-catalog.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
+import {
+  createGlobalSettingsWriter,
+  persistGlobalHTTPMCPServer,
+  validateMCPServerName,
+} from "../mcp/add-server.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
@@ -172,7 +176,12 @@ import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin.js";
 import type { GrantScope } from "../permission/types.js";
 
-import { createAgentToolset, type MCPServerState, type OperatorResult } from "../agent/tools.js";
+import {
+  createAgentToolset,
+  type MCPConnectCallbacks,
+  type MCPServerState,
+  type OperatorResult,
+} from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import {
   collectWebPlugins,
@@ -259,7 +268,7 @@ import {
 import { applyLiveModelSwitch } from "../session/live-model-switch.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer, type SummaryContext } from "../session/summarizer.js";
-import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 import { deliverAgentMessage } from "./deliver-agent-message.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
@@ -795,6 +804,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   try {
     const emitter = createTUIEventEmitter();
+    const globalSettingsWriter = createGlobalSettingsWriter(config.globalSettingsPath);
     const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
       Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [id, v.enabled]),
     );
@@ -834,15 +844,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       ...(config.settings?.hooks ?? {}),
     };
     const persistHookSettings = async (): Promise<void> => {
-      const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-      if (base === null) {
+      const result = await globalSettingsWriter.mutate((base) => ({
+        ...base,
+        hooks: liveHookConfig,
+      }));
+      if (result === "skipped") {
         tuiLogger.warn("Skipping hook settings write: unreadable global settings at {path}", {
           path: config.globalSettingsPath,
         });
-        return;
       }
-      const next: Settings = { ...base, hooks: liveHookConfig };
-      await saveGlobalSettings(config.globalSettingsPath, next);
     };
     const setHookEnabled = async (id: string, enabled: boolean): Promise<void> => {
       hookManager.setEnabled(id, enabled);
@@ -981,19 +991,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const persistPluginSettings = async (): Promise<void> => {
       // Absent file → fresh base; unreadable/invalid → skip write so we never
       // clobber a corrupt settings file by rewriting from a minimal shell.
-      const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-      if (base === null) {
+      const result = await globalSettingsWriter.mutate((base) => {
+        const next: Settings = { ...base, plugins: livePluginConfig };
+        if (livePluginPaths.length > 0) next.pluginPaths = livePluginPaths;
+        else delete next.pluginPaths;
+        if (liveWebOverride !== undefined) next.web = liveWebOverride;
+        else delete next.web;
+        return next;
+      });
+      if (result === "skipped") {
         tuiLogger.warn("Skipping plugin settings write: unreadable global settings at {path}", {
           path: config.globalSettingsPath,
         });
-        return;
       }
-      const next: Settings = { ...base, plugins: livePluginConfig };
-      if (livePluginPaths.length > 0) next.pluginPaths = livePluginPaths;
-      else delete next.pluginPaths;
-      if (liveWebOverride !== undefined) next.web = liveWebOverride;
-      else delete next.web;
-      await saveGlobalSettings(config.globalSettingsPath, next);
     };
     const pluginsAdmin: PluginsAdmin = {
       list: () => pluginDescriptors,
@@ -1615,6 +1625,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // `connectedMcpServers` (persisted run metadata) this keeps the ones that
     // failed or are still waiting on authorization.
     const mcpStates = new Map<string, MCPServerState>();
+    const mcpConnectController = new AbortController();
 
     const writeRunSnapshot = async (
       status: RunState["status"],
@@ -1989,7 +2000,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // this whole launch, and the render stamp means events start normally on
     // the next one. Keyed off the same TRUE global settings file as
     // `onboarded` above.
-    const onChangeTelemetryEnabled = createTelemetryToggleHandler(trueGlobalSettingsPath);
+    const onChangeTelemetryEnabled = createTelemetryToggleHandler(
+      trueGlobalSettingsPath,
+      undefined,
+      globalSettingsWriter.enqueue,
+    );
     const telemetryFirstRun = telemetryFirstRunPending(globalSettingsForOnboarding);
     const telemetryNotice = telemetryStartupNotice(globalSettingsForOnboarding);
     // Tracks the user's intent (persisted opt-in, updated live by the settings
@@ -2001,9 +2016,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // sessions do not want. /cost stays available regardless.
     let liveShowPromptCost = config.settings?.showPromptCost ?? false;
     if (telemetryFirstRun) {
-      void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
-        // Best-effort: worst case the notice shows again next launch.
-      });
+      void globalSettingsWriter
+        .enqueue(() => markTelemetryNoticeShown(trueGlobalSettingsPath))
+        .catch(() => {
+          // Best-effort: worst case the notice shows again next launch.
+        });
     }
 
     // Post-upgrade release notes watermark policy (CL-5475):
@@ -2019,41 +2036,31 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const notesShown = false;
     const stampVersion = stampVersionAfterStartup(changelogDecision, notesShown);
     if (stampVersion !== null) {
-      void markLastChangelogVersion(trueGlobalSettingsPath, stampVersion).catch(() => {
-        // Best-effort watermark.
-      });
+      void globalSettingsWriter
+        .enqueue(() => markLastChangelogVersion(trueGlobalSettingsPath, stampVersion))
+        .catch(() => {
+          // Best-effort watermark.
+        });
     }
 
-    // One tail for every RMW of config.globalSettingsPath from this runner so
-    // /yolo and /settings toggles cannot stale-RMW each other.
-    let persistTail = Promise.resolve();
-    const enqueueGlobalPersist = <T>(job: () => Promise<T>): Promise<T> => {
-      const run = persistTail.then(job);
-      persistTail = run.then(
-        () => undefined,
-        () => undefined,
-      );
-      return run;
-    };
+    // Every settings RMW in this runner shares this tail, including writes to
+    // the true global path during a --config session.
+    const enqueueGlobalPersist = globalSettingsWriter.enqueue;
 
     // Absent file → fresh base; unreadable/invalid → skip the write rather than
     // clobber a corrupt settings file with a minimal shell.
-    const persistGlobalSettings = (
+    const persistGlobalSettings = async (
       what: string,
       apply: (base: Settings) => Settings,
-    ): Promise<boolean> =>
-      enqueueGlobalPersist(async () => {
-        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) {
-          tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
-            what,
-            path: config.globalSettingsPath,
-          });
-          return false;
-        }
-        await saveGlobalSettings(config.globalSettingsPath, apply(base));
-        return true;
+    ): Promise<boolean> => {
+      const result = await globalSettingsWriter.mutate(apply);
+      if (result === "ok") return true;
+      tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
+        what,
+        path: config.globalSettingsPath,
       });
+      return false;
+    };
 
     const commandContext: CommandContext = {
       signalClear: newSession,
@@ -2267,6 +2274,40 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
       onSystemNotice: systemNotice,
     });
+    const mcpConnectCallbacks: MCPConnectCallbacks = {
+      interactiveAuth: true,
+      onStatus: (status) => {
+        mcpStates.set(status.name, status);
+        emitter.emit("mcp.status", status);
+        if (status.state === "connected") {
+          connectedMcpServers = [
+            ...connectedMcpServers.filter((server) => server.name !== status.name),
+            { name: status.name, toolCount: status.tools.length },
+          ];
+          void persistRunSnapshot("running");
+        }
+      },
+      // MCP tools register for dispatch but stay blind until tool_search promotes them.
+      onToolsChanged: (definitions) =>
+        directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
+    };
+
+    const connectLateMCPServer = (server: MCPServerConfig): void => {
+      void toolset
+        .connectMCPServer(server, mcpConnectCallbacks, mcpConnectController.signal)
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name === "AbortError") return;
+          tuiLogger.error("Late MCP connect failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    };
+
+    const persistedMCPServer = (name: string): MCPServerConfig | undefined =>
+      (config.mcpServers ?? []).find((server) => server.name === name) ??
+      (config.settings?.mcpServers ?? []).find(
+        (server): server is MCPServerConfig => server.name === name && !("enabled" in server),
+      );
 
     const host = await mountRunnerHost({
       // An unnamed session shows nothing rather than a placeholder.
@@ -2335,6 +2376,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               settingsPath: trueGlobalSettingsPath,
               localSettingsPath: localSettingsFile,
               existing: config.settings ?? null,
+              persistSettings: async (apply) => {
+                const next = await globalSettingsWriter.updateAt(trueGlobalSettingsPath, apply);
+                if (next === null) throw new Error("global settings are unreadable");
+                config = { ...config, settings: next };
+                return next;
+              },
               createRenderer: () => Promise.resolve(host.renderer),
             });
           } catch (err) {
@@ -2423,11 +2470,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
         const ref: ModelRef = { provider, model };
         void (async () => {
-          const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
-            providers: {},
-          };
-          const next = pushRecentModel(onDisk, ref);
-          await saveGlobalSettings(trueGlobalSettingsPath, next);
+          let next: Settings | undefined;
+          const result = await globalSettingsWriter.mutateAt(trueGlobalSettingsPath, (onDisk) => {
+            next = pushRecentModel(onDisk, ref);
+            return next;
+          });
+          if (result === "skipped" || next === undefined) {
+            throw new Error("global settings are unreadable");
+          }
           config = { ...config, settings: next };
           host.refreshModels(listRecentModels(next), listFavoriteModels(next));
         })().catch((err: unknown) => {
@@ -2441,11 +2491,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         if (sep <= 0) return;
         const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
         void (async () => {
-          const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
-            providers: {},
-          };
-          const next = toggleFavoriteModel(onDisk, ref);
-          await saveGlobalSettings(trueGlobalSettingsPath, next);
+          let next: Settings | undefined;
+          const result = await globalSettingsWriter.mutateAt(trueGlobalSettingsPath, (onDisk) => {
+            next = toggleFavoriteModel(onDisk, ref);
+            return next;
+          });
+          if (result === "skipped" || next === undefined) {
+            throw new Error("global settings are unreadable");
+          }
           config = { ...config, settings: next };
           host.refreshModels(listRecentModels(next), listFavoriteModels(next));
         })().catch((err: unknown) => {
@@ -2459,15 +2512,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         if (sep <= 0) return;
         const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
         void (async () => {
-          const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
-            providers: {},
-          };
-          const next = setDefaultModel(
-            onDisk,
-            ref,
-            config.providers.find((provider) => provider.name === ref.provider),
-          );
-          await saveGlobalSettings(trueGlobalSettingsPath, next);
+          let next: Settings | undefined;
+          const result = await globalSettingsWriter.mutateAt(trueGlobalSettingsPath, (onDisk) => {
+            next = setDefaultModel(
+              onDisk,
+              ref,
+              config.providers.find((provider) => provider.name === ref.provider),
+            );
+            return next;
+          });
+          if (result === "skipped" || next === undefined) {
+            throw new Error("global settings are unreadable");
+          }
           await persistConnectedSelection(localSettingsFile, ref.provider, ref.model);
           config = { ...config, settings: next };
           systemNotice(`Default set to ${ref.model} (${ref.provider})`);
@@ -2582,6 +2638,55 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               ...(status.state === "failed" ? { error: status.error } : {}),
             })),
           openAuthURL: (url) => openInBrowser(url),
+          subscribe: (listener) => {
+            emitter.on("mcp.status", listener);
+            return () => emitter.off("mcp.status", listener);
+          },
+          mcpServersSource: config.mcpServersSource ?? "none",
+          addServer: async (name, url) => {
+            const result = await persistGlobalHTTPMCPServer(
+              globalSettingsWriter,
+              name,
+              url,
+              config.mcpServersSource ?? "none",
+              toolset.hasMCPServer,
+            );
+            if (!result.ok) {
+              const message =
+                result.reason === "local-shadow"
+                  ? `Cannot add a global MCP server while ${SETTINGS_DIR_NAME}/settings.json ` +
+                    "defines mcpServers; remove that local list and restart first."
+                  : result.reason === "duplicate" || result.reason === "active"
+                    ? `An MCP server named "${name.trim()}" already exists or is connecting.`
+                    : result.reason === "skipped"
+                      ? "Could not read global settings, so no MCP server was added."
+                      : result.reason === "invalid-name"
+                        ? (validateMCPServerName(name.trim()) ?? "Enter a valid server name first.")
+                        : "Enter an absolute HTTP(S) URL first.";
+              return { ok: false, message };
+            }
+            config = {
+              ...config,
+              settings: result.settings,
+              mcpServers: [
+                ...(config.mcpServers ?? []).filter((server) => server.name !== result.server.name),
+                result.server,
+              ],
+            };
+            connectLateMCPServer(result.server);
+            return { ok: true, message: `Added ${result.server.name}; connecting now.` };
+          },
+          retryServer: async (name) => {
+            const server = persistedMCPServer(name);
+            if (server === undefined) {
+              return {
+                ok: false,
+                message: `No persisted MCP server named "${name}" to retry.`,
+              };
+            }
+            connectLateMCPServer(server);
+            return { ok: true, message: `Retrying ${server.name}; connecting now.` };
+          },
         },
         hooks: {
           list: () =>
@@ -2778,30 +2883,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // settled, reload-if-idle so construction-time maps match, then resume any
     // persisted workflow. Aborted on exit so an unfinished auth wait does not
     // keep the process alive.
-    const mcpConnectController = new AbortController();
     void toolset
-      .connectMCP(
-        {
-          interactiveAuth: true,
-          onStatus: (status) => {
-            mcpStates.set(status.name, status);
-            emitter.emit("mcp.status", status);
-            if (status.state === "connected") {
-              connectedMcpServers = [
-                ...connectedMcpServers.filter((s) => s.name !== status.name),
-                { name: status.name, toolCount: status.tools.length },
-              ];
-              void persistRunSnapshot("running");
-            }
-          },
-          // MCP tools register for dispatch but stay unadvertised (blind) until
-          // tool_search promotes them, so a fresh connection never grows the wire
-          // set on its own — only a subsequent discovery does.
-          onToolsChanged: (definitions) =>
-            directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
-        },
-        mcpConnectController.signal,
-      )
+      .connectMCP(mcpConnectCallbacks, mcpConnectController.signal)
       .then(async () => {
         if (toolset.dynamicRunner.currentDefinitions().length > baseToolCount) {
           pendingReload = true;

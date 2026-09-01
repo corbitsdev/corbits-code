@@ -8,14 +8,18 @@
  * surfaces stay testable without a live runner.
  */
 
+import { isAbsoluteHTTPURL, validateMCPServerName } from "../mcp/add-server.js";
 import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
 import { maskEcho, maskSecret } from "./provider-setup.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
 import {
+  captureOverlayContinuation,
   closeInsetOverlay,
+  isOverlayContinuationCurrent,
   openHelpOverlay,
   openListOverlay,
   openSettingsOverlay,
+  setOwnedOverlayItems,
   setStatusFlash,
   type AppShell,
   type ItemDescription,
@@ -139,6 +143,11 @@ export interface McpSurfaceDeps {
   readonly list: () => readonly McpEntry[];
   /** Open the server's authorization URL in the operator's browser. */
   readonly openAuthURL: (url: string) => void;
+  readonly subscribe?: (listener: () => void) => () => void;
+  readonly addServer?: (name: string, url: string) => Promise<PluginActionResult>;
+  /** Reconnect a failed persisted server without writing a second settings row. */
+  readonly retryServer?: (name: string) => Promise<PluginActionResult>;
+  readonly mcpServersSource?: "local" | "global" | "none";
 }
 
 /** Live summary for the settings surface's hooks row (owned by another surface). */
@@ -178,6 +187,8 @@ export type CommandSurfaceKind =
   "help" | "settings" | "permissions" | "plugins" | "hooks" | "mcp" | "models" | "add-provider";
 
 const CLOSE_ID = "__close__";
+const ADD_MCP_ID = "__add_mcp__";
+const EMPTY_MCP_ID = "__empty_mcp__";
 const BACK_ID = "__back__";
 /** Synthetic `/plugins` row for standing load warnings (not a plugin id). */
 const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__";
@@ -680,6 +691,10 @@ function openTextPromptPane(
     itemIds: ["value"],
     describe: () => ({ what: opts.what, impact: "Enter accepts. Esc cancels." }),
     onAccept: () => opts.onSubmit(buffer.value.trim()),
+    onPaste: (text) => {
+      buffer.value += text;
+      openTextPromptPane(shell, opts, buffer);
+    },
     onAction: (_id, key) => {
       if (key.ctrl || key.meta || key.option) return false;
       if (key.name === "backspace") {
@@ -947,12 +962,114 @@ function mcpDescription(entry: McpEntry): ItemDescription {
         impact: "Enter opens the authorization page and copies the link.",
       };
     case "failed":
-      return { what: entry.error ?? "Did not connect.", tone: "consequence" };
+      return {
+        what: entry.error ?? "Did not connect.",
+        impact: "Enter retries the existing persisted config without adding a second server.",
+        tone: "consequence",
+      };
   }
 }
 
-/** Configured MCP servers and their live state; Enter authorizes an unauthorized one. */
-export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+function canAddMCPServer(mcp: McpSurfaceDeps): boolean {
+  return mcp.mcpServersSource !== "local";
+}
+
+function runMcpSurfaceAction(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  action: Promise<PluginActionResult>,
+  failPrefix: string,
+): void {
+  const continuation = captureOverlayContinuation(shell);
+  void action
+    .then(
+      (result) => {
+        if (!isOverlayContinuationCurrent(shell, continuation)) return;
+        deps.notify(result.message);
+        if (isOverlayContinuationCurrent(shell, continuation)) openMcpSurface(shell, deps);
+      },
+      (err: unknown) => {
+        if (!isOverlayContinuationCurrent(shell, continuation)) return;
+        deps.notify(`${failPrefix}: ${errorText(err)}`);
+      },
+    )
+    .catch(() => {
+      // UI continuation failures must not escape a fire-and-forget command.
+    });
+}
+
+function mcpSurfaceRows(entries: readonly McpEntry[], canAdd: boolean): ResidualCatalogEntry[] {
+  const rows: ResidualCatalogEntry[] = entries.map((e) => ({
+    id: e.name,
+    label: mcpRowLabel(e),
+  }));
+  if (rows.length === 0) rows.push({ id: EMPTY_MCP_ID, label: "No MCP servers configured" });
+  if (canAdd) rows.push({ id: ADD_MCP_ID, label: "Add MCP server — Alt+A" });
+  rows.push({ id: CLOSE_ID, label: "Close mcp" });
+  return rows;
+}
+
+function openAddMcpURLPane(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  mcp: McpSurfaceDeps,
+  name: string,
+  buffer = { value: "" },
+): void {
+  openTextPromptPane(
+    shell,
+    {
+      title: `add ${name} MCP URL`,
+      what: "Absolute HTTP(S) URL for the MCP server.",
+      onSubmit: (url) => {
+        if (!isAbsoluteHTTPURL(url)) {
+          deps.notify("Enter an absolute HTTP(S) URL first.");
+          openAddMcpURLPane(shell, deps, mcp, name, buffer);
+          return;
+        }
+        const addServer = mcp.addServer;
+        if (addServer === undefined) {
+          deps.notify("Adding MCP servers is not available in this session.");
+          return;
+        }
+        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed");
+      },
+    },
+    buffer,
+  );
+}
+
+function openAddMcpNamePane(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  mcp: McpSurfaceDeps,
+  buffer = { value: "" },
+): void {
+  openTextPromptPane(
+    shell,
+    {
+      title: "add MCP server",
+      what: "Unique name using letters, numbers, single underscores, or hyphens.",
+      onSubmit: (name) => {
+        const validationError = validateMCPServerName(name);
+        if (validationError !== null) {
+          deps.notify(validationError);
+          openAddMcpNamePane(shell, deps, mcp, buffer);
+          return;
+        }
+        openAddMcpURLPane(shell, deps, mcp, name);
+      },
+    },
+    buffer,
+  );
+}
+
+/** Configured MCP servers and their live state; Enter authorizes or retries. */
+export function openMcpSurface(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  activeName?: string,
+): void {
   const mcp = deps.mcp;
   if (mcp === undefined) {
     deps.notify("MCP administration is not available in this session.");
@@ -960,14 +1077,15 @@ export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void 
   }
   closeInsetOverlay(shell);
   const entries = mcp.list();
-  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.name, label: mcpRowLabel(e) }));
-  if (rows.length === 0) {
-    rows.push({ id: CLOSE_ID, label: "No MCP servers configured" });
-  }
-  rows.push({ id: CLOSE_ID, label: "Close mcp" });
+  const canAdd = canAddMCPServer(mcp);
+  const rows: ResidualCatalogEntry[] = mcpSurfaceRows(entries, canAdd);
   const byName = new Map(entries.map((e) => [e.name, e]));
+  const activeIndex =
+    activeName === undefined ? -1 : rows.findIndex((row) => row.id === activeName);
+  let unsubscribe: () => void = () => undefined;
   openListOverlay(shell, {
     kind: "mcp",
+    ...(activeIndex >= 0 ? { activeIndex } : {}),
     title: "mcp",
     frameId: "overlay-mcp",
     // The flash below reports the outcome; the echo would quote the row's
@@ -978,12 +1096,26 @@ export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void 
       const target = byName.get(id);
       return target === undefined ? null : mcpDescription(target);
     },
+    onCancel: () => unsubscribe(),
     onAccept: (selection) => {
       const id = selectedId(selection, rows);
-      if (id === undefined || id === CLOSE_ID) return;
+      unsubscribe();
+      if (id === undefined || id === CLOSE_ID || id === EMPTY_MCP_ID) return;
+      if (id === ADD_MCP_ID) {
+        if (!canAdd) return;
+        openAddMcpNamePane(shell, deps, mcp);
+        return;
+      }
       const target = byName.get(id);
-      const url = target?.authURL;
-      if (target === undefined || target.state !== "needs-auth" || url === undefined) return;
+      if (target === undefined) return;
+      if (target.state === "failed") {
+        const retryServer = mcp.retryServer;
+        if (retryServer === undefined) return;
+        runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed");
+        return;
+      }
+      const url = target.authURL;
+      if (target.state !== "needs-auth" || url === undefined) return;
       mcp.openAuthURL(url);
       // The copy is the fallback that makes this work over SSH, where the
       // browser that must receive the redirect is not on this machine.
@@ -993,7 +1125,34 @@ export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void 
         ttlMs: MCP_AUTH_FLASH_MS,
       });
     },
+    onAction: (_id, key) => {
+      if (key.ctrl || !(key.meta || key.option)) return false;
+      const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
+      if (name !== "a") return false;
+      if (!canAdd) return false;
+      unsubscribe();
+      openAddMcpNamePane(shell, deps, mcp);
+      return true;
+    },
   });
+  unsubscribe =
+    mcp.subscribe?.(() => {
+      const liveEntries = mcp.list();
+      const liveRows = mcpSurfaceRows(liveEntries, canAdd);
+      rows.splice(0, rows.length, ...liveRows);
+      byName.clear();
+      for (const entry of liveEntries) byName.set(entry.name, entry);
+      if (
+        !setOwnedOverlayItems(
+          shell,
+          "mcp",
+          rows.map((row) => row.label),
+          rows.map((row) => row.id),
+        )
+      ) {
+        unsubscribe();
+      }
+    }) ?? unsubscribe;
 }
 
 /** Long enough to notice the browser was asked to open, and why. */

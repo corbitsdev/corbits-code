@@ -29,12 +29,13 @@ export function createDynamicToolRunner(
   const byName = new Map<string, AgentTool>();
 
   const addTools = (tools: AgentTool[]): void => {
-    for (const t of tools) {
-      if (byName.has(t.definition.name)) {
-        throw new DuplicateToolError(t.definition.name);
-      }
-      byName.set(t.definition.name, t);
+    const incoming = new Set<string>();
+    for (const tool of tools) {
+      const name = tool.definition.name;
+      if (byName.has(name) || incoming.has(name)) throw new DuplicateToolError(name);
+      incoming.add(name);
     }
+    for (const tool of tools) byName.set(tool.definition.name, tool);
   };
 
   addTools(initial);

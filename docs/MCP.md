@@ -86,6 +86,14 @@ registered for dispatch as soon as the server connects (including later in the
 same turn) and surfaced on demand through dynamic tool discovery
 (`tool_search`).
 
+In the TUI, `/mcp` and `/mcps` open the same live server surface. Press **Alt+A**
+to add a named absolute HTTP(S) endpoint to global settings and connect it in the
+current session. Names may contain letters, numbers, single underscores, and
+hyphens; the `__` tool-namespace delimiter is reserved. The add is unavailable
+while a local `.corbits/settings.json` `mcpServers` list shadows global MCP
+settings; remove that local list and restart
+before adding globally. A connection failure does not remove the saved server.
+
 ## Server Kinds
 
 A server is reached one of two ways:
