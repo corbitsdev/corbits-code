@@ -4,6 +4,7 @@
 
 import { contextWindowFor } from "../provider/context-window.js";
 import { costHiddenReason, type CostHiddenReason } from "./cost-visibility.js";
+import type { SessionBillingMix } from "./session-cost.js";
 import type { PricingCache } from "./pricing-fetcher.js";
 
 export interface CostSummaryInput {
@@ -24,10 +25,17 @@ export interface CostSummaryInput {
   // approximate instead of implying provider-grade precision. The caller
   // building this input owns the decision; nothing downstream re-derives it.
   contextIsEstimate: boolean;
+  // Session mix from the per-turn accumulator. Absent or "none" falls back to
+  // the live identity for /cost hide copy (fresh launch, post-/clear).
+  sessionBillingMix?: SessionBillingMix | undefined;
+  // Hidden reason of the last hidden-identity turn. Used for hidden-only /cost
+  // copy so a later live metered identity does not rewrite history.
+  sessionHiddenReason?: CostHiddenReason | null | undefined;
 }
 
 export type CostSummary = CostSummaryInput & {
   costHiddenReason: CostHiddenReason | null;
+  sessionBillingMix: SessionBillingMix;
   contextWindow: number;
   // Null when the model's context window is unknown (non-positive), so the
   // display can distinguish "unknown" from a genuine 0% usage.
@@ -50,6 +58,7 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
       providerFree: input.providerFree,
       pricingCache: input.pricingCache,
     }),
+    sessionBillingMix: input.sessionBillingMix ?? "none",
     contextWindow,
     contextPercentUsed,
   };
@@ -99,17 +108,32 @@ const HIDDEN_REASON_TEXT: Record<Exclude<CostHiddenReason, "chatgpt-subscription
   "zero-priced": "zero-priced in the pricing registry",
 };
 
+const MIXED_SESSION_COST_SUFFIX = " (metered portion only; session mixed billed and hidden usage)";
+
+function formatCostLine(summary: CostSummary): string {
+  const mix = summary.sessionBillingMix;
+  if (mix === "mixed") {
+    return `Cost: ${summary.formattedCost}${MIXED_SESSION_COST_SUFFIX}`;
+  }
+  if (mix === "metered-only") {
+    return `Cost: ${summary.formattedCost}`;
+  }
+  const hide =
+    mix === "hidden-only"
+      ? (summary.sessionHiddenReason ?? summary.costHiddenReason)
+      : summary.costHiddenReason;
+  if (hide === null) return `Cost: ${summary.formattedCost}`;
+  if (hide === "chatgpt-subscription") {
+    return "Cost: covered by ChatGPT subscription (not billed per token)";
+  }
+  return `Cost: hidden (${HIDDEN_REASON_TEXT[hide]})`;
+}
+
 export function formatCostCommandOutput(summary: CostSummary): string {
   const window = summary.contextWindow > 0 ? String(summary.contextWindow) : "unknown";
-  const costLine =
-    summary.costHiddenReason === null
-      ? `Cost: ${summary.formattedCost}`
-      : summary.costHiddenReason === "chatgpt-subscription"
-        ? "Cost: covered by ChatGPT subscription (not billed per token)"
-        : `Cost: hidden (${HIDDEN_REASON_TEXT[summary.costHiddenReason]})`;
   const lines = [
     `Model: ${summary.modelId}`,
-    costLine,
+    formatCostLine(summary),
     `Tokens: ${String(summary.inputTokens)} in / ${String(summary.outputTokens)} out / ${String(summary.cacheReadTokens)} cache-read`,
     `Context: ${String(summary.contextTokens)}/${window} (${formatContextPercentLabel(summary.contextPercentUsed, summary.contextIsEstimate)})`,
   ];

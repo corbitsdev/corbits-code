@@ -38,6 +38,7 @@ function fakeCostSummary(): CostSummary {
     contextTokens: 1000,
     contextIsEstimate: false,
     costHiddenReason: null,
+    sessionBillingMix: "none",
     contextWindow: 10000,
     contextPercentUsed: 10,
   };

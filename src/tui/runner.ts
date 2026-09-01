@@ -127,7 +127,8 @@ import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
-import { createFaremeter, formatCost } from "../cost/faremeter.js";
+import { formatCost } from "../cost/faremeter.js";
+import { billingIdentityFromSource, createSessionCostAccumulator } from "../cost/session-cost.js";
 import {
   buildCostSummary,
   maskContextMeterWhenNoTurns,
@@ -162,6 +163,7 @@ import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -1610,6 +1612,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     });
 
+    const sessionCost = createSessionCostAccumulator({
+      pricingCache: getActivePricingCache,
+    });
+
     // MCP servers connected so far, keyed by name so a reconnect after a failure
     // replaces rather than duplicates the entry.
     let connectedMcpServers: ConnectedMcpServer[] = resumeSeed.mcpServers;
@@ -1672,6 +1678,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
       runSink.sink(event);
       cycleRecorder.handleEvent(event);
+      if (onTurnBoundary(event)) {
+        sessionCost.addTurn(event.data.usage, billingIdentityFromSource(event.data.source));
+      }
     };
 
     // Tool count before any MCP server connects; a reload is only worthwhile if
@@ -1955,6 +1964,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           await initSessionDir(config.cwd, sessionId);
           permissionGate.reset();
           runSink.reset();
+          sessionCost.reset();
           currentAgent = await buildAgent();
           cycleRecorder.reset();
           streamPromise = consumeStream(currentAgent.stream(), streamSink);
@@ -2073,9 +2083,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const usage = runSink.getTokenUsage();
         const lastTurnUsage = runSink.getLastTurnUsage();
         const pricingCache = getActivePricingCache();
-        const faremeter = createFaremeter({ modelId: config.model, pricingCache });
-        faremeter.addUsage(usage);
-        const totalCost = faremeter.getTotalCost();
+        const billed = sessionCost.snapshot();
+        const totalCost = billed.meteredCost;
         // A provider that omits or zeroes usage would otherwise pin the meter at
         // 0% forever; fall back to the director's local estimate (turns plus
         // system-prompt/tool-schema overhead). The governor already decided
@@ -2097,6 +2106,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             ? contextEstimate.tokens
             : contextTokensFromUsage(lastTurnUsage),
           contextIsEstimate: isEstimate,
+          sessionBillingMix: billed.mix,
+          sessionHiddenReason: billed.hiddenReason,
         });
         return maskContextMeterWhenNoTurns(summary, runSink.getTurnCount());
       },
