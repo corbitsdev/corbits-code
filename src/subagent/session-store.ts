@@ -8,6 +8,14 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
+import {
+  isAlreadyClosed,
+  isLiveStrip,
+  isResumableLifecycle,
+  projectLifecycleStatus,
+  projectStripStatus,
+  type WorkerLifecycle,
+} from "./lifecycle.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 import { toolCallPreview } from "./tool-preview.js";
 
@@ -16,15 +24,16 @@ const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
 /**
- * CL-6943: lifecycle status surfaced to the parent for the reusable-session
- * verbs (close_agent / resume_agent), independent of `SubAgentSessionStatus`
- * above (which is the older TUI-transcript status and is left alone here).
- * `interrupted` is not produced by anything in this lane — `cancel()` sets
- * it today (the pre-existing operator-cancel path), and the interrupt_agent
- * lane lands later reusing the same value, not a new one.
+ * Lifecycle status surfaced to the parent for the reusable-session verbs
+ * (close_agent / resume_agent). Snapshot `lifecycleStatus` is a projection of
+ * stored `WorkerLifecycle` and never leaks `cancelled` or `failed`
+ * (cancelled → interrupted, failed → shutdown). `not_found` is a query result
+ * only — never stored.
  */
 export type AgentLifecycleStatus =
   "pending_init" | "running" | "interrupted" | "completed" | "shutdown" | "not_found";
+
+export type { WorkerLifecycle };
 
 // Compact transcript entries suitable for TUI render without depending on the
 // TUI ContentBlock type (keeps subagent free of a reverse dependency on tui/).
@@ -53,7 +62,10 @@ export interface SubAgentSession {
   description: string;
   agentId: string;
   brief: string;
+  /** Projection of `lifecycle` for TUI / Agents strip. */
   status: SubAgentSessionStatus;
+  /** Stored source of truth. Snapshot copies it; do not mutate independently. */
+  lifecycle: WorkerLifecycle;
   toolNames: string[];
   // Name, preview, and start clock of the OLDEST outstanding call — the one
   // that explains the longest silence. All three are derived from
@@ -94,8 +106,10 @@ export interface SubAgentSession {
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
   // directly from the primary session's task tool.
   parentSessionId?: string;
-  // CL-6943: lifecycle status for the reusable-session verbs. Defaults to
-  // "pending_init" until the run wires up markRunning(); see the type doc.
+  /**
+   * Projection of `lifecycle` for close/resume/interrupt JSON. Maps cancelled →
+   * interrupted and failed → shutdown so those verbs do not leak new enum values.
+   */
   lifecycleStatus: AgentLifecycleStatus;
   // True when this session's agent is meant to survive a clean completion
   // (spawn_agent opts in). An open retained session ("completed" or
@@ -144,6 +158,12 @@ export interface SubAgentSessionStoreOptions {
 export interface SubAgentSessionStore {
   list(): readonly SubAgentSession[];
   get(id: string): SubAgentSession | undefined;
+  /**
+   * Verb lifecycle of a session dropped by pruneRetained, if a tombstone remains.
+   * `get` does not surface these — they exist so wait/resume can recover a
+   * terminal status instead of treating the id as never-seen.
+   */
+  evictedLifecycle(id: string): AgentLifecycleStatus | undefined;
   // Running + recent completed, newest first — surface for the Agents strip.
   listForStrip(): readonly SubAgentSession[];
   start(input: StartSessionInput): SubAgentSession;
@@ -214,6 +234,29 @@ export interface SubAgentSessionStore {
     message: string,
     opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
   ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
+  /**
+   * Refcount so wait mailboxes can pin an uncollected result. pruneCompleted
+   * will not delete a session while its pin count is greater than zero.
+   */
+  pin(id: string): void;
+  unpin(id: string): void;
+  /**
+   * Attach a salvage report to cancelled/interrupted/shutdown without changing
+   * `state`. Never overwrites an existing report. If the session is still
+   * pending_init/running (interrupt result with no prior interrupt_agent),
+   * flip to interrupted rather than completed. Clears the in-flight-run bit
+   * and notifies waiters.
+   */
+  attachReport(id: string, report: string): void;
+  /** True while a run or followup has not settled. */
+  isRunInFlight(id: string): boolean;
+  /**
+   * Catch-path settle: clear the in-flight bit without changing lifecycle so
+   * operator cancel becomes wait-terminal when there is no salvage body.
+   */
+  settleRun(id: string): void;
+  /** Wake subscribers without mutating a session (mailbox overlay writers). */
+  wake(): void;
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -248,6 +291,9 @@ interface EvictedRecord {
   hint: string;
 }
 
+/** In-map record: `status` / `lifecycleStatus` exist only on snapshots. */
+type StoredSession = Omit<SubAgentSession, "status" | "lifecycleStatus">;
+
 let nextId = 0;
 function defaultCreateId(): string {
   nextId += 1;
@@ -259,7 +305,7 @@ function defaultCreateId(): string {
  * be shown beside another call's clock. Called after every change to
  * `outstandingTools`.
  */
-function syncCurrentTool(session: SubAgentSession): void {
+function syncCurrentTool(session: StoredSession): void {
   let oldest: OutstandingToolCall | undefined;
   for (const call of session.outstandingTools) {
     if (oldest === undefined || call.startedAt < oldest.startedAt) oldest = call;
@@ -276,7 +322,7 @@ function syncCurrentTool(session: SubAgentSession): void {
  * transcript stores.
  */
 function beginToolCall(
-  session: SubAgentSession,
+  session: StoredSession,
   callId: string,
   name: string,
   nowMs: number,
@@ -303,7 +349,7 @@ function beginToolCall(
 
 /** Refresh the outstanding call's preview once more of its arguments stream in. */
 function refreshToolPreview(
-  session: SubAgentSession,
+  session: StoredSession,
   callId: string,
   name: string,
   rawArgs: string,
@@ -318,14 +364,14 @@ function refreshToolPreview(
  * Retires exactly the call that finished. A result carrying an id we never saw
  * start retires nothing, rather than silently clearing a live sibling's clock.
  */
-function endToolCall(session: SubAgentSession, callId: string): void {
+function endToolCall(session: StoredSession, callId: string): void {
   const index = session.outstandingTools.findIndex((c) => c.callId === callId);
   if (index === -1) return;
   session.outstandingTools.splice(index, 1);
   syncCurrentTool(session);
 }
 
-function clearToolCalls(session: SubAgentSession): void {
+function clearToolCalls(session: StoredSession): void {
   session.outstandingTools.length = 0;
   syncCurrentTool(session);
 }
@@ -361,7 +407,11 @@ export function createSubAgentSessionStore(
   const createId = options.createId ?? defaultCreateId;
 
   // Insertion order: older first. list() returns a snapshot in that order.
-  const sessions = new Map<string, SubAgentSession>();
+  const sessions = new Map<string, StoredSession>();
+  // Pin refcount: wait mailboxes hold a pin until they collect the result.
+  const pinCounts = new Map<string, number>();
+  // Live run/followup: operator cancel is wait-terminal only after this clears.
+  const runInFlight = new Set<string>();
   // Live abort hooks keyed by session id. Cleared on terminal transition.
   const cancelHandles = new Map<string, () => void>();
   // CL-6943: bounded close functions keyed by session id, for close_agent.
@@ -381,9 +431,9 @@ export function createSubAgentSessionStore(
   // session evicted purely to bound retention memory.
   const evicted = new Map<string, EvictedRecord>();
 
-  const recordEviction = (session: SubAgentSession): void => {
+  const recordEviction = (session: StoredSession): void => {
     evicted.set(session.id, {
-      lifecycleStatus: session.lifecycleStatus,
+      lifecycleStatus: projectLifecycleStatus(session.lifecycle),
       hint: EVICTED_RETENTION_HINT,
     });
     if (evicted.size > MAX_EVICTED_TOMBSTONES) {
@@ -409,7 +459,7 @@ export function createSubAgentSessionStore(
     snapshotCache.delete(id);
   };
 
-  const snapshotOf = (session: SubAgentSession): SubAgentSession => {
+  const snapshotOf = (session: StoredSession): SubAgentSession => {
     const revision = revisions.get(session.id) ?? 0;
     const cached = snapshotCache.get(session.id);
     if (cached !== undefined && cached.revision === revision) return cached.snapshot;
@@ -422,9 +472,9 @@ export function createSubAgentSessionStore(
     for (const listener of listeners) listener();
   };
 
-  const markCancelled = (session: SubAgentSession, reason: string): void => {
-    session.status = "cancelled";
-    session.lifecycleStatus = "interrupted";
+  const markCancelled = (session: StoredSession, reason: string): void => {
+    session.lifecycle = { state: "cancelled", error: reason };
+    session.retained = false;
     session.finishedAt = now();
     session.lastActivityAt = now();
     clearToolCalls(session);
@@ -443,7 +493,7 @@ export function createSubAgentSessionStore(
 
   const cancelSession = (id: string, reason: string): boolean => {
     const session = sessions.get(id);
-    if (session === undefined || session.status !== "running") return false;
+    if (session === undefined || !isLiveStrip(session.lifecycle)) return false;
     const abort = cancelHandles.get(id);
     // Flip status first so concurrent complete/fail see a non-running session,
     // then fire the abort handle (which may re-enter via signal listeners).
@@ -459,7 +509,7 @@ export function createSubAgentSessionStore(
     return true;
   };
 
-  const pushEntry = (session: SubAgentSession, entry: SubAgentTranscriptEntry): void => {
+  const pushEntry = (session: StoredSession, entry: SubAgentTranscriptEntry): void => {
     session.entries.push(entry);
     if (session.entries.length > maxEntries) {
       session.entries.splice(0, session.entries.length - maxEntries);
@@ -490,9 +540,14 @@ export function createSubAgentSessionStore(
   // An open retained session (spawn_agent's reusable-session contract:
   // retained:true and still addressable — "completed" or "interrupted") is
   // governed by pruneRetained's own cap below, not this one.
-  const isOpenRetained = (s: SubAgentSession): boolean =>
+  const isOpenRetained = (s: StoredSession): boolean =>
     s.retained === true &&
-    (s.lifecycleStatus === "completed" || s.lifecycleStatus === "interrupted");
+    (s.lifecycle.state === "completed" || s.lifecycle.state === "interrupted");
+
+  const isPinned = (id: string): boolean => (pinCounts.get(id) ?? 0) > 0;
+
+  const isPrunableCompleted = (s: StoredSession): boolean =>
+    !isLiveStrip(s.lifecycle) && !isOpenRetained(s) && !isPinned(s.id);
 
   // CL-7001/CL-7007: `maxCompleted` bounds every ordinary finished session —
   // one that was never retained, or a retained one already closed via
@@ -500,12 +555,13 @@ export function createSubAgentSessionStore(
   // cap and was never sized to also be the retention policy for reusable
   // sessions; open retained sessions are excluded here and bounded instead
   // by pruneRetained. A session that was resumed and is actively running
-  // again (lifecycleStatus "running") is still excluded: it has a live
-  // caller, not an idle leak.
+  // again (lifecycle state "running") is still excluded: it has a live
+  // caller, not an idle leak. Pinned ids (uncollected wait results) are
+  // also excluded so maxCompleted cannot delete them.
   const pruneCompleted = (): void => {
     if (maxCompleted <= 0) {
       for (const [id, s] of sessions) {
-        if (s.status !== "running" && s.lifecycleStatus !== "running" && !isOpenRetained(s)) {
+        if (isPrunableCompleted(s)) {
           releaseHandles(id);
           sessions.delete(id);
           forgetRevision(id);
@@ -514,9 +570,7 @@ export function createSubAgentSessionStore(
       return;
     }
     const finished = [...sessions.values()]
-      .filter(
-        (s) => s.status !== "running" && s.lifecycleStatus !== "running" && !isOpenRetained(s),
-      )
+      .filter(isPrunableCompleted)
       .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
     const excess = finished.length - maxCompleted;
     if (excess <= 0) return;
@@ -541,7 +595,7 @@ export function createSubAgentSessionStore(
   // still report an actionable status afterward instead of "not_found".
   const pruneRetained = (): void => {
     const openRetained = [...sessions.values()]
-      .filter(isOpenRetained)
+      .filter((s) => isOpenRetained(s) && !isPinned(s.id))
       .sort((a, b) => a.lastActivityAt - b.lastActivityAt);
     const excess = openRetained.length - maxRetained;
     if (excess <= 0) return;
@@ -575,12 +629,16 @@ export function createSubAgentSessionStore(
       };
       const check = (): void => {
         const session = sessions.get(id);
-        if (session === undefined || session.lifecycleStatus === "shutdown") {
+        if (session === undefined) {
           finish(undefined);
           return;
         }
         const close = closeHandles.get(id);
-        if (close !== undefined) finish(close);
+        if (close !== undefined) {
+          finish(close);
+          return;
+        }
+        if (isAlreadyClosed(session.lifecycle)) finish(undefined);
       };
       listeners.add(listener);
       const timer = setTimeout(() => finish(closeHandles.get(id)), deadlineMs);
@@ -588,7 +646,7 @@ export function createSubAgentSessionStore(
     });
   };
 
-  const mutate = (id: string, fn: (session: SubAgentSession) => void): void => {
+  const mutate = (id: string, fn: (session: StoredSession) => void): void => {
     const session = sessions.get(id);
     if (session === undefined) return;
     fn(session);
@@ -604,27 +662,33 @@ export function createSubAgentSessionStore(
   // resume_agent can retry. interrupt_agent's stamp on this turn wins over
   // that restore — do not rewrite interrupted back to completed.
   const beginFollowupTurn = (id: string): void => {
+    runInFlight.add(id);
     mutate(id, (s) => {
-      s.status = "running";
-      s.lifecycleStatus = "running";
+      s.lifecycle = { state: "running" };
       delete s.finishedAt;
     });
   };
-  const endFollowupTurn = (id: string, lifecycleStatus: AgentLifecycleStatus): void => {
+  const endFollowupTurn = (id: string, restore: "completed" | "interrupted"): void => {
     mutate(id, (s) => {
-      if (s.lifecycleStatus === "interrupted") {
+      if (s.lifecycle.state !== "running" && s.lifecycle.state !== "pending_init") {
         s.finishedAt = s.finishedAt ?? now();
         return;
       }
-      s.lifecycleStatus = lifecycleStatus;
+      if (restore === "interrupted") {
+        s.lifecycle = {
+          state: "interrupted",
+          ...(s.report !== undefined ? { report: s.report } : {}),
+        };
+      } else {
+        s.lifecycle = { state: "completed", report: s.report ?? "" };
+      }
       s.finishedAt = now();
-      s.status = lifecycleStatus === "interrupted" ? "running" : "done";
     });
   };
   const queueFollowupTurn = (
     id: string,
     message: string,
-    failLifecycle: AgentLifecycleStatus,
+    failLifecycle: "completed" | "interrupted",
     opts?: { onReply?: (reply: string) => void; onFail?: (error: unknown) => void },
   ): void => {
     const followup = followupHandles.get(id);
@@ -633,20 +697,36 @@ export function createSubAgentSessionStore(
     void followup(message)
       .then((reply) => {
         const still = sessions.get(id);
-        if (still === undefined || still.lifecycleStatus === "shutdown") return;
+        if (still === undefined) {
+          runInFlight.delete(id);
+          return;
+        }
+        if (
+          still.lifecycle.state === "shutdown" ||
+          still.lifecycle.state === "cancelled" ||
+          still.lifecycle.state === "failed" ||
+          still.lifecycle.state === "interrupted"
+        ) {
+          runInFlight.delete(id);
+          return;
+        }
         mutate(id, (s) => {
-          s.status = "done";
-          s.lifecycleStatus = "completed";
+          s.lifecycle = { state: "completed", report: reply };
           s.finishedAt = now();
           s.report = reply;
           pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
         });
+        runInFlight.delete(id);
         opts?.onReply?.(reply);
         pruneRetained();
       })
       .catch((err: unknown) => {
-        endFollowupTurn(id, failLifecycle);
-        opts?.onFail?.(err);
+        runInFlight.delete(id);
+        if (opts?.onFail !== undefined) {
+          opts.onFail(err);
+        } else {
+          endFollowupTurn(id, failLifecycle);
+        }
         log.error("followup turn failed for {id}: {error}", {
           id,
           error: err instanceof Error ? err.message : String(err),
@@ -662,6 +742,10 @@ export function createSubAgentSessionStore(
     get(id: string): SubAgentSession | undefined {
       const session = sessions.get(id);
       return session === undefined ? undefined : snapshotOf(session);
+    },
+
+    evictedLifecycle(id: string): AgentLifecycleStatus | undefined {
+      return evicted.get(id)?.lifecycleStatus;
     },
 
     listForStrip(): readonly SubAgentSession[] {
@@ -682,13 +766,15 @@ export function createSubAgentSessionStore(
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
+      pinCounts.delete(id);
+      runInFlight.delete(id);
       forgetRevision(id);
-      const session: SubAgentSession = {
+      const session: StoredSession = {
         id,
         description: input.description,
         agentId: input.agentId,
         brief: input.brief,
-        status: "running",
+        lifecycle: { state: "pending_init" },
         toolNames: [],
         currentToolName: null,
         currentToolPreview: null,
@@ -697,11 +783,11 @@ export function createSubAgentSessionStore(
         entries: [],
         startedAt: now(),
         lastActivityAt: now(),
-        lifecycleStatus: "pending_init",
         ...(input.retained === true ? { retained: true } : {}),
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
+      runInFlight.add(id);
       bumpRevision(id);
       notify();
       return snapshotOf(session);
@@ -709,7 +795,7 @@ export function createSubAgentSessionStore(
 
     appendEvent(id: string, event: ReactorEmittedEvent): void {
       mutate(id, (session) => {
-        if (session.status !== "running") return;
+        if (!isLiveStrip(session.lifecycle)) return;
         switch (event.type) {
           case "inference.text.delta": {
             const token = (event.data as { token?: unknown })?.token;
@@ -865,19 +951,19 @@ export function createSubAgentSessionStore(
       // always passes this flag explicitly (see its call site).
       const agentRetained = opts?.agentRetained ?? true;
       mutate(id, (session) => {
-        // Cancel wins races: a late complete after operator cancel must not
-        // resurrect the session as done.
-        if (session.status !== "running") return;
-        session.status = "done";
-        // CL-6943: retained sessions stay "completed" (open, reusable) here —
-        // only close_agent (closeOne) moves them to "shutdown".
-        session.lifecycleStatus = "completed";
-        // CL-7001: a disposed salvage (deadline/cancel) resolves through
-        // this same path but run.ts has already torn its agent down — clear
-        // `retained` so resumeOne's `retained === true` gate can never see
-        // it as open, without touching the lifecycleStatus invariant every
-        // other completion (including a never-retained one) already relies
-        // on.
+        // Cancel and interrupt_agent win races: a late complete must not
+        // resurrect the session as done. Interrupted is still strip-live
+        // (linger), so it needs an explicit check. Salvage bodies attach via
+        // attachReport without changing state. send_input interrupt:true
+        // followup goes through beginFollowupTurn (running) and still completes.
+        if (
+          !isLiveStrip(session.lifecycle) ||
+          session.lifecycle.state === "cancelled" ||
+          session.lifecycle.state === "interrupted"
+        ) {
+          return;
+        }
+        session.lifecycle = { state: "completed", report };
         if (!agentRetained) session.retained = false;
         session.finishedAt = now();
         clearToolCalls(session);
@@ -888,6 +974,7 @@ export function createSubAgentSessionStore(
         // release it now rather than leaving a stale reference around.
         cancelHandles.delete(id);
         if (!agentRetained) closeHandles.delete(id);
+        runInFlight.delete(id);
         pruneCompleted();
         pruneRetained();
       });
@@ -895,17 +982,13 @@ export function createSubAgentSessionStore(
 
     fail(id: string, error: string): void {
       mutate(id, (session) => {
-        if (session.status !== "running") return;
-        session.status = "failed";
-        // A thrown run always tears down its agent in run.ts's finally
-        // (persist only skips teardown on a clean success) — so there is
-        // nothing left to resume here, and retained no longer applies.
-        // CL-7001: a deadline/cancel salvage does NOT throw — it returns a
-        // report through the same success path a clean completion uses, so
-        // it never reaches this function. complete() carries the equivalent
-        // "agent was actually disposed" check for that case via its
-        // agentRetained flag; this function only ever needed to cover throws.
-        session.lifecycleStatus = "shutdown";
+        if (!isLiveStrip(session.lifecycle) || session.lifecycle.state === "cancelled") return;
+        // Spawn-path throws already dispose in run.ts's finally. Resume of a
+        // persisted agent does not: the live close handle is the only teardown.
+        // Invoke it fire-and-forget (same as prune/evict) without marking
+        // shutdown — fail stays fail, and an already-disposed spawn close is
+        // best-effort idempotent.
+        session.lifecycle = { state: "failed", error };
         session.retained = false;
         session.finishedAt = now();
         clearToolCalls(session);
@@ -914,21 +997,21 @@ export function createSubAgentSessionStore(
           kind: "report",
           content: capText(`Error: ${error}`, maxEntryChars),
         });
-        cancelHandles.delete(id);
-        closeHandles.delete(id);
+        runInFlight.delete(id);
+        releaseHandles(id);
         pruneCompleted();
       });
     },
 
     registerCancel(id: string, abort: () => void): void {
       const session = sessions.get(id);
-      if (session === undefined || session.status !== "running") return;
+      if (session === undefined || !isLiveStrip(session.lifecycle)) return;
       cancelHandles.set(id, abort);
     },
 
     markRunning(id: string): void {
       mutate(id, (session) => {
-        if (session.lifecycleStatus === "pending_init") session.lifecycleStatus = "running";
+        if (session.lifecycle.state === "pending_init") session.lifecycle = { state: "running" };
       });
     },
 
@@ -951,8 +1034,11 @@ export function createSubAgentSessionStore(
         if (evicted.has(id)) return "shutdown";
         return "not_found";
       }
-      if (session.lifecycleStatus === "shutdown") return "shutdown";
       let close = closeHandles.get(id);
+      const alreadyClosed = isAlreadyClosed(session.lifecycle);
+      if (alreadyClosed && close === undefined) {
+        return projectLifecycleStatus(session.lifecycle);
+      }
       if (close === undefined) {
         // CL-7001: close_agent landed in the setup window — the session
         // exists but createAgentWithLiveToolDispatch hasn't finished and
@@ -960,18 +1046,18 @@ export function createSubAgentSessionStore(
         // returning "shutdown" immediately: that used to report false
         // success while leaving the eventual agent unreleasable forever
         // (the early return above short-circuits every retry once
-        // lifecycleStatus flips).
+        // lifecycle flips).
         close = await waitForCloseHandle(id, deadlineMs);
         const stillHere = sessions.get(id);
         if (stillHere === undefined) return "not_found";
-        if (stillHere.lifecycleStatus === "shutdown") return "shutdown";
         if (close === undefined) {
-          // Never became closeable within the deadline: report the honest
-          // in-progress status rather than a false "shutdown" — the caller
-          // can retry, and this session is still findable to retry against.
-          return stillHere.lifecycleStatus;
+          // Never became closeable within the deadline, or fail() already
+          // released the handle: report the honest stored status rather
+          // than a false "shutdown".
+          return projectLifecycleStatus(stillHere.lifecycle);
         }
       }
+      const keepFailed = isAlreadyClosed((sessions.get(id) ?? session).lifecycle);
       closeHandles.delete(id);
       // Bounded here too, defense-in-depth against a caller-registered
       // close that does not honor its own deadline argument — a wedged
@@ -984,19 +1070,37 @@ export function createSubAgentSessionStore(
         }),
         new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
       ]);
+      if (keepFailed) {
+        // fail() already stamped failed; invoke leftover teardown without
+        // rewriting that to shutdown.
+        cancelHandles.delete(id);
+        interruptHandles.delete(id);
+        followupHandles.delete(id);
+        deliverHandles.delete(id);
+        runInFlight.delete(id);
+        pruneCompleted();
+        const after = sessions.get(id);
+        return after === undefined ? "not_found" : projectLifecycleStatus(after.lifecycle);
+      }
       mutate(id, (s) => {
-        s.lifecycleStatus = "shutdown";
-        s.retained = false;
-        if (s.status === "running") {
-          s.status = "cancelled";
+        const wasLive = isLiveStrip(s.lifecycle);
+        const error = s.error ?? (wasLive ? "Closed by close_agent" : undefined);
+        if (wasLive) {
           s.finishedAt = s.finishedAt ?? now();
-          s.error = s.error ?? "Closed by close_agent";
+          if (error !== undefined) s.error = error;
         }
+        s.lifecycle = {
+          state: "shutdown",
+          ...(s.report !== undefined ? { report: s.report } : {}),
+          ...(error !== undefined ? { error } : {}),
+        };
+        s.retained = false;
       });
       cancelHandles.delete(id);
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
+      runInFlight.delete(id);
       pruneCompleted();
       return "shutdown";
     },
@@ -1023,15 +1127,15 @@ export function createSubAgentSessionStore(
     ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
-      if (session.status !== "running" || session.lifecycleStatus !== "running") {
-        return { ok: false, status: session.lifecycleStatus };
+      if (session.lifecycle.state !== "running") {
+        return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
 
       if (opts?.interrupt === true) {
         const interrupt = interruptHandles.get(id);
         const followup = followupHandles.get(id);
         if (interrupt === undefined || followup === undefined) {
-          return { ok: false, status: session.lifecycleStatus };
+          return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
         }
         interrupt();
         queueFollowupTurn(id, message, "interrupted", {
@@ -1042,7 +1146,9 @@ export function createSubAgentSessionStore(
       }
 
       const deliver = deliverHandles.get(id);
-      if (deliver === undefined) return { ok: false, status: session.lifecycleStatus };
+      if (deliver === undefined) {
+        return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
+      }
       deliver(message);
       return { ok: true, status: "running" };
     },
@@ -1050,12 +1156,19 @@ export function createSubAgentSessionStore(
     interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
-      if (session.status !== "running") return { ok: false, status: session.lifecycleStatus };
+      if (!isLiveStrip(session.lifecycle)) {
+        return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
+      }
       const interrupt = interruptHandles.get(id);
-      if (interrupt === undefined) return { ok: false, status: session.lifecycleStatus };
+      if (interrupt === undefined) {
+        return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
+      }
       interrupt();
       mutate(id, (s) => {
-        s.lifecycleStatus = "interrupted";
+        s.lifecycle = {
+          state: "interrupted",
+          ...(s.report !== undefined ? { report: s.report } : {}),
+        };
         s.finishedAt = s.finishedAt ?? now();
       });
       pruneRetained();
@@ -1080,15 +1193,15 @@ export function createSubAgentSessionStore(
         }
         return { ok: false, status: "not_found" };
       }
-      if (
-        session.retained !== true ||
-        (session.lifecycleStatus !== "completed" && session.lifecycleStatus !== "interrupted")
-      ) {
-        return { ok: false, status: session.lifecycleStatus };
+      if (!isResumableLifecycle(session.retained, session.lifecycle)) {
+        return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
       const followup = followupHandles.get(id);
-      if (followup === undefined) return { ok: false, status: session.lifecycleStatus };
-      const priorLifecycle = session.lifecycleStatus;
+      if (followup === undefined) {
+        return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
+      }
+      const priorLifecycle =
+        session.lifecycle.state === "interrupted" ? "interrupted" : "completed";
       queueFollowupTurn(id, message, priorLifecycle, {
         ...(opts?.onReply !== undefined ? { onReply: opts.onReply } : {}),
         ...(opts?.onFail !== undefined ? { onFail: opts.onFail } : {}),
@@ -1103,26 +1216,83 @@ export function createSubAgentSessionStore(
     },
 
     cancelAll(reason = DEFAULT_CANCEL_REASON): string[] {
-      const running = [...sessions.values()].filter((s) => s.status === "running");
+      // Snapshot before cancelSession: markCancelled clears retained, and a
+      // resumed retained worker is strip-live so the first loop would otherwise
+      // skip the close-handle pass (CL-7001).
+      const retainedIds = [...sessions.values()]
+        .filter((s) => s.retained === true && s.lifecycle.state !== "shutdown")
+        .map((s) => s.id);
+      const running = [...sessions.values()].filter((s) => isLiveStrip(s.lifecycle));
       const cancelled: string[] = [];
       for (const session of running) {
         if (cancelSession(session.id, reason)) cancelled.push(session.id);
       }
-      // CL-7001: a retained session is "done", not "running", so the loop
-      // above always skipped it — both /clear and session-close route
-      // through cancelAll, so a retained worker's LSP sidecars, reactor, and
-      // heldLocks entry outlived the parent turn indefinitely. Release every
-      // still-open retained session here too, regardless of `status`.
-      for (const session of sessions.values()) {
-        if (session.retained === true && session.lifecycleStatus !== "shutdown") {
-          releaseHandles(session.id);
-          mutate(session.id, (s) => {
-            s.lifecycleStatus = "shutdown";
-            s.retained = false;
-          });
-        }
+      for (const id of retainedIds) {
+        const session = sessions.get(id);
+        if (session === undefined || session.lifecycle.state === "shutdown") continue;
+        releaseHandles(id);
+        mutate(id, (s) => {
+          s.lifecycle = {
+            state: "shutdown",
+            ...(s.report !== undefined ? { report: s.report } : {}),
+            ...(s.error !== undefined ? { error: s.error } : {}),
+          };
+          s.retained = false;
+        });
       }
       return cancelled;
+    },
+
+    pin(id: string): void {
+      pinCounts.set(id, (pinCounts.get(id) ?? 0) + 1);
+    },
+
+    unpin(id: string): void {
+      const next = (pinCounts.get(id) ?? 0) - 1;
+      if (next <= 0) {
+        pinCounts.delete(id);
+        pruneCompleted();
+        pruneRetained();
+      } else pinCounts.set(id, next);
+    },
+
+    attachReport(id: string, report: string): void {
+      mutate(id, (session) => {
+        const state = session.lifecycle.state;
+        if (state === "completed" || state === "failed") {
+          runInFlight.delete(id);
+          return;
+        }
+        if (state === "pending_init" || state === "running") {
+          session.lifecycle = { state: "interrupted", report };
+          session.report = report;
+          session.finishedAt = session.finishedAt ?? now();
+          pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        } else if (
+          (state === "cancelled" || state === "interrupted" || state === "shutdown") &&
+          session.report === undefined
+        ) {
+          session.report = report;
+          session.lifecycle = { ...session.lifecycle, report };
+          pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        }
+        runInFlight.delete(id);
+        pruneCompleted();
+        pruneRetained();
+      });
+    },
+
+    isRunInFlight(id: string): boolean {
+      return runInFlight.has(id);
+    },
+
+    settleRun(id: string): void {
+      if (!runInFlight.delete(id)) return;
+      notify();
+    },
+
+    wake(): void {
+      notify();
     },
 
     subscribe(listener: () => void): () => void {
@@ -1143,6 +1313,8 @@ export function createSubAgentSessionStore(
       followupHandles.clear();
       deliverHandles.clear();
       sessions.clear();
+      pinCounts.clear();
+      runInFlight.clear();
       revisions.clear();
       snapshotCache.clear();
       evicted.clear();
@@ -1151,13 +1323,14 @@ export function createSubAgentSessionStore(
   };
 }
 
-function cloneSession(session: SubAgentSession): SubAgentSession {
+function cloneSession(session: StoredSession): SubAgentSession {
   return {
     id: session.id,
     description: session.description,
     agentId: session.agentId,
     brief: session.brief,
-    status: session.status,
+    status: projectStripStatus(session.lifecycle),
+    lifecycle: { ...session.lifecycle },
     toolNames: [...session.toolNames],
     currentToolName: session.currentToolName,
     currentToolPreview: session.currentToolPreview,
@@ -1166,7 +1339,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     entries: session.entries.map(cloneEntry),
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt,
-    lifecycleStatus: session.lifecycleStatus,
+    lifecycleStatus: projectLifecycleStatus(session.lifecycle),
     ...(session.retained !== undefined ? { retained: session.retained } : {}),
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),

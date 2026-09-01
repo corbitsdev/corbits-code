@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  createFleetRecords,
+  createFleetMailbox,
   createSpawnAgentTool,
   createWaitAgentsTool,
   createListAgentsTool,
@@ -48,17 +48,45 @@ function deferred<T>(): {
 
 function makeDeps(
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; sessions?: ReturnType<typeof createSubAgentSessionStore> } = {},
 ): AgentFleetDeps {
+  const sessions = opts.sessions ?? createSubAgentSessionStore();
   return {
     permissionGate: testPermissionGate,
     cwd: opts.cwd ?? "/tmp",
     getWorkdirBase: () => "/tmp/workdir",
     provider,
     run,
-    sessions: createSubAgentSessionStore(),
-    fleetRecords: createFleetRecords(),
+    sessions,
+    fleetRecords: createFleetMailbox(sessions),
   };
+}
+
+function waitUntilMailboxTerminal(
+  mailbox: ReturnType<typeof createFleetMailbox>,
+  sessions: ReturnType<typeof createSubAgentSessionStore>,
+  id: string,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): boolean => {
+      const snap = mailbox.peek(id);
+      return snap !== undefined && snap.status !== "running";
+    };
+    if (done()) {
+      resolve();
+      return;
+    }
+    const unsub = sessions.subscribe(() => {
+      if (done()) {
+        unsub();
+        resolve();
+      }
+    });
+    if (done()) {
+      unsub();
+      resolve();
+    }
+  });
 }
 
 async function callToolRaw(
@@ -204,8 +232,8 @@ describe("spawn_agent + wait_agents", () => {
   test("reports survive well past the session store's display cap (20) until wait_agents collects them", async () => {
     // DEFAULT_MAX_COMPLETED on SubAgentSessionStore is 20 finished sessions;
     // spawn (and complete) enough workers to blow well past it before any of
-    // them is collected, proving fleetRecords does not depend on the store's
-    // cap.
+    // them is collected, proving the wait mailbox pin keeps reports past the
+    // store's display cap.
     //
     // CL-7007: this test previously asserted (as CL-7001's fix left it) that
     // the store itself had already evicted and released the earliest
@@ -214,8 +242,8 @@ describe("spawn_agent + wait_agents", () => {
     // ticket fixes (resume_agent failed with a bare
     // "not_found" past 20 spawned workers, blaming the caller for nothing).
     // Open retained sessions now have their own cap (`maxRetained`, default
-    // 50), so 25 of them all stay resumable; fleetRecords/wait_agents is
-    // still asserted below as the durable source of truth regardless.
+    // 50), so 25 of them all stay resumable; mailbox pin + wait_agents is
+    // still asserted below as the collect path regardless.
     const COUNT = 25;
     const deps = makeDeps(async () => ({ report: "irrelevant", agentRetained: true }));
     const spawn = createSpawnAgentTool(deps);
@@ -249,7 +277,7 @@ describe("spawn_agent + wait_agents", () => {
   });
 
   // CL-6915: operator cancel aborts the child signal, but run() still returns a
-  // salvage body (partial findings). Dropping that body left fleetRecords
+  // salvage body (partial findings). Dropping that body left the wait mailbox
   // "running" forever so wait_agents never saw the salvage.
   test("cancelled spawn_agent still resolves wait_agents with salvage findings", async () => {
     const deps = makeDeps(async (params) => {
@@ -287,11 +315,44 @@ describe("spawn_agent + wait_agents", () => {
       report?: string;
     }[];
     expect(results).toHaveLength(1);
-    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.status).toBe("interrupted");
     expect(results[0]!.report).toContain("## Summary");
     expect(results[0]!.report).toContain("## Findings");
     expect(results[0]!.report).toContain("gate.ts");
     // Strip stays cancelled — salvage is for wait_agents, not a resurrection.
+    expect(deps.sessions.get(id)?.status).toBe("cancelled");
+    expect(deps.sessions.get(id)?.lifecycle.state).toBe("cancelled");
+  });
+
+  test("catch cancel wait_agents is interrupted, not failed", async () => {
+    const deps = makeDeps(async (params) => {
+      await new Promise<void>((resolve) => {
+        if (params.signal?.aborted) {
+          resolve();
+          return;
+        }
+        params.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const spawned = await callTool(spawn, {
+      description: "catch cancel",
+      prompt: "probe",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    expect(deps.sessions.cancel(id)).toBe(true);
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string; error?: string; report?: string }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(results[0]!.error).toBeUndefined();
     expect(deps.sessions.get(id)?.status).toBe("cancelled");
   });
 });
@@ -322,7 +383,7 @@ describe("spawn_agent same-cwd concurrency", () => {
   });
 });
 
-describe("fleetRecords retention cap", () => {
+describe("wait mailbox session tombstone and pin", () => {
   test("many spawned-and-completed workers whose reports are never collected leave memory bounded", async () => {
     const COUNT = MAX_FLEET_RECORDS + 50;
     const deps = makeDeps(async () => ({ report: "x".repeat(1000) }));
@@ -380,6 +441,80 @@ describe("fleetRecords retention cap", () => {
     expect(["done", "failed"]).toContain(results[0]!.status);
     expect(results[0]!.report).toBeUndefined();
     expect(results[0]!.hint).toContain("read_agent_trace");
+  });
+
+  test("spawn_agent call.id reuse still pins the new session", async () => {
+    let t = 0;
+    const sessions = createSubAgentSessionStore({
+      maxCompleted: 1,
+      now: () => ++t,
+    });
+    const firstRun = deferred<RunSubAgentResult>();
+    const secondRun = deferred<RunSubAgentResult>();
+    let calls = 0;
+    const deps = makeDeps(
+      async () => {
+        calls += 1;
+        return (calls === 1 ? firstRun : secondRun).promise;
+      },
+      { sessions },
+    );
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions, fleetRecords: deps.fleetRecords });
+    if (spawn.kind !== "full") throw new Error("expected full tool");
+    const args = { description: "job", prompt: "do it", intent: "explore" };
+    const signal = new AbortController().signal;
+
+    await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
+    firstRun.resolve({ report: "ok" });
+    await callTool(wait, { targets: ["reuse-id"], timeout_ms: 5000 });
+
+    await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
+    secondRun.resolve({ report: "ok" });
+    await waitUntilMailboxTerminal(deps.fleetRecords, sessions, "reuse-id");
+
+    const extra1 = sessions.start({ description: "flood-1", agentId: "a", brief: "b" });
+    sessions.complete(extra1.id, "flood-1");
+    const extra2 = sessions.start({ description: "flood-2", agentId: "a", brief: "b" });
+    sessions.complete(extra2.id, "flood-2");
+
+    expect(sessions.get("reuse-id")).toBeDefined();
+    const waited = await callTool(wait, { targets: ["reuse-id"], timeout_ms: 1000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string }[];
+    expect(results[0]!.status).toBe("done");
+  });
+
+  test("wait on a pruned mailbox member is tombstone not eternal running", () => {
+    let t = 0;
+    const sessions = createSubAgentSessionStore({
+      maxCompleted: 1,
+      now: () => ++t,
+    });
+    const mailbox = createFleetMailbox(sessions);
+    sessions.start({ id: "reuse", description: "old", agentId: "a", brief: "b" });
+    mailbox.register("reuse");
+    sessions.complete("reuse", "old report");
+    sessions.start({ id: "reuse", description: "new", agentId: "a", brief: "b" });
+    sessions.complete("reuse", "new report");
+    const extra = sessions.start({ description: "other", agentId: "a", brief: "b" });
+    sessions.complete(extra.id, "other");
+    const extra2 = sessions.start({ description: "prune", agentId: "a", brief: "b" });
+    sessions.complete(extra2.id, "prune");
+    expect(sessions.get("reuse")).toBeUndefined();
+    const snap = mailbox.peek("reuse");
+    expect(snap?.status).toBe("done");
+    expect(snap?.tombstoned).toBe(true);
+    expect(snap?.hint).toContain("read_agent_trace");
+  });
+
+  test("wait on a mailbox member with no session history is interrupted", () => {
+    const sessions = createSubAgentSessionStore();
+    const mailbox = createFleetMailbox(sessions);
+    mailbox.register("ghost");
+    const snap = mailbox.peek("ghost");
+    expect(snap?.status).toBe("interrupted");
+    expect(snap?.tombstoned).toBe(true);
   });
 });
 
@@ -733,10 +868,9 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    // Soft-interrupt via the session store only — leave fleetRecords running
-    // so wait_agents takes the soft-path fallback (not the terminal-record branch).
+    // interruptOne is wait-terminal via session interrupted; collect freezes it.
     expect(deps.sessions.interruptOne(id).ok).toBe(true);
-    expect(deps.fleetRecords.peek(id)?.status).toBe("running");
+    expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(waited.timed_out).toBe(false);
@@ -805,7 +939,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
   test("soft-interrupt wait collects so a later followup cannot resurrect done", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetMailbox(sessions);
     const worker = sessions.start({
       id: "soft-int",
       description: "looping",
@@ -814,8 +948,6 @@ describe("interrupt_agent unblocks wait_agents", () => {
       retained: true,
     });
     sessions.markRunning(worker.id);
-    // Running fleet record + soft-interrupted session (lifecycle only) —
-    // the wait soft path must interrupt+take before returning.
     fleetRecords.register(worker.id);
     sessions.registerInterrupt(worker.id, () => {});
     sessions.interruptOne(worker.id);
@@ -828,8 +960,46 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
 
     fleetRecords.completeAfterInterrupt(worker.id, "resurrected reply");
+    sessions.complete(worker.id, "resurrected reply");
     expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
     expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
+  });
+
+  test("uncollected send_input followup complete clears overlay so wait is done", async () => {
+    const followupGate = deferred<string>();
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => followupGate.promise,
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    followupGate.resolve("followup report");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string; report?: string }[];
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toBe("followup report");
   });
 });
 

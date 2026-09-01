@@ -34,12 +34,12 @@ import {
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
 import {
-  createFleetRecords,
+  createFleetMailbox,
   createSpawnAgentTool,
   createWaitAgentsTool,
   MAX_WAIT_TIMEOUT_MS,
   type AgentFleetDeps,
-  type FleetRecordsHandle,
+  type FleetMailboxHandle,
 } from "./agent-fleet.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import { appendSubAgentParentHints, type ForcedStopReason } from "./stop-policy.js";
@@ -206,7 +206,7 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // process-wide dependency; omitting it makes dispatch silent.
   telemetry?: Telemetry;
   /** Shared with spawn_agent/wait_agents when this task tool is fleet-backed. */
-  fleetRecords?: FleetRecordsHandle;
+  fleetRecords?: FleetMailboxHandle;
 };
 
 function taskToolResult(
@@ -284,7 +284,7 @@ async function runTaskViaFleet(input: {
   reportFocus: string | undefined;
   deps: TaskToolDeps;
   sessions: SubAgentSessionStore;
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 }): Promise<ToolResult> {
   const fleetDeps: AgentFleetDeps = {
     permissionGate: input.deps.permissionGate,
@@ -403,26 +403,17 @@ async function runTaskViaFleet(input: {
     if (result === undefined) {
       return taskToolResult(input.callId, `Error: wait_agents returned no result for ${agentId}.`);
     }
-    // Cancel must not be misclassified as failed:abort — strip cancel /
-    // AbortError leaves fleetRecords as failed with "aborted" while the
-    // session store holds cancelled + the operator reason. A cancel that
-    // still resolved a salvage body (fleet status done) keeps the report,
-    // matching the fused task() race contract.
-    const session = input.sessions.get(agentId);
-    if (session?.status === "cancelled") {
-      if (
-        (result.status === "done" || result.status === "interrupted") &&
-        typeof result.report === "string" &&
-        result.report.length > 0
-      ) {
+    if (result.status === "interrupted") {
+      if (typeof result.report === "string" && result.report.length > 0) {
         return taskToolResult(
           input.callId,
           `Sub-agent "${input.description}" reported:\n\n${result.report}`,
         );
       }
+      const session = input.sessions.get(agentId);
       return taskToolResult(
         input.callId,
-        cancelledSubAgentMessage(input.description, session.error),
+        cancelledSubAgentMessage(input.description, session?.error),
       );
     }
     if (result.status === "failed") {
@@ -460,7 +451,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const briefLedger = createBriefDispatchLedger();
   const fleetSessions = deps.sessions;
   const fleetRecords =
-    deps.fleetRecords ?? (fleetSessions !== undefined ? createFleetRecords() : undefined);
+    deps.fleetRecords ??
+    (fleetSessions !== undefined ? createFleetMailbox(fleetSessions) : undefined);
   // Every completed dispatch gets an outcome record — the log otherwise
   // carries shape and run state but never what the run actually produced.
   // Tagged with the dispatched child's provider/model/family so

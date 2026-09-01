@@ -13,7 +13,7 @@ import { type } from "arktype";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
-import type { FleetRecordsHandle } from "./agent-fleet.js";
+import type { FleetMailboxHandle } from "./agent-fleet.js";
 import {
   DEFAULT_MAX_ENTRY_CHARS,
   type AgentLifecycleStatus,
@@ -112,23 +112,23 @@ export interface LifecycleAuthority {
 export interface LifecycleToolDeps {
   sessions: SubAgentSessionStore;
   /** Optional for send_input; close, interrupt, and resume require it. */
-  fleetRecords?: FleetRecordsHandle;
+  fleetRecords?: FleetMailboxHandle;
   authority?: LifecycleAuthority;
 }
 
 /** close_agent always terminalizes the wait mailbox — no silent skip. */
 export type CloseAgentToolDeps = LifecycleToolDeps & {
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 };
 
-/** interrupt_agent always terminalizes the wait mailbox — no silent skip. */
+/** interrupt_agent stamps session interrupted; wait JSON projects that lifecycle. */
 export type InterruptAgentToolDeps = LifecycleToolDeps & {
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 };
 
 /** resume_agent registers the next turn on the wait mailbox so wait_agents can collect. */
 export type ResumeAgentToolDeps = LifecycleToolDeps & {
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 };
 
 function gateTarget(
@@ -231,10 +231,10 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
           deps.fleetRecords.register(target);
         },
         onReply: (reply) => {
-          deps.fleetRecords.resolve(target, reply);
+          deps.sessions.complete(target, reply);
         },
         onFail: (err) => {
-          deps.fleetRecords.reject(target, err instanceof Error ? err.message : String(err));
+          deps.sessions.fail(target, err instanceof Error ? err.message : String(err));
         },
       });
       if (!outcome.ok) {
@@ -293,9 +293,6 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
           `Error: cannot interrupt "${target}" (status: ${outcome.status}).`,
         );
       }
-      // Wait mailbox is separate from the TUI strip — flip it here so
-      // wait_agents does not stay blocked on a still-"running" record.
-      deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
         JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),

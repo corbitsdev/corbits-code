@@ -116,7 +116,7 @@ import {
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
 import {
-  createFleetRecords,
+  createFleetMailbox,
   createSpawnAgentTool,
   createWaitAgentsTool,
   createListAgentsTool,
@@ -599,7 +599,7 @@ async function runSubAgentInner(
       }
       const nd = params.nestedDispatch;
       const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
-      const fleetRecords = createFleetRecords();
+      const fleetRecords = createFleetMailbox(fleetSessions);
       tools = [
         ...tools,
         createTaskTool({

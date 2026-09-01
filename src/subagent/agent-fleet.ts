@@ -8,26 +8,22 @@
  * own workers (wait_agents), instead of one task() call per worker
  * serializing the wait.
  *
- * Running state and the mailbox (`subscribe`) are the existing
- * SubAgentSessionStore's — wait_agents' blocking is driven by that
- * `subscribe` raced against a timeout timer, never polling. But the store's
- * finished-session retention is a TUI display cap (`maxCompleted`, default
- * 20): `complete()`/`fail()` evict the oldest finished session — report and
- * all — once more than that many have finished. task() never hit this
- * because it awaits its own single result before the tool call returns; here
- * a caller can spawn far more workers than the cap in one turn and only
+ * Running state is the session store's `WorkerLifecycle`. wait_agents blocks
+ * on that store's `subscribe` raced against a timeout timer, never polling.
+ * Wait JSON is a projection of stored lifecycle plus a per-install wait
+ * mailbox (`FleetMailbox`): membership, pin, collected, and an optional
+ * wait-status override. Spawn/resume settlement writes only the session store.
+ *
+ * The store's finished-session retention is a TUI display cap (`maxCompleted`,
+ * default 20): `complete()`/`fail()` evict the oldest finished session —
+ * report and all — once more than that many have finished. task() never hit
+ * this because it awaits its own single result before the tool call returns;
+ * here a caller can spawn far more workers than the cap in one turn and only
  * `wait_agents` them later, so an evicted report would otherwise vanish
- * silently. `fleetRecords` below is a small, deliberately-separate map
- * (agent id -> terminal status/report/error), kept alive across the store's
- * own eviction and cleared only when `wait_agents` delivers a result to a
- * caller — it exists precisely because the store's cap cannot be trusted for
- * this use. Its heavy payloads (report/error text) are capped at
- * `MAX_FLEET_RECORDS`: past that, the oldest already-collected entry is
- * compacted to a tombstone (status only, plus a pointer at
- * `read_agent_trace` for the detail), falling back to the oldest
- * uncollected one only once every collected entry is gone — a caller who
- * never called wait_agents still gets a terminal status, never a bare
- * "unknown".
+ * silently. Mailbox `register` pins the session (honored by pruneCompleted
+ * and pruneRetained) until collect unpins. Heavy payloads are still capped at
+ * `MAX_FLEET_RECORDS`: past that, the oldest never-collected pin is compacted
+ * to a tombstone (status only, plus a pointer at `read_agent_trace`).
  *
  * Argument shape intentionally mirrors `task()`'s (description/prompt/
  * context/goals/intent/success_criteria/do_not/report_focus) so a
@@ -63,7 +59,12 @@ import type { Settings } from "../config/settings.js";
 import { resolveEffortForRole } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
-import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
+import {
+  DEFAULT_CANCEL_REASON,
+  type AgentLifecycleStatus,
+  type SubAgentSessionStore,
+} from "./session-store.js";
+import { projectWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 import type {
   NestedDispatchDeps,
   RunSubAgentParams,
@@ -85,9 +86,9 @@ import { isSubAgentCancelError } from "./dispose.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 
-/** Terminal (or running) record for one spawned agent, keyed by agent id. */
+/** Wait JSON projection for one spawned agent, keyed by agent id. */
 interface FleetRecord {
-  status: "running" | "done" | "failed" | "interrupted";
+  status: WaitJSONStatus;
   report?: string;
   error?: string;
   /** Set once a wait_agents caller has been handed this result. */
@@ -98,93 +99,93 @@ interface FleetRecord {
   hint?: string;
 }
 
+/** Per-install overlay: membership, pin, collected, optional wait override. */
+interface FleetOverlay {
+  collected?: boolean;
+  pinHeld?: boolean;
+  /** send_input interrupt:true / close_agent — wait interrupted while session may still be running. */
+  forceInterrupted?: boolean;
+  /** Frozen wait status after collect. Later session completed must not resurrect this mailbox. */
+  frozenStatus?: WaitJSONStatus;
+  /** Last wait projection seen while the session still existed. */
+  lastWaitStatus?: WaitJSONStatus;
+  tombstoned?: boolean;
+  hint?: string;
+}
+
 const RECOVERY_HINT =
   "Report evicted to bound fleet memory; recover full detail via read_agent_trace(agent_id).";
 
-/** Payload cap: terminal records still holding a report/error. */
+function waitStatusFromVerbLifecycle(
+  status: AgentLifecycleStatus | undefined,
+): WaitJSONStatus | undefined {
+  if (status === "completed") return "done";
+  if (status === "interrupted" || status === "shutdown") return "interrupted";
+  return undefined;
+}
+
+/** Payload cap: uncollected pinned terminal records still holding a report. */
 export const MAX_FLEET_RECORDS = 200;
 
 /**
- * Terminal-result store, cleared once a result is delivered to a
- * wait_agents caller. See the module doc comment for why the session
- * store's own retention cannot be reused here, and for the tombstone
- * eviction policy once more than `MAX_FLEET_RECORDS` payloads are held.
+ * Per-install wait mailbox over the session store. Session lifecycle is the
+ * source of wait status unless this overlay forces interrupted or has frozen
+ * a collected result. See the module doc for pin/tombstone policy.
  */
-class FleetRecords {
-  private readonly records = new Map<string, FleetRecord>();
-  private readonly listeners = new Set<() => void>();
+class FleetMailbox {
+  private readonly records = new Map<string, FleetOverlay>();
+  private readonly sessions: SubAgentSessionStore;
 
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  private notify(): void {
-    for (const listener of this.listeners) listener();
+  constructor(sessions: SubAgentSessionStore) {
+    this.sessions = sessions;
+    sessions?.subscribe(() => {
+      this.rememberLiveWaitStatuses();
+      this.enforceCap();
+    });
   }
 
   register(id: string): void {
-    this.records.set(id, { status: "running" });
-  }
-
-  resolve(id: string, report: string): void {
     const existing = this.records.get(id);
-    if (existing !== undefined && existing.status !== "running") return;
-    this.records.set(id, { status: "done", report });
+    // start() drops pinCounts on call-id reuse. Re-pin whenever the overlay
+    // thought it still held a pin, so wait cannot desync against an empty map.
+    if (existing?.pinHeld === true) this.sessions.unpin(id);
+    const wait = this.sessionWaitStatus(id);
+    this.records.set(id, {
+      pinHeld: true,
+      ...(wait !== undefined ? { lastWaitStatus: wait } : {}),
+    });
+    this.sessions.pin(id);
     this.enforceCap();
-    this.notify();
-  }
-
-  reject(id: string, error: string): void {
-    const existing = this.records.get(id);
-    if (existing !== undefined && existing.status !== "running") return;
-    this.records.set(id, { status: "failed", error });
-    this.enforceCap();
-    this.notify();
   }
 
   /**
-   * Marks a still-running record interrupted so wait_agents unblocks.
-   * No-op on an already-terminal id that is not interrupted — a late
-   * interrupt after complete/fail is meaningless. A late salvage report may
-   * still attach to an interrupted record that has none yet (including after
-   * an early collect), but never overwrites an existing report.
+   * Overlay wait-status override so wait unblocks while the session may still
+   * be running (send_input interrupt:true followup, close_agent teardown).
+   * No-op on an already-collected mailbox — frozen status stays interrupted.
    */
-  interrupt(id: string, report?: string): void {
+  interrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
-    if (
-      existing.status === "interrupted" &&
-      report !== undefined &&
-      existing.report === undefined
-    ) {
-      existing.report = report;
-      this.notify();
+    if (existing.collected === true) {
+      this.sessions?.wake();
       return;
     }
-    if (existing.status !== "running") return;
-    this.records.set(id, {
-      status: "interrupted",
-      ...(report !== undefined ? { report } : {}),
-    });
+    existing.forceInterrupted = true;
+    this.sessions?.wake();
     this.enforceCap();
-    this.notify();
   }
 
   /**
-   * send_input interrupt:true queued a followup that has now finished.
-   * Upgrade an uncollected interrupted record to done. No-op if wait_agents
-   * already collected the interrupt, so a later reply cannot resurrect it.
+   * send_input interrupt:true followup finished. Clear an uncollected
+   * interrupted overlay so wait projects session completed → done. No-op if
+   * wait_agents already collected the interrupt.
    */
-  completeAfterInterrupt(id: string, report: string): void {
+  completeAfterInterrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
     if (existing === undefined || existing.collected === true) return;
-    if (existing.status !== "interrupted") return;
-    this.records.set(id, { status: "done", report });
-    this.enforceCap();
-    this.notify();
+    if (existing.forceInterrupted !== true) return;
+    delete existing.forceInterrupted;
+    this.sessions?.wake();
   }
 
   ids(): string[] {
@@ -200,57 +201,134 @@ class FleetRecords {
 
   /** Read without consuming — used for the terminal-yet check. */
   peek(id: string): FleetRecord | undefined {
-    return this.records.get(id);
+    if (!this.records.has(id)) return undefined;
+    return this.snapshot(id);
   }
 
   /**
-   * Read and, if terminal, mark collected. The entry is kept (not deleted)
-   * so a later query still resolves to a real status instead of "unknown" —
-   * it just becomes the preferred eviction target once the payload cap is
-   * hit.
+   * Read and, if terminal, freeze wait status and mark collected. Does not
+   * snapshot an empty report so late interrupt salvage can still attach.
+   * Collect unpins.
    */
   take(id: string): FleetRecord | undefined {
-    const record = this.records.get(id);
-    if (record !== undefined && record.status !== "running") {
-      record.collected = true;
+    const overlay = this.records.get(id);
+    if (overlay === undefined) return undefined;
+    const snap = this.snapshot(id);
+    if (snap.status !== "running" && overlay.collected !== true) {
+      overlay.frozenStatus = snap.status;
+      overlay.collected = true;
+      if (overlay.pinHeld === true) {
+        overlay.pinHeld = false;
+        this.sessions?.unpin(id);
+      }
     }
-    return record;
+    return this.snapshot(id);
   }
 
-  private hasPayload(record: FleetRecord): boolean {
-    return record.status !== "running" && !record.tombstoned;
+  private rememberLiveWaitStatuses(): void {
+    for (const [id, overlay] of this.records) {
+      const wait = this.sessionWaitStatus(id);
+      if (wait !== undefined) overlay.lastWaitStatus = wait;
+    }
+  }
+
+  private waitStatusFromEvicted(id: string): WaitJSONStatus | undefined {
+    return waitStatusFromVerbLifecycle(this.sessions.evictedLifecycle(id));
+  }
+
+  private sessionWaitStatus(id: string): WaitJSONStatus | undefined {
+    const session = this.sessions?.get(id);
+    if (session === undefined) return undefined;
+    return projectWaitStatus(session.lifecycle, this.sessions?.isRunInFlight(id) === true);
+  }
+
+  private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
+    if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
+    if (overlay.forceInterrupted === true) return "interrupted";
+    const live = this.sessionWaitStatus(id);
+    if (live !== undefined) {
+      overlay.lastWaitStatus = live;
+      return live;
+    }
+    const last = overlay.lastWaitStatus;
+    if (last !== undefined && last !== "running") return last;
+    const evicted = this.waitStatusFromEvicted(id);
+    if (evicted !== undefined && evicted !== "running") return evicted;
+    return "interrupted";
+  }
+
+  snapshot(id: string): FleetRecord {
+    const overlay = this.records.get(id);
+    if (overlay === undefined) {
+      return { status: "running" };
+    }
+    const session = this.sessions.get(id);
+    if (
+      session === undefined &&
+      overlay.tombstoned !== true &&
+      overlay.frozenStatus === undefined
+    ) {
+      overlay.tombstoned = true;
+      overlay.hint = RECOVERY_HINT;
+      overlay.frozenStatus = this.projectedStatus(id, overlay);
+      if (overlay.pinHeld === true) {
+        overlay.pinHeld = false;
+        this.sessions.unpin(id);
+      }
+    }
+    const status = this.projectedStatus(id, overlay);
+    const sessionWait = this.sessionWaitStatus(id);
+    const payload =
+      overlay.tombstoned !== true && session !== undefined && sessionWait === status
+        ? session
+        : undefined;
+    return {
+      status,
+      ...(overlay.collected === true ? { collected: true } : {}),
+      ...(overlay.tombstoned === true ? { tombstoned: true } : {}),
+      ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
+      ...(payload?.report !== undefined ? { report: payload.report } : {}),
+      ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
+    };
+  }
+
+  private isPayload(id: string, overlay: FleetOverlay): boolean {
+    if (overlay.tombstoned === true || overlay.collected === true) return false;
+    if (overlay.pinHeld !== true) return false;
+    return this.projectedStatus(id, overlay) !== "running";
   }
 
   /**
-   * Compacts the oldest already-collected payload to a tombstone first —
-   * its caller already has the detail — and only reaches into uncollected
-   * payloads once no collected one remains.
+   * Compacts the oldest never-collected pin to a tombstone once more than
+   * `MAX_FLEET_RECORDS` terminal payloads are held.
    */
   private enforceCap(): void {
-    let payloadCount = 0;
-    for (const record of this.records.values()) {
-      if (this.hasPayload(record)) payloadCount++;
+    const payloads: string[] = [];
+    for (const [id, overlay] of this.records) {
+      if (this.isPayload(id, overlay)) payloads.push(id);
     }
-    while (payloadCount > MAX_FLEET_RECORDS) {
-      const victim =
-        [...this.records.values()].find((r) => this.hasPayload(r) && r.collected === true) ??
-        [...this.records.values()].find((r) => this.hasPayload(r));
+    while (payloads.length > MAX_FLEET_RECORDS) {
+      const victimId = payloads.shift();
+      if (victimId === undefined) break;
+      const victim = this.records.get(victimId);
       if (victim === undefined) break;
-      delete victim.report;
-      delete victim.error;
+      victim.frozenStatus = this.projectedStatus(victimId, victim);
       victim.tombstoned = true;
       victim.hint = RECOVERY_HINT;
-      payloadCount--;
+      if (victim.pinHeld === true) {
+        victim.pinHeld = false;
+        this.sessions?.unpin(victimId);
+      }
     }
   }
 }
 
-// One registry per orchestrator install (shared by its spawn_agent and
+// One overlay per orchestrator install (shared by its spawn_agent and
 // wait_agents tool instances), not a module singleton — created in
 // createSpawnAgentTool and threaded to createWaitAgentsTool by the caller.
-export type FleetRecordsHandle = FleetRecords;
-export function createFleetRecords(): FleetRecordsHandle {
-  return new FleetRecords();
+export type FleetMailboxHandle = FleetMailbox;
+export function createFleetMailbox(sessions: SubAgentSessionStore): FleetMailboxHandle {
+  return new FleetMailbox(sessions);
 }
 
 const SpawnAgentArgs = type({
@@ -355,7 +433,7 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   provider: SubAgentProvider | (() => SubAgentProvider);
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
   sessions: SubAgentSessionStore;
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
   /**
    * Session id of the caller that is mounting this spawn_agent. Nested
    * orchestrators pass their own worker id so close_agent can walk the tree.
@@ -603,7 +681,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             err instanceof WorktreeError
               ? err.message
               : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
-          deps.fleetRecords.reject(session.id, message);
           deps.sessions.fail(session.id, message);
           finalizeEnd(true);
           return fleetResult(call.id, `Error: ${message}`);
@@ -723,39 +800,35 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       };
 
       // Fire and forget: this handler must return before the worker finishes.
-      // fleetRecords is the durable source of truth wait_agents reads from
-      // (see the module doc for its own cap/eviction policy);
-      // deps.sessions.complete/fail is still called for the TUI's benefit,
-      // but only after fleetRecords already has the result, so the
-      // synchronous subscribe notification always sees the up-to-date
-      // record.
+      // Wait JSON projects stored WorkerLifecycle plus the per-install overlay.
       deps
         .run(params)
         .then((result) => {
-          // interrupt_agent / send_input already flipped this session
-          // synchronously (session-store.interruptOne / sendInputOne) — do not
-          // let the settling promise's normal bookkeeping overwrite that with
-          // a "completed" status, and do not re-stamp the interrupt either: a
-          // follow-up turn may already be live on this lane. Still terminalize
-          // fleetRecords so a waiter that never saw interrupt_agent (or raced
-          // it) cannot hang.
           if (result.interrupted === true) {
             keepWorktreeAlive = true;
             runInterrupted = true;
-            deps.fleetRecords.interrupt(session.id, result.report);
+            const now = deps.sessions.get(session.id);
+            const overlay = deps.fleetRecords.peek(session.id);
+            // send_input interrupt:true already started a followup (session
+            // running + overlay interrupted). Do not stamp that turn interrupted
+            // or clear its in-flight bit.
+            const followupLive =
+              now?.lifecycle.state === "running" && overlay?.status === "interrupted";
+            if (!followupLive) {
+              deps.sessions.attachReport(session.id, result.report);
+            }
             return;
           }
-          // Operator cancel may race after run resolves (childCtl aborted).
-          // Keep strip status cancelled when sessions.cancel already flipped
-          // it, but never discard a returned body (including salvage) —
-          // wait_agents reads fleetRecords, not the strip.
-          deps.fleetRecords.resolve(session.id, result.report);
+          const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
+          if (alreadyCancelled) {
+            deps.sessions.attachReport(session.id, result.report);
+            return;
+          }
           // result.agentRetained is only true on run.ts's clean-completion
           // path when persist actually skipped teardown — a deadline/cancel
           // salvage resolves through the same promise but always disposed
           // its agent first, so the store must not treat it as resumable
           // just because retained:true was requested at spawn.
-          // complete() no-ops when status is already cancelled.
           const agentRetained = result.agentRetained === true;
           if (agentRetained) keepWorktreeAlive = true;
           deps.sessions.complete(session.id, result.report, {
@@ -764,24 +837,18 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           });
         })
         .catch((err) => {
-          // Always terminalize fleetRecords — including pre-progress cancel that
-          // rethrows with no salvage — so wait_agents does not hang. Prefer
-          // cancel semantics over fail when the strip already cancelled or the
-          // throw is an AbortError (legacy task() parent contract).
           const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
           if (alreadyCancelled || isSubAgentCancelError(err, childCtl.signal)) {
             if (!alreadyCancelled) {
               deps.sessions.cancel(session.id, DEFAULT_CANCEL_REASON);
             }
-            const message = err instanceof Error ? err.message : String(err);
-            deps.fleetRecords.reject(session.id, message);
+            deps.sessions.settleRun(session.id);
             return;
           }
           // Auth failures keep the actionable Re-authenticate wording that
           // task()'s fused path surfaces via formatSubAgentTaskAuthFailureMessage.
           const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
           const failReason = authMessage ?? (err instanceof Error ? err.message : String(err));
-          deps.fleetRecords.reject(session.id, failReason);
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
@@ -796,42 +863,24 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
 interface WaitAgentsDeps {
   sessions: SubAgentSessionStore;
-  fleetRecords: FleetRecordsHandle;
+  fleetRecords: FleetMailboxHandle;
 }
 
-function isSoftInterrupted(
-  session: ReturnType<SubAgentSessionStore["get"]>,
-): session is NonNullable<ReturnType<SubAgentSessionStore["get"]>> {
-  // interrupt_agent keeps strip status "running" so resume_agent can reuse
-  // the session. cancel() also sets lifecycleStatus "interrupted" but flips
-  // status to "cancelled" — that path still owes wait_agents a salvage
-  // report via fleetRecords, so it is not wait-terminal on its own.
-  return (
-    session !== undefined &&
-    session.status === "running" &&
-    (session.lifecycleStatus === "interrupted" || session.lifecycleStatus === "shutdown")
-  );
-}
-
-function isWaitTerminal(
-  id: string,
-  sessions: SubAgentSessionStore,
-  fleetRecords: FleetRecordsHandle,
-): boolean {
+function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   const record = fleetRecords.peek(id);
-  if (record !== undefined && record.status !== "running") return true;
-  return isSoftInterrupted(sessions.get(id));
+  return record !== undefined && record.status !== "running";
 }
 
 /**
  * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
  * elapses. Driven by the session store's mailbox (`subscribe`) raced against
  * a timer and the parent tool signal; never polls. Timeout and abort have no
- * side effects: workers keep running and remain waitable.
+ * side effects: workers keep running and remain waitable. Overlay writers
+ * wake this wait via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
-  fleetRecords: FleetRecordsHandle,
+  fleetRecords: FleetMailboxHandle,
   targets: readonly string[],
   timeoutMs: number,
   mode: "any" | "all",
@@ -839,8 +888,8 @@ async function waitForTerminal(
 ): Promise<boolean> {
   const ready = (): boolean =>
     mode === "all"
-      ? targets.every((id) => isWaitTerminal(id, sessions, fleetRecords))
-      : targets.some((id) => isWaitTerminal(id, sessions, fleetRecords));
+      ? targets.every((id) => isWaitTerminal(id, fleetRecords))
+      : targets.some((id) => isWaitTerminal(id, fleetRecords));
   if (signal?.aborted) return true;
   if (ready()) return false;
 
@@ -851,7 +900,6 @@ async function waitForTerminal(
       settled = true;
       clearTimeout(timer);
       unsubscribeSessions();
-      unsubscribeFleet();
       signal?.removeEventListener("abort", onAbort);
       resolve(timedOut);
     };
@@ -861,7 +909,6 @@ async function waitForTerminal(
     };
     const timer = setTimeout(() => finish(true), timeoutMs);
     const unsubscribeSessions = sessions.subscribe(onChange);
-    const unsubscribeFleet = fleetRecords.subscribe(onChange);
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) finish(true);
   });
@@ -897,42 +944,24 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         signal,
       );
 
-      // Terminal fleet records are marked collected once delivered here; a
-      // running record is only peeked, so it stays waitable. Session
-      // lifecycle is a fallback for interrupt/close that raced the record.
+      // Terminal overlay/session projections are marked collected once
+      // delivered here; a running record is only peeked, so it stays waitable.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
-        if (record !== undefined && record.status !== "running") {
-          const taken = deps.fleetRecords.take(id) ?? record;
-          return {
-            agent_id: id,
-            status: taken.status,
-            ...(taken.report !== undefined ? { report: taken.report } : {}),
-            ...(taken.error !== undefined ? { error: taken.error } : {}),
-            ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
-          };
-        }
-        const session = deps.sessions.get(id);
-        if (isSoftInterrupted(session)) {
-          // Match the mailbox to what we report (include salvage report when
-          // present), then collect so a later completeAfterInterrupt cannot
-          // resurrect this wait as "done".
-          deps.fleetRecords.interrupt(id, session.report);
-          const taken = deps.fleetRecords.take(id);
-          return {
-            agent_id: id,
-            status: "interrupted" as const,
-            ...(taken?.report !== undefined
-              ? { report: taken.report }
-              : session.report !== undefined
-                ? { report: session.report }
-                : {}),
-          };
-        }
         if (record === undefined) {
           return { agent_id: id, status: "unknown" as const };
         }
-        return { agent_id: id, status: "running" as const };
+        if (record.status === "running") {
+          return { agent_id: id, status: "running" as const };
+        }
+        const taken = deps.fleetRecords.take(id) ?? record;
+        return {
+          agent_id: id,
+          status: taken.status,
+          ...(taken.report !== undefined ? { report: taken.report } : {}),
+          ...(taken.error !== undefined ? { error: taken.error } : {}),
+          ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
+        };
       });
 
       return fleetResult(call.id, JSON.stringify({ results, timed_out: timedOut }));

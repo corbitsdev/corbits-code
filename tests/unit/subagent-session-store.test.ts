@@ -138,6 +138,8 @@ describe("createSubAgentSessionStore", () => {
     store.fail("s-3", "provider 500");
     const session = store.get("s-3");
     expect(session?.status).toBe("failed");
+    expect(session?.lifecycle.state).toBe("failed");
+    expect(session?.lifecycleStatus).toBe("shutdown");
     expect(session?.error).toBe("provider 500");
     expect(session?.entries[session.entries.length - 1]).toEqual({
       kind: "report",
@@ -266,6 +268,60 @@ describe("createSubAgentSessionStore", () => {
     expect(store.get(nested.id)?.parentSessionId).toBe(orchestrator.id);
     // Top-level sessions carry no parent link.
     expect(orchestrator.parentSessionId).toBeUndefined();
+  });
+
+  test("cancel is not resumable and complete after cancel no-ops", () => {
+    const store = createSubAgentSessionStore({ createId: () => "s-cancel-resume" });
+    store.start({ description: "stuck", agentId: "worker", brief: "loop", retained: true });
+    store.markRunning("s-cancel-resume");
+    store.registerFollowup("s-cancel-resume", async () => "nope");
+    expect(store.cancel("s-cancel-resume", "operator kill")).toBe(true);
+    const session = store.get("s-cancel-resume");
+    expect(session?.status).toBe("cancelled");
+    expect(session?.lifecycle.state).toBe("cancelled");
+    expect(session?.lifecycleStatus).toBe("interrupted");
+    expect(session?.retained).toBe(false);
+    expect(store.resumeOne("s-cancel-resume", "more").ok).toBe(false);
+    store.complete("s-cancel-resume", "should not win");
+    expect(store.get("s-cancel-resume")?.lifecycle.state).toBe("cancelled");
+    expect(store.get("s-cancel-resume")?.report).toBeUndefined();
+  });
+
+  test("interruptOne stays strip-running and resumable when retained", () => {
+    const store = createSubAgentSessionStore({ createId: () => "s-int" });
+    store.start({ description: "loop", agentId: "worker", brief: "b", retained: true });
+    store.markRunning("s-int");
+    store.registerInterrupt("s-int", () => {});
+    store.registerFollowup("s-int", async () => "next");
+    expect(store.interruptOne("s-int").ok).toBe(true);
+    const session = store.get("s-int");
+    expect(session?.lifecycle.state).toBe("interrupted");
+    expect(session?.status).toBe("running");
+    expect(session?.lifecycleStatus).toBe("interrupted");
+    expect(store.resumeOne("s-int", "continue")).toEqual({ ok: true, status: "running" });
+  });
+
+  test("pinned completed sessions survive maxCompleted until unpin", () => {
+    const store = createSubAgentSessionStore({
+      maxCompleted: 1,
+      createId: (() => {
+        let n = 0;
+        return () => `s-${++n}`;
+      })(),
+      now: (() => {
+        let t = 0;
+        return () => ++t;
+      })(),
+    });
+    const pinned = store.start({ description: "keep", agentId: "w", brief: "b" });
+    store.pin(pinned.id);
+    store.complete(pinned.id, "keep");
+    store.complete(store.start({ description: "a", agentId: "w", brief: "b" }).id, "a");
+    store.complete(store.start({ description: "b", agentId: "w", brief: "b" }).id, "b");
+    expect(store.get(pinned.id)).toBeDefined();
+    store.unpin(pinned.id);
+    store.complete(store.start({ description: "c", agentId: "w", brief: "b" }).id, "c");
+    expect(store.get(pinned.id)).toBeUndefined();
   });
 });
 

@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Config } from "../../../src/config/index.js";
 import {
+  disposeExecRuntime,
   formatCaughtError,
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
 import { BUILD_TOOLS } from "../../../src/agent/directors/tool-sets.js";
+import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
@@ -51,6 +53,36 @@ describe("runExec", () => {
     } finally {
       process.stderr.write = origWrite;
     }
+  });
+});
+
+describe("disposeExecRuntime", () => {
+  test("cancels fire-and-forget workers when exec finishes", async () => {
+    const store = createSubAgentSessionStore();
+    const worker = store.start({ description: "bg", agentId: "w", brief: "b" });
+    let aborted = 0;
+    store.registerCancel(worker.id, () => {
+      aborted += 1;
+    });
+
+    const calls: string[] = [];
+    await disposeExecRuntime({
+      agent: {
+        close: async () => {
+          calls.push("agent");
+        },
+      },
+      toolset: {
+        dispose: async () => {
+          calls.push("toolset");
+        },
+      },
+      subAgentSessions: store,
+    });
+
+    expect(aborted).toBe(1);
+    expect(store.get(worker.id)?.status).toBe("cancelled");
+    expect(calls).toEqual(["agent", "toolset"]);
   });
 });
 

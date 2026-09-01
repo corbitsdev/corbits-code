@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createTaskTool } from "./task-tool.js";
-import { createFleetRecords } from "./agent-fleet.js";
+import { createFleetMailbox } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
 
@@ -20,7 +20,7 @@ const provider = {
 describe("task via spawn_agent + wait_agents", () => {
   test("a director task with a session store returns the worker report", async () => {
     const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetRecords();
+    const fleetRecords = createFleetMailbox(sessions);
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/tmp",
