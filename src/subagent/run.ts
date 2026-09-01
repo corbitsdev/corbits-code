@@ -76,6 +76,8 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
+import { createResolvedProviderFailureError } from "../inference-error-message.js";
+import { createRunEventSettlement } from "./run-event-settlement.js";
 
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
@@ -875,6 +877,7 @@ async function runSubAgentInner(
     // salvage Findings keep substantive mid-run text, not only the final cycle.
     const TURN_PROSE_CAP = 12_000;
     let accumulatedProse = "";
+    let terminalProviderDiagnostic: string | undefined;
     // Thrash paths from tool.start so mid-tool cancel still lists files touched.
     let thrashState = EMPTY_THRASH_STATE;
     const withTelemetry = (result: RunSubAgentResult): RunSubAgentResult => ({
@@ -885,7 +888,9 @@ async function runSubAgentInner(
     // cancel/deadline has the cycle's tail as its payload, even though no
     // turn boundary has completed yet to carry it.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
+    const runSettlement = createRunEventSettlement();
     const streamSink = (event: ReactorEmittedEvent): void => {
+      runSettlement.handleEvent(event);
       const name = subAgentToolName(event);
       if (name !== null) {
         toolNamesUsed.push(name);
@@ -907,9 +912,16 @@ async function runSubAgentInner(
       }
       if (event.type === "inference.start") {
         settlementState.latestModel = event.data.model;
+        terminalProviderDiagnostic = undefined;
       }
       if (event.type === "inference.done") {
         settlementState.latestModel = event.data.source.model;
+        terminalProviderDiagnostic = undefined;
+      }
+      if (event.type === "inference.error") {
+        const message = (event.data as { error?: { message?: unknown } }).error?.message;
+        terminalProviderDiagnostic =
+          typeof message === "string" && message.length > 0 ? message : "inference error";
       }
       if (onTurnBoundary(event)) {
         telemetryRollup.turn_count += 1;
@@ -955,7 +967,22 @@ async function runSubAgentInner(
       params.onEvent?.(event);
     };
 
-    streamPromise = consumeStream(agent.stream(), streamSink);
+    streamPromise = consumeStream(agent.stream(), streamSink).finally(runSettlement.endStream);
+
+    const sendAndSettle = async (
+      message: string,
+      options: { signal: AbortSignal },
+    ): ReturnType<NonNullable<typeof agent>["send"]> => {
+      const pending = runSettlement.beginSend();
+      try {
+        const result = await agent!.send(message, options);
+        await pending.settled;
+        return result;
+      } catch (error) {
+        pending.cancel();
+        throw error;
+      }
+    };
 
     // Aborting the send signal only rejects the promise; the child reactor keeps
     // running until close() (same hard-stop rule as the parent in runner.ts).
@@ -1018,7 +1045,13 @@ async function runSubAgentInner(
       // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
         interruptController = new AbortController();
-        const result = await agent!.send(message, { signal: sendAbortSignal() });
+        const result = await sendAndSettle(message, { signal: sendAbortSignal() });
+        if (terminalProviderDiagnostic !== undefined) {
+          throw createResolvedProviderFailureError(
+            params.provider.providerName,
+            terminalProviderDiagnostic,
+          );
+        }
         return result.reply.trim().length > 0
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
@@ -1074,7 +1107,13 @@ async function runSubAgentInner(
         params.catalog,
       );
       agent.setSources(fresh.sources, fresh.defaultSource);
-      const result = await agent.send(fullPrompt, sendOpts);
+      const result = await sendAndSettle(fullPrompt, sendOpts);
+      if (terminalProviderDiagnostic !== undefined) {
+        throw createResolvedProviderFailureError(
+          params.provider.providerName,
+          terminalProviderDiagnostic,
+        );
+      }
       // A successful non-empty reply must not be clobbered by a late cancel that
       // races the completion window — keep the completed report. Empty replies
       // still honor abort so we salvage (or rethrow) rather than fabricating

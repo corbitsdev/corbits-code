@@ -13,12 +13,7 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { getLogger } from "@intx/log";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
-import {
-  buildCodexSource,
-  buildOpenAISource,
-  buildXaiSource,
-  type Config,
-} from "../config/index.js";
+import { type Config } from "../config/index.js";
 import {
   loadLocalSettings,
   resolveLocalSettingsPath,
@@ -67,6 +62,11 @@ import { createAgentToolset, type AgentToolset, type OperatorResult } from "../a
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
 import { createTurnObserver } from "../telemetry/ai-observability.js";
+import {
+  CREDENTIAL_FAILURE_USER_MESSAGE,
+  isResolvedProviderFailureError,
+  terminalProviderFailureMessage,
+} from "../inference-error-message.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
   expandExistingPluginMembers,
@@ -118,6 +118,35 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 /** Normalize unknown catch values for structured warn/error logs. */
 export function formatCaughtError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+const SELECTED_PROVIDER_FAILURE = "SelectedProviderFailure";
+
+export async function refreshSelectedProviderCredential<T>(refresh: () => Promise<T>): Promise<T> {
+  try {
+    return await refresh();
+  } catch (cause) {
+    const error = new Error(formatCaughtError(cause), { cause });
+    error.name = SELECTED_PROVIDER_FAILURE;
+    throw error;
+  }
+}
+
+export function execUserFailureMessage(
+  config: Config,
+  err: unknown,
+  providerFailureObserved: boolean,
+): string {
+  if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
+    return CREDENTIAL_FAILURE_USER_MESSAGE;
+  }
+  if (providerFailureObserved || isResolvedProviderFailureError(err)) {
+    return terminalProviderFailureMessage(
+      config.providerName,
+      config.settings?.providers[config.providerName]?.name,
+    );
+  }
+  return formatCaughtError(err);
 }
 
 /**
@@ -297,6 +326,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let finalized = false;
   let turnsUsed = 0;
   let runSink: RunSink | null = null;
+  let providerFailureObserved = false;
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
@@ -586,56 +616,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const initialCodexProfile = codexProfileFromProviderName(config.providerName);
     const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
-    const initialCodexAccountId = config.providers.find(
-      (p) => p.name === config.providerName,
-    )?.codexAccountId;
-
-    const buildOpenAICompatibleInitialSource = (): InferenceSource =>
-      buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined
-          ? { reasoningEffort: config.reasoningEffort }
-          : {}),
-      });
-
-    const buildSessionSources = (): { sources: InferenceSource[]; defaultSource: string } =>
-      buildSessionSourcesFromConfig(config, sessionId);
-
-    const initialBundle = buildSessionSources();
+    const initialBundle = buildSessionSourcesFromConfig(config, sessionId);
     const liveSources = initialBundle.sources;
     const liveDefaultSource = initialBundle.defaultSource;
-
-    const buildInitialSourceFallback = (): InferenceSource =>
-      initialCodexProfile !== undefined
-        ? buildCodexSource({
-            id: config.providerName,
-            apiKey: config.apiKey,
-            model: config.model,
-            sessionId,
-            ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
-            ...(config.reasoningEffort !== undefined
-              ? { reasoningEffort: config.reasoningEffort }
-              : {}),
-          })
-        : initialXaiProfile !== undefined
-          ? buildXaiSource({
-              id: config.providerName,
-              apiKey: config.apiKey,
-              model: config.model,
-              sessionId,
-              ...(config.reasoningEffort !== undefined
-                ? { reasoningEffort: config.reasoningEffort }
-                : {}),
-            })
-          : buildOpenAICompatibleInitialSource();
-
-    let liveSource: InferenceSource =
-      liveSources.find((s) => s.id === liveDefaultSource) ??
-      liveSources[0] ??
-      buildInitialSourceFallback();
+    const selectedSource = liveSources[0];
+    if (selectedSource === undefined) {
+      throw new Error("Selected inference source was not assembled");
+    }
+    let liveSource: InferenceSource = selectedSource;
 
     // Refresh pinned Codex instructions before first inference, same as the
     // TUI path. Best-effort: a network failure falls back to the disk cache
@@ -651,7 +639,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     // Refresh OAuth tokens before first inference when starting on codex/xai.
     if (initialCodexProfile !== undefined) {
-      const { access } = await getValidCodexToken(initialCodexProfile);
+      const { access } = await refreshSelectedProviderCredential(() =>
+        getValidCodexToken(initialCodexProfile),
+      );
       liveSource = { ...liveSource, apiKey: access };
       liveSubAgentProvider.current = {
         ...liveSubAgentProvider.current,
@@ -659,7 +649,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       };
     }
     if (initialXaiProfile !== undefined) {
-      const { access } = await getValidXaiToken(initialXaiProfile);
+      const { access } = await refreshSelectedProviderCredential(() =>
+        getValidXaiToken(initialXaiProfile),
+      );
       liveSource = { ...liveSource, apiKey: access };
       liveSubAgentProvider.current = {
         ...liveSubAgentProvider.current,
@@ -762,6 +754,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // its partial output in partial.jsonl instead of vanishing.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
     const sink = (event: ReactorEmittedEvent): void => {
+      if (event.type === "inference.start" || event.type === "inference.done") {
+        providerFailureObserved = false;
+      } else if (event.type === "inference.error") {
+        providerFailureObserved = true;
+      }
       liveSink.sink(event);
       cycleRecorder.handleEvent(event);
       if (event.type === "inference.text.delta") {
@@ -881,17 +878,24 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
 
     if (!sendCompleted || runError !== undefined || summaryStatus === "failed") {
-      const message =
+      const diagnosticMessage =
         runError ??
         (summaryStatus === "cancelled" ? "run cancelled before completion" : "run failed");
-      stderr.write(`Error: ${message}\n`);
+      const userMessage =
+        summaryStatus === "failed"
+          ? terminalProviderFailureMessage(
+              config.providerName,
+              config.settings?.providers[config.providerName]?.name,
+            )
+          : diagnosticMessage;
+      stderr.write(`Error: ${userMessage}\n`);
       const persistStatus = summaryStatus === "cancelled" ? "cancelled" : "failed";
-      await persist(persistStatus, { error: message });
+      await persist(persistStatus, { error: diagnosticMessage });
       return {
         exitCode: 1,
         sessionId,
         text: textOut,
-        error: message,
+        error: userMessage,
         status: summaryStatus,
         durationMs: finishedAt - startedAt,
         turnsUsed: runSink.getTurnCount(),
@@ -916,15 +920,16 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model: config.model,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error("exec failed: {error}", { error: message });
-    stderr.write(`Error: ${message}\n`);
-    await persist("failed", { error: message });
+    const diagnosticMessage = formatCaughtError(err);
+    logger.error("exec failed: {error}", { error: diagnosticMessage });
+    const userMessage = execUserFailureMessage(config, err, providerFailureObserved);
+    stderr.write(`Error: ${userMessage}\n`);
+    await persist("failed", { error: diagnosticMessage });
     return {
       exitCode: 1,
       sessionId,
       text: textOut,
-      error: message,
+      error: userMessage,
       status: "failed",
       durationMs: Date.now() - startedAt,
       turnsUsed: runSink?.getTurnCount() ?? turnsUsed,

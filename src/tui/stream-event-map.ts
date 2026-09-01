@@ -9,7 +9,7 @@ import {
   splitPendingControlTail,
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js";
-import { inferenceErrorMessage } from "../inference-error-message.js";
+import { terminalProviderFailureMessage } from "../inference-error-message.js";
 import type { RunState } from "./session-queue.js";
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */
@@ -109,10 +109,9 @@ export interface StreamMapContext {
   attemptCallIds: Set<string>;
   /**
    * A committed attempt can also end in `inference.error` with no
-   * `inference.done`. Recovery follows that error as either the reactor's
-   * committed-retry or a same-turn failover `inference.start`. The boundary
-   * must not stay armed across a terminal error, so the error hands it off
-   * here: the very next event either consumes it (retry or start) and
+   * `inference.done`. A same-provider retry follows that error with another
+   * `inference.start`. The boundary must not stay armed across a terminal
+   * error, so the error hands it off here: the very next event consumes it and
    * retracts the failed attempt, or expires it and keeps the error row.
    */
   errorRollbackArmed: boolean;
@@ -122,9 +121,15 @@ export interface StreamMapContext {
    * transcript formatting can reuse known-provider remappers.
    */
   providerId?: string;
+  providerLabel?: string;
+  /** Raw diagnostics stay on the reactor event; only this marker reaches reply mapping. */
+  pendingProviderFailure: boolean;
 }
 
-export function createStreamMapContext(opts?: { providerId?: string }): StreamMapContext {
+export function createStreamMapContext(opts?: {
+  providerId?: string;
+  providerLabel?: string;
+}): StreamMapContext {
   return {
     callIdToName: new Map(),
     callIdToArgs: new Map(),
@@ -134,7 +139,9 @@ export function createStreamMapContext(opts?: { providerId?: string }): StreamMa
     attemptArmed: false,
     attemptCallIds: new Set(),
     errorRollbackArmed: false,
+    pendingProviderFailure: false,
     ...(opts?.providerId !== undefined ? { providerId: opts.providerId } : {}),
+    ...(opts?.providerLabel !== undefined ? { providerLabel: opts.providerLabel } : {}),
   };
 }
 
@@ -294,8 +301,8 @@ export function mapProductionEvent(
     flushed.push(...flushDelta(ctx, "thinking"));
   }
   // The error handoff only survives to the very next event; consume it here so
-  // anything other than the retry or failover start it was meant for expires
-  // the boundary and keeps the error row.
+  // anything other than the retry start it was meant for expires the boundary
+  // and keeps the error row.
   const handoff = ctx?.errorRollbackArmed === true;
   if (ctx) ctx.errorRollbackArmed = false;
   const expired = handoff && !recoversErrorHandoff(event.type) ? [ATTEMPT_CLEAR] : [];
@@ -337,6 +344,7 @@ function mapEvent(
         ctx.hadTextDelta = false;
         ctx.attemptArmed = true;
         ctx.attemptCallIds = new Set(ctx.callIdToName.keys());
+        ctx.pendingProviderFailure = false;
       }
       return [
         ...(recovered ? [ATTEMPT_ROLLBACK] : []),
@@ -348,6 +356,7 @@ function mapEvent(
     case "inference.done":
       // Cycle settled: disarm so a pre-commit retry belonging to the *next*
       // cycle cannot retract this one's rows.
+      if (ctx) ctx.pendingProviderFailure = false;
       return disarmAttempt(ctx);
 
     case "inference.retry": {
@@ -450,6 +459,16 @@ function mapEvent(
 
     case "connector.reply": {
       const content = typeof data.content === "string" ? data.content : "";
+      if (ctx?.pendingProviderFailure === true) {
+        ctx.pendingProviderFailure = false;
+        ctx.hadTextDelta = false;
+        return [
+          {
+            type: "assistant",
+            text: terminalProviderFailureMessage(ctx.providerId ?? "Unknown", ctx.providerLabel),
+          },
+        ];
+      }
       if (ctx?.hadTextDelta) {
         ctx.hadTextDelta = false;
         // Text already painted via assistant.delta; the reply would repeat it.
@@ -460,7 +479,10 @@ function mapEvent(
     }
 
     case "reactor.done":
-      if (ctx) ctx.hadTextDelta = false;
+      if (ctx) {
+        ctx.hadTextDelta = false;
+        ctx.pendingProviderFailure = false;
+      }
       return [...disarmAttempt(ctx), { type: "run", state: "idle" }, { type: "tool.boundary" }];
 
     case "reactor.error": {
@@ -474,40 +496,16 @@ function mapEvent(
     }
 
     case "inference.error": {
-      const err = asRecord(data.error);
-      const rawMessage =
-        typeof err?.message === "string"
-          ? err.message
-          : typeof data.error === "string"
-            ? data.error
-            : "inference error";
-      // A classified failure gets the line written for it; anything unclassified
-      // keeps the provider's own words rather than a generic stand-in.
-      const providerId =
-        typeof err?.providerId === "string"
-          ? err.providerId
-          : typeof ctx?.providerId === "string"
-            ? ctx.providerId
-            : undefined;
-      const message =
-        typeof err?.category === "string"
-          ? inferenceErrorMessage({
-              category: err.category,
-              message: rawMessage,
-              ...(typeof err.statusCode === "number" ? { statusCode: err.statusCode } : {}),
-              ...(err.raw !== undefined ? { raw: err.raw } : {}),
-              ...(providerId !== undefined ? { providerId } : {}),
-              ...(typeof err.retryAfterMs === "number" ? { retryAfterMs: err.retryAfterMs } : {}),
-            })
-          : rawMessage;
       // Hand the armed boundary to the next event rather than disarming: a
-      // committed retry or same-turn failover start must still retract the
-      // failed attempt, including the error row painted here.
+      // committed retry start must still retract the failed attempt. Terminal
+      // failures are surfaced once by the runner after agent.send rejects;
+      // provider diagnostics remain in the event stream for observability only.
       if (ctx?.attemptArmed === true) {
         ctx.attemptArmed = false;
         ctx.errorRollbackArmed = true;
       }
-      return [{ type: "error", message }];
+      if (ctx) ctx.pendingProviderFailure = true;
+      return [];
     }
 
     default:

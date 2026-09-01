@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { Config } from "../../../src/config/index.js";
 import {
   disposeExecRuntime,
+  execUserFailureMessage,
   formatCaughtError,
+  refreshSelectedProviderCredential,
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
@@ -32,6 +34,33 @@ describe("formatCaughtError", () => {
     expect(formatCaughtError(new Error("disk full"))).toBe("disk full");
     expect(formatCaughtError("plain")).toBe("plain");
     expect(formatCaughtError(42)).toBe("42");
+  });
+});
+
+describe("selected provider refresh failures", () => {
+  test("a non-provider failure remains distinct after inference has run", () => {
+    expect(execUserFailureMessage(bareConfig("hello"), new Error("disk full"), false)).toBe(
+      "disk full",
+    );
+  });
+
+  test("pre-inference OAuth failure keeps diagnostics internal and returns safe copy", async () => {
+    const config = {
+      ...bareConfig("hello"),
+      providerName: "codex/work",
+      settings: { providers: { "codex/work": { name: "Codex" } } },
+    } as unknown as Config;
+    const rawDiagnostic = '401 {"error":"refresh token rejected"}';
+
+    try {
+      await refreshSelectedProviderCredential(() => Promise.reject(new Error(rawDiagnostic)));
+      throw new Error("expected refresh to fail");
+    } catch (err) {
+      expect(formatCaughtError(err)).toBe(rawDiagnostic);
+      const userMessage = execUserFailureMessage(config, err, false);
+      expect(userMessage).toBe("Authentication failed — log in again.");
+      expect(userMessage).not.toContain(rawDiagnostic);
+    }
   });
 });
 

@@ -174,7 +174,7 @@ describe("createRunSink", () => {
     expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
   });
 
-  test("uses unknown attribution when a fallback model fails before usage", () => {
+  test("uses unknown attribution when a retry model fails before usage", () => {
     const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-b" }));
@@ -203,14 +203,14 @@ describe("createRunSink", () => {
     });
   });
 
-  test("uses authoritative usage attribution for a failed fallback", () => {
+  test("uses authoritative usage attribution for a failed retry attempt", () => {
     const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-b" }));
     runSink.sink(
       event("inference.usage", {
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-        source: { sourceId: "fallback", provider: "provider-b", model: "model-b" },
+        source: { sourceId: "retry", provider: "provider-b", model: "model-b" },
       }),
     );
     failMessageRun(runSink);
@@ -223,7 +223,7 @@ describe("createRunSink", () => {
     });
   });
 
-  test("does not leak authoritative source attribution across retry attempts", () => {
+  test("retains selected provider attribution across a same-provider retry", () => {
     const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-a" }));
@@ -234,13 +234,13 @@ describe("createRunSink", () => {
       }),
     );
     runSink.sink(event("inference.error", { error: { message: "retry" } }));
-    runSink.sink(event("inference.start", { model: "model-b" }));
+    runSink.sink(event("inference.start", { model: "model-a" }));
     failMessageRun(runSink);
 
     expect(captured).toHaveLength(1);
     expect(captured[0]?.properties).toMatchObject({
-      $ai_provider: "unknown",
-      $ai_model: "model-b",
+      $ai_provider: "provider-a",
+      $ai_model: "model-a",
       $ai_is_error: true,
     });
   });

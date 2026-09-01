@@ -723,11 +723,7 @@ describe("attachSessionBridge", () => {
 });
 
 describe("failed sends", () => {
-  const errorRows = (shell: {
-    streamLog: readonly { role: string; meta?: string; text: string }[];
-  }) => shell.streamLog.filter((r) => r.meta === "error").map((r) => r.text);
-
-  test("a recognised auth expiry says what to press; anything else keeps its message", async () => {
+  test("a resolved terminal provider failure replaces the raw reply and resets", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -736,24 +732,24 @@ describe("failed sends", () => {
           run: "idle",
         });
         const bridge = attachSessionBridge(shell, createRecordingPort());
+        const rawDiagnostic = "upstream 401: secret response body";
+        const normalReply = "The next request worked.";
         try {
+          bridge.setInferenceProviderId("codex/default", "Codex");
+          bridge.handle({ type: "inference.start", data: { model: "gpt" } });
           bridge.handle({
             type: "inference.error",
-            data: {
-              error: {
-                message: 'Codex profile "default" is not authorized. Log in again.',
-              },
-            },
+            data: { error: { category: "credential_failure", message: rawDiagnostic } },
           });
-          bridge.handle({
-            type: "inference.error",
-            data: { error: { message: "socket hang up" } },
-          });
+          bridge.handle({ type: "connector.reply", data: { content: rawDiagnostic } });
+          bridge.handle({ type: "inference.start", data: { model: "gpt" } });
+          bridge.handle({ type: "connector.reply", data: { content: normalReply } });
 
-          const rows = errorRows(shell);
-          expect(rows[0]).toContain("sign-in expired");
-          expect(rows[0]).toContain("/model");
-          expect(rows[1]).toBe("socket hang up");
+          const safeMessage =
+            'Codex Provider failed. Try again or switch with "/model" and select another.';
+          expect(shell.streamLog.filter((row) => row.text === safeMessage)).toHaveLength(1);
+          expect(shell.streamLog.filter((row) => row.text === normalReply)).toHaveLength(1);
+          expect(shell.streamLog.map((row) => row.text).join("\n")).not.toContain(rawDiagnostic);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -814,7 +810,7 @@ describe("committed inference retry", () => {
   });
 });
 
-describe("same-turn failover after inference.error", () => {
+describe("same-turn retry after inference.error", () => {
   const errorRows = (shell: {
     streamLog: readonly { role: string; meta?: string; text: string }[];
   }) => shell.streamLog.filter((r) => r.meta === "error").map((r) => r.text);
@@ -934,7 +930,7 @@ describe("same-turn failover after inference.error", () => {
           expect(shell.streamLog.filter((r) => r.role === "user").map((r) => r.text)).toEqual([
             "retry this",
           ]);
-          // Same-turn failover, not an operator stop — recovery must not borrow interrupt.
+          // Same-turn retry, not an operator stop — recovery must not borrow interrupt.
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
           expect(shell.streamLog.some((r) => r.meta === "stop")).toBe(false);
         } finally {
@@ -1024,7 +1020,7 @@ describe("same-turn failover after inference.error", () => {
 
           const text = shell.streamLog.map((r) => r.text).join("\n");
           expect(text).toContain("next prompt");
-          expect(errorRows(shell)).toContain("Authentication failed — log in again.");
+          expect(errorRows(shell)).toEqual([]);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1034,7 +1030,7 @@ describe("same-turn failover after inference.error", () => {
     );
   });
 
-  test("a queued steer row survives failover rollback", async () => {
+  test("a queued steer row survives retry rollback", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -1096,7 +1092,7 @@ describe("same-turn failover after inference.error", () => {
           const text = shell.streamLog.map((r) => r.text).join("\n");
           expect(text).toContain("restart from here");
           expect(text).toContain("stop — restarting from your message");
-          expect(errorRows(shell)).toContain("Authentication failed — log in again.");
+          expect(errorRows(shell)).toEqual([]);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1106,7 +1102,7 @@ describe("same-turn failover after inference.error", () => {
     );
   });
 
-  test("a terminal inference.error with no recovery still surfaces", async () => {
+  test("reactor.error still surfaces after a terminal inference.error", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -1129,7 +1125,7 @@ describe("same-turn failover after inference.error", () => {
             bridge.handle(event);
           }
 
-          expect(errorRows(shell)).toContain("Authentication failed — log in again.");
+          expect(errorRows(shell)).toEqual(["failed"]);
         } finally {
           bridge.dispose();
           shell.dispose();

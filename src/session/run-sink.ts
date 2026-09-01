@@ -26,8 +26,7 @@ export interface RunSinkArgs {
   // while the turn index is the collector's current in-flight turn count.
   onTurnStarted?: (info: { turnIndex: number; model: string }) => void;
   // inference.usage is the first attempt event carrying the runtime-resolved
-  // provider/model pair. It remains authoritative even when the selected source
-  // outside the reactor has not changed during fallback.
+  // provider/model pair. It remains authoritative across retry attempts.
   onTurnSourceObserved?: (info: { turnIndex: number; source: LastCycleSource }) => void;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.

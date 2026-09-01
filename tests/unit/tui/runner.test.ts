@@ -8,6 +8,7 @@ import {
   getTUIRunSummaryStatus,
   loadLocalSettingsWriteBase,
   resumeTranscriptLoadErrorBlock,
+  tuiSendFailureMessage,
 } from "../../../src/tui/runner.js";
 import { createSessionOperationQueue } from "../../../src/tui/session-operation-queue.js";
 import { createRunSink } from "../../../src/session/run-sink.js";
@@ -37,6 +38,33 @@ test("resumeTranscriptLoadErrorBlock surfaces a user-visible error block", () =>
     message: "Could not load prior session transcript: EACCES",
   });
   expect(resumeTranscriptLoadErrorBlock("disk full").message).toContain("disk full");
+});
+
+test("TUI send failures keep non-provider errors distinct", () => {
+  expect(
+    tuiSendFailureMessage(new Error("disk full"), "error", false, {
+      providerId: "codex/work",
+      displayLabel: "Codex",
+    }),
+  ).toBe("disk full");
+});
+
+test("TUI send failures retain the in-flight provider identity across model switches", () => {
+  expect(
+    tuiSendFailureMessage(new Error("raw provider body"), "error", true, {
+      providerId: "codex/work",
+      displayLabel: "Codex",
+    }),
+  ).toBe('Codex Provider failed. Try again or switch with "/model" and select another.');
+});
+
+test("TUI auth failures tell the user to log in again instead of switching models", () => {
+  expect(
+    tuiSendFailureMessage(new Error("401 refresh token rejected"), "auth", false, {
+      providerId: "codex/work",
+      displayLabel: "Codex",
+    }),
+  ).toBe("Authentication failed — log in again.");
 });
 
 test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async () => {

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { inferenceErrorMessage } from "./inference-error-message.js";
+import {
+  inferenceErrorMessage,
+  terminalProviderFailureMessage,
+} from "./inference-error-message.js";
 
 const CODEX_BODY = {
   detail: {
@@ -87,5 +90,33 @@ describe("inferenceErrorMessage", () => {
     });
     expect(line.toLowerCase()).not.toContain("re-authenticating");
     expect(line.toLowerCase()).toMatch(/log in again|sign in again/);
+  });
+});
+
+describe("terminalProviderFailureMessage", () => {
+  test("uses the selected provider display label in the terminal guidance", () => {
+    expect(terminalProviderFailureMessage("openai", "OpenAI")).toBe(
+      'OpenAI Provider failed. Try again or switch with "/model" and select another.',
+    );
+  });
+
+  test("falls back to the selected provider id", () => {
+    expect(terminalProviderFailureMessage("custom-provider")).toBe(
+      'custom-provider Provider failed. Try again or switch with "/model" and select another.',
+    );
+  });
+
+  test("does not duplicate Provider in configured display labels", () => {
+    expect(terminalProviderFailureMessage("codex/work", "Codex Provider")).toBe(
+      'Codex Provider failed. Try again or switch with "/model" and select another.',
+    );
+  });
+
+  test("uses a safe label when the provider id contains only control sequences", () => {
+    const message = terminalProviderFailureMessage("\u001b[31m\u001b[0m");
+    expect(message).toBe(
+      'Unknown Provider failed. Try again or switch with "/model" and select another.',
+    );
+    expect(message).not.toContain("\u001b");
   });
 });
