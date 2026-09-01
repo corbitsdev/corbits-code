@@ -497,6 +497,55 @@ describe("bottom border cost run", () => {
     }
   });
 
+  test("selecting a metered model from Codex shows prompt $ without waiting for inference", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    let provider = "codex/abk-labs";
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {
+        "codex/abk-labs": { models: ["gpt-5.5"] },
+        xai: { models: ["grok-4"] },
+      },
+      onModelSelect: (id) => {
+        const sep = id.indexOf(":");
+        if (sep <= 0) return;
+        provider = id.slice(0, sep);
+      },
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => ({
+        ...fakeCostSummary(),
+        costHiddenReason: provider.startsWith("codex/") ? "chatgpt-subscription" : null,
+      }),
+      showPromptCost: () => true,
+    });
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
+
+      expect(host.openSurface("models")).toBe(true);
+      const items = host.shell.overlayItems;
+      const meteredIndex = items.findIndex((label) => label.includes("[xai]"));
+      expect(meteredIndex).toBeGreaterThanOrEqual(0);
+      moveOverlaySelection(host.shell, meteredIndex);
+      acceptOverlaySelection(host.shell);
+
+      expect(provider).toBe("xai");
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+      expect(host.shell.costContext?.costLabel ?? null).toBe("$0.42");
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
   test("session.clear paints the context meter unknown immediately", async () => {
     const harness = await createHarness({ width: 80, height: 24 });
     const emitter = new EventEmitter();

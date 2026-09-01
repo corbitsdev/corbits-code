@@ -5,6 +5,7 @@ import {
   costHiddenReason,
   isChatGPTSubscriptionBaseURL,
   isCodingPlanBaseURL,
+  isCodingPlanProviderName,
   isFreeModelId,
 } from "./cost-visibility.js";
 import type { PricingCache } from "./pricing-fetcher.js";
@@ -66,6 +67,14 @@ describe("isCodingPlanBaseURL", () => {
   });
 });
 
+describe("isCodingPlanProviderName", () => {
+  it("matches the first-class Z.AI Coding Plan catalog id", () => {
+    expect(isCodingPlanProviderName("zai")).toBe(true);
+    expect(isCodingPlanProviderName("openai")).toBe(false);
+    expect(isCodingPlanProviderName("codex/default")).toBe(false);
+  });
+});
+
 describe("isChatGPTSubscriptionBaseURL", () => {
   it("detects the Codex ChatGPT subscription inference base URL", () => {
     expect(isChatGPTSubscriptionBaseURL(CODEX_BASE_URL)).toBe(true);
@@ -122,6 +131,28 @@ describe("costHiddenReason", () => {
         pricingCache,
       }),
     ).toBe("coding-plan");
+  });
+
+  it("hides on live coding-plan provider identity even when baseURL is still the metered API", () => {
+    expect(
+      costHiddenReason({
+        modelId: "glm-5.1",
+        providerName: "zai",
+        baseURL: "https://api.openai.com/v1",
+        pricingCache,
+      }),
+    ).toBe("coding-plan");
+  });
+
+  it("shows cost on live non-coding-plan identity even when baseURL is still a coding-plan endpoint", () => {
+    expect(
+      costHiddenReason({
+        modelId: "glm-5.1",
+        providerName: "openai",
+        baseURL: "https://api.z.ai/api/coding/paas/v4",
+        pricingCache,
+      }),
+    ).toBeNull();
   });
 
   it("hides for a Codex ChatGPT subscription base URL even when the model has public rates", () => {

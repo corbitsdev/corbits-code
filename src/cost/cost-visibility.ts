@@ -26,6 +26,12 @@ export function isCodingPlanBaseURL(baseURL: string | undefined): boolean {
   }
 }
 
+// First-class Z.AI Coding Plan catalog id. Live /model identity uses this
+// name, not the launch baseURL, so a switch onto or off zai updates $ now.
+export function isCodingPlanProviderName(name: string): boolean {
+  return name === "zai";
+}
+
 // Codex OAuth bills against the user's ChatGPT subscription via
 // chatgpt.com/backend-api. Public per-token rates for the same model ids do
 // not apply there, so dollar estimates must be suppressed. Matched against
@@ -60,8 +66,10 @@ export function isFreeModelByPricing(cache: PricingCache | null, modelId: string
 export interface CostVisibilityInput {
   baseURL?: string | undefined;
   // Live /model identity. When set, it wins over a stale launch baseURL for
-  // the ChatGPT-subscription hide: Codex names hide even on api.openai.com,
-  // non-Codex names show even on CODEX_BASE_URL. Undefined falls back to URL.
+  // ChatGPT-subscription and coding-plan hides: Codex names hide even on
+  // api.openai.com, zai names hide even on a metered URL; a present
+  // non-matching name shows even when launch URL would hide. Undefined
+  // falls back to URL.
   providerName?: string | undefined;
   modelId: string;
   providerFree?: boolean | undefined;
@@ -71,6 +79,13 @@ export interface CostVisibilityInput {
 export type CostHiddenReason =
   "provider-free" | "coding-plan" | "chatgpt-subscription" | "free-model" | "zero-priced";
 
+function isCodingPlanSession(input: CostVisibilityInput): boolean {
+  if (input.providerName !== undefined) {
+    return isCodingPlanProviderName(input.providerName);
+  }
+  return isCodingPlanBaseURL(input.baseURL);
+}
+
 function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
   if (input.providerName !== undefined) {
     return isCodexProviderName(input.providerName);
@@ -79,13 +94,14 @@ function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
 }
 
 // Non-null when the dollar cost should be suppressed: a manual provider
-// override, a coding-plan endpoint, a ChatGPT/Codex subscription (live
-// provider identity, else Codex URL), a free-named model, or a model the
-// pricing registry reports as zero-cost. The reason is carried to the
-// display so /cost can say which condition hid the figure.
+// override, a coding-plan session (live zai identity, else /coding URL), a
+// ChatGPT/Codex subscription (live provider identity, else Codex URL), a
+// free-named model, or a model the pricing registry reports as zero-cost.
+// The reason is carried to the display so /cost can say which condition hid
+// the figure.
 export function costHiddenReason(input: CostVisibilityInput): CostHiddenReason | null {
   if (input.providerFree === true) return "provider-free";
-  if (isCodingPlanBaseURL(input.baseURL)) return "coding-plan";
+  if (isCodingPlanSession(input)) return "coding-plan";
   if (isChatGPTSubscriptionSession(input)) return "chatgpt-subscription";
   if (isFreeModelId(input.modelId)) return "free-model";
   return isFreeModelByPricing(input.pricingCache, input.modelId) ? "zero-priced" : null;

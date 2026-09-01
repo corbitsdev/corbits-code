@@ -54,6 +54,25 @@ describe("buildCostSummary", () => {
     expect(summary.costHiddenReason).toBe("coding-plan");
   });
 
+  it("hides cost for a live coding-plan identity even when baseURL is still metered", () => {
+    const summary = buildCostSummary({
+      ...baseInput,
+      providerName: "zai",
+      baseURL: "https://api.openai.com/v1",
+    });
+    expect(summary.costHiddenReason).toBe("coding-plan");
+  });
+
+  it("shows cost for a live metered identity even when baseURL is still a coding-plan endpoint", () => {
+    const summary = buildCostSummary({
+      ...baseInput,
+      modelId: "glm-5.1",
+      providerName: "openai",
+      baseURL: "https://api.z.ai/api/coding/paas/v4",
+    });
+    expect(summary.costHiddenReason).toBeNull();
+  });
+
   it("hides cost for a Codex ChatGPT subscription identity", () => {
     const summary = buildCostSummary({
       ...baseInput,
