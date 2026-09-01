@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   buildBifrostSource,
@@ -803,22 +803,23 @@ describe("loadConfig", () => {
     await expect(loadConfig(["--model"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
       "--model requires a value",
     );
+    await expect(loadConfig(["--cwd"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--cwd requires a value",
+    );
+    await expect(loadConfig(["--config"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--config requires a value",
+    );
+    await expect(loadConfig(["--profile"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--profile requires a value",
+    );
   });
 
   test("value flags accept a POSIX path that starts with a single dash", async () => {
-    const parent = await emptyCwd();
-    const dashedCwd = join(parent, "-my-dir");
-    await mkdir(dashedCwd);
-    try {
-      const globalPath = await writeGlobalSettings(dashedCwd);
-      const config = await loadConfig(["--cwd", dashedCwd, "do something"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.cwd).toBe(dashedCwd);
-    } finally {
-      await rm(parent, { recursive: true, force: true });
-    }
+    const config = await loadConfig(["--cwd", "-my-dir", "do something"], {
+      allowUnconfigured: true,
+      globalSettingsPath: NO_SETTINGS,
+    });
+    expect(config.cwd).toBe(resolve("-my-dir"));
   });
 
   test("rejects unknown flags", async () => {
