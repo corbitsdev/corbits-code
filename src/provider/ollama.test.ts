@@ -41,6 +41,12 @@ describe("ollamaOpenAIBaseURL", () => {
     expect(() => ollamaOpenAIBaseURL("http://localhost:11434/team")).toThrow(
       "expected a server root without a path",
     );
+    expect(() => ollamaOpenAIBaseURL("http://localhost:11434/api/tags")).toThrow(
+      "expected a server root without a path",
+    );
+    expect(() => normalizeOllamaRootURL("http://localhost:11434/api/tags")).toThrow(
+      "expected a server root without a path",
+    );
   });
 });
 

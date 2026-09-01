@@ -178,7 +178,14 @@ export function buildSourcesFromRefs(
   const out: InferenceSource[] = [];
   const seenIds = new Set<string>();
   for (const ref of refs) {
-    const src = buildInferenceSourceForRef(ref, ctx, settings);
+    let src: InferenceSource | null;
+    try {
+      src = buildInferenceSourceForRef(ref, ctx, settings);
+    } catch {
+      // A leftover sibling URL (e.g. Custom `/api/tags`) must not take down the
+      // whole bundle. Head failure is re-checked in `buildSourceBundle`.
+      continue;
+    }
     if (src === null) continue;
     if (seenIds.has(src.id)) continue;
     seenIds.add(src.id);
@@ -215,17 +222,22 @@ function buildSourceBundle(args: {
 
   const sources = buildSourcesFromRefs(refs, ctx, args.settings);
   const defaultId = args.head.provider;
-  if (sources.length === 0) {
-    const fallback = buildInferenceSourceForRef(args.head, ctx, args.settings);
+  const hasDefault = sources.some((s) => s.id === defaultId);
+  if (!hasDefault) {
+    let fallback: InferenceSource | null;
+    try {
+      fallback = buildInferenceSourceForRef(args.head, ctx, args.settings);
+    } catch (error) {
+      throw new Error(`No inference source for provider "${defaultId}"`, { cause: error });
+    }
     if (fallback === null) {
       throw new Error(`No inference source for provider "${defaultId}"`);
     }
-    return { sources: [fallback], defaultSource: fallback.id };
+    return { sources: [fallback, ...sources], defaultSource: fallback.id };
   }
-  const hasDefault = sources.some((s) => s.id === defaultId);
   return {
     sources,
-    defaultSource: hasDefault ? defaultId : (sources[0]?.id ?? defaultId),
+    defaultSource: defaultId,
   };
 }
 
