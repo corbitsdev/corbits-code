@@ -14,6 +14,10 @@ const bundledSkills: PluginModule = {
 };
 
 describe("isPluginEnabledForSurface", () => {
+  test("projects an unknown plugin as disabled", () => {
+    expect(isPluginEnabledForSurface(undefined, {})).toBe(false);
+  });
+
   test("projects a bundled default-on plugin as enabled without settings", () => {
     expect(isPluginEnabledForSurface(bundledSkills, {})).toBe(true);
   });
