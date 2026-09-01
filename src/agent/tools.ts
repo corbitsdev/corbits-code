@@ -31,7 +31,11 @@ import { createExaMCPServerConfig, isBuiltinExaMCPServer } from "../mcp/exa.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
-import { filterMcpServersForConnect, type ProjectTrustStore } from "../trust/project-trust.js";
+import {
+  filterMcpServersForConnect,
+  mcpServerFingerprint,
+  type ProjectTrustStore,
+} from "../trust/project-trust.js";
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
@@ -547,6 +551,38 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const mcpAbortController = new AbortController();
   let disposed = false;
   let disposal: Promise<void> | undefined;
+  let mcpTrustStore: ProjectTrustStore = projectTrust ?? {
+    trustedPluginPaths: [],
+    trustedMcpFingerprints: [],
+  };
+  const untrustedLocalError = `Not trusted for this project (see ${SETTINGS_DIR_NAME}/trust.json)`;
+
+  const filterServersForConnect = async (
+    servers: MCPServerConfig[],
+  ): Promise<MCPServerConfig[]> => {
+    const allowed = await filterMcpServersForConnect(servers, {
+      source: mcpServersSource,
+      store: mcpTrustStore,
+      cwd,
+      ...(requestMcpTrust !== undefined ? { requestTrust: requestMcpTrust } : {}),
+    });
+    if (mcpServersSource !== "local") return allowed;
+    // Remember grants so connectOneMCPServer does not re-prompt after startup TOFU.
+    let fingerprints = mcpTrustStore.trustedMcpFingerprints;
+    let changed = false;
+    for (const server of allowed) {
+      if (isBuiltinExaMCPServer(server)) continue;
+      const fp = mcpServerFingerprint(server);
+      if (!fingerprints.includes(fp)) {
+        fingerprints = [...fingerprints, fp];
+        changed = true;
+      }
+    }
+    if (changed) {
+      mcpTrustStore = { ...mcpTrustStore, trustedMcpFingerprints: fingerprints };
+    }
+    return allowed;
+  };
 
   const connectOneMCPServer = (
     config: MCPServerConfig,
@@ -563,6 +599,18 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         : AbortSignal.any([mcpAbortController.signal, signal]);
 
     const run = (async () => {
+      if (mcpServersSource === "local") {
+        const allowed = await filterServersForConnect([config]);
+        if (disposed) return;
+        if (allowed.length === 0) {
+          callbacks.onStatus({
+            name: config.name,
+            state: "failed",
+            error: untrustedLocalError,
+          });
+          return;
+        }
+      }
       callbacks.onStatus({ name: config.name, state: "connecting" });
       let result: MCPConnectResult;
       try {
@@ -657,12 +705,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     signal?: AbortSignal,
   ): Promise<void> => {
     if (disposed) return;
-    const toConnect = await filterMcpServersForConnect(mcpServers, {
-      source: mcpServersSource,
-      store: projectTrust ?? { trustedPluginPaths: [], trustedMcpFingerprints: [] },
-      cwd,
-      ...(requestMcpTrust !== undefined ? { requestTrust: requestMcpTrust } : {}),
-    });
+    const toConnect = await filterServersForConnect(mcpServers);
     if (disposed) return;
     await Promise.all(toConnect.map((config) => connectOneMCPServer(config, callbacks, signal)));
     if (disposed) return;
@@ -674,7 +717,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           callbacks.onStatus({
             name: server.name,
             state: "failed",
-            error: `Not trusted for this project (see ${SETTINGS_DIR_NAME}/trust.json)`,
+            error: untrustedLocalError,
           });
         }
       }
