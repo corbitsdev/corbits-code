@@ -3,7 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createGlobalSettingsWriter, persistGlobalHTTPMCPServer } from "./add-server.js";
+import {
+  createGlobalSettingsWriter,
+  isAbsoluteHTTPURL,
+  persistGlobalHTTPMCPServer,
+} from "./add-server.js";
 import { isReadOnlyMcpTool, mcpToolName } from "./tool-name.js";
 
 const dirs: string[] = [];
@@ -59,6 +63,17 @@ describe("persistGlobalHTTPMCPServer", () => {
       ok: false,
       reason: "invalid-url",
     });
+    expect(await persistGlobalHTTPMCPServer(writer, "other", "relative/path")).toEqual({
+      ok: false,
+      reason: "invalid-url",
+    });
+    expect(await persistGlobalHTTPMCPServer(writer, "other", "https://.")).toEqual({
+      ok: false,
+      reason: "invalid-url",
+    });
+    expect(await persistGlobalHTTPMCPServer(writer, "other", "https://user:pass@host/mcp")).toEqual(
+      { ok: false, reason: "invalid-url" },
+    );
     expect(await persistGlobalHTTPMCPServer(writer, "linear", "https://new.test/mcp")).toEqual({
       ok: false,
       reason: "duplicate",
@@ -93,6 +108,32 @@ describe("persistGlobalHTTPMCPServer", () => {
       await persistGlobalHTTPMCPServer(writer, "linear", "https://mcp.linear.app/mcp", "local"),
     ).toEqual({ ok: false, reason: "local-shadow" });
     expect(await readFile(path, "utf8")).toBe(original);
+  });
+
+  test("rejects degenerate and credential-bearing HTTP URLs", () => {
+    expect(isAbsoluteHTTPURL("relative/path")).toBe(false);
+    expect(isAbsoluteHTTPURL("ftp://example.test/mcp")).toBe(false);
+    expect(isAbsoluteHTTPURL("https://.")).toBe(false);
+    expect(isAbsoluteHTTPURL("https:example.com")).toBe(false);
+    expect(isAbsoluteHTTPURL("https:////evil.com")).toBe(false);
+    expect(isAbsoluteHTTPURL("https://user:pass@host/mcp")).toBe(false);
+    expect(isAbsoluteHTTPURL("https://mcp.linear.app/mcp")).toBe(true);
+  });
+
+  test("persists the normalized href rather than the typed URL", async () => {
+    const path = await settingsPath();
+    await Bun.write(path, JSON.stringify({ providers: {} }));
+    const writer = createGlobalSettingsWriter(path);
+
+    expect(
+      await persistGlobalHTTPMCPServer(writer, "linear", "https://CUSTOM.example:443/mcp"),
+    ).toMatchObject({
+      ok: true,
+      server: { name: "linear", type: "http", url: "https://custom.example/mcp" },
+    });
+    expect(JSON.parse(await readFile(path, "utf8")).mcpServers).toEqual([
+      { name: "linear", type: "http", url: "https://custom.example/mcp" },
+    ]);
   });
 
   test("serializes a delayed MCP add with hook and plugin mutation", async () => {

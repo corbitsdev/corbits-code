@@ -596,6 +596,37 @@ describe("mcp surface", () => {
     });
   });
 
+  test("hides the add row while local MCP settings shadow global", async () => {
+    await withShell((shell) => {
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          mcpServersSource: "local",
+          addServer: async () => ({ ok: true, message: "should not run" }),
+        },
+      });
+      expect(shell.overlayItems).not.toContain("Add MCP server — Alt+A");
+      expect(shell.overlayItems.at(-1)).toBe("Close mcp");
+      expect(runOverlayAction(shell, altKey("a"))).toBe(false);
+    });
+  });
+
+  test("empty MCP list uses a placeholder distinct from close", async () => {
+    await withShell((shell) => {
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: { list: () => [], openAuthURL: () => {} },
+      });
+      expect(shell.overlayItems).toEqual([
+        "No MCP servers configured",
+        "Add MCP server — Alt+A",
+        "Close mcp",
+      ]);
+    });
+  });
+
   test("the visible add row opens the same add-server flow", async () => {
     await withShell((shell) => {
       openCommandSurface(shell, "mcp", {

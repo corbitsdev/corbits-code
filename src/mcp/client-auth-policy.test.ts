@@ -16,6 +16,24 @@ let toolDiscoveryAborts = 0;
 let blockTokenExchange = false;
 let tokenExchangeSignals: (AbortSignal | null | undefined)[] = [];
 let tokenExchangeAborts = 0;
+let lastTransportAuth: (() => Promise<void>) | undefined;
+let tokenRefreshSignals: (AbortSignal | null | undefined)[] = [];
+let tokenRefreshAborts = 0;
+
+function hangUntilAbort(
+  signal: AbortSignal | null | undefined,
+  onAbort: () => void,
+  fallback: string,
+): Promise<void> {
+  return new Promise((_resolve, reject) => {
+    const fail = (): void => {
+      onAbort();
+      reject(signal?.reason ?? new Error(fallback));
+    };
+    if (signal?.aborted === true) fail();
+    else signal?.addEventListener("abort", fail, { once: true });
+  });
+}
 
 const authProvider = { resetAuthorization: async () => undefined };
 
@@ -45,6 +63,11 @@ await withMockedModule(
         }
         return { tools: [] };
       }
+      async callTool(): Promise<{ content: [] }> {
+        if (lastTransportAuth === undefined) throw new Error("no live HTTP transport");
+        await lastTransportAuth();
+        return { content: [] };
+      }
       async close(): Promise<void> {
         clientCloses += 1;
       }
@@ -62,20 +85,31 @@ await withMockedModule(
         private readonly options?: { requestInit?: RequestInit },
       ) {
         transportOptions.push(options);
+        lastTransportAuth = () => this.auth();
       }
       async finishAuth(): Promise<void> {
         const signal = this.options?.requestInit?.signal;
         tokenExchangeSignals.push(signal);
         if (blockTokenExchange) {
-          await new Promise<void>((_resolve, reject) => {
-            const onAbort = (): void => {
+          await hangUntilAbort(
+            signal,
+            () => {
               tokenExchangeAborts += 1;
-              reject(signal?.reason ?? new Error("token exchange aborted"));
-            };
-            if (signal?.aborted === true) onAbort();
-            else signal?.addEventListener("abort", onAbort, { once: true });
-          });
+            },
+            "token exchange aborted",
+          );
         }
+      }
+      async auth(): Promise<void> {
+        const signal = this.options?.requestInit?.signal;
+        tokenRefreshSignals.push(signal);
+        await hangUntilAbort(
+          signal,
+          () => {
+            tokenRefreshAborts += 1;
+          },
+          "token refresh aborted",
+        );
       }
       get sessionId(): string | undefined {
         return undefined;
@@ -133,6 +167,9 @@ describe("HTTP MCP auth policy", () => {
     blockTokenExchange = false;
     tokenExchangeSignals = [];
     tokenExchangeAborts = 0;
+    lastTransportAuth = undefined;
+    tokenRefreshSignals = [];
+    tokenRefreshAborts = 0;
   });
 
   test("built-in anonymous Exa treats 401 as a normal failure without OAuth machinery", async () => {
@@ -210,6 +247,24 @@ describe("HTTP MCP auth policy", () => {
     expect(tokenExchangeAborts).toBe(1);
     expect(clientCloses).toBe(1);
     expect(callbackCloses).toBe(1);
+  });
+
+  test("aborts a live-transport auth refresh that ignores the transport abort controller", async () => {
+    const abort = new AbortController();
+    const result = await connectMCPServer(
+      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      { signal: abort.signal },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(transportOptions).toEqual([{ authProvider, requestInit: { signal: abort.signal } }]);
+
+    const call = result.client.call("ping", {}, abort.signal);
+    while (tokenRefreshSignals.length === 0) await Promise.resolve();
+    expect(tokenRefreshSignals[0]).toBe(abort.signal);
+    abort.abort(new Error("toolset disposed"));
+    await expect(call).rejects.toThrow("toolset disposed");
+    expect(tokenRefreshAborts).toBe(1);
   });
 
   test("ordinary HTTP creates endpoint-scoped OAuth and passes it to transport", async () => {

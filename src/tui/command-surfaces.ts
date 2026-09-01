@@ -145,6 +145,7 @@ export interface McpSurfaceDeps {
   readonly openAuthURL: (url: string) => void;
   readonly subscribe?: (listener: () => void) => () => void;
   readonly addServer?: (name: string, url: string) => Promise<PluginActionResult>;
+  readonly mcpServersSource?: "local" | "global" | "none";
 }
 
 /** Live summary for the settings surface's hooks row (owned by another surface). */
@@ -185,6 +186,7 @@ export type CommandSurfaceKind =
 
 const CLOSE_ID = "__close__";
 const ADD_MCP_ID = "__add_mcp__";
+const EMPTY_MCP_ID = "__empty_mcp__";
 const BACK_ID = "__back__";
 /** Synthetic `/plugins` row for standing load warnings (not a plugin id). */
 const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__";
@@ -962,6 +964,21 @@ function mcpDescription(entry: McpEntry): ItemDescription {
   }
 }
 
+function canAddMCPServer(mcp: McpSurfaceDeps): boolean {
+  return mcp.mcpServersSource !== "local";
+}
+
+function mcpSurfaceRows(entries: readonly McpEntry[], canAdd: boolean): ResidualCatalogEntry[] {
+  const rows: ResidualCatalogEntry[] = entries.map((e) => ({
+    id: e.name,
+    label: mcpRowLabel(e),
+  }));
+  if (rows.length === 0) rows.push({ id: EMPTY_MCP_ID, label: "No MCP servers configured" });
+  if (canAdd) rows.push({ id: ADD_MCP_ID, label: "Add MCP server — Alt+A" });
+  rows.push({ id: CLOSE_ID, label: "Close mcp" });
+  return rows;
+}
+
 function openAddMcpURLPane(
   shell: AppShell,
   deps: CommandSurfaceDeps,
@@ -1045,13 +1062,8 @@ export function openMcpSurface(
   }
   closeInsetOverlay(shell);
   const entries = mcp.list();
-  const rows: ResidualCatalogEntry[] = entries.map((e) => ({
-    id: e.name,
-    label: mcpRowLabel(e),
-  }));
-  if (rows.length === 0) rows.push({ id: CLOSE_ID, label: "No MCP servers configured" });
-  rows.push({ id: ADD_MCP_ID, label: "Add MCP server — Alt+A" });
-  rows.push({ id: CLOSE_ID, label: "Close mcp" });
+  const canAdd = canAddMCPServer(mcp);
+  const rows: ResidualCatalogEntry[] = mcpSurfaceRows(entries, canAdd);
   const byName = new Map(entries.map((e) => [e.name, e]));
   const activeIndex =
     activeName === undefined ? -1 : rows.findIndex((row) => row.id === activeName);
@@ -1073,8 +1085,9 @@ export function openMcpSurface(
     onAccept: (selection) => {
       const id = selectedId(selection, rows);
       unsubscribe();
-      if (id === undefined || id === CLOSE_ID) return;
+      if (id === undefined || id === CLOSE_ID || id === EMPTY_MCP_ID) return;
       if (id === ADD_MCP_ID) {
+        if (!canAdd) return;
         openAddMcpNamePane(shell, deps, mcp);
         return;
       }
@@ -1094,6 +1107,7 @@ export function openMcpSurface(
       if (key.ctrl || !(key.meta || key.option)) return false;
       const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
       if (name !== "a") return false;
+      if (!canAdd) return false;
       unsubscribe();
       openAddMcpNamePane(shell, deps, mcp);
       return true;
@@ -1102,15 +1116,7 @@ export function openMcpSurface(
   unsubscribe =
     mcp.subscribe?.(() => {
       const liveEntries = mcp.list();
-      const liveRows: ResidualCatalogEntry[] = liveEntries.map((entry) => ({
-        id: entry.name,
-        label: mcpRowLabel(entry),
-      }));
-      if (liveRows.length === 0) {
-        liveRows.push({ id: CLOSE_ID, label: "No MCP servers configured" });
-      }
-      liveRows.push({ id: ADD_MCP_ID, label: "Add MCP server — Alt+A" });
-      liveRows.push({ id: CLOSE_ID, label: "Close mcp" });
+      const liveRows = mcpSurfaceRows(liveEntries, canAdd);
       rows.splice(0, rows.length, ...liveRows);
       byName.clear();
       for (const entry of liveEntries) byName.set(entry.name, entry);

@@ -2624,6 +2624,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             emitter.on("mcp.status", listener);
             return () => emitter.off("mcp.status", listener);
           },
+          mcpServersSource: config.mcpServersSource ?? "none",
           addServer: async (name, url) => {
             const result = await persistGlobalHTTPMCPServer(
               globalSettingsWriter,

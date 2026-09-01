@@ -72,14 +72,25 @@ function isRecoverableAuthError(err: unknown): boolean {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
+function streamableHTTPTransportOptions(
+  authProvider: CorbitsOAuthProvider | undefined,
+  signal: AbortSignal | undefined,
+) {
+  if (authProvider === undefined && signal === undefined) return undefined;
+  return {
+    ...(authProvider === undefined ? {} : { authProvider }),
+    ...(signal === undefined ? {} : { requestInit: { signal } }),
+  };
+}
+
 async function completeInteractiveAuth(context: HTTPAuthContext): Promise<void> {
   if (!context.interactive)
     throw new Error("Authorization required but no interactive handler is available.");
   const code = await context.callback.waitForCode(context.signal ?? new AbortController().signal);
-  await new StreamableHTTPClientTransport(context.url, {
-    authProvider: context.authProvider,
-    ...(context.signal === undefined ? {} : { requestInit: { signal: context.signal } }),
-  }).finishAuth(code);
+  await new StreamableHTTPClientTransport(
+    context.url,
+    streamableHTTPTransportOptions(context.authProvider, context.signal),
+  ).finishAuth(code);
 }
 
 /**
@@ -218,7 +229,11 @@ async function connectHttp(
     let authContext: HTTPAuthContext | undefined;
     let makeTransport: () => Transport;
     if (config.oauth === false) {
-      makeTransport = () => new StreamableHTTPClientTransport(url) as unknown as Transport;
+      makeTransport = () =>
+        new StreamableHTTPClientTransport(
+          url,
+          streamableHTTPTransportOptions(undefined, options.signal),
+        ) as unknown as Transport;
     } else {
       callback = await startCallbackServer(config.name);
       const authProvider = await createOAuthProvider({
@@ -229,7 +244,10 @@ async function connectHttp(
         onAuthorizationState: callback.expectState,
       });
       makeTransport = () =>
-        new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
+        new StreamableHTTPClientTransport(
+          url,
+          streamableHTTPTransportOptions(authProvider, options.signal),
+        ) as unknown as Transport;
       authContext = {
         url,
         authProvider,

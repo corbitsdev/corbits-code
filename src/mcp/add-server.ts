@@ -86,13 +86,27 @@ export function validateMCPServerName(value: string): string | null {
   return null;
 }
 
-export function isAbsoluteHTTPURL(value: string): boolean {
+export function parseAbsoluteHTTPURL(value: string): URL | null {
+  const trimmed = value.trim();
+  const scheme = trimmed.match(/^(https?):\/\//i);
+  if (scheme === null) return null;
+  const afterScheme = trimmed.slice(scheme[0].length);
+  if (afterScheme.startsWith("/")) return null;
   try {
-    const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") && url.origin !== "null";
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username !== "" || url.password !== "") return null;
+    if (url.hostname.length === 0 || url.hostname === "." || url.hostname.startsWith(".")) {
+      return null;
+    }
+    return url;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isAbsoluteHTTPURL(value: string): boolean {
+  return parseAbsoluteHTTPURL(value) !== null;
 }
 
 export async function persistGlobalHTTPMCPServer(
@@ -103,12 +117,12 @@ export async function persistGlobalHTTPMCPServer(
   isNameActive: (name: string) => boolean = () => false,
 ): Promise<PersistMCPServerResult> {
   const name = rawName.trim();
-  const url = rawURL.trim();
+  const parsedURL = parseAbsoluteHTTPURL(rawURL);
   if (validateMCPServerName(name) !== null) return { ok: false, reason: "invalid-name" };
-  if (!isAbsoluteHTTPURL(url)) return { ok: false, reason: "invalid-url" };
+  if (parsedURL === null) return { ok: false, reason: "invalid-url" };
   if (source === "local") return { ok: false, reason: "local-shadow" };
 
-  const server: MCPServerConfig = { name, type: "http", url };
+  const server: MCPServerConfig = { name, type: "http", url: parsedURL.href };
   let active = false;
   let duplicate = false;
   const settings = await writer.update((base) => {
