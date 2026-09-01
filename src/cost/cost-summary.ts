@@ -110,23 +110,36 @@ const HIDDEN_REASON_TEXT: Record<Exclude<CostHiddenReason, "chatgpt-subscription
 
 const MIXED_SESSION_COST_SUFFIX = " (metered portion only; session mixed billed and hidden usage)";
 
-function formatCostLine(summary: CostSummary): string {
-  const mix = summary.sessionBillingMix;
-  if (mix === "mixed") {
-    return `Cost: ${summary.formattedCost}${MIXED_SESSION_COST_SUFFIX}`;
+export function formatSessionCostCopy(args: {
+  mix: SessionBillingMix;
+  formattedCost: string;
+  sessionHiddenReason?: CostHiddenReason | null | undefined;
+  liveHiddenReason?: CostHiddenReason | null | undefined;
+}): string {
+  if (args.mix === "mixed") {
+    return `${args.formattedCost}${MIXED_SESSION_COST_SUFFIX}`;
   }
-  if (mix === "metered-only") {
-    return `Cost: ${summary.formattedCost}`;
+  if (args.mix === "metered-only") {
+    return args.formattedCost;
   }
   const hide =
-    mix === "hidden-only"
-      ? (summary.sessionHiddenReason ?? summary.costHiddenReason)
-      : summary.costHiddenReason;
-  if (hide === null) return `Cost: ${summary.formattedCost}`;
+    args.mix === "hidden-only"
+      ? (args.sessionHiddenReason ?? args.liveHiddenReason ?? null)
+      : (args.liveHiddenReason ?? null);
+  if (hide === null) return args.formattedCost;
   if (hide === "chatgpt-subscription") {
-    return "Cost: covered by ChatGPT subscription (not billed per token)";
+    return "covered by ChatGPT subscription (not billed per token)";
   }
-  return `Cost: hidden (${HIDDEN_REASON_TEXT[hide]})`;
+  return `hidden (${HIDDEN_REASON_TEXT[hide]})`;
+}
+
+function formatCostLine(summary: CostSummary): string {
+  return `Cost: ${formatSessionCostCopy({
+    mix: summary.sessionBillingMix,
+    formattedCost: summary.formattedCost,
+    sessionHiddenReason: summary.sessionHiddenReason,
+    liveHiddenReason: summary.costHiddenReason,
+  })}`;
 }
 
 export function formatCostCommandOutput(summary: CostSummary): string {

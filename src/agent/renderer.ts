@@ -1,7 +1,14 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
+import type { LastCycleSource, TokenUsage } from "@intx/types/runtime";
 
-import { createFaremeter, formatCost } from "../cost/faremeter.js";
+import { formatSessionCostCopy } from "../cost/cost-summary.js";
+import { formatCost } from "../cost/faremeter.js";
 import type { PricingCache } from "../cost/pricing-fetcher.js";
+import {
+  billingIdentityFromSource,
+  createSessionCostAccumulator,
+  type TurnBillingIdentity,
+} from "../cost/session-cost.js";
 import { inferenceErrorMessage } from "../inference-error-message.js";
 
 export interface Renderer {
@@ -58,6 +65,35 @@ function formatOp(name: string): string {
   return name;
 }
 
+function tokenUsageFromEvent(data: Record<string, unknown> | undefined): TokenUsage | null {
+  const usage = data?.usage;
+  if (usage === null || typeof usage !== "object") return null;
+  const fields = usage as Record<string, unknown>;
+  if (typeof fields.input !== "number" || typeof fields.output !== "number") return null;
+  return {
+    input: fields.input,
+    output: fields.output,
+    cacheRead: typeof fields.cacheRead === "number" ? fields.cacheRead : 0,
+    cacheWrite: typeof fields.cacheWrite === "number" ? fields.cacheWrite : 0,
+    thinking: typeof fields.thinking === "number" ? fields.thinking : 0,
+  };
+}
+
+function billingIdentityFromEvent(
+  data: Record<string, unknown> | undefined,
+  fallbackModelId: string,
+): TurnBillingIdentity {
+  const source = data?.source;
+  if (source === null || typeof source !== "object") {
+    return { modelId: fallbackModelId };
+  }
+  const fields = source as Record<string, unknown>;
+  if (typeof fields.sourceId !== "string" || typeof fields.model !== "string") {
+    return { modelId: fallbackModelId };
+  }
+  return billingIdentityFromSource(fields as LastCycleSource);
+}
+
 export function createRenderer(
   startedAt: number,
   modelId?: string,
@@ -69,12 +105,21 @@ export function createRenderer(
   const pendingArgs = new Map<string, Record<string, unknown>>();
   const pendingNames = new Map<string, string>();
   let pendingSubmitSummary: string | undefined;
-  const faremeter = createFaremeter(
-    modelId === undefined ? {} : { modelId, pricingCache: pricingCache ?? null },
-  );
+  const sessionCost = createSessionCostAccumulator({
+    pricingCache: () => pricingCache ?? null,
+  });
 
   function elapsedSecs(): number {
     return Math.floor((Date.now() - startedAt) / 1000);
+  }
+
+  function costText(): string {
+    const billed = sessionCost.snapshot();
+    return formatSessionCostCopy({
+      mix: billed.mix,
+      formattedCost: formatCost(billed.meteredCost),
+      sessionHiddenReason: billed.hiddenReason,
+    });
   }
 
   function writeStatusBar(): void {
@@ -82,7 +127,7 @@ export function createRenderer(
       currentOp.length > 0
         ? `${AMBER}${currentOp}${currentArg ? " " + currentArg : ""}${RESET}`
         : "";
-    const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${formatCost(faremeter.getTotalCost())}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
+    const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${costText()}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
     process.stderr.write(bar);
   }
 
@@ -156,18 +201,10 @@ export function createRenderer(
         turnCount++;
         currentOp = "";
         currentArg = "";
-        break;
-      }
-
-      case "inference.usage": {
-        const usage = (e.data?.usage ?? {}) as {
-          input: number;
-          output: number;
-          cacheRead: number;
-          cacheWrite: number;
-          thinking: number;
-        };
-        faremeter.addUsage(usage);
+        const usage = tokenUsageFromEvent(e.data);
+        if (usage !== null) {
+          sessionCost.addTurn(usage, billingIdentityFromEvent(e.data, modelId ?? ""));
+        }
         break;
       }
 

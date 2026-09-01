@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { createRenderer } from "./agent/renderer.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import type { LastCycleSource, TokenUsage } from "@intx/types/runtime";
+
+import { createRenderer } from "./agent/renderer.js";
+import { createFaremeter, formatCost } from "./cost/faremeter.js";
+import type { PricingCache } from "./cost/pricing-fetcher.js";
 
 // Capture stdout/stderr writes during a test
 function captureOutput(): { stdout: string[]; stderr: string[]; restore: () => void } {
@@ -393,5 +397,94 @@ describe("renderer — read-only tools produce no journal block", () => {
     renderer.render(event("tool.done", { result: { callId: "c8", content: "src/foo.ts" } }));
     cap.restore();
     expect(cap.stdout.join("")).toBe("");
+  });
+});
+
+describe("renderer — mixed vs hidden-only session cost", () => {
+  const pricingCache: PricingCache = {
+    timestamp: 0,
+    models: {
+      "glm-5.1": {
+        inputPricePerToken: 0.000002,
+        outputPricePerToken: 0.00001,
+        cacheReadPricePerToken: 0,
+      },
+      "gpt-5.6-luna": {
+        inputPricePerToken: 0.000001,
+        outputPricePerToken: 0.000008,
+        cacheReadPricePerToken: 0,
+      },
+    },
+  };
+
+  const usage = (input: number, output: number): TokenUsage => ({
+    input,
+    output,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
+
+  const CODEX_USAGE = usage(100_000, 20_000);
+  const METERED_USAGE = usage(1_000, 500);
+  const CODEX_SOURCE: LastCycleSource = {
+    sourceId: "codex/default",
+    provider: "codex-responses",
+    model: "gpt-5.6-luna",
+  };
+  const METERED_SOURCE: LastCycleSource = {
+    sourceId: "openai",
+    provider: "openai",
+    model: "glm-5.1",
+  };
+
+  function recastAtLiveModel(modelId: string, turns: TokenUsage[]): number {
+    const faremeter = createFaremeter({ modelId, pricingCache });
+    const combined: TokenUsage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      thinking: 0,
+    };
+    for (const turn of turns) {
+      combined.input += turn.input;
+      combined.output += turn.output;
+      combined.cacheRead += turn.cacheRead;
+      combined.cacheWrite += turn.cacheWrite;
+      combined.thinking += turn.thinking;
+    }
+    faremeter.addUsage(combined);
+    return faremeter.getTotalCost();
+  }
+
+  test("Codex then metered shows the metered portion only, not a live-model recast", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now(), "glm-5.1", pricingCache);
+    renderer.render(event("inference.done", { usage: CODEX_USAGE, source: CODEX_SOURCE }));
+    renderer.render(event("inference.done", { usage: METERED_USAGE, source: METERED_SOURCE }));
+    cap.restore();
+
+    const meteredOnly = createFaremeter({ modelId: "glm-5.1", pricingCache });
+    meteredOnly.addUsage(METERED_USAGE);
+    const bar = cap.stderr[cap.stderr.length - 1] ?? "";
+    const recast = recastAtLiveModel("glm-5.1", [CODEX_USAGE, METERED_USAGE]);
+
+    expect(bar).toContain(formatCost(meteredOnly.getTotalCost()));
+    expect(bar).toContain("metered portion only; session mixed billed and hidden usage");
+    expect(bar).not.toContain("covered by ChatGPT subscription");
+    expect(bar).not.toContain(formatCost(recast));
+    expect(meteredOnly.getTotalCost()).toBeLessThan(recast);
+  });
+
+  test("hidden-only Codex still uses subscription copy", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now(), "gpt-5.6-luna", pricingCache);
+    renderer.render(event("inference.done", { usage: CODEX_USAGE, source: CODEX_SOURCE }));
+    cap.restore();
+
+    const bar = cap.stderr[cap.stderr.length - 1] ?? "";
+    expect(bar).toContain("covered by ChatGPT subscription (not billed per token)");
+    expect(bar).not.toMatch(/\$\d/);
   });
 });
