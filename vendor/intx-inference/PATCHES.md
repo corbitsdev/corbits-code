@@ -87,6 +87,15 @@ on the live stream. See `isCommitting` and the docblock on `runInference`.
 above. Classifies which events count as commitment (everything except
 pre-commit metadata).
 
+## providers-openai-ts-null-tool-calls-quirk
+
+`providers/openai.ts` — Adds the opt-in `normalizeNullToolCalls` OpenAI quirk.
+Some OpenAI-compatible chat-completions APIs emit `delta.tool_calls: null`
+to represent an absent tool-call delta. Opted-in sources normalize only that
+field/value to absence before strict chunk validation; the default parser and
+all non-null malformed values remain strict. Verified against upstream main at
+`ee17074a`, which still rejects null and has no equivalent quirk.
+
 ## reactor-ts-ephemeral-turns
 
 `reactor.ts` — `ExtendedInferenceOptions.ephemeralTurns`: turns appended to

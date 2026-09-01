@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 import {
   buildBifrostSource,
+  buildGoSource,
   buildOpenAISource,
   buildXaiSource,
   buildProviderCatalog,
@@ -1175,6 +1176,19 @@ describe("loadConfig", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildGoSource", () => {
+  test("enables null tool_calls normalization for chat-completions models", () => {
+    const source = buildGoSource({
+      id: "opencode-go",
+      apiKey: "sk-go",
+      model: "kimi-k2.7-code",
+    });
+
+    expect(source.provider).toBe("openai-compatible");
+    expect(source.quirks).toEqual({ normalizeNullToolCalls: true });
   });
 });
 

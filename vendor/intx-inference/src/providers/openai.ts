@@ -46,6 +46,10 @@ export const OpenAIQuirks = type({
   // through the same adapter (e.g. OpenCode Zen) still take `max_tokens`.
   // Defaults to `max_tokens` so every existing deployment is unchanged.
   "maxTokensField?": "'max_tokens' | 'max_completion_tokens'",
+  // Locally patched — see vendor/intx-inference/PATCHES.md#providers-openai-ts-null-tool-calls-quirk
+  // Some compatible APIs encode an absent delta.tool_calls as null. Keep the
+  // strict default and normalize that single value only for opted-in sources.
+  "normalizeNullToolCalls?": "boolean",
   // Reject unknown keys so a mistyped quirk name fails loudly at construction
   // rather than being silently ignored and running with default behavior.
   "+": "reject",
@@ -65,6 +69,7 @@ type ResolvedOpenAIQuirks = {
   forceAssistantReasoningContent: boolean;
   reasoningFieldNames: readonly ReasoningField[];
   maxTokensField: "max_tokens" | "max_completion_tokens";
+  normalizeNullToolCalls: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -585,6 +590,7 @@ function parseResponse(
   indexer: OpenAIBlockIndexer,
   source: LastCycleSource,
   reasoningFieldNames: readonly ReasoningField[],
+  normalizeNullToolCalls: boolean,
 ): InferenceEvent[] {
   // parseSSE strips the `[DONE]` sentinel before yielding payloads, so
   // anything that reaches us here is supposed to be a JSON chunk. A
@@ -605,6 +611,21 @@ function parseResponse(
       `openai parseResponse: malformed JSON in SSE data payload: ${message}`,
       sseData,
     );
+  }
+
+  // Locally patched — see vendor/intx-inference/PATCHES.md#providers-openai-ts-null-tool-calls-quirk
+  if (normalizeNullToolCalls && parsed !== null && typeof parsed === "object") {
+    const choices = (parsed as Record<string, unknown>)["choices"];
+    if (Array.isArray(choices)) {
+      for (const choice of choices) {
+        if (choice === null || typeof choice !== "object") continue;
+        const delta = (choice as Record<string, unknown>)["delta"];
+        if (delta === null || typeof delta !== "object") continue;
+        if ((delta as Record<string, unknown>)["tool_calls"] === null) {
+          Reflect.deleteProperty(delta, "tool_calls");
+        }
+      }
+    }
   }
 
   const chunk = OpenAIChunk(parsed);
@@ -1075,6 +1096,7 @@ export function createOpenAIAdapter(
     reasoningFieldNames:
       parsedQuirks.reasoningFieldNames ?? DEFAULT_REASONING_FIELDS,
     maxTokensField: parsedQuirks.maxTokensField ?? "max_tokens",
+    normalizeNullToolCalls: parsedQuirks.normalizeNullToolCalls ?? false,
   };
 
   // Per-request indexer state. Adapter instances are created per
@@ -1097,6 +1119,7 @@ export function createOpenAIAdapter(
         indexer,
         source,
         resolvedQuirks.reasoningFieldNames,
+        resolvedQuirks.normalizeNullToolCalls,
       ),
     parseJSONResponse: (body) =>
       parseJSONResponse(body, source, resolvedQuirks.reasoningFieldNames),

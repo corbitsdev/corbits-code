@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { ProtocolMismatchError } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions } from "@intx/types/runtime";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
@@ -77,6 +78,38 @@ describe("openai-compatible adapter SSE parse count", () => {
     }
 
     expect(calls).toBe(1);
+  });
+});
+
+describe("openai-compatible adapter null tool_calls quirk", () => {
+  const nullToolCallsChunk = JSON.stringify({
+    choices: [{ index: 0, delta: { content: "hello", tool_calls: null } }],
+  });
+
+  test("normalizes null tool_calls when explicitly enabled", () => {
+    const adapter = createOpenAICompatibleAdapter(source, { normalizeNullToolCalls: true });
+
+    expect(adapter.parseResponse(nullToolCallsChunk)).toContainEqual({
+      type: "inference.text.delta",
+      seq: 0,
+      data: { token: "hello", partial: { text: "" }, index: 0 },
+    });
+  });
+
+  test("rejects null tool_calls by default", () => {
+    const adapter = createOpenAICompatibleAdapter(source);
+    expect(() => adapter.parseResponse(nullToolCallsChunk)).toThrow(ProtocolMismatchError);
+  });
+
+  test("rejects malformed non-null tool_calls with the quirk enabled", () => {
+    const adapter = createOpenAICompatibleAdapter(source, { normalizeNullToolCalls: true });
+    expect(() =>
+      adapter.parseResponse(
+        JSON.stringify({
+          choices: [{ index: 0, delta: { content: "hello", tool_calls: "invalid" } }],
+        }),
+      ),
+    ).toThrow(ProtocolMismatchError);
   });
 });
 
