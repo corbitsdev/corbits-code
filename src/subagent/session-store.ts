@@ -623,12 +623,16 @@ export function createSubAgentSessionStore(
       };
       const check = (): void => {
         const session = sessions.get(id);
-        if (session === undefined || isAlreadyClosed(session.lifecycle)) {
+        if (session === undefined) {
           finish(undefined);
           return;
         }
         const close = closeHandles.get(id);
-        if (close !== undefined) finish(close);
+        if (close !== undefined) {
+          finish(close);
+          return;
+        }
+        if (isAlreadyClosed(session.lifecycle)) finish(undefined);
       };
       listeners.add(listener);
       const timer = setTimeout(() => finish(closeHandles.get(id)), deadlineMs);
@@ -694,7 +698,8 @@ export function createSubAgentSessionStore(
         if (
           still.lifecycle.state === "shutdown" ||
           still.lifecycle.state === "cancelled" ||
-          still.lifecycle.state === "failed"
+          still.lifecycle.state === "failed" ||
+          still.lifecycle.state === "interrupted"
         ) {
           runInFlight.delete(id);
           return;
@@ -936,11 +941,18 @@ export function createSubAgentSessionStore(
       // always passes this flag explicitly (see its call site).
       const agentRetained = opts?.agentRetained ?? true;
       mutate(id, (session) => {
-        // Cancel wins races: a late complete after operator cancel must not
-        // resurrect the session as done.
-        if (!isLiveStrip(session.lifecycle) || session.lifecycle.state === "cancelled") return;
-        // Interrupted is still strip-live; a settling run may complete. Operator
-        // cancel is not live for this path because state is cancelled.
+        // Cancel and interrupt_agent win races: a late complete must not
+        // resurrect the session as done. Interrupted is still strip-live
+        // (linger), so it needs an explicit check. Salvage bodies attach via
+        // attachReport without changing state. send_input interrupt:true
+        // followup goes through beginFollowupTurn (running) and still completes.
+        if (
+          !isLiveStrip(session.lifecycle) ||
+          session.lifecycle.state === "cancelled" ||
+          session.lifecycle.state === "interrupted"
+        ) {
+          return;
+        }
         session.lifecycle = { state: "completed", report };
         if (!agentRetained) session.retained = false;
         session.finishedAt = now();
@@ -961,14 +973,11 @@ export function createSubAgentSessionStore(
     fail(id: string, error: string): void {
       mutate(id, (session) => {
         if (!isLiveStrip(session.lifecycle) || session.lifecycle.state === "cancelled") return;
-        // A thrown run always tears down its agent in run.ts's finally
-        // (persist only skips teardown on a clean success) — so there is
-        // nothing left to resume here, and retained no longer applies.
-        // CL-7001: a deadline/cancel salvage does NOT throw — it returns a
-        // report through the same success path a clean completion uses, so
-        // it never reaches this function. complete() carries the equivalent
-        // "agent was actually disposed" check for that case via its
-        // agentRetained flag; this function only ever needed to cover throws.
+        // Spawn-path throws already dispose in run.ts's finally. Resume of a
+        // persisted agent does not: the live close handle is the only teardown.
+        // Invoke it fire-and-forget (same as prune/evict) without marking
+        // shutdown — fail stays fail, and an already-disposed spawn close is
+        // best-effort idempotent.
         session.lifecycle = { state: "failed", error };
         session.retained = false;
         session.finishedAt = now();
@@ -978,9 +987,8 @@ export function createSubAgentSessionStore(
           kind: "report",
           content: capText(`Error: ${error}`, maxEntryChars),
         });
-        cancelHandles.delete(id);
-        closeHandles.delete(id);
         runInFlight.delete(id);
+        releaseHandles(id);
         pruneCompleted();
       });
     },
@@ -1016,8 +1024,11 @@ export function createSubAgentSessionStore(
         if (evicted.has(id)) return "shutdown";
         return "not_found";
       }
-      if (isAlreadyClosed(session.lifecycle)) return projectLifecycleStatus(session.lifecycle);
       let close = closeHandles.get(id);
+      const alreadyClosed = isAlreadyClosed(session.lifecycle);
+      if (alreadyClosed && close === undefined) {
+        return projectLifecycleStatus(session.lifecycle);
+      }
       if (close === undefined) {
         // CL-7001: close_agent landed in the setup window — the session
         // exists but createAgentWithLiveToolDispatch hasn't finished and
@@ -1029,16 +1040,14 @@ export function createSubAgentSessionStore(
         close = await waitForCloseHandle(id, deadlineMs);
         const stillHere = sessions.get(id);
         if (stillHere === undefined) return "not_found";
-        if (isAlreadyClosed(stillHere.lifecycle)) {
-          return projectLifecycleStatus(stillHere.lifecycle);
-        }
         if (close === undefined) {
-          // Never became closeable within the deadline: report the honest
-          // in-progress status rather than a false "shutdown" — the caller
-          // can retry, and this session is still findable to retry against.
+          // Never became closeable within the deadline, or fail() already
+          // released the handle: report the honest stored status rather
+          // than a false "shutdown".
           return projectLifecycleStatus(stillHere.lifecycle);
         }
       }
+      const keepFailed = isAlreadyClosed((sessions.get(id) ?? session).lifecycle);
       closeHandles.delete(id);
       // Bounded here too, defense-in-depth against a caller-registered
       // close that does not honor its own deadline argument — a wedged
@@ -1051,6 +1060,18 @@ export function createSubAgentSessionStore(
         }),
         new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
       ]);
+      if (keepFailed) {
+        // fail() already stamped failed; invoke leftover teardown without
+        // rewriting that to shutdown.
+        cancelHandles.delete(id);
+        interruptHandles.delete(id);
+        followupHandles.delete(id);
+        deliverHandles.delete(id);
+        runInFlight.delete(id);
+        pruneCompleted();
+        const after = sessions.get(id);
+        return after === undefined ? "not_found" : projectLifecycleStatus(after.lifecycle);
+      }
       mutate(id, (s) => {
         const wasLive = isLiveStrip(s.lifecycle);
         const error = s.error ?? (wasLive ? "Closed by close_agent" : undefined);

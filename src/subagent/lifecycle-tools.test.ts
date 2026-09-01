@@ -132,9 +132,9 @@ describe("resume_agent", () => {
 
     finish("done, history now 2 turns");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(sessions.get(retained.id)?.lifecycleStatus).toBe("completed");
+    expect(sessions.get(retained.id)?.lifecycleStatus).toBe("interrupted");
     expect(sessions.get(retained.id)?.id).toBe(retained.id);
-    expect(sessions.get(retained.id)?.report).toBe("done, history now 2 turns");
+    expect(sessions.get(retained.id)?.report).toBe("## Summary\nDone.");
 
     if (resumeAgent.kind !== "full") throw new Error("expected full tool");
     const rejected = await resumeAgent.handler(
@@ -297,6 +297,40 @@ describe("resume_agent", () => {
     const results = collected.results as { status: string; report?: string }[];
     expect(results[0]!.status).toBe("done");
     expect(results[0]!.report).toBe("second report");
+  });
+
+  test("resume followup rejection invokes close; close_agent tears down leftover", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    let closeCalls = 0;
+    sessions.registerClose(worker.id, async () => {
+      closeCalls++;
+    });
+    sessions.registerFollowup(worker.id, async () => {
+      throw new Error("send failed");
+    });
+    sessions.complete(worker.id, "first report");
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    const closeAgent = createCloseAgentTool({ sessions, fleetRecords });
+    const resumed = await callTool(resumeAgent, { target: worker.id, message: "again" });
+    expect(resumed.status).toBe("running");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closeCalls).toBe(1);
+    expect(sessions.get(worker.id)?.lifecycle.state).toBe("failed");
+
+    const started = Date.now();
+    const closed = await callTool(closeAgent, { target: worker.id });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(closed.status).toBe("shutdown");
+    expect(sessions.get(worker.id)?.lifecycle.state).toBe("failed");
+    expect(closeCalls).toBe(1);
   });
 });
 

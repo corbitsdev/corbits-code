@@ -129,10 +129,11 @@ class FleetMailbox {
 
   register(id: string): void {
     const existing = this.records.get(id);
-    const alreadyPinned =
-      existing !== undefined && existing.collected !== true && existing.pinHeld === true;
+    // start() drops pinCounts on call-id reuse. Re-pin whenever the overlay
+    // thought it still held a pin, so wait cannot desync against an empty map.
+    if (existing?.pinHeld === true) this.sessions.unpin(id);
     this.records.set(id, { pinHeld: true });
-    if (!alreadyPinned) this.sessions?.pin(id);
+    this.sessions.pin(id);
     this.enforceCap();
   }
 
@@ -212,7 +213,7 @@ class FleetMailbox {
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
     if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
     if (overlay.forceInterrupted === true) return "interrupted";
-    return this.sessionWaitStatus(id) ?? "running";
+    return this.sessionWaitStatus(id) ?? "interrupted";
   }
 
   snapshot(id: string): FleetRecord {
@@ -220,8 +221,21 @@ class FleetMailbox {
     if (overlay === undefined) {
       return { status: "running" };
     }
+    const session = this.sessions.get(id);
+    if (
+      session === undefined &&
+      overlay.tombstoned !== true &&
+      overlay.frozenStatus === undefined
+    ) {
+      overlay.tombstoned = true;
+      overlay.hint = RECOVERY_HINT;
+      overlay.frozenStatus = "interrupted";
+      if (overlay.pinHeld === true) {
+        overlay.pinHeld = false;
+        this.sessions.unpin(id);
+      }
+    }
     const status = this.projectedStatus(id, overlay);
-    const session = this.sessions?.get(id);
     const sessionWait = this.sessionWaitStatus(id);
     const payload =
       overlay.tombstoned !== true && session !== undefined && sessionWait === status

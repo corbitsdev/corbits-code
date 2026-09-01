@@ -415,6 +415,59 @@ describe("wait mailbox session tombstone and pin", () => {
     expect(results[0]!.report).toBeUndefined();
     expect(results[0]!.hint).toContain("read_agent_trace");
   });
+
+  test("spawn_agent call.id reuse still pins the new session", async () => {
+    let t = 0;
+    const sessions = createSubAgentSessionStore({
+      maxCompleted: 1,
+      now: () => ++t,
+    });
+    const deps = makeDeps(async () => ({ report: "ok" }), { sessions });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions, fleetRecords: deps.fleetRecords });
+    if (spawn.kind !== "full") throw new Error("expected full tool");
+    const args = { description: "job", prompt: "do it", intent: "explore" };
+    const signal = new AbortController().signal;
+
+    await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const extra1 = sessions.start({ description: "flood-1", agentId: "a", brief: "b" });
+    sessions.complete(extra1.id, "flood-1");
+    const extra2 = sessions.start({ description: "flood-2", agentId: "a", brief: "b" });
+    sessions.complete(extra2.id, "flood-2");
+
+    expect(sessions.get("reuse-id")).toBeDefined();
+    const waited = await callTool(wait, { targets: ["reuse-id"], timeout_ms: 1000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string }[];
+    expect(results[0]!.status).toBe("done");
+  });
+
+  test("wait on a pruned mailbox member is tombstone not eternal running", () => {
+    let t = 0;
+    const sessions = createSubAgentSessionStore({
+      maxCompleted: 1,
+      now: () => ++t,
+    });
+    const mailbox = createFleetMailbox(sessions);
+    sessions.start({ id: "reuse", description: "old", agentId: "a", brief: "b" });
+    mailbox.register("reuse");
+    sessions.complete("reuse", "old report");
+    sessions.start({ id: "reuse", description: "new", agentId: "a", brief: "b" });
+    sessions.complete("reuse", "new report");
+    const extra = sessions.start({ description: "other", agentId: "a", brief: "b" });
+    sessions.complete(extra.id, "other");
+    const extra2 = sessions.start({ description: "prune", agentId: "a", brief: "b" });
+    sessions.complete(extra2.id, "prune");
+    expect(sessions.get("reuse")).toBeUndefined();
+    const snap = mailbox.peek("reuse");
+    expect(snap?.status).not.toBe("running");
+    expect(snap?.tombstoned).toBe(true);
+    expect(snap?.hint).toContain("read_agent_trace");
+  });
 });
 
 describe("spawn_agent parentage", () => {

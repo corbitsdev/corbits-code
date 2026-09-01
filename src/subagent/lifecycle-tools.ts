@@ -121,7 +121,7 @@ export type CloseAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetMailboxHandle;
 };
 
-/** interrupt_agent always terminalizes the wait mailbox — no silent skip. */
+/** interrupt_agent stamps session interrupted; wait JSON projects that lifecycle. */
 export type InterruptAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetMailboxHandle;
 };

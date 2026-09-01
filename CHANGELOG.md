@@ -21,6 +21,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   Dedicated Nordic å in `/model` is treated as that shortcut when Add
   Provider is offered.
 
+### Changed
+
+- Cancelling a `task` or `wait_agents` worker reports wait status `interrupted`,
+  not `failed`.
+
 ### Fixed
 
 - Codex ChatGPT subscription sessions no longer show a public-rate dollar
