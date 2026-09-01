@@ -42,6 +42,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   API endpoints keep dollar estimates.
 - CLI `--help` / `-h` is recognized in any argument position. Value flags no
   longer swallow `--*` or `-h` as their option values.
+- `wait_agents` no longer collects a stale completed or interrupted stamp
+  when a followup is already in flight.
 
 ## [0.3.11] - 2026-08-31
 

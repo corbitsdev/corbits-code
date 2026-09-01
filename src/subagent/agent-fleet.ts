@@ -1221,7 +1221,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         return {
           agent_id: id,
           status: taken.status,
-          ...(taken.report !== undefined ? { report: taken.report } : {}),
+          ...(taken.status !== "failed" && taken.report !== undefined
+            ? { report: taken.report }
+            : {}),
           ...(taken.error !== undefined ? { error: taken.error } : {}),
           ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
         };
