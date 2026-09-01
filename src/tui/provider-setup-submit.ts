@@ -9,6 +9,11 @@ import {
   saveLocalSettings,
   type Settings,
 } from "../config/settings.js";
+import {
+  isOllamaProviderId,
+  normalizeOllamaRootURL,
+  ollamaOpenAIBaseURL,
+} from "../provider/ollama.js";
 import { validateProviderConnection } from "../provider/validate-connection.js";
 import type { ProviderSetupSubmit } from "./provider-setup.js";
 
@@ -51,6 +56,9 @@ export function buildProviderSubmitHandler(
     const trimmedBaseURL = baseURL.trim();
     const trimmedKey = apiKey.trim();
     const selectedModel = model.trim();
+    const isOllama = preset !== undefined && isOllamaProviderId(preset.id);
+    const effectiveApiKey = isOllama || trimmedKey.length === 0 ? undefined : trimmedKey;
+    const persistedBaseURL = isOllama ? normalizeOllamaRootURL(trimmedBaseURL) : trimmedBaseURL;
 
     // OAuth credentials stay staged until setup validation authorizes durable
     // persistence. Definitive API-scope or credential failures block the save;
@@ -89,7 +97,7 @@ export function buildProviderSubmitHandler(
     // Reject an empty key here rather than silently downgrading it to
     // `keyless: true` and letting resolveProvider skip the missing-key check
     // entirely.
-    if (preset !== undefined && trimmedKey.length === 0) {
+    if (preset !== undefined && !isOllama && trimmedKey.length === 0) {
       throw new Error(`${providerName || preset.id} requires an API key.`);
     }
 
@@ -100,8 +108,8 @@ export function buildProviderSubmitHandler(
     // /models with a bearer token, which that surface always rejects.
     if (!skipValidation && preset?.anthropic !== true) {
       const check = await validateProviderConnection({
-        baseURL: trimmedBaseURL,
-        apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
+        baseURL: isOllama ? ollamaOpenAIBaseURL(persistedBaseURL) : persistedBaseURL,
+        apiKey: effectiveApiKey,
       });
       if (!check.ok) {
         throw new Error(check.error);
@@ -117,10 +125,10 @@ export function buildProviderSubmitHandler(
         ? [...preset.models]
         : [selectedModel];
     const newProvider = {
-      baseURL: trimmedBaseURL,
+      baseURL: persistedBaseURL,
       models,
       defaultModel: selectedModel,
-      ...(trimmedKey.length > 0 ? { apiKey: trimmedKey } : { keyless: true }),
+      ...(effectiveApiKey !== undefined ? { apiKey: effectiveApiKey } : { keyless: true }),
       ...(preset?.anthropic === true ? { anthropic: true } : {}),
       ...(preset?.opencodeGo === true ? { opencodeGo: true } : {}),
       // "Save anyway" (Ctrl+S) persists a credential the connection test

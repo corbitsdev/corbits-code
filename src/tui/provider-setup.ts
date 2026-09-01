@@ -33,6 +33,12 @@ import type { AuthProfile } from "../auth/oauth/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import type { XaiTokens } from "../auth/xai/store.js";
 import { PRODUCT_NAME } from "../branding.js";
+import {
+  discoverOllamaModels as discoverOllamaModelsRequest,
+  isOllamaProviderId,
+  ollamaDiscoveryFailureLine,
+  type OllamaDiscoveryState,
+} from "../provider/ollama.js";
 import { codexProviderName } from "../config/codex-providers.js";
 import { xaiProviderName } from "../config/xai-providers.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
@@ -90,6 +96,9 @@ export type SetupStep = "provider" | "name" | "baseURL" | "apiKey" | "model" | "
 /** Known-provider path: pick, name the instance, paste key, pick model. */
 export const PRESET_STEPS: readonly SetupStep[] = ["provider", "name", "apiKey", "model"];
 
+/** Ollama is keyless and keeps its editable root URL visible before discovery. */
+export const OLLAMA_STEPS: readonly SetupStep[] = ["provider", "name", "baseURL", "model"];
+
 /**
  * Subscription path: pick, name the account (a suggested slug is prefilled;
  * reusing an existing name asks for confirmation before re-authorizing it),
@@ -118,7 +127,7 @@ const STEP_LABELS: Record<SetupStep, string> = {
 const STEP_PROMPTS: Record<SetupStep, string> = {
   provider: "pick the provider you have a key or subscription for",
   name: "name this provider — you will see it in /model",
-  baseURL: "paste the api base url, including /v1 if it needs one",
+  baseURL: "paste the provider url — Ollama uses the server root; others may include /v1",
   apiKey: "paste the api key — leave blank for a keyless local endpoint",
   model: "pick the model to start with",
   login: "authorize in the browser — this window waits for you",
@@ -296,7 +305,7 @@ const CUSTOM_CHOICE: ProviderChoice = {
 };
 
 function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
-  if (def.auth !== "api-key") return null;
+  if (def.auth !== "api-key" && def.auth !== "keyless") return null;
   if (def.baseURL === undefined || def.models === undefined) return null;
   const defaultModel = def.defaultModel ?? def.models[0];
   if (defaultModel === undefined) return null;
@@ -481,6 +490,7 @@ export function modelFromRowId(providerId: string, rowId: string): string {
 export function stepsFor(choice: ProviderChoice | null): readonly SetupStep[] {
   if (choice === null) return PRESET_STEPS;
   if (choice.custom) return CUSTOM_STEPS;
+  if (isOllamaProviderId(choice.id)) return OLLAMA_STEPS;
   return choice.oauth !== null ? OAUTH_STEPS : PRESET_STEPS;
 }
 
@@ -719,6 +729,8 @@ export interface ProviderSetupConfig {
   readonly listOAuthProfiles?: OAuthProfileLister;
   /** Sign-in deadline override, in milliseconds. */
   readonly loginTimeoutMs?: number;
+  /** Ollama discovery override for deterministic setup tests. */
+  readonly discoverOllamaModels?: typeof discoverOllamaModelsRequest;
   /**
    * Skip the provider pick-list and start directly on that provider's first
    * form step (account name for multi-instance kinds, or the custom name
@@ -820,6 +832,11 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   // never write into the wrong step's state.
   let oauthNameAttempt = 0;
 
+  const discoverOllamaModels = config.discoverOllamaModels ?? discoverOllamaModelsRequest;
+  let ollamaDiscovery: "idle" | "loading" | OllamaDiscoveryState = "idle";
+  let ollamaDiscoveryAttempt = 0;
+  let ollamaDiscoveryAbort: AbortController | null = null;
+
   if (config.initialProviderId !== undefined) {
     const preselected = choices.find((c) => c.id === config.initialProviderId);
     if (preselected !== undefined) {
@@ -855,9 +872,14 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
 
   const steps = (): readonly SetupStep[] => stepsFor(choice);
   const currentStep = (): SetupStep => steps()[stepIndex] ?? ("provider" as SetupStep);
+  const isOllamaModelStep = (): boolean =>
+    currentStep() === "model" && choice !== null && isOllamaProviderId(choice.id);
   const isListStep = (): boolean => {
     const step = currentStep();
     if (step === "provider") return true;
+    if (isOllamaModelStep()) {
+      return typeof ollamaDiscovery === "object" && ollamaDiscovery.status === "models";
+    }
     return step === "model" && choice !== null && !choice.custom && !typedModel;
   };
   // The "name" step means two different things depending on the path: a
@@ -1120,6 +1142,28 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   };
 
   const paintStatus = (): void => {
+    if (!submitting && isOllamaModelStep() && ollamaDiscovery !== "idle") {
+      if (ollamaDiscovery === "loading") {
+        const ramp = rampFor({ phase: "working", nowMs: Date.now() });
+        statusLine.content = rampLine(ramp, "checking installed Ollama models");
+        statusLine.fg = ramp.fg;
+        guidance.content = "esc to edit the Ollama URL";
+        return;
+      }
+      if (ollamaDiscovery.status !== "models") {
+        const empty = ollamaDiscovery.status === "empty";
+        const malformed = ollamaDiscovery.status === "malformed";
+        const ramp = rampFor({ phase: "blocked", nowMs: 0 });
+        statusLine.content = rampLine(ramp, ollamaDiscoveryFailureLine(ollamaDiscovery));
+        statusLine.fg = ramp.fg;
+        guidance.content = empty
+          ? "pull a model, then press enter to retry · esc to edit url"
+          : malformed
+            ? "check the Ollama URL, then press enter to retry · esc to edit url"
+            : "press enter to retry · esc to edit url";
+        return;
+      }
+    }
     if (!submitting && isAccountNameStep()) {
       if (oauthProfileError !== null) {
         const ramp = rampFor({ phase: "blocked", nowMs: 0 });
@@ -1203,6 +1247,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       footer.content = "ctrl+c cancel";
       return;
     }
+    if (isOllamaModelStep() && !isListStep()) {
+      footer.content = "enter retry · esc edit url · ctrl+c cancel";
+      return;
+    }
     if (isLoginStep()) {
       footer.content =
         loginStatus === "failed"
@@ -1227,7 +1275,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     paintSummary();
     paintList();
     paintLogin();
-    const showInput = !isListStep() && !isLoginStep() && !submitting;
+    const showInput = !isListStep() && !isLoginStep() && !isOllamaModelStep() && !submitting;
     inputFrame.visible = showInput;
     input.visible = showInput;
     paintStatus();
@@ -1236,9 +1284,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
 
   const showStep = (): void => {
     const active = currentStep();
-    if (isListStep() || isLoginStep()) {
+    if (isListStep() || isLoginStep() || isOllamaModelStep()) {
       input.blur();
       paint();
+      if (isOllamaModelStep() && ollamaDiscovery === "idle") beginOllamaDiscovery();
       // Arriving on the sign-in step is the trigger: there is nothing to type,
       // so the flow starts itself rather than waiting for a keystroke.
       if (isLoginStep() && loginStatus === "idle") beginLogin();
@@ -1300,9 +1349,16 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     rampTimer = null;
   };
 
+  const abandonOllamaDiscovery = (): void => {
+    ollamaDiscoveryAttempt += 1;
+    ollamaDiscoveryAbort?.abort();
+    ollamaDiscoveryAbort = null;
+  };
+
   const teardown = (): void => {
     stopRamp();
     abandonLogin();
+    abandonOllamaDiscovery();
     renderer.keyInput.off("keypress", onKey);
     input.off(InputRenderableEvents.ENTER, onEnter);
     input.off(InputRenderableEvents.INPUT, onInput);
@@ -1448,6 +1504,60 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     paint();
   };
 
+  const beginOllamaDiscovery = (): void => {
+    if (!isOllamaModelStep()) return;
+    abandonOllamaDiscovery();
+    const attempt = ollamaDiscoveryAttempt;
+    const rootURL = values.baseURL;
+    const abort = new AbortController();
+    ollamaDiscoveryAbort = abort;
+    ollamaDiscovery = "loading";
+    stopRamp();
+    rampTimer = setInterval(paintStatus, RAMP_TICK_MS);
+    paint();
+    discoverOllamaModels({ rootURL, signal: abort.signal }).then(
+      (result) => {
+        if (
+          settled ||
+          attempt !== ollamaDiscoveryAttempt ||
+          values.baseURL !== rootURL ||
+          !isOllamaModelStep()
+        ) {
+          return;
+        }
+        stopRamp();
+        ollamaDiscoveryAbort = null;
+        ollamaDiscovery = result;
+        if (result.status === "models" && choice !== null) {
+          values.model = result.models[0] ?? "";
+          // Seed the catalog choice so submit persists every installed model,
+          // not only the one picked on this screen.
+          choice = { ...choice, models: [...result.models], defaultModel: values.model };
+          listRows = modelChoiceRows(choice).filter((row) => row.id !== TYPE_MODEL_ID);
+          list = createListViewport({ count: listRows.length, height: listHeight() });
+        }
+        paint();
+      },
+      (err: unknown) => {
+        if (
+          settled ||
+          attempt !== ollamaDiscoveryAttempt ||
+          values.baseURL !== rootURL ||
+          !isOllamaModelStep()
+        ) {
+          return;
+        }
+        stopRamp();
+        ollamaDiscoveryAbort = null;
+        ollamaDiscovery = {
+          status: "malformed",
+          message: err instanceof Error ? err.message : String(err),
+        };
+        paint();
+      },
+    );
+  };
+
   const submit = (skipValidation: boolean): void => {
     submitting = true;
     submitPhase = "testing";
@@ -1498,7 +1608,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   const chooseProvider = (id: string): void => {
     const picked = providerChoiceById(id);
     if (picked === undefined) return;
+    abandonOllamaDiscovery();
+    ollamaDiscovery = "idle";
     choice = picked;
+    values.apiKey = "";
     typedModel = false;
     oauthProfileError = null;
     oauthProfileConfirmPending = false;
@@ -1570,6 +1683,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   const advance = (): void => {
     if (isListStep()) {
       acceptListRow();
+      return;
+    }
+    if (isOllamaModelStep()) {
+      if (ollamaDiscovery !== "loading") beginOllamaDiscovery();
       return;
     }
     if (isLoginStep()) {
@@ -1660,6 +1777,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
 
   const back = (): void => {
     if (stepIndex === 0) return;
+    if (isOllamaModelStep()) {
+      abandonOllamaDiscovery();
+      ollamaDiscovery = "idle";
+    }
     stepIndex -= 1;
     clearError();
     if (currentStep() === "provider") enterProviderList();
@@ -1737,6 +1858,11 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
         key.preventDefault();
         advance();
       }
+      return;
+    }
+    if (isOllamaModelStep() && !isListStep() && (key.name === "return" || key.name === "enter")) {
+      key.preventDefault();
+      advance();
       return;
     }
     if (!isListStep()) return;

@@ -81,6 +81,13 @@ afterEach(() => {
 });
 
 describe("provider setup pure helpers", () => {
+  test("offers Ollama as a keyless provider with an editable root URL", () => {
+    const ollama = providerChoiceById("ollama");
+    expect(ollama).toBeDefined();
+    expect(ollama?.baseURL).toBe("http://localhost:11434");
+    expect(stepsFor(ollama ?? null)).toEqual(["provider", "name", "baseURL", "model"]);
+  });
+
   test("only the API key may be left blank", () => {
     expect(stepReady("name", "")).toBe(false);
     expect(stepReady("name", "  ")).toBe(false);
@@ -175,7 +182,7 @@ describe("provider setup pure helpers", () => {
     for (const choice of choices) {
       if (choice.custom) continue;
       expect(choice.baseURL.length).toBeGreaterThan(0);
-      expect(choice.defaultModel.length).toBeGreaterThan(0);
+      if (choice.id !== "ollama") expect(choice.defaultModel.length).toBeGreaterThan(0);
     }
     expect(providerChoiceRows(choices)[0]?.label).toContain("OpenAI");
   });
@@ -441,6 +448,201 @@ async function nameOAuthAccount(harness: Harness, name?: string): Promise<void> 
   harness.pressKey("Enter");
   await flush(harness);
 }
+
+describe("runProviderSetup Ollama discovery", () => {
+  test("clears an API key when switching from OpenAI to Ollama", async () => {
+    const seen: ProviderFormValues[] = [];
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: async (values) => {
+        seen.push({ ...values });
+      },
+      showTelemetryNotice: false,
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async () => ({ status: "models", models: ["qwen3"] }),
+    });
+    await harness.renderOnce();
+
+    await pickRow(harness, PROVIDER_IDS, "openai");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    type(harness, "sk-stale-secret");
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    await pressEscape(harness);
+    await pressEscape(harness);
+    await pressEscape(harness);
+
+    const openAIIndex = PROVIDER_IDS.indexOf("openai");
+    const ollamaIndex = PROVIDER_IDS.indexOf("ollama");
+    const key = ollamaIndex < openAIIndex ? "ARROW_UP" : "ARROW_DOWN";
+    for (let i = 0; i < Math.abs(ollamaIndex - openAIIndex); i++) harness.pressKey(key);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    expect(await done).toBe(true);
+    expect(seen[0]?.apiKey).toBe("");
+  });
+
+  test("distinguishes empty, unavailable, and malformed states and ignores stale retries", async () => {
+    const pending: ((
+      state:
+        | { status: "empty" }
+        | { status: "unavailable"; message: string }
+        | { status: "malformed"; message: string }
+        | { status: "models"; models: string[] },
+    ) => void)[] = [];
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        }),
+    });
+    await flush(harness);
+
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    pending[0]?.({ status: "empty" });
+    await flush(harness);
+    expect(harness.captureCharFrame()).toContain("Ollama is running, but no models are installed");
+
+    harness.pressKey("Enter");
+    await flush(harness);
+    pending[1]?.({ status: "unavailable", message: "connection refused" });
+    await flush(harness);
+    expect(harness.captureCharFrame()).toContain("Ollama is not running");
+
+    harness.pressKey("Enter");
+    await flush(harness);
+    pending[2]?.({ status: "malformed", message: "data must be an array" });
+    await flush(harness);
+    expect(harness.captureCharFrame()).toContain("Ollama returned an invalid models response");
+    expect(harness.captureCharFrame()).not.toContain("Ollama is not running");
+
+    harness.pressKey("Enter");
+    await flush(harness);
+    await pressEscape(harness);
+    for (let i = 0; i < 80; i++) harness.pressKey("Backspace");
+    type(harness, "http://remote:11434");
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    pending[4]?.({ status: "models", models: ["current-model"] });
+    await flush(harness);
+    pending[3]?.({ status: "models", models: ["stale-model"] });
+    await flush(harness);
+    expect(harness.captureCharFrame()).toContain("current-model");
+    expect(harness.captureCharFrame()).not.toContain("stale-model");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
+  test("accepts a pasted /v1 URL and persists the discovered catalog", async () => {
+    const seen: ProviderFormValues[] = [];
+    const opts: SubmitOpts[] = [];
+    const seenRoots: string[] = [];
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: async (values, _setPhase, o) => {
+        seen.push({ ...values });
+        opts.push(o);
+      },
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async ({ rootURL }) => {
+        seenRoots.push(rootURL);
+        return { status: "models", models: ["qwen3", "deepseek-r1"] };
+      },
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    for (let i = 0; i < 80; i++) harness.pressKey("Backspace");
+    type(harness, "http://localhost:11434/v1");
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("qwen3");
+    expect(frame).toContain("deepseek-r1");
+    expect(frame).not.toContain("Ollama returned an invalid models response");
+    expect(seenRoots).toEqual(["http://localhost:11434/v1"]);
+
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("qwen3");
+    expect(opts[0]?.preset?.models).toEqual(["qwen3", "deepseek-r1"]);
+  });
+
+  test("paints HTTP 503 instead of a canned not-running line", async () => {
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async () => ({
+        status: "unavailable",
+        message: "Ollama returned HTTP 503",
+      }),
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("Ollama returned HTTP 503");
+    expect(frame).not.toContain("Ollama is not running");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
+  test("a rejected discovery promise leaves the UI off the loading line", async () => {
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async () => {
+        throw new Error("boom");
+      },
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).not.toContain("checking installed Ollama models");
+    expect(frame).toContain("Ollama returned an invalid models response");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+});
 
 describe("runProviderSetup renderer ownership", () => {
   test("does not destroy a caller-supplied renderer on cancel", async () => {

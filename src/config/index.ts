@@ -38,6 +38,7 @@ import {
   GROK_USER_ID_OPTION,
 } from "../provider/grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
+import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,
@@ -183,7 +184,9 @@ export function buildOpenAISource(fields: {
   return {
     id: fields.id,
     provider: "openai-compatible",
-    baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
+    baseURL: isOllamaProviderId(fields.id)
+      ? ollamaOpenAIBaseURL(fields.baseURL)
+      : normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey:
       fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
     model: fields.model,

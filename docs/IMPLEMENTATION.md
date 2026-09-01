@@ -282,6 +282,23 @@ OpenAI-compatible `baseURL` values are normalized during provider resolution. A 
 
 `--config` composes with, rather than replaces, the home-level OAuth profile catalog: codex/xai credentials live in `~/.corbits/codex-auth.json` and `xai-auth.json`, entirely separate from settings.json, and are merged into the resolved provider catalog on every run regardless of `--config` (CL-6973). A `--config` file that names a `codex/*` or `xai/*` provider by ID does not by itself grant that provider's credentials — those come from the OAuth store whenever a matching profile exists there, independent of which settings file supplied the provider definitions. The only way to fully exclude the home OAuth catalog is the programmatic `globalSettingsPath` option to `loadConfig`, used by tests for full isolation; it is not exposed as a CLI flag.
 
+### Ollama Provider Setup
+
+Ollama is a first-class provider with no API-key field. Its setup form accepts an
+editable server root and defaults it to `http://localhost:11434`. Corbits
+projects that root to the OpenAI-compatible base URL `<root>/v1`; it does not
+ask the user to enter `/v1` themselves. Model discovery sends
+`GET <root>/v1/models` and uses the returned catalog rather than a static model
+list.
+
+Discovery failures preserve three separate states. A request that cannot reach
+Ollama is expected and nonfatal, leaving setup available to edit the root or
+retry after starting the server. A reachable server whose catalog is empty
+instructs the user to pull at least one model before retrying. A reachable
+response that cannot be parsed as the model catalog is reported as malformed,
+not as an unavailable or empty server. Corbits documents only those runtime
+prerequisites; Ollama installation remains outside this flow.
+
 ### Profiles (`src/config/profiles.ts`)
 
 Profiles supply per-project or named-profile overrides for `model` and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).

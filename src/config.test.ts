@@ -1213,11 +1213,32 @@ describe("buildOpenAISource", () => {
     });
   });
 
-  test("substitutes a placeholder apiKey when none is provided (keyless)", () => {
+  test("projects an Ollama root URL to the OpenAI-compatible /v1 endpoint", () => {
+    const source = buildOpenAISource({
+      id: "ollama/default",
+      baseURL: "http://localhost:11434",
+      model: "qwen3",
+    });
+
+    expect(source.provider).toBe("openai-compatible");
+    expect(source.baseURL).toBe("http://localhost:11434/v1");
+  });
+
+  test("projects a legacy Ollama /v1 URL without doubling the path", () => {
     const source = buildOpenAISource({
       id: "ollama",
       baseURL: "http://localhost:11434/v1",
       model: "llama3",
+    });
+
+    expect(source.baseURL).toBe("http://localhost:11434/v1");
+  });
+
+  test("substitutes a placeholder apiKey when none is provided (keyless)", () => {
+    const source = buildOpenAISource({
+      id: "local",
+      baseURL: "http://localhost:8080/v1",
+      model: "local-model",
     });
     expect(source.apiKey).toBe(KEYLESS_API_KEY);
   });

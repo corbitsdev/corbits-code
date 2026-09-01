@@ -16,6 +16,7 @@ describe("FIRST_CLASS_PROVIDERS", () => {
       "zai",
       "anthropic",
       "google",
+      "ollama",
       "custom",
     ]);
   });
@@ -69,6 +70,13 @@ describe("FIRST_CLASS_PROVIDERS", () => {
       expect(def.defaultModel?.length ?? 0).toBeGreaterThan(0);
       expect(def.models).toContain(def.defaultModel);
     }
+  });
+
+  test("Ollama is explicitly keyless and ships its root URL with no static model fallback", () => {
+    const ollama = firstClassProviderById("ollama");
+    expect(ollama?.auth).toBe("keyless");
+    expect(ollama?.baseURL).toBe("http://localhost:11434");
+    expect(ollama?.models).toEqual([]);
   });
 
   test("Z.AI Coding Plan uses coding paas base URL", () => {
