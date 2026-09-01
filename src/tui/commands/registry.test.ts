@@ -141,7 +141,65 @@ describe("registerCommandPlugin", () => {
     expect(getCommand("live-plugin-cmd")).toBeUndefined();
 
     active = true;
+    expect(listCommands().map((command) => command.name)).toContain("live-plugin-cmd");
     expect(getCommand("live-plugin-cmd")).toBeDefined();
+  });
+
+  it("serves the next candidate when the first plugin deactivates", () => {
+    let firstActive = true;
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "plugin-live-fallback",
+            description: "first",
+            handler: () => ({ type: "noop" }),
+          },
+        ],
+      },
+      () => firstActive,
+    );
+    registerCommandPlugin({
+      commands: [
+        {
+          name: "plugin-live-fallback",
+          description: "second",
+          handler: () => ({ type: "noop" }),
+        },
+      ],
+    });
+
+    expect(getCommand("plugin-live-fallback")?.description).toBe("first");
+    expect(
+      listCommands().find((command) => command.name === "plugin-live-fallback")?.description,
+    ).toBe("first");
+
+    firstActive = false;
+    expect(getCommand("plugin-live-fallback")?.description).toBe("second");
+    expect(
+      listCommands().find((command) => command.name === "plugin-live-fallback")?.description,
+    ).toBe("second");
+  });
+
+  it("does not execute a typed slash name after the plugin deactivates", () => {
+    let active = true;
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "typed-after-disable",
+            description: "typed",
+            handler: () => ({ type: "message", text: "ran" }),
+          },
+        ],
+      },
+      () => active,
+    );
+
+    const stalePaletteRow = "typed-after-disable";
+    expect(getCommand(stalePaletteRow)).toBeDefined();
+    active = false;
+    expect(getCommand(stalePaletteRow)).toBeUndefined();
   });
 
   it("lets an enabled plugin claim a name ahead of a disabled candidate", () => {
