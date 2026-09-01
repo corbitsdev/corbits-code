@@ -74,7 +74,7 @@ export function buildHarnessFacts(
     ...(subAgent
       ? [
           "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
-          "- Turn budget is real; near the end a wrap-up nudge may fire — stop tooling and write the structured report (Summary/Findings/Blockers/Paths). Do not thrash re-reads as the budget ends.",
+          "- There is no turn budget. A tool-less reply without the structured report gets one incomplete-report nudge; if the next tool-less reply still omits the envelope, the harness salvages it. Otherwise, the run continues until completion, cancellation, an opt-in deadline, or a stall.",
         ]
       : [
           "- Dependency installs, paths outside the workspace, and session-state writes need operator approval.",
@@ -393,7 +393,7 @@ export function buildGrokLeafAntiThrashNote(): string {
     "Finish bias (xAI / Grok worker):",
     "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
     "- If the next call would only re-open paths you already read, write the report instead.",
-    "- Leave the last turn for the report envelope; do not spend the budget on one more search or micro-edit.",
+    "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
     "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
   ].join("\n");
 }
