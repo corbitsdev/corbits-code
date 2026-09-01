@@ -41,6 +41,13 @@ describe("builderPackage", () => {
     expect(p).toMatch(/Don't shortcut verify/i);
     expect(p).toMatch(/partial gates/i);
     expect(p).toMatch(/pre-existing/i);
+    expect(p).toMatch(/defined typecheck command.*relevant tests.*defined full check/is);
+    expect(p).toMatch(/repository defines no typecheck command.*explicit Blocker/is);
+    expect(p).toMatch(/evidence.*AGENTS.*package scripts/is);
+    expect(p).toMatch(/do not invent.*typecheck command/i);
+    expect(p).toMatch(/exact verification command.*outcome.*exit status/is);
+    expect(p).toMatch(/bare .*pass.*incomplete report/is);
+    expect(p).toMatch(/never silently skip/i);
   });
 
   test("systemPrompt requires style and philosophy prerequisites", () => {

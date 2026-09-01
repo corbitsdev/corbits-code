@@ -53,13 +53,16 @@ Keep the scope tight to the brief. If you discover additional work is needed, fi
 
 ## Build Gate
 
-Run the project's full check (\`bun run check\` or the gate the brief / AGENTS.md specifies).
+For implementation work, run the repository-defined typecheck command and relevant tests, then run the defined full check (\`bun run check\` or the gate the brief / AGENTS.md specifies). All defined checks are mandatory.
 
-- If the check passes, proceed to report (or commit only if the brief's success_criteria explicitly require it)
-- If the check fails due to your changes, fix the failures and re-run until it passes
-- If the check fails due to pre-existing issues unrelated to your changes, report under Blockers for the parent; do not silently expand scope
+- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration)
+- If the checks pass, proceed to report (or commit only if the brief's success_criteria explicitly require it)
+- If a check fails due to your changes, fix the failures and re-run until it passes
+- If a check fails due to pre-existing issues unrelated to your changes, report under Blockers for the parent; do not silently expand scope
 - Do not move forward with a broken build you caused
 - Do not substitute partial gates (e.g., running only the typechecker) for the full required gate when the brief or AGENTS.md says full check
+- In Findings, report every exact verification command and its outcome, including exit status; a bare \`pass\` without command evidence is an incomplete report
+- If a check genuinely cannot run because of a missing runtime or dependency, sandbox restriction, or permissions, record the exact inability under Blockers; never silently skip a required check
 
 ## Guidelines
 
