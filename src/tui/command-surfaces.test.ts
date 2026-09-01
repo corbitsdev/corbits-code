@@ -622,6 +622,22 @@ describe("model surface", () => {
   });
 });
 
+describe("add-provider surface", () => {
+  test("routes to the host opener, and reports the gap when absent", async () => {
+    await withShell((shell) => {
+      let opened = 0;
+      expect(
+        openCommandSurface(shell, "add-provider", {
+          notify: () => {},
+          openAddProvider: () => opened++,
+        }),
+      ).toBe(true);
+      expect(opened).toBe(1);
+      expect(openCommandSurface(shell, "add-provider", { notify: () => {} })).toBe(false);
+    });
+  });
+});
+
 describe("help surface", () => {
   test("opens the keymap overlay", async () => {
     await withShell((shell) => {

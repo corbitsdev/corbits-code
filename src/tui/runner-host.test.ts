@@ -423,6 +423,62 @@ describe("mountRunnerHost model picker", () => {
       harness.destroy();
     }
   });
+
+  test("openSurface add-provider opens the selector when choices are wired", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      onConnectProvider: () => {},
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
+        { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
+      ],
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    });
+    try {
+      expect(host.openSurface("add-provider")).toBe(true);
+      expect(host.shell.overlayKind).toBe("add_provider");
+      expect(host.shell.overlayItems).toEqual(["Codex — 1 account", "OpenAI — 0 accounts"]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("openSurface add-provider returns false when add-provider is not wired", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    });
+    try {
+      expect(host.openSurface("add-provider")).toBe(false);
+      expect(host.shell.overlayKind).not.toBe("add_provider");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
 });
 
 describe("bottom border cost run", () => {

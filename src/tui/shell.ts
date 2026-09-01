@@ -1332,8 +1332,8 @@ const DEFAULT_OVERLAY_HINTS = ["Esc cancel · Enter choose", "Esc · Enter"] as 
  */
 /** Model picker only: same three-tier fallback shape as DEFAULT_OVERLAY_HINTS. */
 const MODEL_PICKER_HINTS = [
-  "Esc cancel · Enter choose · Alt+A add provider",
-  "Esc · Enter · Alt+A add",
+  "Esc cancel · Enter choose · Alt+A /connect add provider",
+  "Esc · Enter · Alt+A /connect",
   "Esc · Enter",
 ] as const;
 
@@ -1355,8 +1355,8 @@ function overlayHints(shell: AppShell): readonly string[] {
       const setDefault = bag?.overlaySetDefaultHint === true;
       if (addProvider && setDefault) {
         return [
-          "Esc cancel · Enter choose · Alt+A add provider · Alt+D set default",
-          "Esc · Enter · Alt+A add · Alt+D default",
+          "Esc cancel · Enter choose · Alt+A /connect add provider · Alt+D set default",
+          "Esc · Enter · Alt+A /connect · Alt+D default",
           "Esc · Enter · Alt+A · Alt+D",
           "Esc · Enter",
         ];
@@ -1977,7 +1977,7 @@ interface ShellInternals {
   overlayDescribe: ((itemId: string) => ItemDescription | null) | null;
   /** Per-open bare-key claim for the open primary overlay. */
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null;
-  /** Whether the open primary advertises Alt+A in the footer hints. */
+  /** Whether the open primary advertises Alt+A and yields å/Å from type-to-filter. */
   overlayAddProviderHint: boolean;
   /** Whether the open primary advertises Alt+D in the footer hints. */
   overlaySetDefaultHint: boolean;
@@ -3569,9 +3569,9 @@ export interface OpenListOverlayOpts {
    */
   readonly typeToFilter?: boolean;
   /**
-   * Advertise the Alt+A add-provider hint in the footer for this open. Set
-   * only when the caller actually wired an Alt+A handler via `onAction`, so
-   * the hint can never name a key that is a dead end.
+   * Advertise Alt+A and /connect in the footer and yield composed Option+A
+   * (å/Å) from type-to-filter. Set only when the caller actually wired an
+   * add-provider handler via `onAction`, so the hint never names a dead chord.
    */
   readonly addProviderHint?: boolean;
   /**
@@ -3867,6 +3867,24 @@ export function handlePaletteFilterKey(shell: AppShell, key: KeyEvent): boolean 
 }
 
 /**
+ * Glyphs some terminals emit for Option+A without setting meta/option.
+ */
+const OPTION_A_COMPOSED_CHARS = new Set(["å", "Å"]);
+
+/**
+ * True when a key event is the model-picker Alt+A add-provider chord.
+ * Terminals may deliver Option+A as å/Å without meta/option.
+ */
+export function isAddProviderShortcutKey(key: KeyEvent): boolean {
+  if (key.ctrl) return false;
+  const name = typeof key.name === "string" ? key.name : "";
+  const seq = typeof key.sequence === "string" ? key.sequence : "";
+  if ((key.meta || key.option) && name.toLowerCase() === "a") return true;
+  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq)) return true;
+  return false;
+}
+
+/**
  * Keys a type-to-filter list overlay claims while open, so the `>` row
  * narrows as you type. Mirrors the palette filter, but updates the open
  * list in place via setOverlayItems (openListOverlay is a no-op when a
@@ -3878,6 +3896,16 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   if (!state || shell.overlayList === null) return false;
   if (shell.overlayKind === "palette") return false;
   if (key.ctrl || key.meta || key.option) return false;
+
+  // overlayAddProviderHint also gates this filter-bypass so composed Option+A
+  // (å/Å) reaches runOverlayAction instead of type-to-filter.
+  if (
+    bag?.overlayAddProviderHint === true &&
+    shell.overlayKind === "model_picker" &&
+    isAddProviderShortcutKey(key)
+  ) {
+    return false;
+  }
 
   if (key.name === "backspace") {
     if (state.query.length === 0) return true;

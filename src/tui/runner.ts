@@ -2178,7 +2178,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           return;
         case "overlay":
           if (!host.openSurface(result.overlay)) {
-            systemNotice(`No surface for /${result.overlay}.`);
+            const named = result.overlay === "add-provider" ? "connect" : result.overlay;
+            systemNotice(`No surface for /${named}.`);
           }
           return;
         case "modal":

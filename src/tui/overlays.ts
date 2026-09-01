@@ -175,7 +175,7 @@ export interface OpenModelPickerOpts {
    * as you type. Off by default so other list overlays keep j/k.
    */
   readonly typeToFilter?: boolean;
-  /** Advertise Alt+A in the footer — only when the caller wired the handler. */
+  /** Advertise Alt+A /connect in the footer — only when the caller wired the handler. */
   readonly addProviderHint?: boolean;
   /** Advertise Alt+D in the footer — only when the caller wired the handler. */
   readonly setDefaultHint?: boolean;
@@ -208,7 +208,7 @@ export interface OpenAddProviderOpts {
   readonly onAccept?: (selection: OverlaySelection) => void;
   /** Description-zone source, keyed by the focused row's id. */
   readonly describe?: (itemId: string) => ItemDescription | null;
-  /** Per-open Esc/dismiss — the caller returns to the model list. */
+  /** Per-open Esc/dismiss. Set when Esc should return to the model list (Alt+A). */
   readonly onCancel?: () => void;
 }
 

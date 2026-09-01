@@ -43,6 +43,7 @@ import {
   clearTranscript,
   closeInsetOverlay,
   createAppShell,
+  isAddProviderShortcutKey,
   paintChrome,
   setChromeZones,
   setHeader,
@@ -204,6 +205,13 @@ export interface ProductHost {
    * default model) instead of the top of the list.
    */
   readonly openModels?: (focusId?: string) => void;
+  /**
+   * Opens the add-provider selector; absent when connect choices are not wired.
+   * Pass `returnToModels: true` when opening from the model picker (Alt+A) so
+   * Esc returns there. `/connect` and other closed-prompt callers omit it so
+   * Esc dismisses to a closed overlay.
+   */
+  readonly openAddProvider?: (opts?: { returnToModels?: boolean }) => void;
   /** Swap the picker's rows/descriptions in place (e.g. after a provider connects). */
   readonly setModels?: (
     models: readonly ProductHostModelOption[],
@@ -514,6 +522,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   let currentModels = config.models ?? [];
   let currentDescribeModel = config.describeModel;
   let openModels: ((focusId?: string) => void) | undefined;
+  let openAddProvider: ((opts?: { returnToModels?: boolean }) => void) | undefined;
   if (config.onModelSelect) {
     const onSelect = config.onModelSelect;
     const onConnect = config.onConnectProvider;
@@ -528,9 +537,9 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     // stack — that stack exists so the palette can float over a permission or
     // operator question without dropping the awaited promise underneath it,
     // which does not apply here.
-    const openAddProvider =
+    openAddProvider =
       addProviderChoices !== undefined && onConnect !== undefined
-        ? (): void => {
+        ? (opts?: { returnToModels?: boolean }): void => {
             const rows = addProviderChoices();
             closeInsetOverlay(shell);
             openAddProviderOverlay(shell, {
@@ -553,9 +562,10 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
                   tone: "plain",
                 };
               },
-              // Esc returns to the model list through the same entry point
-              // Alt+A itself, /model, and a completed connect all use.
-              onCancel: () => openModels?.(),
+              // Alt+A from the model picker: Esc returns through the same entry
+              // point Alt+A itself, /model, and a completed connect all use.
+              // /connect from a closed prompt omits this so Esc dismisses.
+              ...(opts?.returnToModels === true ? { onCancel: () => openModels?.() } : {}),
             });
           }
         : undefined;
@@ -586,13 +596,16 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
         onSetDefault !== undefined
           ? {
               onAction: (itemId, key) => {
-                if (key.ctrl || !(key.meta || key.option)) return false;
-                const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
-                // Alt+A / Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
-                if (name === "a" && openAddProvider !== undefined) {
-                  openAddProvider();
+                if (key.ctrl) return false;
+                // Alt+A / composed Option+A (å/Å) — never bare ASCII `a`;
+                // type-to-filter claims ordinary printables.
+                if (openAddProvider !== undefined && isAddProviderShortcutKey(key)) {
+                  openAddProvider({ returnToModels: true });
                   return true;
                 }
+                if (!(key.meta || key.option)) return false;
+                const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
+                // Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
                 if (name === "f" && onFavoriteToggle !== undefined) {
                   // Empty id is the "(no matches)" filter sentinel — not a model.
                   if (itemId.length === 0) return false;
@@ -641,5 +654,6 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     setTitle: (title) => setHeader(shell, title),
     pushObserveRow: (row) => appendObserveStreamRow(shell, row),
     ...(openModels !== undefined ? { openModels, setModels } : {}),
+    ...(openAddProvider !== undefined ? { openAddProvider } : {}),
   };
 }

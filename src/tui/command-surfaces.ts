@@ -167,13 +167,15 @@ export interface CommandSurfaceDeps {
   readonly settings?: SettingsSurfaceDeps;
   /** Opens the host's model/provider picker (owned by the product host). */
   readonly openModels?: () => void;
+  /** Opens the host's add-provider selector (owned by the product host). `/connect` omits returnToModels. */
+  readonly openAddProvider?: (opts?: { returnToModels?: boolean }) => void;
   /** Fallback channel for surfaces with no live data source. */
   readonly notify: (text: string) => void;
 }
 
 /** Surface a command result can ask for. */
 export type CommandSurfaceKind =
-  "help" | "settings" | "permissions" | "plugins" | "hooks" | "mcp" | "models";
+  "help" | "settings" | "permissions" | "plugins" | "hooks" | "mcp" | "models" | "add-provider";
 
 const CLOSE_ID = "__close__";
 const BACK_ID = "__back__";
@@ -1033,6 +1035,10 @@ export function openCommandSurface(
     case "models":
       if (deps.openModels === undefined) return false;
       deps.openModels();
+      return true;
+    case "add-provider":
+      if (deps.openAddProvider === undefined) return false;
+      deps.openAddProvider();
       return true;
   }
 }
