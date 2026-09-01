@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { PendingImageAttachment } from "./image-attachments.js";
 import {
   createDeliveryGeneration,
+  createLeftoverSend,
   createLiveSteerDeliver,
   routeQueuedDelivery,
 } from "./queued-delivery.js";
@@ -175,5 +176,103 @@ describe("createLiveSteerDeliver", () => {
     resolveSlow();
     await awaitTail();
     expect(delivered).toEqual([]);
+  });
+});
+
+describe("createLeftoverSend", () => {
+  test("generation bump during ingest drops leftover send and sent-message record", async () => {
+    const sent: string[] = [];
+    const recorded: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const generation = createDeliveryGeneration();
+    let resolveSlow!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => {
+        if (text === "leftover") await slow;
+        return { text, attachments: [] };
+      },
+      send: (text) => {
+        sent.push(text);
+      },
+      recordSent: (text) => {
+        recorded.push(text);
+      },
+      captureGeneration: generation.capture,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+
+    leftoverSend("leftover");
+    generation.bump();
+    resolveSlow();
+    await awaitTail();
+    expect(sent).toEqual([]);
+    expect(recorded).toEqual([]);
+  });
+
+  test("leftover send without a bump still sends and records", async () => {
+    const sent: string[] = [];
+    const recorded: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: (text) => {
+        sent.push(text);
+      },
+      recordSent: (text) => {
+        recorded.push(text);
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+
+    leftoverSend("follow-up");
+    await awaitTail();
+    expect(sent).toEqual(["follow-up"]);
+    expect(recorded).toEqual(["follow-up"]);
+  });
+
+  test("generation bump drops leftover send but not a sibling Enter send", async () => {
+    const leftoverSent: string[] = [];
+    const enterSent: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const generation = createDeliveryGeneration();
+    let resolveSlow!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => {
+        await slow;
+        return { text, attachments: [] };
+      },
+      send: (text) => {
+        leftoverSent.push(text);
+      },
+      captureGeneration: generation.capture,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+    const enterSend = (text: string) => {
+      enterSent.push(text);
+    };
+
+    leftoverSend("queued");
+    generation.bump();
+    enterSend("hello");
+    resolveSlow();
+    await awaitTail();
+    expect(leftoverSent).toEqual([]);
+    expect(enterSent).toEqual(["hello"]);
   });
 });

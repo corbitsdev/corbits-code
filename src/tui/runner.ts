@@ -187,6 +187,7 @@ import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
 import {
   createDeliveryGeneration,
+  createLeftoverSend,
   createLiveSteerDeliver,
   routeQueuedDelivery,
 } from "./queued-delivery.js";
@@ -2296,7 +2297,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         }),
       interrupt,
       deliver: routeQueuedDelivery({
-        send,
+        send: createLeftoverSend({
+          enqueue: sessionOps.enqueue,
+          ingest: (text, pending) =>
+            ingestOperatorPrompt(text, config.cwd, imageAttachmentFromPath, pending),
+          send: (text, pending) => {
+            sendAborted = false;
+            void agentProxy.send(userInboundMessage(text, pending)).catch(handleSendFailure);
+          },
+          recordSent: (text) => {
+            if (text.trim().length === 0) return;
+            void appendSentMessage(config.cwd, sessionId, text).catch((err: unknown) => {
+              tuiLogger.debug("sent-message append failed: {error}", {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          },
+          captureGeneration: deliveryGeneration.capture,
+          onFailure: handleSendFailure,
+        }),
         parentCycleLive: () => host.bridge.parentCycleLive,
         deliverSteer: createLiveSteerDeliver({
           enqueue: sessionOps.enqueue,

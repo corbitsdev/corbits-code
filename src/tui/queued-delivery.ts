@@ -64,12 +64,34 @@ export interface CreateLiveSteerDeliverArgs {
   onFailure: (err: unknown) => void;
 }
 
-/**
- * Live inject: enqueue ingest, then deliver, in drain order. Previously
- * each item started ingest immediately, so Agent.deliver could reverse.
- */
-export function createLiveSteerDeliver(
-  args: CreateLiveSteerDeliverArgs,
+export interface CreateLeftoverSendArgs {
+  enqueue: (op: () => Promise<void>) => Promise<void>;
+  ingest: (text: string, attachments: readonly PendingImageAttachment[]) => Promise<IngestedSteer>;
+  /**
+   * Post-ingest hop (agentProxy.send). Must not ingest again — leftover
+   * ingest already ran in this wrapper.
+   */
+  send: (text: string, attachments: readonly PendingImageAttachment[]) => void;
+  /**
+   * Up/Down recall. Called with the original text only when the hop is
+   * still current after ingest, so a /clear|/new drop is not recorded.
+   */
+  recordSent?: (text: string) => void;
+  captureGeneration: () => () => boolean;
+  onFailure: (err: unknown) => void;
+}
+
+interface GenerationGatedHopArgs {
+  enqueue: (op: () => Promise<void>) => Promise<void>;
+  ingest: (text: string, attachments: readonly PendingImageAttachment[]) => Promise<IngestedSteer>;
+  hop: (text: string, attachments: readonly PendingImageAttachment[]) => void;
+  recordSent?: (text: string) => void;
+  captureGeneration: () => () => boolean;
+  onFailure: (err: unknown) => void;
+}
+
+function createGenerationGatedHop(
+  args: GenerationGatedHopArgs,
 ): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
   return (text, attachments) => {
     const stillCurrent = args.captureGeneration();
@@ -79,8 +101,29 @@ export function createLiveSteerDeliver(
         if (!stillCurrent()) return;
         const ingested = await args.ingest(text, pending);
         if (!stillCurrent()) return;
-        args.deliver(ingested.text, ingested.attachments);
+        args.recordSent?.(text);
+        args.hop(ingested.text, ingested.attachments);
       })
       .catch(args.onFailure);
   };
+}
+
+/**
+ * Live inject: enqueue ingest, then deliver, in drain order. Previously
+ * each item started ingest immediately, so Agent.deliver could reverse.
+ */
+export function createLiveSteerDeliver(
+  args: CreateLiveSteerDeliverArgs,
+): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+  return createGenerationGatedHop({ ...args, hop: args.deliver });
+}
+
+/**
+ * Leftover / queue drain hop: capture generation at hop time, ingest, then
+ * send only if /clear|/new has not bumped. Operator Enter must not use this.
+ */
+export function createLeftoverSend(
+  args: CreateLeftoverSendArgs,
+): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+  return createGenerationGatedHop({ ...args, hop: args.send });
 }
