@@ -98,6 +98,7 @@ interface FleetRecord {
   status: WaitJSONStatus;
   report?: string;
   error?: string;
+  providerFailure?: true;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
   /** Set once the payload has been compacted away to bound memory. */
@@ -118,6 +119,7 @@ interface FleetOverlay {
   lastWaitStatus?: WaitJSONStatus;
   tombstoned?: boolean;
   hint?: string;
+  providerFailure?: true;
 }
 
 const RECOVERY_HINT =
@@ -168,6 +170,12 @@ class FleetMailbox {
   hasUncollectedTerminal(id: string): boolean {
     const record = this.peek(id);
     return record !== undefined && record.status !== "running" && record.collected !== true;
+  }
+
+  markProviderFailure(id: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined) return;
+    existing.providerFailure = true;
   }
 
   /**
@@ -301,6 +309,7 @@ class FleetMailbox {
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
       ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
+      ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
     };
   }
 
@@ -869,7 +878,13 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         if (!childCtl.signal.aborted) childCtl.abort();
       });
 
+      let providerFailureObserved = false;
       const onEvent = (event: ReactorEmittedEvent): void => {
+        if (event.type === "inference.start" || event.type === "inference.done") {
+          providerFailureObserved = false;
+        } else if (event.type === "inference.error") {
+          providerFailureObserved = true;
+        }
         deps.sessions.appendEvent(session.id, event);
         deps.onEvent?.(event);
       };
@@ -1084,10 +1099,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             : err instanceof Error
               ? err.message
               : String(err);
+          const isProviderFailure = isResolvedProviderFailureError(err);
           const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
           const failReason =
             authMessage ??
-            (isResolvedProviderFailureError(err) ? err.message : diagnosticMessage);
+            (isProviderFailure ? err.message : diagnosticMessage);
+          if (isProviderFailure || providerFailureObserved) {
+            deps.fleetRecords.markProviderFailure(session.id);
+          }
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
@@ -1232,6 +1251,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ? { report: taken.report }
             : {}),
           ...(taken.error !== undefined ? { error: taken.error } : {}),
+          ...(taken.providerFailure === true ? { provider_failure: true } : {}),
           ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
         };
       });

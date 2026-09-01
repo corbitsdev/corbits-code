@@ -95,12 +95,13 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
 export function terminalProviderFailureMessage(providerId: string, displayLabel?: string): string {
   const preferred = displayLabel?.trim() || providerId;
   const sanitized = stripTerminalControlSequences(preferred).replace(/\s+/g, " ").trim();
-  const label = sanitized.length > 0 ? sanitized : "Unknown";
+  const label = (sanitized.length > 0 ? sanitized : "Unknown").replace(/\s+Provider$/i, "");
   return `${label} Provider failed. Try again or switch with "/model" and select another.`;
 }
 
 export type ResolvedProviderFailureError = Error & {
   readonly name: "ResolvedProviderFailureError";
+  readonly providerId: string;
   readonly diagnosticMessage: string;
 };
 
@@ -111,6 +112,7 @@ export function createResolvedProviderFailureError(
 ): ResolvedProviderFailureError {
   return Object.assign(new Error(terminalProviderFailureMessage(providerId, displayLabel)), {
     name: "ResolvedProviderFailureError" as const,
+    providerId,
     diagnosticMessage,
   });
 }
@@ -121,6 +123,8 @@ export function isResolvedProviderFailureError(
   return (
     error instanceof Error &&
     error.name === "ResolvedProviderFailureError" &&
+    "providerId" in error &&
+    typeof error.providerId === "string" &&
     "diagnosticMessage" in error &&
     typeof error.diagnosticMessage === "string"
   );

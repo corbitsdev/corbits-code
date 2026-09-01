@@ -38,6 +38,12 @@ describe("formatCaughtError", () => {
 });
 
 describe("selected provider refresh failures", () => {
+  test("a non-provider failure remains distinct after inference has run", () => {
+    expect(execUserFailureMessage(bareConfig("hello"), new Error("disk full"), false)).toBe(
+      "disk full",
+    );
+  });
+
   test("pre-inference OAuth failure keeps diagnostics internal and returns safe copy", async () => {
     const config = {
       ...bareConfig("hello"),

@@ -16,13 +16,7 @@ import {
   loadRecentTurns,
 } from "../session/optimized-context-store.js";
 import { type } from "arktype";
-import {
-  buildCodexSource,
-  buildOpenAISource,
-  buildXaiSource,
-  refreshLiveProviderCatalog,
-  type Config,
-} from "../config/index.js";
+import { refreshLiveProviderCatalog, type Config } from "../config/index.js";
 import {
   globalSettingsPath,
   loadLocalSettings,
@@ -222,7 +216,10 @@ import {
   shouldSettleUiAfterSendFailure,
 } from "./session-chrome.js";
 import { ingestOperatorPrompt } from "./prompt-attachments.js";
-import { terminalProviderFailureMessage } from "../inference-error-message.js";
+import {
+  isResolvedProviderFailureError,
+  terminalProviderFailureMessage,
+} from "../inference-error-message.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { imageAttachmentFromPath, type PendingImageAttachment } from "./image-attachments.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
@@ -609,6 +606,29 @@ export function surfaceTerminalProviderFailure(
   displayLabel?: string,
 ): void {
   surfaceSystemNotice(shell, terminalProviderFailureMessage(providerId, displayLabel));
+}
+
+export interface InferenceAttemptIdentity {
+  providerId: string;
+  displayLabel?: string;
+}
+
+export function tuiSendFailureMessage(
+  error: unknown,
+  failureKind: "auth" | "error",
+  providerFailureObserved: boolean,
+  attempt: InferenceAttemptIdentity,
+): string {
+  if (
+    failureKind !== "auth" &&
+    !providerFailureObserved &&
+    !isResolvedProviderFailureError(error)
+  ) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  const providerId = isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId;
+  const displayLabel = providerId === attempt.providerId ? attempt.displayLabel : undefined;
+  return terminalProviderFailureMessage(providerId, displayLabel);
 }
 
 export async function runTUI(initialConfig: Config): Promise<number> {
@@ -1485,61 +1505,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // connect after startup are not callable until the agent is rebuilt. buildAgent
     // re-runs tool resolution against the (now-populated) dynamic runner and resumes
     // conversation from the same git-backed store, so a reload is transparent.
-    // When the session starts on a Codex profile, seed the agent with a Responses
-    // source (account id pulled from the resolved catalog entry, session id from
-    // the run) rather than the OpenAI-compatible one.
-    const initialCodexAccountId = config.providers.find(
-      (p) => p.name === config.providerName,
-    )?.codexAccountId;
-    const buildOpenAICompatibleInitialSource = (): InferenceSource =>
-      buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined
-          ? { reasoningEffort: config.reasoningEffort }
-          : {}),
-      });
     const buildSessionSources = (): { sources: InferenceSource[]; defaultSource: string } =>
       buildSessionSourcesFromConfig(config, sessionId);
 
     const initialBundle = buildSessionSources();
     let liveSources = initialBundle.sources;
     let liveDefaultSource = initialBundle.defaultSource;
+    const selectedSource = liveSources[0];
+    if (selectedSource === undefined) {
+      throw new Error("Selected inference source was not assembled");
+    }
 
     // The source the next inference will use, tracked live so the compaction
     // summarizer always summarizes with the current model (model switches and
     // Codex token refreshes update it below).
-    let liveSource: InferenceSource =
-      liveSources.find((s) => s.id === liveDefaultSource) ??
-      liveSources[0] ??
-      buildInitialSourceFallback();
-
-    function buildInitialSourceFallback(): InferenceSource {
-      return initialCodexProfile !== undefined
-        ? buildCodexSource({
-            id: config.providerName,
-            apiKey: config.apiKey,
-            model: config.model,
-            sessionId,
-            ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
-            ...(config.reasoningEffort !== undefined
-              ? { reasoningEffort: config.reasoningEffort }
-              : {}),
-          })
-        : initialXaiProfile !== undefined
-          ? buildXaiSource({
-              id: config.providerName,
-              apiKey: config.apiKey,
-              model: config.model,
-              sessionId,
-              ...(config.reasoningEffort !== undefined
-                ? { reasoningEffort: config.reasoningEffort }
-                : {}),
-            })
-          : buildOpenAICompatibleInitialSource();
-    }
+    let liveSource: InferenceSource = selectedSource;
 
     // Compaction summarizer: produces a structured, workflow-aware handoff via a
     // one-shot call on the live model, falling back to the deterministic summary
@@ -1686,8 +1666,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // keeps the in-flight cycle's text so an errored or interrupted turn leaves
     // its partial output in partial.jsonl instead of vanishing.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
+    let providerFailureObserved = false;
     flushPartialOnCrash = () => cycleRecorder.dispose("crashed").then(() => undefined);
     const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
+      if (event.type === "inference.start" || event.type === "inference.done") {
+        providerFailureObserved = false;
+      } else if (event.type === "inference.error") {
+        providerFailureObserved = true;
+      }
       runSink.sink(event);
       cycleRecorder.handleEvent(event);
       if (onTurnBoundary(event)) {
@@ -2161,17 +2147,31 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     approvalPersistNotice.notify = systemNotice;
 
     /** Settle the shell after a rejected send so the run does not look live. */
-    const handleSendFailure = (err: unknown): void => {
+    const handleSendFailure = (err: unknown, attempt: InferenceAttemptIdentity): void => {
       const failure = classifyAgentSendFailure(err, sendAborted, isCodexAuthError, isXaiAuthError);
       captureAuthFailure(getTelemetry(), failure);
       if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
+      if (failure.kind === "abort") return;
       recordRunError(err);
-      surfaceTerminalProviderFailure(
-        host.shell,
-        config.providerName,
-        config.settings?.providers[config.providerName]?.name,
-      );
+      systemNotice(tuiSendFailureMessage(err, failure.kind, providerFailureObserved, attempt));
       setShellRunState(host.shell, "idle");
+    };
+
+    const currentAttemptIdentity = (): InferenceAttemptIdentity => {
+      const displayLabel = config.settings?.providers[config.providerName]?.name;
+      return {
+        providerId: config.providerName,
+        ...(displayLabel !== undefined ? { displayLabel } : {}),
+      };
+    };
+
+    const sendWithAttemptIdentity = async (message: InboundMessage): Promise<void> => {
+      const attempt = currentAttemptIdentity();
+      try {
+        await agentProxy.send(message);
+      } catch (error) {
+        handleSendFailure(error, attempt);
+      }
     };
 
     // The permissions surface addresses grants by their position in the last
@@ -2189,7 +2189,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           // A command the operator typed and submitted at the prompt — same
           // provenance as a plain-text send, just composed by the command
           // handler instead of typed verbatim.
-          void agentProxy.send(userInboundMessage(result.text, [])).catch(handleSendFailure);
+          void sendWithAttemptIdentity(userInboundMessage(result.text, []));
           return;
         case "workflow":
           systemNotice(workflowController.start(result.name));
@@ -2239,7 +2239,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         imageAttachmentFromPath,
         pending,
       );
-      await agentProxy.send(userInboundMessage(ingested.text, ingested.attachments));
+      await sendWithAttemptIdentity(userInboundMessage(ingested.text, ingested.attachments));
     };
 
     const dispatchCommand = (name: string, args: string): void => {
@@ -2269,7 +2269,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const send = createSubmitHandler({
       dispatchCommand: (name, args) => dispatchCommand(name, args),
       sendPrompt: (text, attachments) => {
-        void sendUserPrompt(text, attachments ?? []).catch(handleSendFailure);
+        void sendUserPrompt(text, attachments ?? []).catch((error: unknown) => {
+          handleSendFailure(error, currentAttemptIdentity());
+        });
       },
       onPromptSubmitted: () => {
         if (telemetryFirstRun && liveTelemetryIntent) {
@@ -2342,7 +2344,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             ingestOperatorPrompt(text, config.cwd, imageAttachmentFromPath, pending),
           send: (text, pending) => {
             sendAborted = false;
-            void agentProxy.send(userInboundMessage(text, pending)).catch(handleSendFailure);
+            void sendWithAttemptIdentity(userInboundMessage(text, pending));
           },
           recordSent: (text) => {
             if (text.trim().length === 0) return;
@@ -2353,7 +2355,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             });
           },
           captureGeneration: deliveryGeneration.capture,
-          onFailure: handleSendFailure,
+          onFailure: (error) => handleSendFailure(error, currentAttemptIdentity()),
         }),
         parentCycleLive: () => host.bridge.parentCycleLive,
         deliverSteer: createLiveSteerDeliver({
@@ -2364,7 +2366,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             agentProxy.deliver(userInboundMessage(text, pending));
           },
           captureGeneration: deliveryGeneration.capture,
-          onFailure: handleSendFailure,
+          onFailure: (error) => handleSendFailure(error, currentAttemptIdentity()),
         }),
       }),
       // Consent by proceeding requires the disclosure to be on screen before the
@@ -2864,7 +2866,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     if (!resumeSkipInitialTask && config.task.trim().length > 0) {
       // The operator's initial task, typed as a CLI argument before launch —
       // same provenance as a prompt submit.
-      void agentProxy.send(userInboundMessage(config.task.trim(), [])).catch(handleSendFailure);
+      void sendWithAttemptIdentity(userInboundMessage(config.task.trim(), []));
     }
 
     // Hydrate a resumed session's transcript after first paint. Reading history and

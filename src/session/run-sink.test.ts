@@ -223,7 +223,7 @@ describe("createRunSink", () => {
     });
   });
 
-  test("does not leak authoritative source attribution across retry attempts", () => {
+  test("retains selected provider attribution across a same-provider retry", () => {
     const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-a" }));
@@ -234,13 +234,13 @@ describe("createRunSink", () => {
       }),
     );
     runSink.sink(event("inference.error", { error: { message: "retry" } }));
-    runSink.sink(event("inference.start", { model: "model-b" }));
+    runSink.sink(event("inference.start", { model: "model-a" }));
     failMessageRun(runSink);
 
     expect(captured).toHaveLength(1);
     expect(captured[0]?.properties).toMatchObject({
-      $ai_provider: "unknown",
-      $ai_model: "model-b",
+      $ai_provider: "provider-a",
+      $ai_model: "model-a",
       $ai_is_error: true,
     });
   });

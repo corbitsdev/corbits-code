@@ -106,6 +106,12 @@ describe("terminalProviderFailureMessage", () => {
     );
   });
 
+  test("does not duplicate Provider in configured display labels", () => {
+    expect(terminalProviderFailureMessage("codex/work", "Codex Provider")).toBe(
+      'Codex Provider failed. Try again or switch with "/model" and select another.',
+    );
+  });
+
   test("uses a safe label when the provider id contains only control sequences", () => {
     const message = terminalProviderFailureMessage("\u001b[31m\u001b[0m");
     expect(message).toBe(

@@ -77,6 +77,7 @@ import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import { createResolvedProviderFailureError } from "../inference-error-message.js";
+import { createRunEventSettlement } from "./run-event-settlement.js";
 
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
@@ -887,7 +888,9 @@ async function runSubAgentInner(
     // cancel/deadline has the cycle's tail as its payload, even though no
     // turn boundary has completed yet to carry it.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
+    const runSettlement = createRunEventSettlement();
     const streamSink = (event: ReactorEmittedEvent): void => {
+      runSettlement.handleEvent(event);
       const name = subAgentToolName(event);
       if (name !== null) {
         toolNamesUsed.push(name);
@@ -964,7 +967,22 @@ async function runSubAgentInner(
       params.onEvent?.(event);
     };
 
-    streamPromise = consumeStream(agent.stream(), streamSink);
+    streamPromise = consumeStream(agent.stream(), streamSink).finally(runSettlement.endStream);
+
+    const sendAndSettle = async (
+      message: string,
+      options: { signal: AbortSignal },
+    ): ReturnType<NonNullable<typeof agent>["send"]> => {
+      const pending = runSettlement.beginSend();
+      try {
+        const result = await agent!.send(message, options);
+        await pending.settled;
+        return result;
+      } catch (error) {
+        pending.cancel();
+        throw error;
+      }
+    };
 
     // Aborting the send signal only rejects the promise; the child reactor keeps
     // running until close() (same hard-stop rule as the parent in runner.ts).
@@ -1027,7 +1045,7 @@ async function runSubAgentInner(
       // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
         interruptController = new AbortController();
-        const result = await agent!.send(message, { signal: sendAbortSignal() });
+        const result = await sendAndSettle(message, { signal: sendAbortSignal() });
         if (terminalProviderDiagnostic !== undefined) {
           throw createResolvedProviderFailureError(
             params.provider.providerName,
@@ -1089,7 +1107,7 @@ async function runSubAgentInner(
         params.catalog,
       );
       agent.setSources(fresh.sources, fresh.defaultSource);
-      const result = await agent.send(fullPrompt, sendOpts);
+      const result = await sendAndSettle(fullPrompt, sendOpts);
       if (terminalProviderDiagnostic !== undefined) {
         throw createResolvedProviderFailureError(
           params.provider.providerName,

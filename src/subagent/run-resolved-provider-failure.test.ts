@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@intx/agent";
@@ -37,60 +37,64 @@ async function withResolvedProviderRun<T>(
 ): Promise<T> {
   const cwd = await mkdtemp(join(tmpdir(), "resolved-provider-failure-"));
   const observed: ReactorEmittedEvent[] = [];
-  return withMockedModuleDuring(
-    import.meta.resolve("../agent/live-tool-dispatch.js"),
-    (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-      ...real,
-      createAgentWithLiveToolDispatch: async () =>
-        ({
-          send: async () => {
-            await Bun.sleep(10);
-            return { reply: RAW_DIAGNOSTIC, turn: { role: "assistant", content: [] } };
-          },
-          stream: () =>
-            (async function* (): AsyncGenerator<ReactorEmittedEvent> {
-              yield {
-                type: "inference.start",
-                seq: 1,
-                data: { sourceId: "test", model: "test-model", input: [] },
-              } as unknown as ReactorEmittedEvent;
-              yield {
-                type: "inference.error",
-                seq: 2,
-                data: {
-                  error: { category: "fatal", message: RAW_DIAGNOSTIC },
-                  partial: { text: "" },
-                },
-              } as unknown as ReactorEmittedEvent;
-              yield {
-                type: "connector.reply",
-                seq: 3,
-                data: { content: RAW_DIAGNOSTIC },
-              } as unknown as ReactorEmittedEvent;
-            })(),
-          deliver: () => {},
-          close: async () => {},
-          setSource: () => {},
-          setSources: () => {},
-          history: async () => [],
-          checkpoints: async () => [],
-          readAt: async () => [],
-          blobReader: {},
-        }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
-    }),
-    async () => {
-      const { runSubAgent } = await import("./run.js");
-      const run: Run = (params) =>
-        runSubAgent({
-          ...params,
-          onEvent: (event) => {
-            observed.push(event);
-            params.onEvent?.(event);
-          },
-        });
-      return callback(run, cwd, observed);
-    },
-  );
+  try {
+    return await withMockedModuleDuring(
+      import.meta.resolve("../agent/live-tool-dispatch.js"),
+      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+        ...real,
+        createAgentWithLiveToolDispatch: async () =>
+          ({
+            send: async () => {
+              await new Promise<void>((resolve) => queueMicrotask(resolve));
+              return { reply: RAW_DIAGNOSTIC, turn: { role: "assistant", content: [] } };
+            },
+            stream: () =>
+              (async function* (): AsyncGenerator<ReactorEmittedEvent> {
+                yield {
+                  type: "inference.start",
+                  seq: 1,
+                  data: { sourceId: "test", model: "test-model", input: [] },
+                } as unknown as ReactorEmittedEvent;
+                yield {
+                  type: "inference.error",
+                  seq: 2,
+                  data: {
+                    error: { category: "fatal", message: RAW_DIAGNOSTIC },
+                    partial: { text: "" },
+                  },
+                } as unknown as ReactorEmittedEvent;
+                yield {
+                  type: "connector.reply",
+                  seq: 3,
+                  data: { content: RAW_DIAGNOSTIC },
+                } as unknown as ReactorEmittedEvent;
+              })(),
+            deliver: () => {},
+            close: async () => {},
+            setSource: () => {},
+            setSources: () => {},
+            history: async () => [],
+            checkpoints: async () => [],
+            readAt: async () => [],
+            blobReader: {},
+          }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
+      }),
+      async () => {
+        const { runSubAgent } = await import("./run.js");
+        const run: Run = (params) =>
+          runSubAgent({
+            ...params,
+            onEvent: (event) => {
+              observed.push(event);
+              params.onEvent?.(event);
+            },
+          });
+        return callback(run, cwd, observed);
+      },
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 }
 
 async function callTool(tool: AgentTool, name: string, args: Record<string, unknown>) {
@@ -145,7 +149,7 @@ describe("resolved sub-agent provider failures", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toBe(SAFE_MESSAGE);
       expect(String(result.content)).not.toContain(RAW_DIAGNOSTIC);
-      expect(sessions.list()[0]?.error).toBe(RAW_DIAGNOSTIC);
+      expect(sessions.list()[0]?.error).toBe(SAFE_MESSAGE);
     });
   });
 
@@ -173,16 +177,22 @@ describe("resolved sub-agent provider failures", () => {
         { targets: [spawnPayload.agent_id], timeout_ms: 5000 },
       );
       const waitPayload = JSON.parse(String(waited.content)) as {
-        results?: { agent_id?: string; status?: string; error?: string }[];
+        results?: {
+          agent_id?: string;
+          status?: string;
+          error?: string;
+          provider_failure?: boolean;
+        }[];
       };
 
       expect(waitPayload.results?.[0]).toEqual({
         agent_id: spawnPayload.agent_id,
         status: "failed",
         error: SAFE_MESSAGE,
+        provider_failure: true,
       });
       expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
-      expect(sessions.get(spawnPayload.agent_id)?.error).toBe(RAW_DIAGNOSTIC);
+      expect(sessions.get(spawnPayload.agent_id)?.error).toBe(SAFE_MESSAGE);
     });
   });
 });
