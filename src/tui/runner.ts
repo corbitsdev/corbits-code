@@ -222,6 +222,7 @@ import {
   shouldSettleUiAfterSendFailure,
 } from "./session-chrome.js";
 import { ingestOperatorPrompt } from "./prompt-attachments.js";
+import { terminalProviderFailureMessage } from "../inference-error-message.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { imageAttachmentFromPath, type PendingImageAttachment } from "./image-attachments.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
@@ -600,6 +601,14 @@ export function setUpCommandRegistry(
   registerWorkflowPlugins(plugins, getPluginConfig());
   registerCommandPlugins(plugins, getPluginConfig);
   setHiddenCommands(settings?.hiddenCommands ?? []);
+}
+
+export function surfaceTerminalProviderFailure(
+  shell: Parameters<typeof surfaceSystemNotice>[0],
+  providerId: string,
+  displayLabel?: string,
+): void {
+  surfaceSystemNotice(shell, terminalProviderFailureMessage(providerId, displayLabel));
 }
 
 export async function runTUI(initialConfig: Config): Promise<number> {
@@ -2157,7 +2166,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       captureAuthFailure(getTelemetry(), failure);
       if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
       recordRunError(err);
-      systemNotice(err instanceof Error ? err.message : String(err));
+      surfaceTerminalProviderFailure(
+        host.shell,
+        config.providerName,
+        config.settings?.providers[config.providerName]?.name,
+      );
       setShellRunState(host.shell, "idle");
     };
 
@@ -2456,7 +2469,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               permissionGate.setProviderIdentity(providerName, modelName);
             },
             rebuildInference: (next) => {
-              host.bridge.setInferenceProviderId(next.providerName);
+              host.bridge.setInferenceProviderId(
+                next.providerName,
+                config.settings?.providers[next.providerName]?.name,
+              );
               const bundle = buildSessionSources();
               agentProxy.setSources(bundle.sources, bundle.defaultSource);
             },
@@ -2766,7 +2782,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Harness inference.error events omit providerId; stamp the live catalog id
     // onto the stream map so transcript copy can identify known-xAI short 429s.
-    stampProvider.fn = (id) => host.bridge.setInferenceProviderId(id);
+    stampProvider.fn = (id) =>
+      host.bridge.setInferenceProviderId(
+        id,
+        id === undefined ? undefined : config.settings?.providers[id]?.name,
+      );
     stampProvider.fn(config.providerName);
 
     setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));

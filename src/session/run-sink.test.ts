@@ -174,7 +174,7 @@ describe("createRunSink", () => {
     expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
   });
 
-  test("uses unknown attribution when a fallback model fails before usage", () => {
+  test("uses unknown attribution when a retry model fails before usage", () => {
     const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-b" }));
@@ -203,14 +203,14 @@ describe("createRunSink", () => {
     });
   });
 
-  test("uses authoritative usage attribution for a failed fallback", () => {
+  test("uses authoritative usage attribution for a failed retry attempt", () => {
     const { captured, runSink } = attributionHarness();
 
     runSink.sink(event("inference.start", { model: "model-b" }));
     runSink.sink(
       event("inference.usage", {
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-        source: { sourceId: "fallback", provider: "provider-b", model: "model-b" },
+        source: { sourceId: "retry", provider: "provider-b", model: "model-b" },
       }),
     );
     failMessageRun(runSink);

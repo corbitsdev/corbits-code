@@ -11,6 +11,7 @@ import {
   parseCodexUsageLimitError,
 } from "./auth/codex/usage-limit-error.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
+import { stripTerminalControlSequences } from "./util/control-char-strip.js";
 import {
   gatewayOverloadUserMessage,
   isCodexShortRateLimitInferenceError,
@@ -89,6 +90,40 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
     });
   }
   return undefined;
+}
+
+export function terminalProviderFailureMessage(providerId: string, displayLabel?: string): string {
+  const preferred = displayLabel?.trim() || providerId;
+  const sanitized = stripTerminalControlSequences(preferred).replace(/\s+/g, " ").trim();
+  const label = sanitized.length > 0 ? sanitized : "Unknown";
+  return `${label} Provider failed. Try again or switch with "/model" and select another.`;
+}
+
+export type ResolvedProviderFailureError = Error & {
+  readonly name: "ResolvedProviderFailureError";
+  readonly diagnosticMessage: string;
+};
+
+export function createResolvedProviderFailureError(
+  providerId: string,
+  diagnosticMessage: string,
+  displayLabel?: string,
+): ResolvedProviderFailureError {
+  return Object.assign(new Error(terminalProviderFailureMessage(providerId, displayLabel)), {
+    name: "ResolvedProviderFailureError" as const,
+    diagnosticMessage,
+  });
+}
+
+export function isResolvedProviderFailureError(
+  error: unknown,
+): error is ResolvedProviderFailureError {
+  return (
+    error instanceof Error &&
+    error.name === "ResolvedProviderFailureError" &&
+    "diagnosticMessage" in error &&
+    typeof error.diagnosticMessage === "string"
+  );
 }
 
 /** One line describing the failure, falling back to the provider's own message. */

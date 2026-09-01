@@ -258,7 +258,7 @@ describe("inference.retry", () => {
     expect(actions(out)).toEqual(["mark", "rollback"]);
   });
 
-  test("a same-turn failover start consumes the boundary handed off by inference.error", () => {
+  test("a same-turn retry start consumes the boundary handed off by inference.error", () => {
     const out = mapProductionSequence([
       { type: "inference.start" },
       { type: "inference.text.delta", data: { token: "partial" } },
@@ -273,7 +273,7 @@ describe("inference.retry", () => {
     expect(actions(out)).toEqual(["mark", "rollback", "mark"]);
   });
 
-  test("a same-turn failover start after credential_failure also rolls back", () => {
+  test("a same-turn retry start after credential_failure also rolls back", () => {
     const out = mapProductionSequence([
       { type: "inference.start" },
       {
@@ -334,106 +334,14 @@ describe("inference.retry", () => {
 });
 
 describe("inference.error text", () => {
-  const message = (error: unknown) => {
-    const [event] = mapProductionEvent({ type: "inference.error", data: { error } });
-    return event?.type === "error" ? event.message : undefined;
-  };
-
-  test("a classified failure gets its written line, not the provider body", () => {
-    expect(message({ category: "credential_failure", message: '{"error":{"code":401}}' })).toBe(
-      "Authentication failed — log in again.",
-    );
-    expect(message({ category: "quota_exhausted", message: "429" })).toBe(
-      "Quota exhausted — usage limit reached.",
-    );
-  });
-
-  test("a context overflow mislabeled as quota is read from the message", () => {
-    expect(
-      message({ category: "quota_exhausted", message: "input is too long for this model" }),
-    ).toContain("Context window full");
-  });
-
-  test("Codex usage_limit_reached raw body surfaces reset ETA and profile switch", () => {
-    const line = message({
-      category: "quota_exhausted",
-      message: "Too Many Requests",
-      statusCode: 429,
-      providerId: "codex/abk-labs",
-      raw: {
-        detail: {
-          error: {
-            code: "usage_limit_reached",
-            message: "You have reached your usage limit.",
-            plan_type: "workspace_member",
-            resets_in_seconds: 3435,
-          },
-        },
-      },
+  test("provider diagnostics are not mapped to user-visible rows", () => {
+    const rawDiagnostic = "upstream 401: secret response body";
+    const out = mapProductionEvent({
+      type: "inference.error",
+      data: { error: { category: "credential_failure", message: rawDiagnostic } },
     });
-    expect(line).toContain('Codex profile "abk-labs"');
-    expect(line).toMatch(/Resets in ~/);
-    expect(line).toContain("/model");
-  });
 
-  test("ctx.providerId xAI + bare quota_exhausted 429 shows rate-limit copy", () => {
-    const ctx = createStreamMapContext({ providerId: "xai/thegreataxios" });
-    const [event] = mapProductionEvent(
-      {
-        type: "inference.error",
-        data: {
-          error: {
-            category: "quota_exhausted",
-            message: "Too Many Requests",
-            statusCode: 429,
-            raw: { error: { message: "Too Many Requests" } },
-          },
-        },
-      },
-      ctx,
-    );
-    expect(event?.type).toBe("error");
-    if (event?.type !== "error") return;
-    expect(event.message.toLowerCase()).toMatch(/rate limit/);
-    expect(event.message).not.toContain("Quota exhausted");
-  });
-
-  test("ctx.providerId Codex + ChatGPT usage-limit 429 shows rate-limit copy", () => {
-    const ctx = createStreamMapContext({ providerId: "codex/abk-labs" });
-    const [event] = mapProductionEvent(
-      {
-        type: "inference.error",
-        data: {
-          error: {
-            category: "quota_exhausted",
-            message: "You have hit your ChatGPT usage limit",
-            statusCode: 429,
-            raw: "You have hit your ChatGPT usage limit",
-          },
-        },
-      },
-      ctx,
-    );
-    expect(event?.type).toBe("error");
-    if (event?.type !== "error") return;
-    expect(event.message.toLowerCase()).toMatch(/rate limit/);
-    expect(event.message).not.toContain("Quota exhausted");
-    expect(event.message.toLowerCase()).not.toContain("usage limit reached");
-  });
-
-  test("bare quota_exhausted 429 without ctx/provider still shows Quota exhausted", () => {
-    expect(
-      message({
-        category: "quota_exhausted",
-        message: "Too Many Requests",
-        statusCode: 429,
-        raw: { error: { message: "Too Many Requests" } },
-      }),
-    ).toBe("Quota exhausted — usage limit reached.");
-  });
-
-  test("an unclassified failure keeps the provider's own words", () => {
-    expect(message({ message: "socket hang up" })).toBe("socket hang up");
-    expect(message({ category: "wat", message: "socket hang up" })).toBe("socket hang up");
+    expect(out).toEqual([]);
+    expect(JSON.stringify(out)).not.toContain(rawDiagnostic);
   });
 });

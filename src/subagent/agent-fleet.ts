@@ -87,6 +87,7 @@ import {
 } from "./authority.js";
 
 import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
+import { isResolvedProviderFailureError } from "../inference-error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
 
@@ -1078,9 +1079,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             deps.sessions.settleRun(session.id);
             return;
           }
-          // Auth failures keep the actionable Re-authenticate wording.
+          const diagnosticMessage = isResolvedProviderFailureError(err)
+            ? err.diagnosticMessage
+            : err instanceof Error
+              ? err.message
+              : String(err);
           const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
-          const failReason = authMessage ?? (err instanceof Error ? err.message : String(err));
+          const failReason =
+            authMessage ??
+            (isResolvedProviderFailureError(err) ? err.message : diagnosticMessage);
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {

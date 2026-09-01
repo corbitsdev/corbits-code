@@ -76,6 +76,7 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
+import { createResolvedProviderFailureError } from "../inference-error-message.js";
 
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
@@ -875,6 +876,7 @@ async function runSubAgentInner(
     // salvage Findings keep substantive mid-run text, not only the final cycle.
     const TURN_PROSE_CAP = 12_000;
     let accumulatedProse = "";
+    let terminalProviderDiagnostic: string | undefined;
     // Thrash paths from tool.start so mid-tool cancel still lists files touched.
     let thrashState = EMPTY_THRASH_STATE;
     const withTelemetry = (result: RunSubAgentResult): RunSubAgentResult => ({
@@ -907,9 +909,16 @@ async function runSubAgentInner(
       }
       if (event.type === "inference.start") {
         settlementState.latestModel = event.data.model;
+        terminalProviderDiagnostic = undefined;
       }
       if (event.type === "inference.done") {
         settlementState.latestModel = event.data.source.model;
+        terminalProviderDiagnostic = undefined;
+      }
+      if (event.type === "inference.error") {
+        const message = (event.data as { error?: { message?: unknown } }).error?.message;
+        terminalProviderDiagnostic =
+          typeof message === "string" && message.length > 0 ? message : "inference error";
       }
       if (onTurnBoundary(event)) {
         telemetryRollup.turn_count += 1;
@@ -1019,6 +1028,12 @@ async function runSubAgentInner(
       const followup = async (message: string): Promise<string> => {
         interruptController = new AbortController();
         const result = await agent!.send(message, { signal: sendAbortSignal() });
+        if (terminalProviderDiagnostic !== undefined) {
+          throw createResolvedProviderFailureError(
+            params.provider.providerName,
+            terminalProviderDiagnostic,
+          );
+        }
         return result.reply.trim().length > 0
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
@@ -1075,6 +1090,12 @@ async function runSubAgentInner(
       );
       agent.setSources(fresh.sources, fresh.defaultSource);
       const result = await agent.send(fullPrompt, sendOpts);
+      if (terminalProviderDiagnostic !== undefined) {
+        throw createResolvedProviderFailureError(
+          params.provider.providerName,
+          terminalProviderDiagnostic,
+        );
+      }
       // A successful non-empty reply must not be clobbered by a late cancel that
       // races the completion window — keep the completed report. Empty replies
       // still honor abort so we salvage (or rethrow) rather than fabricating

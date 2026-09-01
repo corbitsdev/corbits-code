@@ -169,11 +169,11 @@ settles an unresolved turn once as an unsampled terminal failure. Attribution
 uses the latest `inference.usage` source, the first lifecycle payload carrying
 the runtime-resolved provider/model pair for an attempt. Each `inference.start`
 clears that authoritative source and records the newly attempted model. If a
-fallback fails before usage exposes its source, telemetry retains that actual
-model but uses the fixed `unknown` provider/source bucket rather than attributing
-it to the previously selected provider. When the attempted model still matches
-the selected source, that full source remains valid. Therefore a parent turn
-emits at most one terminal `$ai_generation`, including retry and failover paths.
+retry fails before usage exposes its source, telemetry retains that attempted
+model but uses the fixed `unknown` provider/source bucket. When the attempted
+model still matches the selected source, that full source remains valid.
+Therefore a parent turn emits at most one terminal `$ai_generation`, including
+retry paths.
 
 ## What's never collected
 

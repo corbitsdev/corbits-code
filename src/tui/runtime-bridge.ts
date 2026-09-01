@@ -214,7 +214,7 @@ export interface SessionBridge {
    * `inference.error` transcript lines can identify known-xAI short 429s
    * when the harness event omits `providerId`.
    */
-  setInferenceProviderId: (id: string | undefined) => void;
+  setInferenceProviderId: (id: string | undefined, displayLabel?: string) => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -1407,12 +1407,18 @@ export function attachSessionBridge(
       bag.agentSessions = sessions;
       syncAgentProgress(shell, bag, sessions, now());
     },
-    setInferenceProviderId: (id) => {
+    setInferenceProviderId: (id, displayLabel) => {
       if (bag.disposed) return;
       if (id === undefined) {
         delete bag.mapCtx.providerId;
+        delete bag.mapCtx.providerLabel;
       } else {
         bag.mapCtx.providerId = id;
+        if (displayLabel === undefined) {
+          delete bag.mapCtx.providerLabel;
+        } else {
+          bag.mapCtx.providerLabel = displayLabel;
+        }
       }
     },
     dispose: () => {
