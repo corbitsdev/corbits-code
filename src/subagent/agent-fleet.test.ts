@@ -1033,8 +1033,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    // interruptOne is wait-terminal via session interrupted; collect freezes it.
+    // Soft interrupt leaves the run in flight; the mailbox overlay is what
+    // makes wait terminal (same path interrupt_agent takes).
     expect(deps.sessions.interruptOne(id).ok).toBe(true);
+    deps.fleetRecords.interrupt(id);
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
@@ -1116,6 +1118,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
     fleetRecords.register(worker.id);
     sessions.registerInterrupt(worker.id, () => {});
     sessions.interruptOne(worker.id);
+    // Mirror interrupt_agent: soft interrupt alone projects as running while
+    // in-flight, so the mailbox must flip for wait to see "interrupted".
+    fleetRecords.interrupt(worker.id);
+    fleetRecords.interrupt(worker.id);
 
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
     const waited = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });

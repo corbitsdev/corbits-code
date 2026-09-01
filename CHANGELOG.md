@@ -44,6 +44,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   longer swallow `--*` or `-h` as their option values.
 - `wait_agents` no longer collects a stale completed or interrupted stamp
   when a followup is already in flight.
+- `interrupt_agent` flips the wait mailbox so soft interrupt unblocks
+  `wait_agents` while the background run is still in flight.
 
 ## [0.3.11] - 2026-08-31
 
