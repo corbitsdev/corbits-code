@@ -1101,9 +1101,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               : String(err);
           const isProviderFailure = isResolvedProviderFailureError(err);
           const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
-          const failReason =
-            authMessage ??
-            (isProviderFailure ? err.message : diagnosticMessage);
+          const failReason = authMessage ?? (isProviderFailure ? err.message : diagnosticMessage);
           if (isProviderFailure || providerFailureObserved) {
             deps.fleetRecords.markProviderFailure(session.id);
           }
