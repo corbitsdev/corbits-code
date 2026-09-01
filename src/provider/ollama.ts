@@ -15,9 +15,13 @@ export function normalizeOllamaRootURL(rootURL: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`Invalid Ollama URL "${rootURL}": expected http or https.`);
   }
-  if (parsed.pathname !== "/") {
+  // Legacy Custom rows and operators coming from OpenAI-compatible setup paste
+  // `/v1`. Strip it once so projection can re-append without doubling.
+  const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  if (pathname !== "/" && pathname !== "/v1") {
     throw new Error(`Invalid Ollama URL "${rootURL}": expected a server root without a path.`);
   }
+  parsed.pathname = "/";
   parsed.search = "";
   parsed.hash = "";
   return parsed.toString().replace(/\/$/, "");
@@ -87,4 +91,19 @@ export async function discoverOllamaModels(args: {
   }
   const models = [...new Set(parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0))];
   return models.length > 0 ? { status: "models", models } : { status: "empty" };
+}
+
+/** Operator-facing line for a discovery failure. Network stays canned; HTTP and URL errors surface. */
+export function ollamaDiscoveryFailureLine(
+  state: Exclude<OllamaDiscoveryState, { readonly status: "models" }>,
+): string {
+  if (state.status === "empty") {
+    return "Ollama is running, but no models are installed";
+  }
+  if (state.status === "malformed") {
+    return state.message.startsWith("Invalid Ollama URL")
+      ? state.message
+      : "Ollama returned an invalid models response";
+  }
+  return state.message.startsWith("Ollama returned HTTP") ? state.message : "Ollama is not running";
 }

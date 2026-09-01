@@ -141,6 +141,44 @@ test("buildMainSessionSources backs the active head with other configured provid
   expect(bundle.defaultSource).toBe("openai");
 });
 
+test("legacy ollama /v1 backup does not throw when OpenAI is active", () => {
+  const settings: Settings = {
+    providers: {
+      openai: {
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "k",
+        models: ["gpt-4o"],
+      },
+      ollama: { baseURL: "http://localhost:11434/v1", keyless: true, models: ["llama3"] },
+    },
+  };
+  const mixedCatalog: ProviderCatalogEntry[] = [
+    {
+      name: "openai",
+      baseURL: "https://api.openai.com/v1",
+      apiKey: "k",
+      models: ["gpt-4o"],
+      defaultModel: "gpt-4o",
+    },
+    {
+      name: "ollama",
+      baseURL: "http://localhost:11434/v1",
+      keyless: true,
+      models: ["llama3"],
+      defaultModel: "llama3",
+    },
+  ];
+  const bundle = buildMainSessionSources({
+    settings,
+    catalog: mixedCatalog,
+    activeProvider: "openai",
+    activeModel: "gpt-4o",
+    sessionId: "sess",
+  });
+  expect(bundle.defaultSource).toBe("openai");
+  expect(bundle.sources.find((s) => s.id === "ollama")?.baseURL).toBe("http://localhost:11434/v1");
+});
+
 test("buildSubagentSources backs the head with other configured providers", () => {
   const settings: Settings = {
     providers: {

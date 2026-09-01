@@ -551,6 +551,97 @@ describe("runProviderSetup Ollama discovery", () => {
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
   });
+
+  test("accepts a pasted /v1 URL and persists the discovered catalog", async () => {
+    const seen: ProviderFormValues[] = [];
+    const opts: SubmitOpts[] = [];
+    const seenRoots: string[] = [];
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: async (values, _setPhase, o) => {
+        seen.push({ ...values });
+        opts.push(o);
+      },
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async ({ rootURL }) => {
+        seenRoots.push(rootURL);
+        return { status: "models", models: ["qwen3", "deepseek-r1"] };
+      },
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    for (let i = 0; i < 80; i++) harness.pressKey("Backspace");
+    type(harness, "http://localhost:11434/v1");
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("qwen3");
+    expect(frame).toContain("deepseek-r1");
+    expect(frame).not.toContain("Ollama returned an invalid models response");
+    expect(seenRoots).toEqual(["http://localhost:11434/v1"]);
+
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    expect(await done).toBe(true);
+    expect(seen[0]?.model).toBe("qwen3");
+    expect(opts[0]?.preset?.models).toEqual(["qwen3", "deepseek-r1"]);
+  });
+
+  test("paints HTTP 503 instead of a canned not-running line", async () => {
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async () => ({
+        status: "unavailable",
+        message: "Ollama returned HTTP 503",
+      }),
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("Ollama returned HTTP 503");
+    expect(frame).not.toContain("Ollama is not running");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
+  test("a rejected discovery promise leaves the UI off the loading line", async () => {
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "ollama",
+      createRenderer: async () => harness.renderer,
+      discoverOllamaModels: async () => {
+        throw new Error("boom");
+      },
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).not.toContain("checking installed Ollama models");
+    expect(frame).toContain("Ollama returned an invalid models response");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
 });
 
 describe("runProviderSetup renderer ownership", () => {

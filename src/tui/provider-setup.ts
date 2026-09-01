@@ -36,6 +36,7 @@ import { PRODUCT_NAME } from "../branding.js";
 import {
   discoverOllamaModels as discoverOllamaModelsRequest,
   isOllamaProviderId,
+  ollamaDiscoveryFailureLine,
   type OllamaDiscoveryState,
 } from "../provider/ollama.js";
 import { codexProviderName } from "../config/codex-providers.js";
@@ -1153,14 +1154,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
         const empty = ollamaDiscovery.status === "empty";
         const malformed = ollamaDiscovery.status === "malformed";
         const ramp = rampFor({ phase: "blocked", nowMs: 0 });
-        statusLine.content = rampLine(
-          ramp,
-          empty
-            ? "Ollama is running, but no models are installed"
-            : malformed
-              ? "Ollama returned an invalid models response"
-              : "Ollama is not running",
-        );
+        statusLine.content = rampLine(ramp, ollamaDiscoveryFailureLine(ollamaDiscovery));
         statusLine.fg = ramp.fg;
         guidance.content = empty
           ? "pull a model, then press enter to retry · esc to edit url"
@@ -1521,26 +1515,47 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     stopRamp();
     rampTimer = setInterval(paintStatus, RAMP_TICK_MS);
     paint();
-    discoverOllamaModels({ rootURL, signal: abort.signal }).then((result) => {
-      if (
-        settled ||
-        attempt !== ollamaDiscoveryAttempt ||
-        values.baseURL !== rootURL ||
-        !isOllamaModelStep()
-      ) {
-        return;
-      }
-      stopRamp();
-      ollamaDiscoveryAbort = null;
-      ollamaDiscovery = result;
-      if (result.status === "models" && choice !== null) {
-        values.model = result.models[0] ?? "";
-        const dynamicChoice = { ...choice, models: result.models, defaultModel: values.model };
-        listRows = modelChoiceRows(dynamicChoice).filter((row) => row.id !== TYPE_MODEL_ID);
-        list = createListViewport({ count: listRows.length, height: listHeight() });
-      }
-      paint();
-    });
+    discoverOllamaModels({ rootURL, signal: abort.signal }).then(
+      (result) => {
+        if (
+          settled ||
+          attempt !== ollamaDiscoveryAttempt ||
+          values.baseURL !== rootURL ||
+          !isOllamaModelStep()
+        ) {
+          return;
+        }
+        stopRamp();
+        ollamaDiscoveryAbort = null;
+        ollamaDiscovery = result;
+        if (result.status === "models" && choice !== null) {
+          values.model = result.models[0] ?? "";
+          // Seed the catalog choice so submit persists every installed model,
+          // not only the one picked on this screen.
+          choice = { ...choice, models: [...result.models], defaultModel: values.model };
+          listRows = modelChoiceRows(choice).filter((row) => row.id !== TYPE_MODEL_ID);
+          list = createListViewport({ count: listRows.length, height: listHeight() });
+        }
+        paint();
+      },
+      (err: unknown) => {
+        if (
+          settled ||
+          attempt !== ollamaDiscoveryAttempt ||
+          values.baseURL !== rootURL ||
+          !isOllamaModelStep()
+        ) {
+          return;
+        }
+        stopRamp();
+        ollamaDiscoveryAbort = null;
+        ollamaDiscovery = {
+          status: "malformed",
+          message: err instanceof Error ? err.message : String(err),
+        };
+        paint();
+      },
+    );
   };
 
   const submit = (skipValidation: boolean): void => {

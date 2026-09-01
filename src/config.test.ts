@@ -1143,6 +1143,16 @@ describe("buildOpenAISource", () => {
     expect(source.baseURL).toBe("http://localhost:11434/v1");
   });
 
+  test("projects a legacy Ollama /v1 URL without doubling the path", () => {
+    const source = buildOpenAISource({
+      id: "ollama",
+      baseURL: "http://localhost:11434/v1",
+      model: "llama3",
+    });
+
+    expect(source.baseURL).toBe("http://localhost:11434/v1");
+  });
+
   test("substitutes a placeholder apiKey when none is provided (keyless)", () => {
     const source = buildOpenAISource({
       id: "local",

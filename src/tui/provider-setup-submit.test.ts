@@ -140,6 +140,41 @@ describe("buildProviderSubmitHandler", () => {
     });
   });
 
+  test("accepts a pasted Ollama /v1 URL and persists the server root", async () => {
+    await withTempDir(async (dir) => {
+      connectionChecks.length = 0;
+      const path = join(dir, "settings.json");
+      const submit = buildProviderSubmitHandler(path, null, localSettingsPath(dir));
+      const values: ProviderFormValues = {
+        name: "ollama/default",
+        baseURL: "http://localhost:11434/v1",
+        apiKey: "",
+        model: "qwen3",
+        oauthProfile: "default",
+      };
+      const preset = {
+        id: "ollama",
+        models: ["qwen3", "deepseek-r1"],
+        anthropic: false,
+        opencodeGo: false,
+      };
+
+      await submit(values, noopSetPhase, { skipValidation: false, preset });
+
+      expect(connectionChecks).toEqual([
+        { baseURL: "http://localhost:11434/v1", apiKey: undefined },
+      ]);
+      const provider = (await loadSettings(path))?.providers["ollama/default"];
+      expect(provider).toMatchObject({
+        baseURL: "http://localhost:11434",
+        keyless: true,
+        models: ["qwen3", "deepseek-r1"],
+        defaultModel: "qwen3",
+      });
+      expect(provider?.apiKey).toBeUndefined();
+    });
+  });
+
   test("marks a save-anyway submit as unverified", async () => {
     await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");

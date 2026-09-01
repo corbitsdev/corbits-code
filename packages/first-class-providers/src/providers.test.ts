@@ -66,7 +66,6 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     for (const def of FIRST_CLASS_PROVIDERS) {
       if (def.auth !== "api-key") continue;
       expect(def.baseURL?.length ?? 0).toBeGreaterThan(0);
-      if (def.id === "ollama") continue;
       expect((def.models ?? []).length).toBeGreaterThan(0);
       expect(def.defaultModel?.length ?? 0).toBeGreaterThan(0);
       expect(def.models).toContain(def.defaultModel);
