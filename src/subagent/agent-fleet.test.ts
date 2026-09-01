@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   createFleetMailbox,
@@ -19,6 +22,7 @@ import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
 import { AGENTS_PANEL_LINGER_MS, formatAgentsPanel } from "../tui/chrome-state.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
+import { INTERVENTION_FILE } from "./intervention-log.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -444,6 +448,46 @@ describe("spawn_agent same-cwd concurrency", () => {
 
     expect(first.status).toBe("running");
     expect(second.status).toBe("running");
+
+    gates[0]!.resolve({ report: "one done" });
+    gates[1]!.resolve({ report: "two done" });
+  });
+
+  test("two concurrent shared-cwd spawn_agent lanes log concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-"));
+    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    let callIndex = 0;
+    const deps = makeDeps(async () => gates[callIndex++]!.promise, { cwd: "/repo" });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    await callTool(spawn, {
+      description: "build one",
+      prompt: "implement thing one",
+      intent: "implement",
+    });
+    await callTool(spawn, {
+      description: "build two",
+      prompt: "implement thing two",
+      intent: "implement",
+    });
+
+    const path = join(dir, INTERVENTION_FILE);
+    let log = "";
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (log.includes("concurrent-lane-overlap")) break;
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(log).toContain("concurrent-lane-overlap");
+    expect(log).toContain("conflict");
+    expect(log).toContain("/repo");
+    expect(log).toContain("build one");
+    expect(log).toContain("build two");
 
     gates[0]!.resolve({ report: "one done" });
     gates[1]!.resolve({ report: "two done" });

@@ -1508,6 +1508,53 @@ describe("syncAgentProgress", () => {
       { width: 80, height: 24 },
     );
   });
+
+  test("live progress continues after spawn_agent's immediate running result", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+        });
+        try {
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "spawn_agent",
+              callId: "task-1",
+              arguments: { description: "Review permission gate" },
+            },
+          });
+          bridge.handle({
+            type: "tool.done",
+            data: {
+              result: {
+                callId: "task-1",
+                name: "spawn_agent",
+                content: JSON.stringify({ agent_id: "task-1", status: "running" }),
+                isError: false,
+              },
+            },
+          });
+          const index = shell.streamLog.length - 1;
+          nowMs = 42_000;
+          bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })]);
+          const row = shell.streamLog[index]!;
+          expect(row.agentWorking).toBe(true);
+          expect(row.stat).toContain("grep");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
 });
 
 describe("in-flight tool row elapsed time", () => {

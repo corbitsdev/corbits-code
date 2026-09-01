@@ -6,7 +6,7 @@ import {
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
-import { BUILD_TOOLS } from "../../../src/agent/directors/tool-sets.js";
+import { BUILD_TOOLS, SKYWALKER_TOOLS } from "../../../src/agent/directors/tool-sets.js";
 import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
 
 function bareConfig(task: string): Config {
@@ -91,8 +91,13 @@ describe("resolveExecDirectorOverlay", () => {
     const overlay = resolveExecDirectorOverlay("builder");
     expect(overlay.mountFleet).toBe(false);
     expect(overlay.advertisedAllow).toBeDefined();
-    expect(overlay.advertisedAllow).not.toContain("task");
     expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
+    const buildToolSet = new Set<string>(BUILD_TOOLS);
+    const fleetVerbs = SKYWALKER_TOOLS.filter((name) => !buildToolSet.has(name));
+    expect(fleetVerbs.length).toBeGreaterThan(0);
+    for (const verb of fleetVerbs) {
+      expect(overlay.advertisedAllow).not.toContain(verb);
+    }
     expect(overlay.systemPrompt).toContain("BuilderDirector");
   });
 

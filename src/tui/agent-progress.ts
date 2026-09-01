@@ -2,11 +2,13 @@
  * Live progress for a dispatched sub-agent's pending row in the transcript,
  * and the fleet-level roll-up of those same lanes.
  *
- * A `spawn_agent` tool call renders as one row for its whole lifetime (see
- * `runtime-bridge.ts`'s `syncAgentProgress`). While the call is outstanding
- * this fills in what a bare pending mark cannot say: how long the worker has
- * been running, what it is doing right now, and whether it has gone quiet
- * long enough to look hung rather than merely slow.
+ * A `spawn_agent` row is tracked for the worker lifetime (see
+ * `runtime-bridge.ts`'s `syncAgentProgress`), not only while the spawn_agent
+ * tool call is in flight. The immediate `{status:running}` result must not
+ * drop live clocks. While the worker is running this fills in what a bare
+ * pending mark cannot say: how long the worker has been running, what it is
+ * doing right now, and whether it has gone quiet long enough to look hung
+ * rather than merely slow.
  *
  * Lane state and the fleet roll-up live in this one file on purpose. "Stalled"
  * has exactly one definition — `laneState` below — and the fleet summary
@@ -65,7 +67,7 @@ export interface AgentProgress {
  * Grok on the Responses path routinely sits 60–120s (sometimes longer) between
  * tool cycles with only sparse reasoning-summary deltas — billing thinking
  * tokens the whole time. A 2-minute bar painted those healthy gaps as stalled
- * Task rows and drove dig/cascade thrash. Align with the 5-minute sub-agent
+ * worker/spawn_agent rows and drove dig/cascade thrash. Align with the 5-minute sub-agent
  * stall nudge so UI and salvage agree on what "quiet too long" means.
  */
 export const DEFAULT_STALL_MS = 300_000;

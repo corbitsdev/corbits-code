@@ -40,9 +40,14 @@ describe("tool execution watchdog", () => {
     ).toBeUndefined();
   });
 
+  test("wait_agents with no settings timeout is unbounded", () => {
+    expect(
+      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "wait_agents", arguments: {} }),
+    ).toBeUndefined();
+  });
+
   test("spawn_agent is exempt from the settings watchdog", () => {
-    // A sub-agent run ends on the model's own finish signal, an opt-in
-    // deadline, or an operator; the generic per-tool budget must not abort it.
+    // Dispatch returns immediately; the generic per-tool budget must not abort it.
     const call = { id: "1", name: "spawn_agent", arguments: {} };
     expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
     expect(
@@ -50,10 +55,19 @@ describe("tool execution watchdog", () => {
     ).toBeUndefined();
   });
 
-  test("spawn_agent run outlasting the generic budget completes with its own report", async () => {
+  test("wait_agents is exempt from the settings watchdog", () => {
+    // Collect can outlast settings.tools.timeoutMs while workers still run.
+    const call = { id: "1", name: "wait_agents", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 1_800_000 }, call),
+    ).toBeUndefined();
+  });
+
+  test("wait_agents run outlasting the generic budget completes with its own report", async () => {
     const runner = createDynamicToolRunner(
       [
-        stringTool("spawn_agent", async () => {
+        stringTool("wait_agents", async () => {
           // Slow but progressing: runs well past the 30ms generic budget.
           await new Promise((r) => setTimeout(r, 120));
           return "## Summary\nworker report";
@@ -62,7 +76,7 @@ describe("tool execution watchdog", () => {
       { defaultMs: 30 },
     );
     const result = await runner.run(
-      { id: "t", name: "spawn_agent", arguments: {} },
+      { id: "t", name: "wait_agents", arguments: {} },
       new AbortController().signal,
     );
     expect(result.isError).toBeUndefined();
@@ -256,7 +270,7 @@ describe("tool execution watchdog", () => {
       content: "## Summary\nPartial work salvaged\n\n## Findings\ngate.ts mapped",
     };
     const pending = runWithToolExecutionWatchdog(
-      { id: "3", name: "spawn_agent", arguments: {} },
+      { id: "3", name: "wait_agents", arguments: {} },
       parent.signal,
       5_000,
       async (signal) => {
@@ -289,7 +303,7 @@ describe("tool execution watchdog", () => {
       content: "## Summary\nDeadline salvage\n\n## Findings\npartial findings",
     };
     const result = await runWithToolExecutionWatchdog(
-      { id: "4", name: "spawn_agent", arguments: {} },
+      { id: "4", name: "wait_agents", arguments: {} },
       new AbortController().signal,
       30,
       async (signal) => {
@@ -340,7 +354,7 @@ describe("tool execution watchdog", () => {
 
   test("undefined timeout lets a 50ms tool complete", async () => {
     const result = await runWithToolExecutionWatchdog(
-      { id: "unbounded", name: "spawn_agent", arguments: {} },
+      { id: "unbounded", name: "wait_agents", arguments: {} },
       new AbortController().signal,
       undefined,
       async () => {
@@ -356,7 +370,7 @@ describe("tool execution watchdog", () => {
   test("undefined timeout still surfaces parent abort", async () => {
     const parent = new AbortController();
     const pending = runWithToolExecutionWatchdog(
-      { id: "unbounded-hang", name: "spawn_agent", arguments: {} },
+      { id: "unbounded-hang", name: "wait_agents", arguments: {} },
       parent.signal,
       undefined,
       async () => {
@@ -376,7 +390,7 @@ describe("tool execution watchdog", () => {
       ),
     ]);
     expect(afterAbort.isError).toBe(true);
-    expect(afterAbort.content).toBe("spawn_agent aborted");
+    expect(afterAbort.content).toBe("wait_agents aborted");
   });
 
   test("isUsableToolExecuteResult rejects errors and empty bodies", () => {
@@ -529,12 +543,12 @@ describe("tool execution watchdog", () => {
   });
 
   test("nested watchdog pause freezes the enclosing budget too", async () => {
-    // task tool: outer watchdog wraps the parent `task` call; each child tool
+    // wait_agents: outer watchdog wraps the parent collect call; each child tool
     // call opens its own nested watchdog. A permission prompt during the child
     // captures the innermost budget — pausing it must also freeze the parent
     // budget, or the parent keeps ticking under the modal.
     const result = await runWithToolExecutionWatchdog(
-      { id: "outer", name: "spawn_agent", arguments: {} },
+      { id: "outer", name: "wait_agents", arguments: {} },
       new AbortController().signal,
       60,
       async (outerSignal) => {

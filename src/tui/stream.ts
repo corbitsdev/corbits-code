@@ -73,7 +73,7 @@ export interface StreamRow {
    * the exact row it resolves by this id first — the tool name alone is
    * ambiguous the moment two calls to the same tool are in flight at once,
    * which parallel sub-agent dispatch does on every turn that fires more
-   * than one `task` call.
+   * than one `spawn_agent` call.
    */
   readonly callId?: string;
   /**
@@ -138,7 +138,7 @@ export interface StreamRow {
   /** Diff stat or line range painted dim after the subject, e.g. "+1/-0". */
   readonly stat?: string;
   /**
-   * A dispatched sub-agent's row while its `task` call is still pending: true
+   * A dispatched sub-agent's row while its worker is still running: true
    * once it has reported activity within the stall window, false once the
    * silence has run long enough to look hung rather than merely slow. Absent
    * for every row that is not a live sub-agent dispatch.

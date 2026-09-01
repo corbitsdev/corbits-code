@@ -197,8 +197,8 @@ describe("hydrateHistoryRows", () => {
     ]);
   });
 
-  // CL-5562: a resumed transcript with three parallel `task` dispatches has
-  // three tool_call blocks that all share name "task" — the callId each
+  // CL-5562: a resumed transcript with three parallel `spawn_agent` dispatches has
+  // three tool_call blocks that all share name "spawn_agent" — the callId each
   // block carries is what tells them apart on replay.
   test("resolves parallel same-name tool_call/tool_result pairs by callId", () => {
     const rows = hydrateHistoryRows([

@@ -88,6 +88,7 @@ import {
 
 import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
 import { isSubAgentCancelError } from "./dispose.js";
+import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 
@@ -670,6 +671,23 @@ function resolveAgentDispatch(input: {
 
 export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
+  // Concurrent-lane overlap detection, replacing the static per-package
+  // writePaths lock. There is no field in the spawn_agent contract a caller
+  // uses to declare which files a dispatch will touch, so the only honestly
+  // knowable "intended scope" at spawn is the working directory the dispatch
+  // will run in — worktree-isolated lanes always get a fresh, disjoint path
+  // here, so this can only ever fire in the shared-cwd fallback, which is
+  // exactly where two lanes really can stomp each other's writes.
+  // Keyed by call.id so a completed lane (removed when the worker settles)
+  // is never mistaken for one still running: sequential dispatches to the
+  // same cwd are always clean. Tracking lasts the worker lifetime, not the
+  // immediate spawn_agent return.
+  const activeLanes = new Map<string, { description: string; cwd: string }>();
+  let conflictLog: InterventionSink | null = null;
+  const recordConflict = (event: Parameters<InterventionSink>[0]): void => {
+    conflictLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
+    conflictLog(event);
+  };
   return tool({
     definition: spawnAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -922,6 +940,27 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         }
       };
 
+      // Detect, don't lock: warn when another lane still running right now
+      // is already working in this same cwd. Worktree-isolated lanes never
+      // collide here (each gets its own directory); this only fires in the
+      // shared-cwd fallback, where two lanes genuinely can overwrite each
+      // other's writes. Never blocks the spawn — the least destructive
+      // response that still tells the operator something true, since a
+      // shared cwd does not by itself prove the two lanes touch the same
+      // files, only that they could.
+      const laneCwd = worktreeCwd ?? deps.cwd;
+      for (const [otherId, other] of activeLanes) {
+        if (other.cwd !== laneCwd) continue;
+        recordConflict({
+          id: "concurrent-lane-overlap",
+          class: "conflict",
+          detail:
+            `"${description}" (${call.id}) and "${other.description}" (${otherId}) ` +
+            `are both running against ${laneCwd} at once`,
+        });
+      }
+      activeLanes.set(call.id, { description, cwd: laneCwd });
+
       const params: RunSubAgentParams = {
         // Name the trace directory after the session-store id so the
         // descendant-scoping check behind read_agent_trace can resolve this
@@ -1045,6 +1084,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           deps.sessions.fail(session.id, failReason);
         })
         .finally(() => {
+          activeLanes.delete(call.id);
           finalizeEnd();
           if (!keepWorktreeAlive) void reclaimWorktree();
         });

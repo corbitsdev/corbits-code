@@ -62,11 +62,9 @@ export interface AgentProfile {
   // plugin-contributed profiles, or .agents/agents/ for local profiles. When both
   // systemPromptRole and systemPromptPath are set, systemPromptRole wins.
   systemPromptPath?: string;
-  // Orchestrator agents are an explicit exception to the "sub-agents do not
-  // recurse" rule. When true, the dispatch-time appendix grants this profile
-  // permission to call `task` to spawn other agents. Reserved for top-level
-  // coordinators (e.g. a planning agent that fans work out to specialists);
-  // leaf-task agents should leave this unset.
+  // Reserved for future profile-sourced orchestrator support. Today spawn_agent
+  // rejects profile orchestrators because only built-in director packages carry
+  // trusted fleet semantics. Leaf workers should leave this unset.
   orchestrator?: boolean;
   // Where the profile came from, for search_agents labeling (e.g. "claude",
   // "plugin:<id>", "local"). Omitted for built-in defaults.

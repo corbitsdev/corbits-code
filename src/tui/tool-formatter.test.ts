@@ -404,29 +404,58 @@ describe("spawn_agent activity transcript lines", () => {
     expect(d.display).toBe("Worker");
   });
 
-  test("summarizeToolResult peels the report envelope to the summary line", () => {
-    const r = summarizeToolResult("spawn_agent", reportBody);
+  test("summarizeToolResult formats spawn_agent running JSON as id/status", () => {
+    const r = summarizeToolResult(
+      "spawn_agent",
+      JSON.stringify({ agent_id: "call-abc", status: "running" }),
+    );
+    expect(r.preview).toBe("running call-abc");
+    expect(r.preview).not.toContain("## Summary");
+  });
+
+  test("summarizeToolResult peels wait_agents report envelopes to the summary line", () => {
+    const r = summarizeToolResult(
+      "wait_agents",
+      JSON.stringify({
+        results: [{ agent_id: "call-abc", status: "done", report: reportBody }],
+        timed_out: false,
+      }),
+    );
     expect(r.preview).toBe("Found 3 call sites in app.tsx");
     expect(r.preview).not.toContain("## Summary");
     expect(r.preview).not.toContain("## Findings");
   });
 
-  test("summarizeToolResult marks a cancelled spawn_agent without raw markdown", () => {
-    const r = summarizeToolResult("spawn_agent", 'Sub-agent "map callers" cancelled by operator.');
+  test("summarizeToolResult marks a cancelled historical task without raw markdown", () => {
+    const r = summarizeToolResult("task", 'Sub-agent "map callers" cancelled by operator.');
     expect(r.preview).toBe("cancelled");
     expect(r.preview).not.toContain("##");
   });
 
-  test("mergedToolCollapsedPreview curates spawn_agent call+result into one line", () => {
+  test("mergedToolCollapsedPreview curates spawn_agent call+running JSON into one line", () => {
     const line = mergedToolCollapsedPreview(
       "spawn_agent",
       JSON.stringify(fullBrief),
-      reportBody,
+      JSON.stringify({ agent_id: "call-abc", status: "running" }),
       false,
     );
-    expect(line).toBe("Explorer map callers of leaveObserve — Found 3 call sites in app.tsx");
+    expect(line).toBe("Explorer map callers of leaveObserve — running call-abc");
     expect(line).not.toContain("prompt");
     expect(line).not.toContain("maxTurns");
+    expect(line).not.toContain("## Summary");
+  });
+
+  test("mergedToolCollapsedPreview peels wait_agents Summary envelopes", () => {
+    const line = mergedToolCollapsedPreview(
+      "wait_agents",
+      JSON.stringify({ targets: ["call-abc"] }),
+      JSON.stringify({
+        results: [{ agent_id: "call-abc", status: "done", report: reportBody }],
+        timed_out: false,
+      }),
+      false,
+    );
+    expect(line).toContain("Found 3 call sites in app.tsx");
     expect(line).not.toContain("## Summary");
   });
 });

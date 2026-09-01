@@ -202,8 +202,10 @@ export interface SessionBridge {
   readonly turn: TurnState;
   readonly shell: AppShell;
   /**
-   * Refresh outstanding `spawn_agent` rows with each worker's live progress. The
-   * caller supplies the sessions (from `SubAgentSessionStore.listForStrip()`
+   * Refresh outstanding `spawn_agent` rows with each worker's live progress for
+   * the worker lifetime — not only while the spawn_agent tool call is in
+   * flight. The immediate `{status:running}` result must not drop tracking.
+   * The caller supplies the sessions (from `SubAgentSessionStore.listForStrip()`
    * or similar) on whatever cadence it already polls at.
    */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
@@ -370,11 +372,14 @@ interface BridgeBag {
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number;
   /**
-   * callIds of outstanding `spawn_agent` calls — a subset of `toolRows`' keys. Kept
-   * separate so `syncAgentProgress` never has to walk every in-flight tool to
-   * find the handful that are sub-agent dispatches.
+   * callIds of `spawn_agent` rows tracked for the worker lifetime. Not a subset
+   * of in-flight `toolRows`: spawn_agent returns immediately with
+   * `{status:running}`, and live progress must continue after that result
+   * lands. Keyed by the same id as the sub-agent session (`call.id`).
    */
   taskCallIds: Set<string>;
+  /** Row index for each tracked spawn_agent call, kept after the tool_result. */
+  spawnProgressRows: Map<string, number>;
   /**
    * Last sub-agent session list the host synced. Retained rather than consumed
    * and dropped because the status ticker recomputes fleet state at paint time
@@ -609,6 +614,7 @@ function applyToolCall(
   }
   if (event.callId !== undefined && event.name === SPAWN_AGENT_TOOL_NAME) {
     bag.taskCallIds.add(event.callId);
+    bag.spawnProgressRows.set(event.callId, index);
   }
   bag.lastToolRow = index;
   shell.inFlightTool = { name: event.name, startedAt: bag.now() };
@@ -638,7 +644,13 @@ function applyToolResult(
   if (event.callId !== undefined) {
     bag.toolRows.delete(event.callId);
     bag.toolCallStartedAt.delete(event.callId);
-    bag.taskCallIds.delete(event.callId);
+    // spawn_agent's immediate running JSON is not the end of the worker —
+    // keep the row in taskCallIds / spawnProgressRows until the session
+    // leaves the running set (see syncAgentProgress).
+    if (event.name !== SPAWN_AGENT_TOOL_NAME) {
+      bag.taskCallIds.delete(event.callId);
+      bag.spawnProgressRows.delete(event.callId);
+    }
   }
   if (bag.toolRows.size === 0) shell.inFlightTool = null;
   const index = tracked ?? bag.lastToolRow;
@@ -652,11 +664,12 @@ function applyToolResult(
 }
 
 /**
- * Refresh every outstanding `spawn_agent` call's row with its worker's live progress —
- * elapsed time, current tool, and whether it has gone quiet. Rewrites each row
- * in place through `replaceStreamRowAt`; a session that finished, or is missing
- * from `sessions`, leaves its row untouched rather than reverting to a bare
- * pending mark.
+ * Refresh every tracked `spawn_agent` row with its worker's live progress —
+ * elapsed time, current tool, and whether it has gone quiet. Tracking lasts
+ * the worker lifetime, not the immediate spawn_agent tool_result. Rewrites
+ * each row in place through `replaceStreamRowAt`; a session that finished,
+ * or is missing from `sessions`, leaves its row untouched rather than
+ * reverting to a bare pending mark.
  */
 function syncAgentProgress(
   shell: AppShell,
@@ -666,20 +679,26 @@ function syncAgentProgress(
 ): void {
   if (bag.taskCallIds.size === 0) return;
   for (const callId of bag.taskCallIds) {
-    const index = bag.toolRows.get(callId);
+    const index = bag.spawnProgressRows.get(callId) ?? bag.toolRows.get(callId);
     if (index === undefined) {
       bag.taskCallIds.delete(callId);
+      bag.spawnProgressRows.delete(callId);
       continue;
     }
     const row = streamRowAt(shell, index);
-    if (row === undefined || row.pending !== true) {
+    if (row === undefined) {
       bag.taskCallIds.delete(callId);
+      bag.spawnProgressRows.delete(callId);
       continue;
     }
     const session = sessions.find((s) => s.id === callId);
     if (session === undefined) continue;
     const progress = agentProgress(session, nowMs);
-    if (progress === null) continue;
+    if (progress === null) {
+      bag.taskCallIds.delete(callId);
+      bag.spawnProgressRows.delete(callId);
+      continue;
+    }
     if (row.stat === progress.stat && row.agentWorking === progress.working) continue;
     replaceStreamRowAt(shell, index, {
       ...row,
@@ -753,6 +772,7 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
       bag.toolRows.delete(callId);
       bag.toolCallStartedAt.delete(callId);
       bag.taskCallIds.delete(callId);
+      bag.spawnProgressRows.delete(callId);
     }
   }
   if (bag.lastToolRow >= boundary) bag.lastToolRow = -1;
@@ -949,6 +969,7 @@ export function attachSessionBridge(
     toolCallStartedAt: new Map(),
     lastToolRow: -1,
     taskCallIds: new Set(),
+    spawnProgressRows: new Map(),
     agentSessions: [],
     panelOnlyCallIds: new Set(),
     attemptRow: null,
