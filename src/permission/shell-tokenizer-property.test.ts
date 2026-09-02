@@ -26,6 +26,7 @@ const CORPUS: [string, string, boolean][] = [
   ["nested parens", "((echo a) && echo b) && echo c", false],
   ["empty heredoc", "cat <<EOF\nEOF\necho done", false],
   ["here-string (not heredoc)", "cat <<< hello", true],
+  ["here-string newline boundary", "cat <<< payload\nrm -rf /", true],
   ["dangling redirect across &&", "bun run build > && echo done", false],
 ];
 
