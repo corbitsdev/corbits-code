@@ -115,13 +115,21 @@ export function resolveWorkspacePath(
   rootsProvider: RootsProvider = () => [],
 ): string | undefined {
   const abs = resolve(cwd, path);
-  const realCwd = realpathOr(resolve(cwd));
   const real = realpathNearestOr(abs);
-  if (real === UNRESOLVABLE) return undefined;
-  if (real === realCwd || real.startsWith(realCwd + sep)) return real;
-  if (inKnownRoots(real, rootsProvider())) return real;
-  if (inKnownRoots(real, rootsProvider(true))) return real;
-  return undefined;
+  return isResolvedPathInWorkspace(cwd, real, rootsProvider) ? real : undefined;
+}
+
+function isResolvedPathInWorkspace(
+  cwd: string,
+  real: string,
+  rootsProvider: RootsProvider,
+): boolean {
+  if (real === UNRESOLVABLE) return false;
+  const realCwd = realpathOr(resolve(cwd));
+  if (real === realCwd || real.startsWith(realCwd + sep)) return true;
+  if (inKnownRoots(real, rootsProvider())) return true;
+  if (inKnownRoots(real, rootsProvider(true))) return true;
+  return false;
 }
 
 // Whether `path` (relative to `cwd`) names a not-yet-created sibling worktree
@@ -158,14 +166,12 @@ export function isPermittedSiblingWorktreePath(
   return trustedParents.has(realParent);
 }
 
-function underRoot(abs: string, root: string): boolean {
-  // realpathNearestOr on both sides so a not-yet-created state root still
-  // compares equal to paths under it (realpathOr alone leaves the root
-  // unresolved while the abs path is rebuilt through an existing ancestor).
+function underResolvedRoot(real: string, root: string): boolean {
+  // Resolve a not-yet-created state root through its nearest existing ancestor
+  // so it can still compare equal to paths under it.
   const realRoot = realpathNearestOr(root);
-  const realAbs = realpathNearestOr(abs);
-  if (realRoot === UNRESOLVABLE || realAbs === UNRESOLVABLE) return false;
-  return realAbs === realRoot || realAbs.startsWith(realRoot + sep);
+  if (realRoot === UNRESOLVABLE || real === UNRESOLVABLE) return false;
+  return real === realRoot || real.startsWith(realRoot + sep);
 }
 
 // `rootsProvider` supplies the additional workspace roots (the session's
@@ -189,8 +195,8 @@ export function createPathRestriction(
   // persists after a symlink retargets outside the workspace.
   const cache = new Map<string, { realpath: string; verdict: boolean }>();
 
-  const underStateDir = (abs: string): boolean =>
-    underRoot(abs, legacyStateDir) || underRoot(abs, globalStateDir);
+  const underStateDir = (real: string): boolean =>
+    underResolvedRoot(real, legacyStateDir) || underResolvedRoot(real, globalStateDir);
 
   return {
     isRestricted: (path: string, isWrite: boolean): boolean => {
@@ -211,12 +217,12 @@ export function createPathRestriction(
 
       // State root: read allow, write ask — even when the root lives outside
       // the workspace (global ~/.corbits/projects/...).
-      if (underStateDir(abs)) {
+      if (underStateDir(currentRealpath)) {
         cache.set(cacheKey, { realpath: currentRealpath, verdict: isWrite });
         return isWrite;
       }
 
-      const outsideWorkspace = resolveWorkspacePath(cwd, path, rootsProvider) === undefined;
+      const outsideWorkspace = !isResolvedPathInWorkspace(cwd, currentRealpath, rootsProvider);
       cache.set(cacheKey, { realpath: currentRealpath, verdict: outsideWorkspace });
       return outsideWorkspace;
     },
