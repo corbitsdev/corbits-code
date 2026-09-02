@@ -7,37 +7,7 @@
 // security decision.
 
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
-
-// `&` participates in a redirect when it opens a bash combined redirect
-// (`&>file`) or duplicates a fd (`2>&1`, `<&-`); only a lone `&` word is the
-// background operator. Mirrors the same rule in src/permission/command.ts.
-function isRedirectAmpersand(next: string | undefined): boolean {
-  return !(next === undefined || next === " " || next === "\t");
-}
-
-// The marker word of a heredoc redirect starting at `i` (pointing at `<<`),
-// or null when `<<` is not a heredoc opener (e.g. `<<<` here-string).
-function parseHeredocMarker(command: string, i: number): string | null {
-  if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<") return null;
-  let j = i + 2;
-  if (command[j] === "-") j++;
-  while (command[j] === " " || command[j] === "\t") j++;
-  let markerQuote: string | null = null;
-  if (command[j] === "'" || command[j] === '"') {
-    markerQuote = command[j] as string;
-    j++;
-  }
-  let marker = "";
-  while (
-    j < command.length &&
-    command[j] !== "\n" &&
-    command[j] !== markerQuote &&
-    !(markerQuote === null && (command[j] === " " || command[j] === "\t"))
-  ) {
-    marker += command[j++];
-  }
-  return marker.length > 0 ? marker : null;
-}
+import { isRedirectAmpersand, parseHeredocOpener } from "../permission/shell-tokenizer.js";
 
 // Mirrors the top-level boundary rules in splitChainedCommand (quote-, paren-,
 // heredoc- and continuation-aware; && / || / ; / newline / lone & are chain
@@ -95,7 +65,7 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
     }
 
     if (ch === "<" && command[i + 1] === "<") {
-      const marker = parseHeredocMarker(command, i);
+      const marker = parseHeredocOpener(command, i)?.marker ?? null;
       if (marker !== null) {
         let j = i;
         while (j < command.length && command[j] !== "\n") j++;
@@ -223,7 +193,7 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
     }
 
     if (ch === "<" && normalized[i + 1] === "<" && heredocPending === null) {
-      const marker = parseHeredocMarker(normalized, i);
+      const marker = parseHeredocOpener(normalized, i)?.marker ?? null;
       if (marker !== null) heredocPending = marker;
     }
     current += ch;
@@ -352,7 +322,7 @@ function segmentWords(segment: string): string[] {
     }
 
     if (ch === "<" && segment[i + 1] === "<") {
-      const marker = parseHeredocMarker(segment, i);
+      const marker = parseHeredocOpener(segment, i)?.marker ?? null;
       if (marker !== null) {
         push();
         heredocMarker = marker;
@@ -420,7 +390,7 @@ export function collapseSegmentPayloads(segment: string): CollapsedSegment {
     const ch = segment[i] as string;
 
     if (ch === "<" && segment[i + 1] === "<") {
-      const marker = parseHeredocMarker(segment, i);
+      const marker = parseHeredocOpener(segment, i)?.marker ?? null;
       if (marker !== null) {
         let j = i;
         while (j < segment.length && segment[j] !== "\n") j++;

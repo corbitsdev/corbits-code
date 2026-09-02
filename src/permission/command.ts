@@ -1,5 +1,6 @@
 import type { ApprovalScope } from "./types.js";
 import { escapeGlobLiteral } from "./matcher.js";
+import { isRedirectAmpersand, parseHeredocOpener } from "./shell-tokenizer.js";
 
 // Split a shell command into the individual commands it chains together, so each
 // can be classified for security. The operator still approves the full command
@@ -140,45 +141,6 @@ export function splitChainedCommand(command: string): string[] {
   }
   push();
   return segments;
-}
-
-// Parses a heredoc opener (`<<` or `<<-`) starting at `command[i]` (which must
-// be the first "<"). Returns the terminating marker text and the exclusive end
-// index of the line that opened the heredoc, so the caller can copy the
-// opening line verbatim and resume scanning the heredoc body from there.
-// Shared by splitChainedCommand and stripCommentLines so both stay in sync on
-// what counts as heredoc syntax.
-function parseHeredocOpener(
-  command: string,
-  i: number,
-): { marker: string; lineEnd: number } | null {
-  if (command[i] !== "<" || command[i + 1] !== "<") return null;
-  let j = i + 2;
-  if (command[j] === "-") j++; // <<- strips leading tabs
-  // Skip whitespace between << and the marker word.
-  while (j < command.length && (command[j] === " " || command[j] === "\t")) j++;
-  // The marker may be quoted ('EOF', "EOF", or bare EOF).
-  let markerQuote: string | null = null;
-  if (command[j] === "'" || command[j] === '"') {
-    markerQuote = command[j] as string;
-    j++;
-  }
-  let marker = "";
-  while (
-    j < command.length &&
-    command[j] !== "\n" &&
-    command[j] !== markerQuote &&
-    // A bare (unquoted) marker is a single word; stop at whitespace so a
-    // trailing redirect like `<<EOF > out.txt` is not folded into the
-    // marker (which would leave the heredoc unterminated).
-    !(markerQuote === null && (command[j] === " " || command[j] === "\t"))
-  ) {
-    marker += command[j++];
-  }
-  if (markerQuote !== null && command[j] === markerQuote) j++;
-  // Advance j to the end of the line that opened the heredoc.
-  while (j < command.length && command[j] !== "\n") j++;
-  return { marker, lineEnd: j };
 }
 
 // Remove genuine top-level full-line shell comments from command text before
@@ -449,13 +411,6 @@ export function tokenize(command: string): string[] {
   }
   push();
   return tokens;
-}
-
-// `&` is the background operator when it stands alone as a word — followed by
-// whitespace or end of input. Anywhere else it is part of a redirect token:
-// `2>&1`, `<&-`, `&>file`.
-function isRedirectAmpersand(next: string | undefined): boolean {
-  return !(next === undefined || next === " " || next === "\t");
 }
 
 const MAX_PREFIX_SCOPES = 3;
