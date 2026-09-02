@@ -17,7 +17,14 @@ export function parseHeredocOpener(
   command: string,
   i: number,
 ): { marker: string; lineEnd: number } | null {
-  if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<") return null;
+  if (
+    command[i] !== "<" ||
+    command[i + 1] !== "<" ||
+    command[i - 1] === "<" ||
+    command[i + 2] === "<"
+  ) {
+    return null;
+  }
   let j = i + 2;
   if (command[j] === "-") j++; // <<- strips leading tabs
   while (j < command.length && (command[j] === " " || command[j] === "\t")) j++;

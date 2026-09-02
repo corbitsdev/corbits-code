@@ -1,5 +1,7 @@
 import { test, expect, describe } from "bun:test";
+import type { ToolCall } from "@intx/types/runtime";
 import { splitChainedCommand } from "./command.js";
+import { buildRequests } from "./classify.js";
 import { groupChainSegmentsForDisplay } from "../tui/command-display.js";
 
 // Corpus of chained commands exercising quotes, heredocs, subshells, and
@@ -82,6 +84,19 @@ describe("shared tokenizer: display is a coarse merge of authz", () => {
       }
     });
   }
+});
+
+describe("here-string boundaries", () => {
+  test("keeps a following command outside the here-string approval scope", () => {
+    const command = "cat <<< payload\nrm -rf /";
+    const expected = ["cat <<< payload", "rm -rf /"];
+
+    expect(splitChainedCommand(command)).toEqual(expected);
+    expect(groupChainSegmentsForDisplay(command)).toEqual(expected);
+
+    const call: ToolCall = { id: "c", name: "run_shell", arguments: { command } };
+    expect(buildRequests(call)[0]?.scopes.map((scope) => scope.pattern)).toEqual([command]);
+  });
 });
 
 describe("shared primitives produce consistent results", () => {
