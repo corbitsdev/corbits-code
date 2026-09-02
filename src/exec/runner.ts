@@ -67,6 +67,7 @@ import {
   isResolvedProviderFailureError,
   terminalProviderFailureMessage,
 } from "../inference-error-message.js";
+import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
   expandExistingPluginMembers,
@@ -132,19 +133,34 @@ export async function refreshSelectedProviderCredential<T>(refresh: () => Promis
   }
 }
 
+function execTerminalProviderFailureMessage(
+  config: Config,
+  diagnostic: InferenceErrorLike,
+): string {
+  const providerId = diagnostic.providerId ?? config.providerName;
+  const displayLabel =
+    providerId === config.providerName
+      ? config.settings?.providers[config.providerName]?.name
+      : undefined;
+  return terminalProviderFailureMessage(providerId, diagnostic, displayLabel);
+}
+
 export function execUserFailureMessage(
   config: Config,
   err: unknown,
   providerFailureObserved: boolean,
+  providerError?: InferenceErrorLike,
 ): string {
   if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
   }
+  if (providerError === undefined && isResolvedProviderFailureError(err)) return err.message;
   if (providerFailureObserved || isResolvedProviderFailureError(err)) {
-    return terminalProviderFailureMessage(
-      config.providerName,
-      config.settings?.providers[config.providerName]?.name,
-    );
+    const diagnostic = providerError ?? {
+      category: "fatal",
+      message: err instanceof Error ? err.message : String(err),
+    };
+    return execTerminalProviderFailureMessage(config, diagnostic);
   }
   return formatCaughtError(err);
 }
@@ -327,6 +343,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let turnsUsed = 0;
   let runSink: RunSink | null = null;
   let providerFailureObserved = false;
+  let providerError: InferenceErrorLike | undefined;
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
@@ -756,8 +773,18 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const sink = (event: ReactorEmittedEvent): void => {
       if (event.type === "inference.start" || event.type === "inference.done") {
         providerFailureObserved = false;
+        providerError = undefined;
       } else if (event.type === "inference.error") {
         providerFailureObserved = true;
+        const error = event.data.error;
+        providerError = {
+          category: error.category,
+          ...(error.message !== undefined ? { message: error.message } : {}),
+          ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+          ...("providerId" in error && typeof error.providerId === "string"
+            ? { providerId: error.providerId }
+            : {}),
+        };
       }
       liveSink.sink(event);
       cycleRecorder.handleEvent(event);
@@ -883,9 +910,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         (summaryStatus === "cancelled" ? "run cancelled before completion" : "run failed");
       const userMessage =
         summaryStatus === "failed"
-          ? terminalProviderFailureMessage(
-              config.providerName,
-              config.settings?.providers[config.providerName]?.name,
+          ? execTerminalProviderFailureMessage(
+              config,
+              providerError ?? { category: "unknown", message: diagnosticMessage },
             )
           : diagnosticMessage;
       stderr.write(`Error: ${userMessage}\n`);
@@ -922,7 +949,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   } catch (err) {
     const diagnosticMessage = formatCaughtError(err);
     logger.error("exec failed: {error}", { error: diagnosticMessage });
-    const userMessage = execUserFailureMessage(config, err, providerFailureObserved);
+    const userMessage = execUserFailureMessage(config, err, providerFailureObserved, providerError);
     stderr.write(`Error: ${userMessage}\n`);
     await persist("failed", { error: diagnosticMessage });
     return {

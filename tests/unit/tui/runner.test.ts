@@ -51,11 +51,39 @@ test("TUI send failures keep non-provider errors distinct", () => {
 
 test("TUI send failures retain the in-flight provider identity across model switches", () => {
   expect(
-    tuiSendFailureMessage(new Error("raw provider body"), "error", true, {
-      providerId: "codex/work",
-      displayLabel: "Codex",
-    }),
-  ).toBe('Codex Provider failed. Try again or switch with "/model" and select another.');
+    tuiSendFailureMessage(
+      new Error("send failed"),
+      "error",
+      true,
+      {
+        providerId: "codex/work",
+        displayLabel: "Codex",
+      },
+      {
+        category: "retryable",
+        message: "\u001b[31mupstream\n unavailable\u001b[0m",
+        statusCode: 500,
+      },
+    ),
+  ).toBe("Codex Provider failed (retryable): upstream unavailable. Try again.");
+});
+
+test("TUI send failures prefer an explicitly reported provider", () => {
+  expect(
+    tuiSendFailureMessage(
+      new Error("send failed"),
+      "error",
+      true,
+      { providerId: "codex/work", displayLabel: "Codex" },
+      {
+        providerId: "xai/work",
+        category: "credential_failure",
+        message: "HTTP 401",
+      },
+    ),
+  ).toBe(
+    "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — log in again.",
+  );
 });
 
 test("TUI auth failures tell the user to log in again instead of switching models", () => {

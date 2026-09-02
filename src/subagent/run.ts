@@ -77,6 +77,7 @@ import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import { createResolvedProviderFailureError } from "../inference-error-message.js";
+import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { createRunEventSettlement } from "./run-event-settlement.js";
 
 import type { CapabilityFilter } from "../agent/profiles.js";
@@ -877,7 +878,7 @@ async function runSubAgentInner(
     // salvage Findings keep substantive mid-run text, not only the final cycle.
     const TURN_PROSE_CAP = 12_000;
     let accumulatedProse = "";
-    let terminalProviderDiagnostic: string | undefined;
+    let terminalProviderError: InferenceErrorLike | undefined;
     // Thrash paths from tool.start so mid-tool cancel still lists files touched.
     let thrashState = EMPTY_THRASH_STATE;
     const withTelemetry = (result: RunSubAgentResult): RunSubAgentResult => ({
@@ -912,16 +913,19 @@ async function runSubAgentInner(
       }
       if (event.type === "inference.start") {
         settlementState.latestModel = event.data.model;
-        terminalProviderDiagnostic = undefined;
+        terminalProviderError = undefined;
       }
       if (event.type === "inference.done") {
         settlementState.latestModel = event.data.source.model;
-        terminalProviderDiagnostic = undefined;
+        terminalProviderError = undefined;
       }
       if (event.type === "inference.error") {
-        const message = (event.data as { error?: { message?: unknown } }).error?.message;
-        terminalProviderDiagnostic =
-          typeof message === "string" && message.length > 0 ? message : "inference error";
+        const error = event.data.error;
+        terminalProviderError = {
+          category: error.category,
+          ...(error.message !== undefined ? { message: error.message } : {}),
+          ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+        };
       }
       if (onTurnBoundary(event)) {
         telemetryRollup.turn_count += 1;
@@ -981,6 +985,23 @@ async function runSubAgentInner(
       } catch (error) {
         pending.cancel();
         throw error;
+      }
+    };
+
+    const sendWithProviderFailure = async (
+      message: string,
+      options: { signal: AbortSignal },
+    ): ReturnType<NonNullable<typeof agent>["send"]> => {
+      try {
+        return await sendAndSettle(message, options);
+      } catch (cause) {
+        if (terminalProviderError !== undefined) {
+          throw createResolvedProviderFailureError(
+            params.provider.providerName,
+            terminalProviderError,
+          );
+        }
+        throw cause;
       }
     };
 
@@ -1045,11 +1066,11 @@ async function runSubAgentInner(
       // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
         interruptController = new AbortController();
-        const result = await sendAndSettle(message, { signal: sendAbortSignal() });
-        if (terminalProviderDiagnostic !== undefined) {
+        const result = await sendWithProviderFailure(message, { signal: sendAbortSignal() });
+        if (terminalProviderError !== undefined) {
           throw createResolvedProviderFailureError(
             params.provider.providerName,
-            terminalProviderDiagnostic,
+            terminalProviderError,
           );
         }
         return result.reply.trim().length > 0
@@ -1107,11 +1128,11 @@ async function runSubAgentInner(
         params.catalog,
       );
       agent.setSources(fresh.sources, fresh.defaultSource);
-      const result = await sendAndSettle(fullPrompt, sendOpts);
-      if (terminalProviderDiagnostic !== undefined) {
+      const result = await sendWithProviderFailure(fullPrompt, sendOpts);
+      if (terminalProviderError !== undefined) {
         throw createResolvedProviderFailureError(
           params.provider.providerName,
-          terminalProviderDiagnostic,
+          terminalProviderError,
         );
       }
       // A successful non-empty reply must not be clobbered by a late cancel that

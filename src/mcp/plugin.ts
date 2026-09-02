@@ -2,7 +2,7 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { PermissionGate } from "../permission/gate.js";
 import { gateToolCall } from "../plugins/permission-plugin.js";
-import { scrubSecretShapedToolResultContent } from "../plugins/tool-result-secret-scrub.js";
+import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import {
   truncateToolResultContent,
   type SpillBlobWriter,
@@ -24,7 +24,7 @@ function sanitizeMcpResultContent(
   content: string,
   spill?: { callId: string; writeBlob: SpillBlobWriter; contextDir?: string },
 ): Promise<string> {
-  return truncateToolResultContent(scrubSecretShapedToolResultContent(content), undefined, spill);
+  return truncateToolResultContent(scrubSecretShapedContent(content), undefined, spill);
 }
 
 // Convert a connected client's tools into AgentTools for the dynamic runner used

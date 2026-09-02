@@ -62,6 +62,41 @@ describe("selected provider refresh failures", () => {
       expect(userMessage).not.toContain(rawDiagnostic);
     }
   });
+
+  test("terminal provider failures use the shared classified diagnostic", () => {
+    const config = {
+      ...bareConfig("hello"),
+      providerName: "codex/work",
+      settings: { providers: { "codex/work": { name: "Codex" } } },
+    } as unknown as Config;
+
+    expect(
+      execUserFailureMessage(config, new Error("send failed"), true, {
+        category: "protocol_mismatch",
+        message: "\u001b[31mresponse\n shape changed\u001b[0m",
+      }),
+    ).toBe(
+      'Codex Provider failed (protocol_mismatch): response shape changed. Switch models with "/model".',
+    );
+  });
+
+  test("terminal provider failures prefer an explicit failing provider", () => {
+    const config = {
+      ...bareConfig("hello"),
+      providerName: "openai",
+      settings: { providers: { openai: { name: "OpenAI" } } },
+    } as unknown as Config;
+
+    expect(
+      execUserFailureMessage(config, new Error("send failed"), true, {
+        providerId: "xai/work",
+        category: "credential_failure",
+        message: "HTTP 401",
+      }),
+    ).toBe(
+      "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — log in again.",
+    );
+  });
 });
 
 describe("runExec", () => {

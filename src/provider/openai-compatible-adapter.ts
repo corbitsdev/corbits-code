@@ -15,8 +15,11 @@ import { createOpenAIAdapter } from "@intx/inference/providers";
 // adapter for every source corbits builds.
 type AdapterSource = Parameters<typeof createOpenAIAdapter>[0];
 
-export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAdapter {
-  const base = createOpenAIAdapter(source);
+export function createOpenAICompatibleAdapter(
+  source: AdapterSource,
+  quirks?: unknown,
+): ProviderAdapter {
+  const base = createOpenAIAdapter(source, quirks);
   // Set by buildRequest for the model the current request targets; only
   // DeepSeek/NIM streams need the null-delta-field patch below, so every
   // other provider's frames skip the reparse and hit base.parseResponse

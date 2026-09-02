@@ -723,7 +723,7 @@ describe("attachSessionBridge", () => {
 });
 
 describe("failed sends", () => {
-  test("a resolved terminal provider failure replaces the raw reply and resets", async () => {
+  test("a resolved terminal provider failure is render-only and resets", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -731,8 +731,9 @@ describe("failed sends", () => {
           wireKeys: false,
           run: "idle",
         });
-        const bridge = attachSessionBridge(shell, createRecordingPort());
-        const rawDiagnostic = "upstream 401: secret response body";
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        const rawDiagnostic = "\u001b[31mupstream 401:\n secret response body\u001b[0m";
         const normalReply = "The next request worked.";
         try {
           bridge.setInferenceProviderId("codex/default", "Codex");
@@ -746,10 +747,11 @@ describe("failed sends", () => {
           bridge.handle({ type: "connector.reply", data: { content: normalReply } });
 
           const safeMessage =
-            'Codex Provider failed. Try again or switch with "/model" and select another.';
+            "Codex Provider failed (credential_failure): upstream 401: secret response body. Authentication failed — log in again.";
           expect(shell.streamLog.filter((row) => row.text === safeMessage)).toHaveLength(1);
           expect(shell.streamLog.filter((row) => row.text === normalReply)).toHaveLength(1);
-          expect(shell.streamLog.map((row) => row.text).join("\n")).not.toContain(rawDiagnostic);
+          expect(shell.streamLog.map((row) => row.text).join("\n")).not.toContain("\u001b");
+          expect(port.calls).toEqual([]);
         } finally {
           bridge.dispose();
           shell.dispose();

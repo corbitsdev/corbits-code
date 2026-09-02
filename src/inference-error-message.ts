@@ -12,6 +12,7 @@ import {
 } from "./auth/codex/usage-limit-error.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
 import { stripTerminalControlSequences } from "./util/control-char-strip.js";
+import { scrubSecretShapedContent } from "./plugins/tool-result-secret-scrub.js";
 import {
   gatewayOverloadUserMessage,
   isCodexShortRateLimitInferenceError,
@@ -92,29 +93,90 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
   return undefined;
 }
 
-export function terminalProviderFailureMessage(providerId: string, displayLabel?: string): string {
+const TERMINAL_DIAGNOSTIC_MAX_CHARS = 240;
+const TERMINAL_PROVIDER_LABEL_MAX_CHARS = 80;
+
+function safeDisplayText(text: string, maxChars: number): string {
+  const oneLine = scrubSecretShapedContent(stripTerminalControlSequences(text))
+    .replace(/\s+/g, " ")
+    .trim();
+  return oneLine.length > maxChars ? `${oneLine.slice(0, maxChars - 1)}…` : oneLine;
+}
+
+function terminalProviderFailureCategory(error: InferenceErrorLike): string {
+  const category = classifyInferenceErrorCategory(error);
+  return /^[a-z][a-z0-9_]*$/i.test(category) ? category : "unknown";
+}
+
+export function terminalProviderFailureMessage(
+  providerId: string,
+  error: InferenceErrorLike,
+  displayLabel?: string,
+): string {
   const preferred = displayLabel?.trim() || providerId;
-  const sanitized = stripTerminalControlSequences(preferred).replace(/\s+/g, " ").trim();
-  const label = (sanitized.length > 0 ? sanitized : "Unknown").replace(/\s+Provider$/i, "");
-  return `${label} Provider failed. Try again or switch with "/model" and select another.`;
+  const sanitizedLabel = safeDisplayText(preferred, TERMINAL_PROVIDER_LABEL_MAX_CHARS);
+  const label = (sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown").replace(
+    /\s+Provider$/i,
+    "",
+  );
+  const category = terminalProviderFailureCategory(error);
+  const message = safeDisplayText(error.message ?? "", TERMINAL_DIAGNOSTIC_MAX_CHARS);
+  const diagnostic = message.length > 0 ? message : "inference error";
+  const diagnosticSentence = /[.!?]$/.test(diagnostic) ? diagnostic : `${diagnostic}.`;
+  const guidance = terminalProviderFailureGuidance(error, category);
+  return `${label} Provider failed (${category}): ${diagnosticSentence} ${guidance}`;
+}
+
+function terminalProviderFailureGuidance(error: InferenceErrorLike, category: string): string {
+  if (category === "credential_failure") return CREDENTIAL_FAILURE_USER_MESSAGE;
+  if (category === "context_overflow") return "Try /clear to start fresh.";
+  if (
+    category === "retryable" ||
+    (error.statusCode !== undefined && error.statusCode >= 500 && error.statusCode <= 599)
+  ) {
+    return "Try again.";
+  }
+  return category === "protocol_mismatch"
+    ? 'Switch models with "/model".'
+    : 'Try again or switch models with "/model".';
+}
+
+function terminalProviderFailureSummary(
+  providerId: string,
+  error: InferenceErrorLike,
+  displayLabel?: string,
+): string {
+  const preferred = displayLabel?.trim() || providerId;
+  const sanitizedLabel = safeDisplayText(preferred, TERMINAL_PROVIDER_LABEL_MAX_CHARS);
+  const label = (sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown").replace(
+    /\s+Provider$/i,
+    "",
+  );
+  const category = terminalProviderFailureCategory(error);
+  return `${label} Provider failed (${category}). ${terminalProviderFailureGuidance(error, category)}`;
 }
 
 export type ResolvedProviderFailureError = Error & {
   readonly name: "ResolvedProviderFailureError";
   readonly providerId: string;
-  readonly diagnosticMessage: string;
+  readonly category: string;
+  readonly statusCode?: number;
 };
 
 export function createResolvedProviderFailureError(
   providerId: string,
-  diagnosticMessage: string,
+  providerError: InferenceErrorLike,
   displayLabel?: string,
 ): ResolvedProviderFailureError {
-  return Object.assign(new Error(terminalProviderFailureMessage(providerId, displayLabel)), {
-    name: "ResolvedProviderFailureError" as const,
-    providerId,
-    diagnosticMessage,
-  });
+  return Object.assign(
+    new Error(terminalProviderFailureSummary(providerId, providerError, displayLabel)),
+    {
+      name: "ResolvedProviderFailureError" as const,
+      providerId,
+      category: terminalProviderFailureCategory(providerError),
+      ...(providerError.statusCode !== undefined ? { statusCode: providerError.statusCode } : {}),
+    },
+  );
 }
 
 export function isResolvedProviderFailureError(
@@ -125,8 +187,8 @@ export function isResolvedProviderFailureError(
     error.name === "ResolvedProviderFailureError" &&
     "providerId" in error &&
     typeof error.providerId === "string" &&
-    "diagnosticMessage" in error &&
-    typeof error.diagnosticMessage === "string"
+    "category" in error &&
+    typeof error.category === "string"
   );
 }
 
@@ -145,5 +207,6 @@ export function inferenceErrorMessage(error: InferenceErrorLike): string {
     if (codexLine !== undefined) return codexLine;
   }
 
-  return FRIENDLY_BY_CATEGORY[category] ?? error.message ?? "inference error";
+  const fallback = safeDisplayText(error.message ?? "", TERMINAL_DIAGNOSTIC_MAX_CHARS);
+  return FRIENDLY_BY_CATEGORY[category] ?? (fallback.length > 0 ? fallback : "inference error");
 }

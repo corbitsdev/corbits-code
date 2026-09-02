@@ -2,7 +2,7 @@ import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
-import { scrubSecretShapedToolResultContent } from "../plugins/tool-result-secret-scrub.js";
+import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import type { AgentProfile } from "./profiles.js";
 
 function tokenize(text: string): string[] {
@@ -86,7 +86,7 @@ export function formatAgentSearchResults(profiles: readonly AgentProfile[]): str
   // SCRUBBABLE_TOOLS in tool-result-secret-scrub-plugin cannot reach it. Scrub here
   // before the formatted string becomes a tool result (marketplace/plugin bodies may
   // contain secret-shaped substrings).
-  return scrubSecretShapedToolResultContent(
+  return scrubSecretShapedContent(
     [
       "Matching agent profiles (pass id to spawn_agent(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
       "",

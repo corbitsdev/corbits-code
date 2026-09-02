@@ -10,14 +10,17 @@ import {
   isResolvedProviderFailureError,
   type ResolvedProviderFailureError,
 } from "../inference-error-message.js";
+import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createFleetMailbox, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
-const RAW_DIAGNOSTIC = "POST https://provider.invalid returned secret response body";
+const RAW_DIAGNOSTIC =
+  "\u001b[31mPOST https://provider.invalid returned\n secret response body\u001b[0m";
+const NORMALIZED_DIAGNOSTIC = "POST https://provider.invalid returned secret response body";
 const SAFE_MESSAGE =
-  'test-provider Provider failed. Try again or switch with "/model" and select another.';
+  'test-provider Provider failed (fatal). Try again or switch models with "/model".';
 const provider = {
   providerName: "test-provider",
   baseURL: "http://localhost",
@@ -33,9 +36,15 @@ type Run = (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
 
 async function withResolvedProviderRun<T>(
   callback: (run: Run, cwd: string, observed: ReactorEmittedEvent[]) => Promise<T>,
+  providerError: InferenceErrorLike = { category: "fatal", message: RAW_DIAGNOSTIC },
+  sendFailure?: Error,
 ): Promise<T> {
   const cwd = await mkdtemp(join(tmpdir(), "resolved-provider-failure-"));
   const observed: ReactorEmittedEvent[] = [];
+  let inferenceErrorConsumed: (() => void) | undefined;
+  const inferenceErrorWasConsumed = new Promise<void>((resolve) => {
+    inferenceErrorConsumed = resolve;
+  });
   try {
     return await withMockedModuleDuring(
       import.meta.resolve("../agent/live-tool-dispatch.js"),
@@ -44,6 +53,10 @@ async function withResolvedProviderRun<T>(
         createAgentWithLiveToolDispatch: async () =>
           ({
             send: async () => {
+              if (sendFailure !== undefined) {
+                await inferenceErrorWasConsumed;
+                throw sendFailure;
+              }
               await new Promise<void>((resolve) => queueMicrotask(resolve));
               return { reply: RAW_DIAGNOSTIC, turn: { role: "assistant", content: [] } };
             },
@@ -58,10 +71,11 @@ async function withResolvedProviderRun<T>(
                   type: "inference.error",
                   seq: 2,
                   data: {
-                    error: { category: "fatal", message: RAW_DIAGNOSTIC },
+                    error: providerError,
                     partial: { text: "" },
                   },
                 } as unknown as ReactorEmittedEvent;
+                inferenceErrorConsumed?.();
                 yield {
                   type: "connector.reply",
                   seq: 3,
@@ -125,8 +139,14 @@ describe("resolved sub-agent provider failures", () => {
 
     expect(isResolvedProviderFailureError(caught)).toBe(true);
     expect((caught as ResolvedProviderFailureError).message).toBe(SAFE_MESSAGE);
-    expect((caught as ResolvedProviderFailureError).diagnosticMessage).toBe(RAW_DIAGNOSTIC);
-    expect(observed.some((event) => JSON.stringify(event).includes(RAW_DIAGNOSTIC))).toBe(true);
+    expect((caught as ResolvedProviderFailureError).category).toBe("fatal");
+    expect(JSON.stringify(caught)).not.toContain(RAW_DIAGNOSTIC);
+    expect(JSON.stringify(caught)).not.toContain(NORMALIZED_DIAGNOSTIC);
+    expect(
+      observed.some(
+        (event) => event.type === "inference.error" && event.data.error.message === RAW_DIAGNOSTIC,
+      ),
+    ).toBe(true);
   });
 
   test("split spawn_agent and wait_agents return only the safe message", async () => {
@@ -168,7 +188,83 @@ describe("resolved sub-agent provider failures", () => {
         provider_failure: true,
       });
       expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
+      expect(String(waited.content)).not.toContain(NORMALIZED_DIAGNOSTIC);
       expect(sessions.get(spawnPayload.agent_id)?.error).toBe(SAFE_MESSAGE);
+      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(RAW_DIAGNOSTIC);
+      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(NORMALIZED_DIAGNOSTIC);
     });
   });
+
+  test("a rejected send after inference.error stores only safe classified failure text", async () => {
+    const providerError = {
+      category: "retryable",
+      message: RAW_DIAGNOSTIC,
+      statusCode: 502,
+    } satisfies InferenceErrorLike;
+    await withResolvedProviderRun(
+      async (run, cwd) => {
+        const sessions = createSubAgentSessionStore();
+        const fleetRecords = createFleetMailbox(sessions);
+        const deps = {
+          ...runParams(cwd),
+          getWorkdirBase: () => join(cwd, ".ctx"),
+          sessions,
+          fleetRecords,
+          run,
+        };
+        const spawned = await callTool(createSpawnAgentTool(deps), "spawn_agent", {
+          description: "rejected provider failure",
+          prompt: "trigger it",
+          intent: "explore",
+        });
+        const spawnPayload = JSON.parse(String(spawned.content)) as { agent_id?: unknown };
+        if (typeof spawnPayload.agent_id !== "string") throw new Error("missing agent_id");
+        const waited = await callTool(
+          createWaitAgentsTool({ sessions, fleetRecords }),
+          "wait_agents",
+          { targets: [spawnPayload.agent_id], timeout_ms: 5000 },
+        );
+        const safeFailure = "test-provider Provider failed (retryable). Try again.";
+
+        expect(String(waited.content)).toContain(safeFailure);
+        expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
+        expect(String(waited.content)).not.toContain(NORMALIZED_DIAGNOSTIC);
+        expect(sessions.get(spawnPayload.agent_id)?.error).toBe(safeFailure);
+        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(RAW_DIAGNOSTIC);
+        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(NORMALIZED_DIAGNOSTIC);
+      },
+      providerError,
+      new Error(RAW_DIAGNOSTIC),
+    );
+  });
+
+  test.each([
+    {
+      error: { category: "retryable", message: RAW_DIAGNOSTIC, statusCode: 500 },
+      expected: "test-provider Provider failed (retryable). Try again.",
+    },
+    {
+      error: { category: "protocol_mismatch", message: RAW_DIAGNOSTIC },
+      expected: 'test-provider Provider failed (protocol_mismatch). Switch models with "/model".',
+    },
+  ] satisfies { error: InferenceErrorLike; expected: string }[])(
+    "preserves $error.category guidance without exposing its diagnostic",
+    async ({ error, expected }) => {
+      const caught = await withResolvedProviderRun(async (run, cwd) => {
+        try {
+          await run(runParams(cwd));
+        } catch (failure) {
+          return failure;
+        }
+        throw new Error("expected runSubAgent to reject");
+      }, error);
+
+      expect(isResolvedProviderFailureError(caught)).toBe(true);
+      expect((caught as ResolvedProviderFailureError).category).toBe(error.category);
+      expect((caught as ResolvedProviderFailureError).statusCode).toBe(error.statusCode);
+      expect((caught as ResolvedProviderFailureError).message).toBe(expected);
+      expect((caught as ResolvedProviderFailureError).message).not.toContain(RAW_DIAGNOSTIC);
+      expect((caught as ResolvedProviderFailureError).message).not.toContain(NORMALIZED_DIAGNOSTIC);
+    },
+  );
 });

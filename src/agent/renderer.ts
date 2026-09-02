@@ -9,7 +9,10 @@ import {
   createSessionCostAccumulator,
   type TurnBillingIdentity,
 } from "../cost/session-cost.js";
-import { inferenceErrorMessage } from "../inference-error-message.js";
+import {
+  inferenceErrorMessage,
+  terminalProviderFailureMessage,
+} from "../inference-error-message.js";
 
 export interface Renderer {
   render(event: ReactorEmittedEvent): void;
@@ -258,16 +261,25 @@ export function createRenderer(
       case "inference.error": {
         const err = e.data?.error as Record<string, unknown> | undefined;
         const rawMessage = String(err?.message ?? e.data?.error ?? "inference error");
-        const message =
+        const classifiedError =
           typeof err?.category === "string"
-            ? inferenceErrorMessage({
+            ? {
                 category: err.category,
                 message: rawMessage,
                 ...(typeof err.statusCode === "number" ? { statusCode: err.statusCode } : {}),
                 ...(err.raw !== undefined ? { raw: err.raw } : {}),
                 ...(typeof err.providerId === "string" ? { providerId: err.providerId } : {}),
-              })
-            : rawMessage;
+              }
+            : undefined;
+        const message =
+          classifiedError === undefined
+            ? rawMessage
+            : classifiedError.category === "quota_exhausted"
+              ? inferenceErrorMessage(classifiedError)
+              : terminalProviderFailureMessage(
+                  classifiedError.providerId ?? "Unknown",
+                  classifiedError,
+                );
         writeErrorBlock(message);
         break;
       }
