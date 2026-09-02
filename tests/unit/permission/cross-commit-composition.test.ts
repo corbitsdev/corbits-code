@@ -60,9 +60,8 @@ describe("comment stripping cannot hide executable payload", () => {
     expect(stripCommentLines(cmd)).toContain("rm -rf /");
   });
 
-  test("a chained payload on a comment line still surfaces as a segment", () => {
-    const segs = splitChainedCommand("# note && rm -rf /");
-    expect(segs).toContain("rm -rf /");
+  test("an executable payload after a comment line still surfaces as a segment", () => {
+    expect(splitChainedCommand("# note\nrm -rf /")).toEqual(["# note", "rm -rf /"]);
   });
 
   test("substitution inside double quotes stays visible after stripping", () => {
