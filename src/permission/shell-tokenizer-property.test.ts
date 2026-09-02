@@ -107,6 +107,64 @@ describe("heredoc boundaries", () => {
       ),
     ).toBe(false);
   });
+
+  const heredocCases = [
+    {
+      name: "CRLF terminator",
+      command: "cat <<EOF\r\nsafe\r\nEOF\r\nrm -rf /",
+      expected: ["cat <<EOF\r\nsafe\r\nEOF", "rm -rf /"],
+    },
+    {
+      name: "multiple queued heredocs",
+      command:
+        "cat <<FIRST <<SECOND\none; still body\nFIRST\ntwo && still body\nSECOND\ntouch PWNED",
+      expected: [
+        "cat <<FIRST <<SECOND\none; still body\nFIRST\ntwo && still body\nSECOND",
+        "touch PWNED",
+      ],
+    },
+    {
+      name: "exact plain terminator",
+      command: "cat <<EOF\nEOF \nrm -rf /\nEOF\ntouch PWNED",
+      expected: ["cat <<EOF\nEOF \nrm -rf /\nEOF", "touch PWNED"],
+    },
+    {
+      name: "tab-stripping terminator",
+      command: "cat <<-EOF\n\tinside; body\n \tEOF\nrm -rf /\n\tEOF\ntouch PWNED",
+      expected: ["cat <<-EOF\n\tinside; body\n \tEOF\nrm -rf /\n\tEOF", "touch PWNED"],
+    },
+    {
+      name: "opaque body control characters",
+      command: "cat <<EOF\nrm -rf / && touch PWNED | sh; echo hidden &\nEOF\necho visible",
+      expected: ["cat <<EOF\nrm -rf / && touch PWNED | sh; echo hidden &\nEOF", "echo visible"],
+    },
+    {
+      name: "malformed quoted opener",
+      command: "cat <<'EOF\ntouch PWNED",
+      expected: ["cat <<'EOF", "touch PWNED"],
+    },
+  ];
+
+  for (const { name, command, expected } of heredocCases) {
+    test(`${name} has exact authorization and display boundaries`, () => {
+      expect(splitChainedCommand(command)).toEqual(expected);
+      expect(groupChainSegmentsForDisplay(command)).toEqual(expected);
+
+      const call: ToolCall = { id: "c", name: "run_shell", arguments: { command } };
+      const request = buildRequests(call)[0];
+      if (request === undefined) throw new Error("expected an approval request");
+      expect(request.scopes.map((scope) => scope.pattern)).toEqual([command]);
+      expect(
+        isRequestCoveredByGrant(
+          request,
+          { tool: "run_shell", pattern: "cat *" },
+          undefined,
+          () => false,
+          { resolvedCwd: "/repo", roots: ["/repo"] },
+        ),
+      ).toBe(false);
+    });
+  }
 });
 
 describe("here-string boundaries", () => {
@@ -118,8 +176,47 @@ describe("here-string boundaries", () => {
     expect(groupChainSegmentsForDisplay(command)).toEqual(expected);
 
     const call: ToolCall = { id: "c", name: "run_shell", arguments: { command } };
-    expect(buildRequests(call)[0]?.scopes.map((scope) => scope.pattern)).toEqual([command]);
+    const request = buildRequests(call)[0];
+    if (request === undefined) throw new Error("expected an approval request");
+    expect(request.scopes.map((scope) => scope.pattern)).toEqual([command]);
+    expect(
+      isRequestCoveredByGrant(
+        request,
+        { tool: "run_shell", pattern: "cat *" },
+        undefined,
+        () => false,
+        { resolvedCwd: "/repo", roots: ["/repo"] },
+      ),
+    ).toBe(false);
   });
+});
+
+describe("non-heredoc left shifts", () => {
+  const cases: [string, string, string[]][] = [
+    ["arithmetic", "echo $((1 << 2))\ntouch PWNED", ["echo $((1 << 2))", "touch PWNED"]],
+    ["comment", "echo safe # <<EOF\ntouch PWNED", ["echo safe # <<EOF", "touch PWNED"]],
+  ];
+
+  for (const [name, command, expected] of cases) {
+    test(`${name} syntax preserves exact newline boundaries and grant rejection`, () => {
+      expect(splitChainedCommand(command)).toEqual(expected);
+      expect(groupChainSegmentsForDisplay(command)).toEqual(expected);
+
+      const call: ToolCall = { id: "c", name: "run_shell", arguments: { command } };
+      const request = buildRequests(call)[0];
+      if (request === undefined) throw new Error("expected an approval request");
+      expect(request.scopes.map((scope) => scope.pattern)).toEqual([command]);
+      expect(
+        isRequestCoveredByGrant(
+          request,
+          { tool: "run_shell", pattern: "echo *" },
+          undefined,
+          () => false,
+          { resolvedCwd: "/repo", roots: ["/repo"] },
+        ),
+      ).toBe(false);
+    });
+  }
 });
 
 describe("shared primitives produce consistent results", () => {

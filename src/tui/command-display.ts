@@ -7,7 +7,7 @@
 // security decision.
 
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
-import { isRedirectAmpersand, parseHeredocOpener } from "../permission/shell-tokenizer.js";
+import { projectShellSegments, scanShellStructure } from "../permission/shell-tokenizer.js";
 
 // Mirrors the top-level boundary rules in splitChainedCommand (quote-, paren-,
 // heredoc- and continuation-aware; && / || / ; / newline / lone & are chain
@@ -15,100 +15,10 @@ import { isRedirectAmpersand, parseHeredocOpener } from "../permission/shell-tok
 // of a boundary, so a pipe stage never shows up as its own meaningless
 // numbered item.
 export function groupChainSegmentsForDisplay(command: string): string[] {
-  const segments: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | "`" | null = null;
-  let heredocMarker: string | null = null;
-  let parenDepth = 0;
-
-  const push = (): void => {
-    const trimmed = current.trim();
-    current = "";
-    if (trimmed.length > 0) segments.push(trimmed);
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i] as string;
-
-    if (heredocMarker !== null) {
-      if (ch === "\n") {
-        const lines = current.split("\n");
-        const lastLine = lines[lines.length - 1] ?? "";
-        if (lastLine.trim() === heredocMarker) {
-          // The newline that closes the heredoc is a real chain boundary.
-          heredocMarker = null;
-          push();
-          continue;
-        }
-      }
-      current += ch;
-      continue;
-    }
-
-    if (quote !== null) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-
-    // The shell elides a backslash-newline, joining the lines into one
-    // command — so it is never a display boundary either.
-    if (ch === "\\" && (command[i + 1] === "\n" || command[i + 1] === "\r")) {
-      i += 1;
-      if (command[i] === "\r" && command[i + 1] === "\n") i += 1;
-      continue;
-    }
-
-    if (ch === "<" && command[i + 1] === "<") {
-      const marker = parseHeredocOpener(command, i)?.marker ?? null;
-      if (marker !== null) {
-        let j = i;
-        while (j < command.length && command[j] !== "\n") j++;
-        current += command.slice(i, j);
-        i = j - 1;
-        heredocMarker = marker;
-        continue;
-      }
-    }
-
-    if (ch === "(") {
-      parenDepth++;
-      current += ch;
-      continue;
-    }
-    if (ch === ")") {
-      if (parenDepth > 0) parenDepth--;
-      current += ch;
-      continue;
-    }
-    if (parenDepth > 0) {
-      current += ch;
-      continue;
-    }
-
-    const next = command[i + 1];
-    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
-      push();
-      i++;
-      continue;
-    }
-    if (ch === "&" && isRedirectAmpersand(next)) {
-      current += ch;
-      continue;
-    }
-    if (ch === ";" || ch === "\n" || ch === "&") {
-      push();
-      continue;
-    }
-    current += ch;
-  }
-  push();
-  return segments;
+  return projectShellSegments(command, {
+    splitPipes: false,
+    coalesceDanglingRedirects: false,
+  });
 }
 
 export interface VerbatimLine {
@@ -128,77 +38,62 @@ export interface VerbatimLine {
 // ordinary line ending and follows the LF rule.
 export function verbatimCommandLines(text: string): VerbatimLine[] {
   const normalized = text.replace(/\r\n/g, "\n");
+  const structure = scanShellStructure(normalized);
+  const quoteSpans = structure.spans.filter((span) => span.kind === "quote");
+  const continuations = new Set(
+    structure.spans.filter((span) => span.kind === "continuation").map((span) => span.end - 1),
+  );
+  const fullLineComments = structure.spans.filter(
+    (span) => span.kind === "comment" && span.fullLine,
+  );
   const lines: VerbatimLine[] = [];
   let current = "";
-  let quote: '"' | "'" | "`" | null = null;
-  let heredocMarker: string | null = null;
-  let heredocPending: string | null = null;
+  let lineStart = 0;
   let continued = false;
+  let commentIndex = 0;
+  let quoteIndex = 0;
 
-  const push = (): void => {
-    const isComment = heredocMarker === null && !continued && current.trimStart().startsWith("#");
+  const push = (lineEnd: number): void => {
+    while (fullLineComments[commentIndex]?.end !== undefined) {
+      const comment = fullLineComments[commentIndex];
+      if (comment === undefined || comment.end >= lineStart) break;
+      commentIndex++;
+    }
+    const comment = fullLineComments[commentIndex];
+    const isComment =
+      !continued && comment !== undefined && comment.start >= lineStart && comment.start <= lineEnd;
     lines.push({ text: current, isComment });
     current = "";
-    continued = false;
   };
 
   for (let i = 0; i < normalized.length; i++) {
     const ch = normalized[i] as string;
-
     if (ch === "\r") {
       current += "↵";
       continue;
     }
-
-    if (heredocMarker !== null) {
-      if (ch === "\n") {
-        const done = current.trim() === heredocMarker;
-        push();
-        if (done) heredocMarker = null;
-        continue;
-      }
+    if (ch !== "\n") {
       current += ch;
       continue;
     }
 
-    if (quote !== null) {
-      if (ch === "\n") {
-        current += "↵";
-        continue;
-      }
-      if (ch === quote) quote = null;
-      current += ch;
+    while (quoteSpans[quoteIndex]?.end !== undefined) {
+      const quote = quoteSpans[quoteIndex];
+      if (quote === undefined || quote.end > i) break;
+      quoteIndex++;
+    }
+    const quote = quoteSpans[quoteIndex];
+    const quoted = quote !== undefined && quote.start < i && i < quote.end;
+    if (quoted) {
+      current += "↵";
       continue;
     }
 
-    if (ch === "\\" && normalized[i + 1] === "\n") {
-      current += "\\";
-      push();
-      continued = true;
-      i++;
-      continue;
-    }
-
-    if (ch === "\n") {
-      push();
-      heredocMarker = heredocPending;
-      heredocPending = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-
-    if (ch === "<" && normalized[i + 1] === "<" && heredocPending === null) {
-      const marker = parseHeredocOpener(normalized, i)?.marker ?? null;
-      if (marker !== null) heredocPending = marker;
-    }
-    current += ch;
+    push(i);
+    continued = continuations.has(i);
+    lineStart = i + 1;
   }
-  push();
+  push(normalized.length);
   return lines.filter((line, i) => line.text.trim().length > 0 || i === 0);
 }
 
@@ -282,9 +177,13 @@ const CODE_CONSUMING_COMMANDS = new Set([
 // for classification.
 function segmentWords(segment: string): string[] {
   const words: string[] = [];
+  const opaqueSpans = scanShellStructure(segment)
+    .spans.filter(
+      (span) => span.kind === "quote" || span.kind === "comment" || span.kind === "heredoc-body",
+    )
+    .sort((a, b) => a.start - b.start);
   let current = "";
-  let quote: '"' | "'" | "`" | null = null;
-  let heredocMarker: string | null = null;
+  let spanIndex = 0;
 
   const push = (): void => {
     if (current.length > 0) words.push(current);
@@ -293,51 +192,17 @@ function segmentWords(segment: string): string[] {
 
   let i = 0;
   while (i < segment.length) {
+    const opaque = opaqueSpans[spanIndex];
+    if (opaque !== undefined && i >= opaque.start) {
+      push();
+      i = opaque.end;
+      spanIndex++;
+      continue;
+    }
+
     const ch = segment[i] as string;
-
-    if (heredocMarker !== null) {
-      if (ch === "\n") {
-        let lineEnd = segment.indexOf("\n", i + 1);
-        if (lineEnd === -1) lineEnd = segment.length;
-        if (segment.slice(i + 1, lineEnd).trim() === heredocMarker) {
-          heredocMarker = null;
-          i = lineEnd;
-        }
-      }
-      i++;
-      continue;
-    }
-
-    if (quote !== null) {
-      if (ch === quote) quote = null;
-      i++;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === "`") {
-      push();
-      quote = ch;
-      i++;
-      continue;
-    }
-
-    if (ch === "<" && segment[i + 1] === "<") {
-      const marker = parseHeredocOpener(segment, i)?.marker ?? null;
-      if (marker !== null) {
-        push();
-        heredocMarker = marker;
-        while (i < segment.length && segment[i] !== "\n") i++;
-        continue;
-      }
-    }
-
-    if (ch === " " || ch === "\t" || ch === "\n") {
-      push();
-      i++;
-      continue;
-    }
-
-    current += ch;
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") push();
+    else current += ch;
     i++;
   }
   push();
@@ -383,57 +248,72 @@ function isCodeConsumingSegment(segment: string): boolean {
 // (commit messages, file contents piped to tee/cat, echoed text) collapse.
 export function collapseSegmentPayloads(segment: string): CollapsedSegment {
   if (isCodeConsumingSegment(segment)) return { display: segment, payloads: [] };
+
+  const structure = scanShellStructure(segment);
+  const heredocReplacements = structure.heredocs
+    .filter(
+      (
+        heredoc,
+      ): heredoc is typeof heredoc & {
+        terminatorStart: number;
+        terminatorEnd: number;
+      } => heredoc.terminatorStart !== null && heredoc.terminatorEnd !== null,
+    )
+    .map((heredoc, index) => {
+      const body = segment.slice(heredoc.bodyStart, heredoc.bodyEnd).replace(/(?:\r\n|\n)$/, "");
+      const lines = body.length === 0 ? [] : body.split(/\r?\n/);
+      const placeholder = `<heredoc, ${lineCountSuffix(lines.length)}>`;
+      const firstBodyStart =
+        segment.slice(heredoc.bodyStart - 2, heredoc.bodyStart) === "\r\n"
+          ? heredoc.bodyStart - 2
+          : heredoc.bodyStart - 1;
+      let end = heredoc.terminatorEnd;
+      if (segment.slice(end, end + 2) === "\r\n") end += 2;
+      else if (segment[end] === "\n") end++;
+      return {
+        start: index === 0 ? firstBodyStart : heredoc.bodyStart,
+        end,
+        placeholder,
+        lines,
+      };
+    });
+  const quoteSpans = structure.spans.filter((span) => span.kind === "quote");
   const payloads: CollapsedPayload[] = [];
   let display = "";
+  let heredocIndex = 0;
+  let quoteIndex = 0;
   let i = 0;
+
   while (i < segment.length) {
-    const ch = segment[i] as string;
-
-    if (ch === "<" && segment[i + 1] === "<") {
-      const marker = parseHeredocOpener(segment, i)?.marker ?? null;
-      if (marker !== null) {
-        let j = i;
-        while (j < segment.length && segment[j] !== "\n") j++;
-        display += segment.slice(i, j);
-        i = j + 1;
-        const bodyLines: string[] = [];
-        while (i < segment.length) {
-          let lineEnd = segment.indexOf("\n", i);
-          if (lineEnd === -1) lineEnd = segment.length;
-          const line = segment.slice(i, lineEnd);
-          if (line.trim() === marker) {
-            i = lineEnd + 1;
-            break;
-          }
-          bodyLines.push(line);
-          i = lineEnd + 1;
-        }
-        const placeholder = `<heredoc, ${lineCountSuffix(bodyLines.length)}>`;
-        display += ` ${placeholder}`;
-        payloads.push({ placeholder, lines: bodyLines });
-        continue;
-      }
-    }
-
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      let j = i + 1;
-      while (j < segment.length && segment[j] !== quote) j++;
-      const content = segment.slice(i + 1, j);
-      if (content.includes("\n")) {
-        const lines = content.split("\n");
-        const placeholder = `<${payloadLabel(segment, i)}, ${lineCountSuffix(lines.length)}>`;
-        display += placeholder;
-        payloads.push({ placeholder, lines });
-        i = j < segment.length ? j + 1 : j;
-        continue;
-      }
-      display += segment.slice(i, j < segment.length ? j + 1 : j);
-      i = j < segment.length ? j + 1 : j;
+    const heredoc = heredocReplacements[heredocIndex];
+    if (heredoc !== undefined && i === heredoc.start) {
+      display += ` ${heredoc.placeholder}`;
+      payloads.push({ placeholder: heredoc.placeholder, lines: heredoc.lines });
+      heredocIndex++;
+      i = heredoc.end;
       continue;
     }
 
-    display += ch;
+    const quote = quoteSpans[quoteIndex];
+    if (quote !== undefined && i === quote.start) {
+      const closed = segment[quote.end - 1] === segment[quote.start];
+      const contentEnd = closed ? quote.end - 1 : quote.end;
+      const content = segment.slice(quote.start + 1, contentEnd);
+      if (content.includes("\n")) {
+        const lines = content.split(/\r?\n/);
+        const placeholder = `<${payloadLabel(segment, i)}, ${lineCountSuffix(lines.length)}>`;
+        display += placeholder;
+        payloads.push({ placeholder, lines });
+      } else {
+        display += segment.slice(quote.start, quote.end);
+      }
+      quoteIndex++;
+      i = quote.end;
+      continue;
+    }
+
+    if (quote !== undefined && quote.start < i) quoteIndex++;
+    display += segment[i] as string;
     i++;
   }
   return { display, payloads };

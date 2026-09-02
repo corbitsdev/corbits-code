@@ -2134,13 +2134,12 @@ describe("createPermissionGate", () => {
   });
 
   test("escaped quotes do not mint grants for unexecuted text", async () => {
-    // splitChainedCommand has no backslash-escape support (CL-6988). Minting
-    // per segment would invent a phantom `touch PWNED` grant, so the gate
-    // falls back to one exact whole-pattern grant instead.
     const full = `printf "safe \\" && touch PWNED && \\""`;
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes.find((scope) => scope.id === "exact");
-    if (built === undefined) throw new Error("expected exact command scope");
+    if (built?.pattern === null || built?.pattern === undefined) {
+      throw new Error("expected exact command scope");
+    }
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
@@ -2150,7 +2149,7 @@ describe("createPermissionGate", () => {
     });
 
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
-    expect(persisted.map((a) => a.pattern)).toEqual([full]);
+    expect(persisted.map((a) => a.pattern)).toEqual([built.pattern]);
     expect(persisted.map((a) => a.pattern)).not.toContain("touch PWNED");
   });
 

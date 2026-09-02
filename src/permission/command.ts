@@ -1,147 +1,18 @@
 import type { ApprovalScope } from "./types.js";
 import { escapeGlobLiteral } from "./matcher.js";
-import { isRedirectAmpersand, parseHeredocOpener } from "./shell-tokenizer.js";
+import { projectShellSegments, scanShellStructure } from "./shell-tokenizer.js";
 
-// Split a shell command into the individual commands it chains together, so each
-// can be classified for security. The operator still approves the full command
-// as one block (see buildRequests / gate). Operators recognised: && || | ; and a
-// newline. Splitting is quote-aware — operators inside '...', "..." or `...` are
-// part of an argument, not a separator. Heredoc bodies (<< 'MARKER' ... MARKER)
-// are treated as atomic — newlines inside them are not chain boundaries.
-// Parentheses group: operators inside a subshell or command substitution never
-// split, and a segment that is exactly one `( ... )` group is unwrapped and its
-// inner chain split recursively — so `(cd a && b)` yields `cd a` and `b`, not
-// the fragment `(cd a`.
+// Authorization projects every top-level boundary from the shared structural
+// scan. Bare subshell groups are then recursively unwrapped so their inner
+// commands remain independent approval subjects.
 export function splitChainedCommand(command: string): string[] {
-  const segments: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | "`" | null = null;
-  let heredocMarker: string | null = null;
-  let parenDepth = 0;
-
-  const push = (): void => {
-    const trimmed = current.trim();
-    current = "";
-    if (trimmed.length === 0) return;
-    const inner = unwrapGroup(trimmed);
-    if (inner !== null) {
-      segments.push(...splitChainedCommand(inner));
-      return;
-    }
-    segments.push(trimmed);
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i] as string;
-
-    // Inside a heredoc body: scan for the terminating marker on its own line.
-    if (heredocMarker !== null) {
-      current += ch;
-      if (ch === "\n") {
-        // Check whether the line just completed is the marker.
-        const lines = current.split("\n");
-        const lastLine = lines[lines.length - 2] ?? "";
-        if (lastLine.trim() === heredocMarker) {
-          heredocMarker = null;
-          push();
-        }
-      }
-      continue;
-    }
-
-    if (quote !== null) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-
-    // Shell line continuation: a backslash immediately before a newline is
-    // consumed by the shell (elides the newline for chaining purposes). Do not
-    // append the \ or split the segment; this prevents fragments like "\" from
-    // becoming approval subjects when agents emit continued commands.
-    if (ch === "\\") {
-      const after = command[i + 1];
-      if (after === "\n" || after === "\r") {
-        i += 1;
-        if (after === "\r" && command[i + 1] === "\n") i += 1;
-        continue;
-      }
-    }
-
-    // Detect heredoc redirect: << or <<-
-    if (ch === "<" && command[i + 1] === "<") {
-      const opener = parseHeredocOpener(command, i);
-      if (opener !== null) {
-        current += command.slice(i, opener.lineEnd);
-        i = opener.lineEnd - 1;
-        heredocMarker = opener.marker;
-        continue;
-      }
-    }
-
-    if (ch === "(") {
-      parenDepth++;
-      current += ch;
-      continue;
-    }
-    if (ch === ")") {
-      if (parenDepth > 0) parenDepth--;
-      current += ch;
-      continue;
-    }
-    if (parenDepth > 0) {
-      current += ch;
-      continue;
-    }
-
-    const next = command[i + 1];
-    // A chain operator immediately following a dangling redirect operator
-    // (`>`, `<`, `>&`, `<&` with no target yet) does not start a new command —
-    // the target got separated from its redirect, most often by a stray
-    // separator a model inserted mid-redirect (e.g. "cmd 2>& ; 1" meaning
-    // "cmd 2>&1"). Treat the operator as whitespace so the target rejoins the
-    // command it belongs to, instead of surfacing as its own "Run shell
-    // command" approval. A well-formed chain ("sleep 5 ; -1 ; echo end") has
-    // no dangling redirect before the separator, so it is never affected.
-    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
-      if (endsWithDanglingRedirect(current)) {
-        current = `${current.trimEnd()} `;
-        i++;
-        continue;
-      }
-      push();
-      i++;
-      continue;
-    }
-    // `&` participates in a redirect when it opens a bash combined redirect
-    // (`&>file`) or duplicates a fd after `>`/`<` (`2>&1`, `<&-`). In those
-    // positions it is not a background operator and must not split the chain —
-    // otherwise `bun run build 2>&1` fragments into a real command and a stray
-    // `1`, and the operator gets a separate approval prompt for "1".
-    if (ch === "&" && isRedirectAmpersand(next)) {
-      current += ch;
-      continue;
-    }
-    // A lone "&" backgrounds the preceding command and starts a new one, so it
-    // is a chain boundary. Without this, "ls & rm -rf foo" is treated as a
-    // single segment and the approval scope is derived from the benign head.
-    if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
-      if (endsWithDanglingRedirect(current)) {
-        current = `${current.trimEnd()} `;
-        continue;
-      }
-      push();
-      continue;
-    }
-    current += ch;
-  }
-  push();
-  return segments;
+  return projectShellSegments(command, {
+    splitPipes: true,
+    coalesceDanglingRedirects: true,
+  }).flatMap((segment) => {
+    const inner = unwrapGroup(segment);
+    return inner === null ? [segment] : splitChainedCommand(inner);
+  });
 }
 
 // Remove genuine top-level full-line shell comments from command text before
@@ -162,104 +33,21 @@ export function splitChainedCommand(command: string): string[] {
 // shells do not honor line continuation there), so it never extends the
 // comment past its own line.
 export function stripCommentLines(command: string): string {
+  const comments = scanShellStructure(command).spans.filter(
+    (span) => span.kind === "comment" && span.fullLine,
+  );
+  if (comments.length === 0) return command;
+
   let out = "";
-  let line = "";
-  // Whether the physical/logical line currently being scanned is a comment:
-  // "unknown" until its first non-whitespace, top-level character is seen.
-  let commentState: "unknown" | "yes" | "no" = "unknown";
-  let quote: '"' | "'" | "`" | null = null;
-  let heredocMarker: string | null = null;
-
-  const flushLine = (): void => {
-    if (commentState !== "yes") out += line;
-    line = "";
-    commentState = "unknown";
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i] as string;
-
-    if (heredocMarker !== null) {
-      line += ch;
-      if (ch === "\n") {
-        const lines = line.split("\n");
-        const lastLine = lines[lines.length - 2] ?? "";
-        if (lastLine.trim() === heredocMarker) heredocMarker = null;
-        out += line;
-        line = "";
-      }
-      continue;
-    }
-
-    if (quote !== null) {
-      line += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      if (commentState === "unknown") commentState = "no";
-      line += ch;
-      continue;
-    }
-
-    // Line continuation only applies outside an already-open comment — inside
-    // one, a backslash is just another comment character.
-    if (
-      commentState !== "yes" &&
-      ch === "\\" &&
-      (command[i + 1] === "\n" || command[i + 1] === "\r")
-    ) {
-      const after = command[i + 1] as string;
-      line += ch + after;
-      i += 1;
-      if (after === "\r" && command[i + 1] === "\n") {
-        line += "\n";
-        i += 1;
-      }
-      if (commentState === "unknown") commentState = "no";
-      // Deliberately do not flush: the next physical line is glued to this
-      // one and must never independently qualify as a comment start.
-      continue;
-    }
-
-    if (commentState !== "yes" && ch === "<" && command[i + 1] === "<") {
-      const opener = parseHeredocOpener(command, i);
-      if (opener !== null) {
-        if (commentState === "unknown") commentState = "no";
-        line += command.slice(i, opener.lineEnd);
-        i = opener.lineEnd - 1;
-        heredocMarker = opener.marker;
-        continue;
-      }
-    }
-
-    if (ch === "\n") {
-      line += ch;
-      flushLine();
-      continue;
-    }
-
-    if (ch === " " || ch === "\t") {
-      line += ch;
-      continue;
-    }
-
-    if (commentState === "unknown") commentState = ch === "#" ? "yes" : "no";
-    line += ch;
+  let cursor = 0;
+  for (const comment of comments) {
+    let end = comment.end;
+    if (command[end] === "\r" && command[end + 1] === "\n") end += 2;
+    else if (command[end] === "\n") end++;
+    out += command.slice(cursor, comment.start).replace(/[ \t]+$/, "");
+    cursor = end;
   }
-  flushLine();
-  return out;
-}
-
-// Whether `text` ends (ignoring trailing whitespace) in a redirect operator
-// that has not yet received its target: a bare `>`/`<`, or a fd-duplication
-// opener `>&`/`<&` awaiting the fd number.
-const DANGLING_REDIRECT = /(?:>&|<&|>|<)$/;
-
-function endsWithDanglingRedirect(text: string): boolean {
-  return DANGLING_REDIRECT.test(text.trimEnd());
+  return out + command.slice(cursor);
 }
 
 // The inner chain of a segment that is exactly one parenthesised group, or null

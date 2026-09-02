@@ -336,11 +336,10 @@ export interface PermissionGate {
   unregisterMcpServer: (serverName: string) => void;
 }
 
-// True when splitChainedCommand can be trusted to yield only real segments for
-// grant minting. False for patterns that confuse the no-backslash-escape
-// splitter into phantom segments — those mint as one exact whole-pattern grant.
+// Backslashes mark exact-escaped patterns and must not be interpreted again as
+// shell source. Inline comments likewise remain one exact whole-pattern grant.
 function canSafelyMintPerSegment(pattern: string): boolean {
-  if (/\\["`]/.test(pattern)) return false;
+  if (pattern.includes("\\")) return false;
   if (pattern.includes("#")) return false;
   return true;
 }
@@ -391,12 +390,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // tradeoff. onGrant's covers predicate consults the live approvals list so
     // a queued identical chain drains only once every segment has been minted.
     //
-    // splitChainedCommand / tokenize intentionally have no backslash-escape
-    // support (CL-6988 / #673 rely on that so misparsed wrappers stay opaque).
-    // When the pattern contains escapes or inline `#` comments, the naive
-    // splitter can invent phantom segments (`printf "…\" && evil"` → `evil`).
-    // Fall back to one exact grant for the whole normalized pattern instead of
-    // minting those phantoms.
+    // Exact patterns contain backslash escapes for matcher metacharacters and
+    // cannot be safely reinterpreted as shell source. Inline comments also stay
+    // whole so commented text can never become a separately minted grant.
     const normalizedPattern =
       tool === "run_shell"
         ? stripCommentLines(outcome.persist.pattern).trim()

@@ -40,11 +40,9 @@ describe("splitChainedCommand heredocs", () => {
     expect(splitChainedCommand(command)).toEqual([command]);
   });
 
-  test("scopes a terminated heredoc and its following lines together", () => {
-    // Newlines are not chain separators, so the whole multi-line script stays a
-    // single approval subject; the point is that it terminates rather than hangs.
+  test("splits a command after a terminated heredoc", () => {
     const command = "cat <<EOF > out.txt\nhi\nEOF\necho done";
-    expect(splitChainedCommand(command)).toEqual([command]);
+    expect(splitChainedCommand(command)).toEqual(["cat <<EOF > out.txt\nhi\nEOF", "echo done"]);
   });
 
   test("still splits ordinary chained commands", () => {
