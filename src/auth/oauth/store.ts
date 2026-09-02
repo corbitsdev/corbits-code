@@ -108,7 +108,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
   // CLI sessions cannot clobber each other's profiles or fresher tokens.
   const LOCK_RETRY_MS = 50;
   const LOCK_TIMEOUT_MS = 15_000;
-  const STALE_LOCK_MS = 30_000;
+  const STALE_LOCK_MS = 10_000;
 
   function lockPath(home: string): string {
     return `${authPath(home)}.lock`;

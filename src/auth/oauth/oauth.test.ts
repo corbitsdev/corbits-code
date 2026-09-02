@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -264,6 +264,75 @@ describe("createAuthStore", () => {
       expect(await store.listProfiles(home)).toEqual([]);
     } finally {
       await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("stale lock file is recovered automatically", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-stale-lock-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+
+      // Simulate a stale lock by creating the lock file and backdating its mtime.
+      const lockDir = join(home, ".corbits");
+      await mkdir(lockDir, { recursive: true, mode: 0o700 });
+      const lockFile = join(lockDir, "test-auth.json.lock");
+      await writeFile(lockFile, "");
+      const past = new Date(Date.now() - 60_000); // 60s in the past
+      await utimes(lockFile, past, past);
+
+      // The store should detect the stale lock, remove it, and succeed.
+      await store.saveProfile(
+        { name: "after-stale", tokens: { access: "a", refresh: "r", expiresAt: 1 }, createdAt: 1 },
+        home,
+      );
+
+      const profiles = await store.listProfiles(home);
+      expect(profiles).toHaveLength(1);
+      expect(profiles[0]).toBeDefined();
+      expect(profiles[0]!.name).toBe("after-stale");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("different home directories do not contend on the same lock", async () => {
+    const homeA = await mkdtemp(join(tmpdir(), "oauth-home-a-"));
+    const homeB = await mkdtemp(join(tmpdir(), "oauth-home-b-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+
+      // Concurrent saves to different homes should not block each other.
+      await Promise.all([
+        store.saveProfile(
+          { name: "from-a", tokens: { access: "a", refresh: "r", expiresAt: 1 }, createdAt: 1 },
+          homeA,
+        ),
+        store.saveProfile(
+          { name: "from-b", tokens: { access: "b", refresh: "r", expiresAt: 2 }, createdAt: 2 },
+          homeB,
+        ),
+      ]);
+
+      const profilesA = await store.listProfiles(homeA);
+      const profilesB = await store.listProfiles(homeB);
+
+      expect(profilesA).toHaveLength(1);
+      expect(profilesB).toHaveLength(1);
+      const firstA = profilesA[0];
+      const firstB = profilesB[0];
+      expect(firstA).toBeDefined();
+      expect(firstB).toBeDefined();
+      expect(firstA!.name).toBe("from-a");
+      expect(firstB!.name).toBe("from-b");
+    } finally {
+      await rm(homeA, { recursive: true, force: true });
+      await rm(homeB, { recursive: true, force: true });
     }
   });
 
