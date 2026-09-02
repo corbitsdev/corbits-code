@@ -194,12 +194,16 @@ describe("renderer — submit_output / reactor.done journal block", () => {
 });
 
 describe("renderer — error blocks", () => {
-  test("inference.error writes error block in red to stdout", () => {
+  test("inference.error writes an actionable provider diagnostic in red to stdout", () => {
     const cap = captureOutput();
     const renderer = createRenderer(Date.now());
     renderer.render(
       event("inference.error", {
-        error: { category: "timeout", message: "request timed out" },
+        error: {
+          category: "protocol_mismatch",
+          message: "\u001b[31mresponse\n shape changed\u001b[0m",
+          providerId: "openai",
+        },
         partial: {},
       }),
     );
@@ -207,7 +211,10 @@ describe("renderer — error blocks", () => {
     const out = cap.stdout.join("");
     expect(out).toContain("error");
     expect(out).toContain("\x1b[31m"); // red
-    expect(out).toContain("Request timed out");
+    expect(out).toContain(
+      'openai Provider failed (protocol_mismatch): response shape changed. Switch models with "/model".',
+    );
+    expect(out).not.toContain("\u001b[31mresponse");
   });
 
   test("inference.error surfaces Codex usage_limit_reached with reset ETA", () => {

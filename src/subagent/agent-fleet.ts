@@ -1094,14 +1094,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             deps.sessions.settleRun(session.id);
             return;
           }
-          const diagnosticMessage = isResolvedProviderFailureError(err)
-            ? err.diagnosticMessage
-            : err instanceof Error
-              ? err.message
-              : String(err);
           const isProviderFailure = isResolvedProviderFailureError(err);
+          const diagnosticMessage = err instanceof Error ? err.message : String(err);
           const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
-          const failReason = authMessage ?? (isProviderFailure ? err.message : diagnosticMessage);
+          const failReason = authMessage ?? diagnosticMessage;
           if (isProviderFailure || providerFailureObserved) {
             deps.fleetRecords.markProviderFailure(session.id);
           }

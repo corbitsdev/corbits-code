@@ -5,7 +5,7 @@ import {
   toolOutputAbsolutePath,
   type MaterializedToolResult,
 } from "./tool-result-materialize.js";
-import { scrubSecretShapedToolResultContent } from "./tool-result-secret-scrub.js";
+import { scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
 
 const TRUNCATABLE_TOOLS = new Set(["read_file", "grep", "run_shell", "search_files", "web_fetch"]);
 
@@ -108,7 +108,7 @@ async function spillAndTruncate(
   spill?: TruncationSpillOptions,
 ): Promise<string> {
   const { contentType } = materialized;
-  const text = scrubSecretShapedToolResultContent(materialized.text);
+  const text = scrubSecretShapedContent(materialized.text);
   if (text.length <= maxChars) return text;
 
   if (spill === undefined) {

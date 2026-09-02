@@ -344,4 +344,56 @@ describe("inference.error text", () => {
     expect(out).toEqual([]);
     expect(JSON.stringify(out)).not.toContain(rawDiagnostic);
   });
+
+  test("terminal replies surface the classified sanitized provider diagnostic", () => {
+    const out = mapProductionSequence(
+      [
+        {
+          type: "inference.error",
+          data: {
+            error: {
+              category: "retryable",
+              message: "\u001b[31mupstream\n unavailable\u001b[0m",
+              statusCode: 500,
+            },
+          },
+        },
+        { type: "connector.reply", data: { content: "generic director reply" } },
+      ],
+      createStreamMapContext({ providerId: "openai", providerLabel: "OpenAI" }),
+    );
+
+    expect(out).toEqual([
+      {
+        type: "assistant",
+        text: "OpenAI Provider failed (retryable): upstream unavailable. Try again.",
+      },
+    ]);
+  });
+
+  test("an explicit failing provider overrides the selected provider identity", () => {
+    const out = mapProductionSequence(
+      [
+        {
+          type: "inference.error",
+          data: {
+            error: {
+              providerId: "xai/work",
+              category: "credential_failure",
+              message: "HTTP 401",
+            },
+          },
+        },
+        { type: "connector.reply", data: { content: "generic director reply" } },
+      ],
+      createStreamMapContext({ providerId: "openai", providerLabel: "OpenAI" }),
+    );
+
+    expect(out).toEqual([
+      {
+        type: "assistant",
+        text: "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — log in again.",
+      },
+    ]);
+  });
 });

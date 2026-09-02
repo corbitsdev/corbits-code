@@ -159,6 +159,10 @@ import type {
 } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
+import {
+  createProviderFailureAttemptTracker,
+  type ProviderFailureAttempt,
+} from "./provider-failure-attempt.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
@@ -221,6 +225,7 @@ import {
   isResolvedProviderFailureError,
   terminalProviderFailureMessage,
 } from "../inference-error-message.js";
+import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { imageAttachmentFromPath, type PendingImageAttachment } from "./image-attachments.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
@@ -604,9 +609,10 @@ export function setUpCommandRegistry(
 export function surfaceTerminalProviderFailure(
   shell: Parameters<typeof surfaceSystemNotice>[0],
   providerId: string,
+  error: InferenceErrorLike,
   displayLabel?: string,
 ): void {
-  surfaceSystemNotice(shell, terminalProviderFailureMessage(providerId, displayLabel));
+  surfaceSystemNotice(shell, terminalProviderFailureMessage(providerId, error, displayLabel));
 }
 
 export interface InferenceAttemptIdentity {
@@ -619,6 +625,7 @@ export function tuiSendFailureMessage(
   failureKind: "auth" | "error",
   providerFailureObserved: boolean,
   attempt: InferenceAttemptIdentity,
+  providerError?: InferenceErrorLike,
 ): string {
   if (failureKind === "auth") {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
@@ -628,7 +635,12 @@ export function tuiSendFailureMessage(
   }
   const providerId = isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId;
   const displayLabel = providerId === attempt.providerId ? attempt.displayLabel : undefined;
-  return terminalProviderFailureMessage(providerId, displayLabel);
+  if (providerError === undefined && isResolvedProviderFailureError(error)) return error.message;
+  const diagnostic = providerError ?? {
+    category: "fatal",
+    message: error instanceof Error ? error.message : String(error),
+  };
+  return terminalProviderFailureMessage(providerId, diagnostic, displayLabel);
 }
 
 export async function runTUI(initialConfig: Config): Promise<number> {
@@ -1666,13 +1678,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // keeps the in-flight cycle's text so an errored or interrupted turn leaves
     // its partial output in partial.jsonl instead of vanishing.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
-    let providerFailureObserved = false;
+    const providerFailureAttempts = createProviderFailureAttemptTracker();
     flushPartialOnCrash = () => cycleRecorder.dispose("crashed").then(() => undefined);
     const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
       if (event.type === "inference.start" || event.type === "inference.done") {
-        providerFailureObserved = false;
+        providerFailureAttempts.reset();
       } else if (event.type === "inference.error") {
-        providerFailureObserved = true;
+        const error = event.data.error;
+        providerFailureAttempts.observe({
+          category: error.category,
+          message: error.message,
+          ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+          ...("providerId" in error && typeof error.providerId === "string"
+            ? { providerId: error.providerId }
+            : {}),
+        });
       }
       runSink.sink(event);
       cycleRecorder.handleEvent(event);
@@ -2147,13 +2167,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     approvalPersistNotice.notify = systemNotice;
 
     /** Settle the shell after a rejected send so the run does not look live. */
-    const handleSendFailure = (err: unknown, attempt: InferenceAttemptIdentity): void => {
+    const handleSendFailure = (
+      err: unknown,
+      attempt: InferenceAttemptIdentity,
+      providerFailure: ProviderFailureAttempt,
+    ): void => {
       const failure = classifyAgentSendFailure(err, sendAborted, isCodexAuthError, isXaiAuthError);
       captureAuthFailure(getTelemetry(), failure);
       if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
       if (failure.kind === "abort") return;
       recordRunError(err);
-      systemNotice(tuiSendFailureMessage(err, failure.kind, providerFailureObserved, attempt));
+      systemNotice(
+        tuiSendFailureMessage(
+          err,
+          failure.kind,
+          providerFailure.observed,
+          attempt,
+          providerFailure.error,
+        ),
+      );
       setShellRunState(host.shell, "idle");
     };
 
@@ -2167,10 +2199,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     const sendWithAttemptIdentity = async (message: InboundMessage): Promise<void> => {
       const attempt = currentAttemptIdentity();
+      const providerFailure = providerFailureAttempts.begin();
       try {
         await agentProxy.send(message);
       } catch (error) {
-        handleSendFailure(error, attempt);
+        handleSendFailure(error, attempt, providerFailure);
+      } finally {
+        providerFailureAttempts.settle(providerFailure);
       }
     };
 
@@ -2270,7 +2305,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       dispatchCommand: (name, args) => dispatchCommand(name, args),
       sendPrompt: (text, attachments) => {
         void sendUserPrompt(text, attachments ?? []).catch((error: unknown) => {
-          handleSendFailure(error, currentAttemptIdentity());
+          handleSendFailure(error, currentAttemptIdentity(), {
+            observed: false,
+            error: undefined,
+          });
         });
       },
       onPromptSubmitted: () => {
@@ -2355,7 +2393,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             });
           },
           captureGeneration: deliveryGeneration.capture,
-          onFailure: (error) => handleSendFailure(error, currentAttemptIdentity()),
+          onFailure: (error) =>
+            handleSendFailure(error, currentAttemptIdentity(), {
+              observed: false,
+              error: undefined,
+            }),
         }),
         parentCycleLive: () => host.bridge.parentCycleLive,
         deliverSteer: createLiveSteerDeliver({
@@ -2366,7 +2408,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             agentProxy.deliver(userInboundMessage(text, pending));
           },
           captureGeneration: deliveryGeneration.capture,
-          onFailure: (error) => handleSendFailure(error, currentAttemptIdentity()),
+          onFailure: (error) =>
+            handleSendFailure(error, currentAttemptIdentity(), {
+              observed: false,
+              error: undefined,
+            }),
         }),
       }),
       // Consent by proceeding requires the disclosure to be on screen before the

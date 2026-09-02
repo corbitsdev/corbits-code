@@ -94,29 +94,141 @@ describe("inferenceErrorMessage", () => {
 });
 
 describe("terminalProviderFailureMessage", () => {
-  test("uses the selected provider display label in the terminal guidance", () => {
-    expect(terminalProviderFailureMessage("openai", "OpenAI")).toBe(
-      'OpenAI Provider failed. Try again or switch with "/model" and select another.',
+  test("surfaces a retryable HTTP failure with safe retry guidance", () => {
+    expect(
+      terminalProviderFailureMessage(
+        "openai",
+        {
+          category: "retryable",
+          message: "\u001b[31mupstream\n unavailable\u001b[0m",
+          statusCode: 500,
+        },
+        "OpenAI",
+      ),
+    ).toBe("OpenAI Provider failed (retryable): upstream unavailable. Try again.");
+  });
+
+  test("surfaces protocol mismatches with switch-model guidance", () => {
+    expect(
+      terminalProviderFailureMessage("custom-provider", {
+        category: "protocol_mismatch",
+        message: "response did not match the expected schema",
+      }),
+    ).toBe(
+      'custom-provider Provider failed (protocol_mismatch): response did not match the expected schema. Switch models with "/model".',
     );
   });
 
-  test("falls back to the selected provider id", () => {
-    expect(terminalProviderFailureMessage("custom-provider")).toBe(
-      'custom-provider Provider failed. Try again or switch with "/model" and select another.',
+  test("treats an HTTP 503 protocol mismatch as transient", () => {
+    expect(
+      terminalProviderFailureMessage("custom-provider", {
+        category: "protocol_mismatch",
+        message: "gateway returned HTML",
+        statusCode: 503,
+      }),
+    ).toBe(
+      "custom-provider Provider failed (protocol_mismatch): gateway returned HTML. Try again.",
     );
+  });
+
+  test("uses the canonical category for a misclassified context overflow", () => {
+    expect(
+      terminalProviderFailureMessage("custom-provider", {
+        category: "retryable",
+        message: "input exceeds the maximum context window",
+        statusCode: 429,
+      }),
+    ).toBe(
+      "custom-provider Provider failed (context_overflow): input exceeds the maximum context window. Try /clear to start fresh.",
+    );
+  });
+
+  test("tells the user to log in again after a credential failure", () => {
+    expect(
+      terminalProviderFailureMessage("custom-provider", {
+        category: "credential_failure",
+        message: "HTTP 401 Unauthorized",
+        statusCode: 401,
+      }),
+    ).toBe(
+      "custom-provider Provider failed (credential_failure): HTTP 401 Unauthorized. Authentication failed — log in again.",
+    );
+  });
+
+  test.each([
+    {
+      name: "Bearer header",
+      secret: "bearer-secret-token-1234567890",
+      diagnostic: "Authorization: Bearer bearer-secret-token-1234567890",
+    },
+    {
+      name: "Basic authorization header",
+      secret: "dXNlcjpwYXNzd29yZA==",
+      diagnostic: "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+    },
+    {
+      name: "api_key query parameter",
+      secret: "query-secret-value",
+      diagnostic: "GET https://provider.invalid/v1?api_key=query-secret-value&model=test",
+    },
+    {
+      name: "JSON credential fields",
+      secret: "json-secret-value",
+      diagnostic:
+        '{"api_key":"json-secret-value","password":"json-secret-value","authorization":"json-secret-value"}',
+    },
+  ])("scrubs $name before display", ({ secret, diagnostic }) => {
+    const message = terminalProviderFailureMessage("custom-provider", {
+      category: "fatal",
+      message: diagnostic,
+    });
+
+    expect(message).toContain("[redacted: looks like a credential]");
+    expect(message).not.toContain(secret);
+  });
+
+  test("scrubs a Bearer token split by ANSI controls", () => {
+    const secret = "bearer-secret-token-1234567890";
+    const message = terminalProviderFailureMessage("custom-provider", {
+      category: "fatal",
+      message: "Authorization: Bearer bearer-secret-\u001b[31mtoken-1234567890\u001b[0m",
+    });
+
+    expect(message).toContain("[redacted: looks like a credential]");
+    expect(message).not.toContain(secret);
+    expect(message).not.toContain("\u001b");
   });
 
   test("does not duplicate Provider in configured display labels", () => {
-    expect(terminalProviderFailureMessage("codex/work", "Codex Provider")).toBe(
-      'Codex Provider failed. Try again or switch with "/model" and select another.',
+    expect(
+      terminalProviderFailureMessage(
+        "codex/work",
+        { category: "fatal", message: "service rejected the request" },
+        "Codex Provider",
+      ),
+    ).toBe(
+      'Codex Provider failed (fatal): service rejected the request. Try again or switch models with "/model".',
     );
   });
 
   test("uses a safe label when the provider id contains only control sequences", () => {
-    const message = terminalProviderFailureMessage("\u001b[31m\u001b[0m");
+    const message = terminalProviderFailureMessage("\u001b[31m\u001b[0m", {
+      category: "fatal",
+      message: "request failed",
+    });
     expect(message).toBe(
-      'Unknown Provider failed. Try again or switch with "/model" and select another.',
+      'Unknown Provider failed (fatal): request failed. Try again or switch models with "/model".',
     );
     expect(message).not.toContain("\u001b");
+  });
+
+  test("bounds provider-controlled display text", () => {
+    const message = terminalProviderFailureMessage("custom-provider", {
+      category: "fatal",
+      message: "x".repeat(1_000),
+    });
+
+    expect(message).toContain(`${"x".repeat(239)}…`);
+    expect(message).not.toContain("x".repeat(241));
   });
 });

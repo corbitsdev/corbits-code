@@ -10,6 +10,7 @@ import {
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js";
 import { terminalProviderFailureMessage } from "../inference-error-message.js";
+import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import type { RunState } from "./session-queue.js";
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */
@@ -122,8 +123,9 @@ export interface StreamMapContext {
    */
   providerId?: string;
   providerLabel?: string;
-  /** Raw diagnostics stay on the reactor event; only this marker reaches reply mapping. */
+  /** Classified diagnostics are held only for render-time terminal presentation. */
   pendingProviderFailure: boolean;
+  pendingProviderError: InferenceErrorLike | undefined;
 }
 
 export function createStreamMapContext(opts?: {
@@ -140,6 +142,7 @@ export function createStreamMapContext(opts?: {
     attemptCallIds: new Set(),
     errorRollbackArmed: false,
     pendingProviderFailure: false,
+    pendingProviderError: undefined,
     ...(opts?.providerId !== undefined ? { providerId: opts.providerId } : {}),
     ...(opts?.providerLabel !== undefined ? { providerLabel: opts.providerLabel } : {}),
   };
@@ -345,6 +348,7 @@ function mapEvent(
         ctx.attemptArmed = true;
         ctx.attemptCallIds = new Set(ctx.callIdToName.keys());
         ctx.pendingProviderFailure = false;
+        ctx.pendingProviderError = undefined;
       }
       return [
         ...(recovered ? [ATTEMPT_ROLLBACK] : []),
@@ -356,7 +360,10 @@ function mapEvent(
     case "inference.done":
       // Cycle settled: disarm so a pre-commit retry belonging to the *next*
       // cycle cannot retract this one's rows.
-      if (ctx) ctx.pendingProviderFailure = false;
+      if (ctx) {
+        ctx.pendingProviderFailure = false;
+        ctx.pendingProviderError = undefined;
+      }
       return disarmAttempt(ctx);
 
     case "inference.retry": {
@@ -462,10 +469,20 @@ function mapEvent(
       if (ctx?.pendingProviderFailure === true) {
         ctx.pendingProviderFailure = false;
         ctx.hadTextDelta = false;
+        const error = ctx.pendingProviderError ?? {
+          category: "unknown",
+          message: "inference error",
+        };
+        ctx.pendingProviderError = undefined;
+        const providerId = error.providerId ?? ctx.providerId ?? "Unknown";
+        const providerLabel =
+          error.providerId === undefined || error.providerId === ctx.providerId
+            ? ctx.providerLabel
+            : undefined;
         return [
           {
             type: "assistant",
-            text: terminalProviderFailureMessage(ctx.providerId ?? "Unknown", ctx.providerLabel),
+            text: terminalProviderFailureMessage(providerId, error, providerLabel),
           },
         ];
       }
@@ -482,6 +499,7 @@ function mapEvent(
       if (ctx) {
         ctx.hadTextDelta = false;
         ctx.pendingProviderFailure = false;
+        ctx.pendingProviderError = undefined;
       }
       return [...disarmAttempt(ctx), { type: "run", state: "idle" }, { type: "tool.boundary" }];
 
@@ -504,7 +522,16 @@ function mapEvent(
         ctx.attemptArmed = false;
         ctx.errorRollbackArmed = true;
       }
-      if (ctx) ctx.pendingProviderFailure = true;
+      if (ctx) {
+        ctx.pendingProviderFailure = true;
+        const rawError = asRecord(data.error);
+        ctx.pendingProviderError = {
+          category: typeof rawError?.category === "string" ? rawError.category : "unknown",
+          message: typeof rawError?.message === "string" ? rawError.message : "inference error",
+          ...(typeof rawError?.statusCode === "number" ? { statusCode: rawError.statusCode } : {}),
+          ...(typeof rawError?.providerId === "string" ? { providerId: rawError.providerId } : {}),
+        };
+      }
       return [];
     }
 
