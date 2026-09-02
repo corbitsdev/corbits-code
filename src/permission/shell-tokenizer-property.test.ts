@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
 import { splitChainedCommand } from "./command.js";
 import { buildRequests } from "./classify.js";
+import { isRequestCoveredByGrant } from "./gate.js";
 import { groupChainSegmentsForDisplay } from "../tui/command-display.js";
 
 // Corpus of chained commands exercising quotes, heredocs, subshells, and
@@ -9,8 +10,7 @@ import { groupChainSegmentsForDisplay } from "../tui/command-display.js";
 //
 // `agreement` is true when both splitters are expected to produce the same
 // segments (modulo pipe merging), and false for cases where they intentionally
-// diverge (subshell unwrap, dangling-redirect coalescing, empty-heredoc
-// boundary handling).
+// diverge (subshell unwrap and dangling-redirect coalescing).
 const CORPUS: [string, string, boolean][] = [
   ["simple &&", "echo a && echo b", true],
   ["simple ||", "echo a || echo b", true],
@@ -26,7 +26,6 @@ const CORPUS: [string, string, boolean][] = [
   ["backslash continuation", "echo a \\\n&& echo b", true],
   ["heredoc with single-quoted marker", "cat <<'EOF'\nline; and && stuff\nEOF", true],
   ["nested parens", "((echo a) && echo b) && echo c", false],
-  ["empty heredoc", "cat <<EOF\nEOF\necho done", false],
   ["here-string (not heredoc)", "cat <<< hello", true],
   ["here-string newline boundary", "cat <<< payload\nrm -rf /", true],
   ["dangling redirect across &&", "bun run build > && echo done", false],
@@ -68,8 +67,8 @@ describe("shared tokenizer: display is a coarse merge of authz", () => {
 
         expect(authzIdx).toBe(authz.length);
       } else {
-        // For known-divergent cases (subshell unwrap, dangling-redirect
-        // coalescing, empty-heredoc boundaries), both splitters should still
+        // For known-divergent cases (subshell unwrap and dangling-redirect
+        // coalescing), both splitters should still
         // produce non-empty, non-blank segments.  We don't compare content
         // because unwrapGroup strips parens/operators that display preserves.
         expect(authz.length).toBeGreaterThanOrEqual(1);
@@ -84,6 +83,30 @@ describe("shared tokenizer: display is a coarse merge of authz", () => {
       }
     });
   }
+});
+
+describe("heredoc boundaries", () => {
+  test("keeps a following command outside the heredoc approval scope", () => {
+    const command = "cat <<EOF\nsafe\nEOF\nrm -rf build";
+    const expected = ["cat <<EOF\nsafe\nEOF", "rm -rf build"];
+
+    expect(splitChainedCommand(command)).toEqual(expected);
+    expect(groupChainSegmentsForDisplay(command)).toEqual(expected);
+
+    const call: ToolCall = { id: "c", name: "run_shell", arguments: { command } };
+    const request = buildRequests(call)[0];
+    if (request === undefined) throw new Error("expected an approval request");
+    expect(request.scopes.map((scope) => scope.pattern)).toEqual([command]);
+    expect(
+      isRequestCoveredByGrant(
+        request,
+        { tool: "run_shell", pattern: "cat *" },
+        undefined,
+        () => false,
+        { resolvedCwd: "/repo", roots: ["/repo"] },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("here-string boundaries", () => {

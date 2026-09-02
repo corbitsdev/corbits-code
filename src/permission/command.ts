@@ -43,6 +43,7 @@ export function splitChainedCommand(command: string): string[] {
         const lastLine = lines[lines.length - 2] ?? "";
         if (lastLine.trim() === heredocMarker) {
           heredocMarker = null;
+          push();
         }
       }
       continue;
