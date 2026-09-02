@@ -164,13 +164,26 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("implement success_criteria");
   });
 
-  test("systemPrompt has critic-after-implement verify path", () => {
+  test("systemPrompt requires critic after every builder implementation", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Verify after ship");
-    expect(p).toContain("public-API");
-    expect(p).toContain("critic");
     expect(p).toContain("tester");
     expect(p).toContain("correctness/brief gaps");
+    expect(p).toMatch(/after every delegated \*\*builder\*\* implementation.*run \*\*critic\*\*/is);
+    expect(p).toMatch(
+      /substantial implementation limited to one internal file.*still requires Critic/is,
+    );
+    expect(p).toMatch(/Builder self-report.*never sufficient to skip/is);
+    expect(p).toMatch(
+      /After every delegated builder landing.*run a critic.*architecture.*add greybeard/is,
+    );
+    expect(p).not.toMatch(/critic \(or greybeard when architecture is in play\)/i);
+    expect(p).toMatch(
+      /Skip a new Critic dispatch only for parent-DIY work or when existing independent review evidence already covers both the resulting diff and its success criteria/i,
+    );
+    expect(p).not.toMatch(/Multi-file or public-API changes: after builder/i);
+    expect(p).not.toMatch(/After multi-file builder landings/i);
+    expect(p).not.toMatch(/self-report is thin/i);
   });
 
   test("systemPrompt spawn-target for substantial code is builder, not implement", () => {
@@ -188,6 +201,7 @@ describe("skywalkerPackage", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("blocking");
     expect(p).toContain("re-dispatch **builder**");
+    expect(p).toMatch(/narrowed or changed follow-up brief/i);
     expect(p).toContain("ship → verify → fix → re-verify");
     expect(p).toContain("Cap re-fix rounds");
   });

@@ -144,7 +144,10 @@ export function buildGuidelines(
     "- Touch only code required for the task; no drive-by refactors, formatting sweeps, or unrelated fixes.",
     "- Follow AGENTS.md and /docs for architecture; load the style and philosophy skills when starting repo work.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
-    "- Before finishing a code change, run relevant checks (typecheck, tests) when practical.",
+    "- Before finishing implementation work, run the repository-defined typecheck command, relevant tests, and every defined full verification command; these checks are mandatory.",
+    "- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration).",
+    "- In Findings, report every exact verification command and its outcome, including exit status. A bare `pass` without command evidence is an incomplete report.",
+    "- If a required check genuinely cannot run because of a missing runtime or dependency, sandbox restriction, or permissions, record the exact inability under Blockers; never silently skip a required check.",
     ...(subAgent
       ? []
       : [

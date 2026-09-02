@@ -25,6 +25,19 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
+function expectVerificationGuidance(prompt: string): void {
+  expect(prompt).toMatch(
+    /defined typecheck command.*relevant tests.*defined full verification command/is,
+  );
+  expect(prompt).toMatch(/repository defines no typecheck command.*explicit Blocker/is);
+  expect(prompt).toMatch(/evidence.*AGENTS.*package scripts/is);
+  expect(prompt).toMatch(/do not invent.*typecheck command/i);
+  expect(prompt).toMatch(/exact verification command.*outcome.*exit status/is);
+  expect(prompt).toMatch(/bare .*pass.*incomplete report/is);
+  expect(prompt).toMatch(/never silently skip/i);
+  expect(prompt).not.toMatch(/relevant checks .*when practical/i);
+}
+
 describe("buildPromptDisciplineBlock", () => {
   it("references only tool names that exist in the registration source", () => {
     for (const name of REFERENCED_TOOL_NAMES) {
@@ -99,6 +112,21 @@ describe("shared discipline block appears exactly once per built prompt", () => 
       grokAntiThrash: false,
     });
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+  });
+});
+
+describe("shared verification guidance", () => {
+  it("requires evidence-carrying verification in worker prompts", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: false,
+    });
+    expectVerificationGuidance(prompt);
+  });
+
+  it("requires evidence-carrying verification in orchestrator chat prompts", () => {
+    const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
+    expectVerificationGuidance(prompt);
   });
 });
 
