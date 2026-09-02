@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, unlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -220,7 +220,7 @@ describe("createAuthStore", () => {
     }
   });
 
-  test("lock file is cleaned up after operations", async () => {
+  test("lock directory is cleaned up after operations", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-lock-cleanup-"));
     try {
       const store = createAuthStore<TestTokens>({
@@ -233,9 +233,8 @@ describe("createAuthStore", () => {
         home,
       );
 
-      // The lock file must not linger after the operation.
-      const lockFile = join(home, ".corbits", "test-auth.json.lock");
-      await expect(readFile(lockFile, "utf8")).rejects.toThrow();
+      const lockDir = join(home, ".corbits", "test-auth.json.lock");
+      await expect(readFile(join(lockDir, "owner"), "utf8")).rejects.toThrow();
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -276,7 +275,7 @@ describe("createAuthStore", () => {
     }
   });
 
-  test("stale lock file is recovered automatically", async () => {
+  test("malformed stale lock is recovered automatically", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-stale-lock-"));
     try {
       const store = createAuthStore<TestTokens>({
@@ -284,13 +283,12 @@ describe("createAuthStore", () => {
         isTokens: isTestTokens,
       });
 
-      // Simulate a stale lock by creating the lock file and backdating its mtime.
-      const lockDir = join(home, ".corbits");
+      const lockDir = join(home, ".corbits", "test-auth.json.lock");
       await mkdir(lockDir, { recursive: true, mode: 0o700 });
-      const lockFile = join(lockDir, "test-auth.json.lock");
-      await writeFile(lockFile, "");
+      const ownerFile = join(lockDir, "owner");
+      await writeFile(ownerFile, "malformed");
       const past = new Date(Date.now() - 60_000); // 60s in the past
-      await utimes(lockFile, past, past);
+      await utimes(ownerFile, past, past);
 
       // The store should detect the stale lock, remove it, and succeed.
       await store.saveProfile(
@@ -310,21 +308,22 @@ describe("createAuthStore", () => {
   test("an old lock owned by a live process is not displaced", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-live-lock-"));
     try {
-      const lockDir = join(home, ".corbits");
-      await mkdir(lockDir, { recursive: true, mode: 0o700 });
-      const lockFile = join(lockDir, "test-auth.json.lock");
-      await writeFile(lockFile, JSON.stringify({ pid: process.pid, owner: "live-holder" }));
+      const lockPath = join(home, ".corbits", "test-auth.json.lock");
+      await mkdir(lockPath, { recursive: true, mode: 0o700 });
+      const ownerFile = join(lockPath, "owner");
+      await writeFile(ownerFile, JSON.stringify({ pid: process.pid, owner: "live-holder" }));
       const past = new Date(Date.now() - 60_000);
-      await utimes(lockFile, past, past);
+      await utimes(ownerFile, past, past);
 
       let entered = false;
-      const waiting = withStoreFileLock(lockFile, async () => {
+      const waiting = withStoreFileLock(lockPath, async () => {
         entered = true;
       });
       await Bun.sleep(150);
 
       expect(entered).toBe(false);
-      await unlink(lockFile);
+      await unlink(ownerFile);
+      await rmdir(lockPath);
       await waiting;
       expect(entered).toBe(true);
     } finally {
@@ -335,17 +334,48 @@ describe("createAuthStore", () => {
   test("lock cleanup leaves a replacement lock owned by another holder", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-lock-owner-"));
     try {
-      const lockDir = join(home, ".corbits");
-      await mkdir(lockDir, { recursive: true, mode: 0o700 });
-      const lockFile = join(lockDir, "test-auth.json.lock");
+      const lockPath = join(home, ".corbits", "test-auth.json.lock");
       const replacement = JSON.stringify({ pid: process.pid, owner: "replacement" });
 
-      await withStoreFileLock(lockFile, async () => {
-        await unlink(lockFile);
-        await writeFile(lockFile, replacement);
+      await withStoreFileLock(lockPath, async () => {
+        await unlink(join(lockPath, "owner"));
+        await rmdir(lockPath);
+        await mkdir(lockPath, { mode: 0o700 });
+        await writeFile(join(lockPath, "owner"), replacement);
       });
 
-      expect(await readFile(lockFile, "utf8")).toBe(replacement);
+      expect(await readFile(join(lockPath, "owner"), "utf8")).toBe(replacement);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("two stale reclaimers cannot enter the critical section together", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-stale-reclaimers-"));
+    try {
+      const lockPath = join(home, ".corbits", "test-auth.json.lock");
+      await mkdir(lockPath, { recursive: true, mode: 0o700 });
+      const ownerFile = join(lockPath, "owner");
+      await writeFile(ownerFile, JSON.stringify({ pid: 2_147_483_647, owner: "dead" }));
+      const past = new Date(Date.now() - 60_000);
+      await utimes(ownerFile, past, past);
+
+      let active = 0;
+      let entered = 0;
+      let maxActive = 0;
+      const contender = () =>
+        withStoreFileLock(lockPath, async () => {
+          active += 1;
+          entered += 1;
+          maxActive = Math.max(maxActive, active);
+          await Bun.sleep(100);
+          active -= 1;
+        });
+
+      await Promise.all([contender(), contender()]);
+
+      expect(entered).toBe(2);
+      expect(maxActive).toBe(1);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

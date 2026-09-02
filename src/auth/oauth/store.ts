@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { type } from "arktype";
@@ -56,10 +56,11 @@ const LockOwner = type({
 
 interface LockSnapshot {
   contents: string;
-  dev: number;
-  ino: number;
   mtimeMs: number;
 }
+
+const LOCK_OWNER_FILE = "owner";
+const LOCK_RECLAIM_DIR = "reclaim";
 
 function isErrno(error: unknown, code: string): boolean {
   return (
@@ -72,11 +73,10 @@ function isErrno(error: unknown, code: string): boolean {
 
 async function readLockSnapshot(path: string): Promise<LockSnapshot | undefined> {
   try {
-    const before = await stat(path);
-    const contents = await readFile(path, "utf8");
-    const after = await stat(path);
-    if (before.dev !== after.dev || before.ino !== after.ino) return undefined;
-    return { contents, dev: after.dev, ino: after.ino, mtimeMs: after.mtimeMs };
+    const ownerPath = join(path, LOCK_OWNER_FILE);
+    const contents = await readFile(ownerPath, "utf8");
+    const info = await stat(ownerPath);
+    return { contents, mtimeMs: info.mtimeMs };
   } catch (error) {
     if (isErrno(error, "ENOENT")) return undefined;
     throw error;
@@ -92,73 +92,113 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function removeLockSnapshot(path: string, expected: LockSnapshot): Promise<boolean> {
-  const current = await readLockSnapshot(path);
-  if (
-    current === undefined ||
-    current.dev !== expected.dev ||
-    current.ino !== expected.ino ||
-    current.contents !== expected.contents
-  ) {
-    return false;
-  }
-
+async function removeDirectory(path: string): Promise<boolean> {
   try {
-    await unlink(path);
+    await rmdir(path);
     return true;
   } catch (error) {
-    if (isErrno(error, "ENOENT")) return false;
+    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTEMPTY")) return false;
     throw error;
   }
 }
 
-async function createLock(path: string, contents: string): Promise<LockSnapshot> {
-  const handle = await open(path, "wx", 0o600);
+async function claimLockForRemoval(path: string): Promise<boolean> {
   try {
-    await handle.writeFile(contents);
-    const info = await handle.stat();
-    return { contents, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs };
-  } catch (cause) {
-    const info = await handle.stat().catch(() => undefined);
-    if (info !== undefined) {
-      await removeLockSnapshot(path, {
-        contents,
-        dev: info.dev,
-        ino: info.ino,
-        mtimeMs: info.mtimeMs,
-      }).catch(() => false);
-    }
-    throw new Error(`Failed to create store lock: ${path}`, { cause });
-  } finally {
-    await handle.close().catch(() => {});
+    await mkdir(join(path, LOCK_RECLAIM_DIR), { mode: 0o700 });
+    return true;
+  } catch (error) {
+    if (isErrno(error, "EEXIST") || isErrno(error, "ENOENT")) return false;
+    throw error;
   }
 }
 
-async function removeStaleLock(path: string): Promise<boolean> {
-  const snapshot = await readLockSnapshot(path);
-  if (snapshot === undefined || Date.now() - snapshot.mtimeMs <= STALE_LOCK_MS) return false;
+async function removeOwnedLock(path: string, expectedContents: string): Promise<boolean> {
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  while (!(await claimLockForRemoval(path))) {
+    if (Date.now() >= deadline) return false;
+    await Bun.sleep(LOCK_RETRY_MS);
+  }
+  let removedOwner = false;
+  try {
+    const current = await readLockSnapshot(path);
+    if (current === undefined || current.contents !== expectedContents) return false;
+    await unlink(join(path, LOCK_OWNER_FILE));
+    removedOwner = true;
+  } finally {
+    await removeDirectory(join(path, LOCK_RECLAIM_DIR));
+    if (removedOwner) await removeDirectory(path);
+  }
+  return removedOwner;
+}
 
-  let owner: typeof LockOwner.infer | undefined;
+async function createLock(path: string, contents: string): Promise<void> {
+  await mkdir(path, { mode: 0o700 });
+  const ownerPath = join(path, LOCK_OWNER_FILE);
+  try {
+    const handle = await open(ownerPath, "wx", 0o600);
+    try {
+      await handle.writeFile(contents);
+    } finally {
+      await handle.close();
+    }
+  } catch (cause) {
+    await unlink(ownerPath).catch(() => {});
+    await removeDirectory(path).catch(() => false);
+    throw new Error(`Failed to create store lock: ${path}`, { cause });
+  }
+}
+
+function parseLockOwner(snapshot: LockSnapshot | undefined): typeof LockOwner.infer | undefined {
+  if (snapshot === undefined) return undefined;
   try {
     const parsed = LockOwner(JSON.parse(snapshot.contents));
-    if (!(parsed instanceof type.errors)) owner = parsed;
+    return parsed instanceof type.errors ? undefined : parsed;
   } catch {
     // Locks written by interrupted or older clients have no usable owner metadata.
+    return undefined;
   }
+}
 
-  if (owner !== undefined && isProcessAlive(owner.pid)) return false;
-  return removeLockSnapshot(path, snapshot);
+async function isStaleLock(path: string, snapshot: LockSnapshot | undefined): Promise<boolean> {
+  let mtimeMs = snapshot?.mtimeMs;
+  if (mtimeMs === undefined) {
+    try {
+      mtimeMs = (await stat(path)).mtimeMs;
+    } catch (error) {
+      if (isErrno(error, "ENOENT")) return false;
+      throw error;
+    }
+  }
+  if (Date.now() - mtimeMs <= STALE_LOCK_MS) return false;
+  const owner = parseLockOwner(snapshot);
+  return owner === undefined || !isProcessAlive(owner.pid);
+}
+
+async function removeStaleLock(path: string): Promise<boolean> {
+  const initial = await readLockSnapshot(path);
+  if (!(await isStaleLock(path, initial))) return false;
+  if (!(await claimLockForRemoval(path))) return false;
+  let shouldRemove = false;
+  try {
+    const snapshot = await readLockSnapshot(path);
+    if (!(await isStaleLock(path, snapshot))) return false;
+    if (snapshot !== undefined) await unlink(join(path, LOCK_OWNER_FILE));
+    shouldRemove = true;
+  } finally {
+    await removeDirectory(join(path, LOCK_RECLAIM_DIR));
+    if (shouldRemove) await removeDirectory(path);
+  }
+  return shouldRemove;
 }
 
 export async function withStoreFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const contents = JSON.stringify({ pid: process.pid, owner: randomUUID() });
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  let acquired: LockSnapshot;
 
   while (true) {
     try {
-      acquired = await createLock(path, contents);
+      await createLock(path, contents);
       break;
     } catch (error) {
       if (!isErrno(error, "EEXIST")) throw error;
@@ -173,7 +213,7 @@ export async function withStoreFileLock<T>(path: string, fn: () => Promise<T>): 
   try {
     return await fn();
   } finally {
-    await removeLockSnapshot(path, acquired);
+    await removeOwnedLock(path, contents);
   }
 }
 
