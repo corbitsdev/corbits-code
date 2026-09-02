@@ -5,7 +5,7 @@ import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search
 import { createPermissionGate } from "./permission/gate.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "./session/compactor.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
-import type { ExtendedInferenceOptions } from "@intx/inference";
+import { validateActions, type ExtendedInferenceOptions } from "@intx/inference";
 import type {
   ReactorState,
   ReactorCapabilities,
@@ -173,7 +173,7 @@ describe("open-task termination guard", () => {
     expect(hasInfer(exhausted)).toBe(false);
   });
 
-  test("empty model turn settles with an empty reply before wait", async () => {
+  test("empty model turn settles with a valid empty reply", async () => {
     // DefaultDirector ends empty responses with bare wait; without a reply,
     // agent.send hangs and the TUI Working spinner sticks forever.
     const director = createChatDirector("base", [], { onTasksChange: () => {} });
@@ -185,12 +185,12 @@ describe("open-task termination guard", () => {
     } as unknown as ReactorInboundEvent;
 
     const actions = actionsArray(await director.decide(emptyTurn, mockState, mockCapabilities));
-    expect(hasReply(actions)).toBe(true);
+    expect(actions.map((action) => action.type)).toEqual(["checkpoint", "reply"]);
     expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(
       true,
     );
-    expect(actions.some((a) => a.type === "wait")).toBe(true);
-    expect(hasInfer(actions)).toBe(false);
+    expect(actions.some((a) => a.type === "wait" || a.type === "infer")).toBe(false);
+    expect(validateActions(actions).ok).toBe(true);
   });
 
   test("a declined tool with open tasks re-infers, then terminates after its cap", async () => {
