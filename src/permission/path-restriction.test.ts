@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -74,4 +74,27 @@ test("a directory sharing a string prefix with the workspace root is still restr
 
   expect(r.isRestricted(prefixSibling, false)).toBe(true);
   expect(r.isRestricted(join(prefixSibling, "file.txt"), false)).toBe(true);
+});
+
+test("symlink retarget invalidates cache: inside-allowed → outside-restricted (CL-6708)", async () => {
+  // Create a symlink pointing inside the workspace
+  const insideDir = join(cwd, "inside");
+  await mkdir(insideDir, { recursive: true });
+  const link = join(cwd, "link");
+  await symlink(insideDir, link);
+
+  const r = createPathRestriction(cwd, () => [], home);
+  const target = join(link, "file.txt");
+
+  // First check: symlink points inside, so path is unrestricted
+  expect(r.isRestricted(target, false)).toBe(false);
+
+  // Retarget symlink to point outside the workspace
+  await rm(link);
+  const outsideDir = join(home, "outside");
+  await mkdir(outsideDir, { recursive: true });
+  await symlink(outsideDir, link);
+
+  // Second check: same lexical path, but now restricted due to retarget
+  expect(r.isRestricted(target, false)).toBe(true);
 });

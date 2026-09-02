@@ -184,7 +184,10 @@ export function createPathRestriction(
 ): PathRestriction {
   const legacyStateDir = resolve(cwd, LEGACY_STATE_DIR);
   const globalStateDir = projectSessionsRoot(cwd, home);
-  const cache = new Map<string, boolean>();
+  // Cache keyed by both absolute path and realpath to invalidate when symlinks
+  // change. If only keyed by absolute path, a cached "unrestricted" verdict
+  // persists after a symlink retargets outside the workspace.
+  const cache = new Map<string, { realpath: string; verdict: boolean }>();
 
   const underStateDir = (abs: string): boolean =>
     underRoot(abs, legacyStateDir) || underRoot(abs, globalStateDir);
@@ -193,18 +196,28 @@ export function createPathRestriction(
     isRestricted: (path: string, isWrite: boolean): boolean => {
       const abs = resolve(cwd, path);
       const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
+      // Use realpathNearestOr rather than realpathOr: the target file may not
+      // exist yet, in which case realpathOr returns the raw path unchanged —
+      // making the cache key identical before and after a symlink retarget.
+      // realpathNearestOr resolves up to the nearest existing ancestor, which
+      // does change when a symlink flips, invalidating the stale verdict.
+      const currentRealpath = realpathNearestOr(abs);
       const cached = cache.get(cacheKey);
-      if (cached !== undefined) return cached;
+
+      // Cache hit only if realpath hasn't changed (symlink not retargeted)
+      if (cached !== undefined && cached.realpath === currentRealpath) {
+        return cached.verdict;
+      }
 
       // State root: read allow, write ask — even when the root lives outside
       // the workspace (global ~/.corbits/projects/...).
       if (underStateDir(abs)) {
-        cache.set(cacheKey, isWrite);
+        cache.set(cacheKey, { realpath: currentRealpath, verdict: isWrite });
         return isWrite;
       }
 
       const outsideWorkspace = resolveWorkspacePath(cwd, path, rootsProvider) === undefined;
-      cache.set(cacheKey, outsideWorkspace);
+      cache.set(cacheKey, { realpath: currentRealpath, verdict: outsideWorkspace });
       return outsideWorkspace;
     },
   };
