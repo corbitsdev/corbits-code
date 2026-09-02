@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { createPathRestriction } from "./path-restriction.js";
 import { projectSessionsRoot } from "../session/project-key.js";
+import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 
 let cwd = "";
 let home = "";
@@ -74,4 +75,62 @@ test("a directory sharing a string prefix with the workspace root is still restr
 
   expect(r.isRestricted(prefixSibling, false)).toBe(true);
   expect(r.isRestricted(join(prefixSibling, "file.txt"), false)).toBe(true);
+});
+
+test("a cache entry cannot combine an outside realpath with an inside verdict", async () => {
+  const insideDir = join(cwd, "inside-race");
+  const outsideDir = join(home, "outside-race");
+  await mkdir(insideDir, { recursive: true });
+  await mkdir(outsideDir, { recursive: true });
+  const link = join(cwd, "race-link");
+  await symlink(outsideDir, link);
+  const target = join(link, "file.txt");
+
+  const r = createPathRestriction(cwd, () => [], home);
+  let retargeted = false;
+  await withMockedModuleDuring(
+    "node:fs",
+    (realFS: typeof import("node:fs")) => ({
+      ...realFS,
+      realpathSync: (path: Parameters<typeof realFS.realpathSync>[0]) => {
+        const realpath = realFS.realpathSync(path);
+        if (!retargeted && path === link) {
+          realFS.unlinkSync(link);
+          realFS.symlinkSync(insideDir, link);
+          retargeted = true;
+        }
+        return realpath;
+      },
+    }),
+    async () => {
+      expect(r.isRestricted(target, false)).toBe(true);
+    },
+  );
+
+  await rm(link);
+  await symlink(outsideDir, link);
+  expect(r.isRestricted(target, false)).toBe(true);
+});
+
+test("symlink retarget invalidates cache: inside-allowed → outside-restricted (CL-6708)", async () => {
+  // Create a symlink pointing inside the workspace
+  const insideDir = join(cwd, "inside");
+  await mkdir(insideDir, { recursive: true });
+  const link = join(cwd, "link");
+  await symlink(insideDir, link);
+
+  const r = createPathRestriction(cwd, () => [], home);
+  const target = join(link, "file.txt");
+
+  // First check: symlink points inside, so path is unrestricted
+  expect(r.isRestricted(target, false)).toBe(false);
+
+  // Retarget symlink to point outside the workspace
+  await rm(link);
+  const outsideDir = join(home, "outside");
+  await mkdir(outsideDir, { recursive: true });
+  await symlink(outsideDir, link);
+
+  // Second check: same lexical path, but now restricted due to retarget
+  expect(r.isRestricted(target, false)).toBe(true);
 });
