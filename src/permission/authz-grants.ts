@@ -59,8 +59,8 @@ export function cwdMatchesGrant(
 ): boolean {
   if (grantCwd === undefined) return true;
   if (requestCwd === undefined) return false;
-  if (grantCwd === requestCwd) return true;
   if (grantCwd !== workspace.resolvedCwd) return false;
+  if (grantCwd === requestCwd) return true;
   return workspace.roots.includes(realpathOr(requestCwd));
 }
 
