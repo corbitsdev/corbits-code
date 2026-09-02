@@ -134,6 +134,139 @@ describe("createAuthStore", () => {
     }
   });
 
+  test("concurrent saveProfile calls preserve all profiles", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-lock-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+
+      // Fire concurrent saves for distinct profile names. Without the store
+      // lock the last writer would silently drop profiles saved by others.
+      const count = 20;
+      const saves = Array.from({ length: count }, (_, i) =>
+        store.saveProfile(
+          {
+            name: `p-${i}`,
+            tokens: { access: `a-${i}`, refresh: `r-${i}`, expiresAt: i },
+            createdAt: i,
+          },
+          home,
+        ),
+      );
+      await Promise.all(saves);
+
+      const profiles = await store.listProfiles(home);
+      expect(profiles).toHaveLength(count);
+      for (let i = 0; i < count; i++) {
+        const p = profiles.find((p) => p.name === `p-${i}`);
+        expect(p).toBeDefined();
+        expect(p!.tokens.access).toBe(`a-${i}`);
+      }
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("concurrent updateTokens and saveProfile do not lose profiles", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-lock-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+
+      // Seed two profiles.
+      await store.saveProfile(
+        { name: "a", tokens: { access: "a0", refresh: "r0", expiresAt: 1 }, createdAt: 1 },
+        home,
+      );
+      await store.saveProfile(
+        { name: "b", tokens: { access: "b0", refresh: "r0", expiresAt: 1 }, createdAt: 2 },
+        home,
+      );
+
+      // Concurrently update tokens for both profiles plus a full save of "a".
+      await Promise.all([
+        store.updateTokens("a", { access: "a1", refresh: "r1", expiresAt: 10 }, home),
+        store.updateTokens("b", { access: "b1", refresh: "r1", expiresAt: 10 }, home),
+        store.saveProfile(
+          { name: "a", tokens: { access: "a2", refresh: "r2", expiresAt: 20 }, createdAt: 1 },
+          home,
+        ),
+      ]);
+
+      const profiles = await store.listProfiles(home);
+      const names = profiles.map((p) => p.name).sort();
+      expect(names).toEqual(["a", "b"]);
+
+      for (const p of profiles) {
+        expect(typeof p.tokens.access).toBe("string");
+        expect(typeof p.tokens.refresh).toBe("string");
+        expect(typeof p.tokens.expiresAt).toBe("number");
+      }
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("lock file is cleaned up after operations", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-lock-cleanup-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+
+      await store.saveProfile(
+        { name: "x", tokens: { access: "a", refresh: "r", expiresAt: 1 }, createdAt: 1 },
+        home,
+      );
+
+      // The lock file must not linger after the operation.
+      const lockFile = join(home, ".corbits", "test-auth.json.lock");
+      await expect(readFile(lockFile, "utf8")).rejects.toThrow();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("concurrent removeProfile does not leave stale profiles", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-lock-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+
+      const count = 10;
+      for (let i = 0; i < count; i++) {
+        await store.saveProfile(
+          {
+            name: `r-${i}`,
+            tokens: { access: `a-${i}`, refresh: `r-${i}`, expiresAt: i },
+            createdAt: i,
+          },
+          home,
+        );
+      }
+
+      // Concurrently remove all profiles.
+      const removals = Array.from({ length: count }, (_, i) => store.removeProfile(`r-${i}`, home));
+      const results = await Promise.all(removals);
+
+      // Each removal should have returned exactly one name.
+      for (const removed of results) {
+        expect(removed).toHaveLength(1);
+      }
+
+      expect(await store.listProfiles(home)).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("drops invalid profile entries instead of wedging on them", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {

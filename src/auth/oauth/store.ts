@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { SETTINGS_DIR_NAME } from "../../branding.js";
@@ -104,6 +104,65 @@ export function createAuthStore<TTokens extends BaseTokens>(
     await rename(tmp, path);
   }
 
+  // Exclusive file lock serialises read-modify-write operations so concurrent
+  // CLI sessions cannot clobber each other's profiles or fresher tokens.
+  const LOCK_RETRY_MS = 50;
+  const LOCK_TIMEOUT_MS = 15_000;
+  const STALE_LOCK_MS = 30_000;
+
+  function lockPath(home: string): string {
+    return `${authPath(home)}.lock`;
+  }
+
+  async function withStoreLock<T>(home: string, fn: () => Promise<T>): Promise<T> {
+    const path = lockPath(home);
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const deadline = Date.now() + LOCK_TIMEOUT_MS;
+
+    while (true) {
+      let fd: Awaited<ReturnType<typeof open>> | undefined;
+      try {
+        fd = await open(path, "wx");
+        await fd.close();
+        break;
+      } catch (err) {
+        if (fd !== undefined) await fd.close().catch(() => {});
+
+        if (
+          typeof err === "object" &&
+          err !== null &&
+          "code" in err &&
+          (err as { code?: unknown }).code === "EEXIST"
+        ) {
+          // Another process holds the lock; check for a stale lock.
+          try {
+            const info = await stat(path);
+            if (Date.now() - info.mtimeMs > STALE_LOCK_MS) {
+              await unlink(path).catch(() => {});
+              continue;
+            }
+          } catch {
+            // Lock vanished between the failed create and the stat — retry.
+          }
+
+          if (Date.now() >= deadline) {
+            throw new Error(`Timed out acquiring store lock: ${path}`);
+          }
+
+          await new Promise<void>((r) => setTimeout(r, LOCK_RETRY_MS));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    try {
+      return await fn();
+    } finally {
+      await unlink(path).catch(() => {});
+    }
+  }
+
   return {
     authPath,
     async listProfiles(home: string = homedir()): Promise<AuthProfile<TTokens>[]> {
@@ -118,30 +177,36 @@ export function createAuthStore<TTokens extends BaseTokens>(
       return file.profiles[name];
     },
     async saveProfile(profile: AuthProfile<TTokens>, home: string = homedir()): Promise<void> {
-      const file = await readAuthFile(home);
-      file.profiles[profile.name] = profile;
-      await writeAuthFile(file, home);
+      return withStoreLock(home, async () => {
+        const file = await readAuthFile(home);
+        file.profiles[profile.name] = profile;
+        await writeAuthFile(file, home);
+      });
     },
     // Persist refreshed tokens for an existing profile, preserving createdAt. A
     // no-op if the profile no longer exists (e.g. removed in another session).
     async updateTokens(name: string, tokens: TTokens, home: string = homedir()): Promise<void> {
-      const file = await readAuthFile(home);
-      const existing = file.profiles[name];
-      if (existing === undefined) return;
-      file.profiles[name] = { ...existing, tokens };
-      await writeAuthFile(file, home);
+      return withStoreLock(home, async () => {
+        const file = await readAuthFile(home);
+        const existing = file.profiles[name];
+        if (existing === undefined) return;
+        file.profiles[name] = { ...existing, tokens };
+        await writeAuthFile(file, home);
+      });
     },
     async removeProfile(name: string | undefined, home: string = homedir()): Promise<string[]> {
-      const file = await readAuthFile(home);
-      if (name === undefined) {
-        const removed = Object.keys(file.profiles);
-        await writeAuthFile({ profiles: {} }, home);
-        return removed;
-      }
-      if (file.profiles[name] === undefined) return [];
-      Reflect.deleteProperty(file.profiles, name);
-      await writeAuthFile(file, home);
-      return [name];
+      return withStoreLock(home, async () => {
+        const file = await readAuthFile(home);
+        if (name === undefined) {
+          const removed = Object.keys(file.profiles);
+          await writeAuthFile({ profiles: {} }, home);
+          return removed;
+        }
+        if (file.profiles[name] === undefined) return [];
+        Reflect.deleteProperty(file.profiles, name);
+        await writeAuthFile(file, home);
+        return [name];
+      });
     },
   };
 }
