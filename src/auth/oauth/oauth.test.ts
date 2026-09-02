@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -87,6 +87,8 @@ describe("baseTokensFromResponse", () => {
 
 type TestTokens = BaseTokens & { accountId?: string };
 
+const authStoreWriter = join(import.meta.dirname, "../../../tests/fixtures/auth-store-writer.ts");
+
 function isTestTokens(value: unknown): value is TestTokens {
   if (typeof value !== "object" || value === null) return false;
   const t = value as Record<string, unknown>;
@@ -96,6 +98,64 @@ function isTestTokens(value: unknown): value is TestTokens {
 }
 
 describe("createAuthStore", () => {
+  test("serializes concurrent profile saves and token updates across processes", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-concurrent-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "concurrent-auth.json",
+        isTokens: isTestTokens,
+      });
+      await store.saveProfile(
+        {
+          name: "existing",
+          tokens: { access: "old", refresh: "old-refresh", expiresAt: 1 },
+          createdAt: 10,
+        },
+        home,
+      );
+
+      const barrier = join(home, "start");
+      const names = Array.from({ length: 16 }, (_, index) => `profile-${index}`);
+      const processes = [
+        ...names.map((name) =>
+          Bun.spawn([process.execPath, authStoreWriter, home, barrier, "save", name], {
+            stdout: "ignore",
+            stderr: "pipe",
+          }),
+        ),
+        Bun.spawn([process.execPath, authStoreWriter, home, barrier, "update", "new-access"], {
+          stdout: "ignore",
+          stderr: "pipe",
+        }),
+      ];
+
+      await Bun.sleep(50);
+      await writeFile(barrier, "go");
+      const exitCodes = await Promise.all(processes.map((process) => process.exited));
+      const errors = await Promise.all(
+        processes.map((process) => new Response(process.stderr).text()),
+      );
+      expect(exitCodes, errors.join("\n")).toEqual(processes.map(() => 0));
+
+      const profiles = await store.listProfiles(home);
+      expect(profiles.map((profile) => profile.name)).toEqual(["existing", ...names].sort());
+      expect(profiles.find((profile) => profile.name === "existing")).toEqual({
+        name: "existing",
+        tokens: { access: "new-access", refresh: "refresh-new-access", expiresAt: 2 },
+        createdAt: 10,
+      });
+      for (const name of names) {
+        expect(profiles.find((profile) => profile.name === name)).toEqual({
+          name,
+          tokens: { access: `access-${name}`, refresh: `refresh-${name}`, expiresAt: 1 },
+          createdAt: 1,
+        });
+      }
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("round-trips profiles under an injected home and survives corrupt files", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {
@@ -129,6 +189,64 @@ describe("createAuthStore", () => {
       // A corrupt file reads as empty state rather than throwing.
       await writeFile(store.authPath(home), "{not json", { mode: 0o600 });
       expect(await store.listProfiles(home)).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("releases the credential lock when a read-modify-write callback fails", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-error-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+      const profile = {
+        name: "work",
+        tokens: { access: "a", refresh: "r", expiresAt: 1 },
+        createdAt: 1,
+      };
+      await store.saveProfile(profile, home);
+
+      const failingStore = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: (_value: unknown): _value is TestTokens => {
+          throw new Error("validator failed");
+        },
+      });
+      await expect(failingStore.saveProfile(profile, home)).rejects.toThrow("validator failed");
+
+      await expect(store.updateTokens("work", profile.tokens, home)).resolves.toBeUndefined();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed with manual recovery guidance when an orphan lock exists", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-orphan-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
+      const lockPath = `${store.authPath(home)}.lock`;
+      await mkdir(join(home, ".corbits"), { recursive: true });
+      await writeFile(lockPath, "orphan", { mode: 0o600 });
+
+      await expect(
+        store.saveProfile(
+          {
+            name: "work",
+            tokens: { access: "a", refresh: "r", expiresAt: 1 },
+            createdAt: 1,
+          },
+          home,
+        ),
+      ).rejects.toThrow(
+        `Timed out waiting for OAuth credential lock ${lockPath}. ` +
+          "If no Corbits process is running, remove this lock file manually and retry.",
+      );
+      expect(await readFile(lockPath, "utf8")).toBe("orphan");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

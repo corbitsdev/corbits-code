@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { SETTINGS_DIR_NAME } from "../../branding.js";
 
 // On-disk store for named OAuth profiles. A user may hold multiple subscriptions
@@ -42,6 +43,9 @@ export interface AuthStoreOptions<TTokens extends BaseTokens> {
 interface AuthFile<TTokens extends BaseTokens> {
   profiles: Record<string, AuthProfile<TTokens>>;
 }
+
+const LOCK_RETRY_MS = 25;
+const LOCK_TIMEOUT_MS = 1_000;
 
 function isProfile<TTokens extends BaseTokens>(
   value: unknown,
@@ -104,6 +108,46 @@ export function createAuthStore<TTokens extends BaseTokens>(
     await rename(tmp, path);
   }
 
+  async function withAuthFileLock<TResult>(
+    home: string,
+    callback: () => Promise<TResult>,
+  ): Promise<TResult> {
+    const path = authPath(home);
+    const lockPath = `${path}.lock`;
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const deadline = Date.now() + LOCK_TIMEOUT_MS;
+    let lock;
+
+    while (true) {
+      try {
+        lock = await open(lockPath, "wx", 0o600);
+        break;
+      } catch (error) {
+        const isLocked =
+          typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+        if (!isLocked) throw error;
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `Timed out waiting for OAuth credential lock ${lockPath}. ` +
+              "If no Corbits process is running, remove this lock file manually and retry.",
+            { cause: error },
+          );
+        }
+        await delay(LOCK_RETRY_MS);
+      }
+    }
+
+    try {
+      return await callback();
+    } finally {
+      try {
+        await lock.close();
+      } finally {
+        await unlink(lockPath);
+      }
+    }
+  }
+
   return {
     authPath,
     async listProfiles(home: string = homedir()): Promise<AuthProfile<TTokens>[]> {
@@ -118,30 +162,36 @@ export function createAuthStore<TTokens extends BaseTokens>(
       return file.profiles[name];
     },
     async saveProfile(profile: AuthProfile<TTokens>, home: string = homedir()): Promise<void> {
-      const file = await readAuthFile(home);
-      file.profiles[profile.name] = profile;
-      await writeAuthFile(file, home);
+      await withAuthFileLock(home, async () => {
+        const file = await readAuthFile(home);
+        file.profiles[profile.name] = profile;
+        await writeAuthFile(file, home);
+      });
     },
     // Persist refreshed tokens for an existing profile, preserving createdAt. A
     // no-op if the profile no longer exists (e.g. removed in another session).
     async updateTokens(name: string, tokens: TTokens, home: string = homedir()): Promise<void> {
-      const file = await readAuthFile(home);
-      const existing = file.profiles[name];
-      if (existing === undefined) return;
-      file.profiles[name] = { ...existing, tokens };
-      await writeAuthFile(file, home);
+      await withAuthFileLock(home, async () => {
+        const file = await readAuthFile(home);
+        const existing = file.profiles[name];
+        if (existing === undefined) return;
+        file.profiles[name] = { ...existing, tokens };
+        await writeAuthFile(file, home);
+      });
     },
     async removeProfile(name: string | undefined, home: string = homedir()): Promise<string[]> {
-      const file = await readAuthFile(home);
-      if (name === undefined) {
-        const removed = Object.keys(file.profiles);
-        await writeAuthFile({ profiles: {} }, home);
-        return removed;
-      }
-      if (file.profiles[name] === undefined) return [];
-      Reflect.deleteProperty(file.profiles, name);
-      await writeAuthFile(file, home);
-      return [name];
+      return withAuthFileLock(home, async () => {
+        const file = await readAuthFile(home);
+        if (name === undefined) {
+          const removed = Object.keys(file.profiles);
+          await writeAuthFile({ profiles: {} }, home);
+          return removed;
+        }
+        if (file.profiles[name] === undefined) return [];
+        Reflect.deleteProperty(file.profiles, name);
+        await writeAuthFile(file, home);
+        return [name];
+      });
     },
   };
 }
