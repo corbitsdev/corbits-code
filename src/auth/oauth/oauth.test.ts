@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { baseTokensFromResponse, postToken, type OAuthClientConfig } from "./client.js";
 import { startOAuthLogin } from "./login.js";
 import { createTokenSession } from "./session.js";
-import { createAuthStore, type AuthProfile, type BaseTokens } from "./store.js";
+import { createAuthStore, type AuthProfile, type BaseTokens, withStoreFileLock } from "./store.js";
 
 const config: OAuthClientConfig = {
   clientId: "client-id",
@@ -187,25 +187,34 @@ describe("createAuthStore", () => {
         home,
       );
 
-      // Concurrently update tokens for both profiles plus a full save of "a".
+      // Concurrently update tokens for both profiles plus a full save of a third profile.
       await Promise.all([
         store.updateTokens("a", { access: "a1", refresh: "r1", expiresAt: 10 }, home),
         store.updateTokens("b", { access: "b1", refresh: "r1", expiresAt: 10 }, home),
         store.saveProfile(
-          { name: "a", tokens: { access: "a2", refresh: "r2", expiresAt: 20 }, createdAt: 1 },
+          { name: "c", tokens: { access: "c1", refresh: "r1", expiresAt: 10 }, createdAt: 3 },
           home,
         ),
       ]);
 
       const profiles = await store.listProfiles(home);
       const names = profiles.map((p) => p.name).sort();
-      expect(names).toEqual(["a", "b"]);
-
-      for (const p of profiles) {
-        expect(typeof p.tokens.access).toBe("string");
-        expect(typeof p.tokens.refresh).toBe("string");
-        expect(typeof p.tokens.expiresAt).toBe("number");
-      }
+      expect(names).toEqual(["a", "b", "c"]);
+      expect(await store.loadProfile("a", home)).toEqual({
+        name: "a",
+        tokens: { access: "a1", refresh: "r1", expiresAt: 10 },
+        createdAt: 1,
+      });
+      expect(await store.loadProfile("b", home)).toEqual({
+        name: "b",
+        tokens: { access: "b1", refresh: "r1", expiresAt: 10 },
+        createdAt: 2,
+      });
+      expect(await store.loadProfile("c", home)).toEqual({
+        name: "c",
+        tokens: { access: "c1", refresh: "r1", expiresAt: 10 },
+        createdAt: 3,
+      });
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -293,6 +302,50 @@ describe("createAuthStore", () => {
       expect(profiles).toHaveLength(1);
       expect(profiles[0]).toBeDefined();
       expect(profiles[0]!.name).toBe("after-stale");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("an old lock owned by a live process is not displaced", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-live-lock-"));
+    try {
+      const lockDir = join(home, ".corbits");
+      await mkdir(lockDir, { recursive: true, mode: 0o700 });
+      const lockFile = join(lockDir, "test-auth.json.lock");
+      await writeFile(lockFile, JSON.stringify({ pid: process.pid, owner: "live-holder" }));
+      const past = new Date(Date.now() - 60_000);
+      await utimes(lockFile, past, past);
+
+      let entered = false;
+      const waiting = withStoreFileLock(lockFile, async () => {
+        entered = true;
+      });
+      await Bun.sleep(150);
+
+      expect(entered).toBe(false);
+      await unlink(lockFile);
+      await waiting;
+      expect(entered).toBe(true);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("lock cleanup leaves a replacement lock owned by another holder", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-lock-owner-"));
+    try {
+      const lockDir = join(home, ".corbits");
+      await mkdir(lockDir, { recursive: true, mode: 0o700 });
+      const lockFile = join(lockDir, "test-auth.json.lock");
+      const replacement = JSON.stringify({ pid: process.pid, owner: "replacement" });
+
+      await withStoreFileLock(lockFile, async () => {
+        await unlink(lockFile);
+        await writeFile(lockFile, replacement);
+      });
+
+      expect(await readFile(lockFile, "utf8")).toBe(replacement);
     } finally {
       await rm(home, { recursive: true, force: true });
     }
