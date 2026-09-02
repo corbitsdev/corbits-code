@@ -318,13 +318,19 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
       { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-4o" },
       { tool: "run_shell", pattern: "git *", cwd: "/repo-a" },
     ];
+    // A cwd-scoped grant matches only inside this gate's workspace
+    // (resolvedCwd === /repo-a): the grant cwd must equal the gate workspace
+    // before its cwd scope can match a request (CL-6706), so a workspace whose
+    // resolvedCwd is /unused must NOT let the /repo-a grant match. noWorkspace
+    // is therefore not appropriate for the cwd-filter cases below.
+    const repoAWorkspace = { resolvedCwd: "/repo-a", roots: ["/repo-a"] };
     expect(
       await evaluateApprovals({
         tool: "run_shell",
         subject: "npm test",
         approvals: scoped,
         activeProviderModel: "openai:gpt-4o",
-        workspace: noWorkspace,
+        workspace: repoAWorkspace,
       }),
     ).toBe(true);
     expect(
@@ -333,7 +339,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "npm test",
         approvals: scoped,
         activeProviderModel: "anthropic:opus",
-        workspace: noWorkspace,
+        workspace: repoAWorkspace,
       }),
     ).toBe(false);
     expect(
@@ -342,7 +348,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "git status",
         approvals: scoped,
         requestCwd: "/repo-a",
-        workspace: noWorkspace,
+        workspace: repoAWorkspace,
       }),
     ).toBe(true);
     expect(
@@ -351,7 +357,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "git status",
         approvals: scoped,
         requestCwd: "/repo-b",
-        workspace: noWorkspace,
+        workspace: repoAWorkspace,
       }),
     ).toBe(false);
   });

@@ -1,7 +1,12 @@
 import { describe, test, expect } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, PermissionRequest } from "./types.js";
-import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
+import {
+  evaluateApprovals,
+  grantScopeMatches,
+  cwdMatchesGrant,
+  type GrantWorkspace,
+} from "./authz-grants.js";
 import { createPermissionGate, isRequestCoveredByGrant } from "./gate.js";
 import { createPermissionRequestQueue } from "./queue.js";
 import { buildRequests } from "./classify.js";
@@ -305,5 +310,78 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
     expect((await gate.evaluate(shellCall("npm i"))).allowed).toBe(true);
     expect(outcomes).toEqual([]);
     expect(queue.size()).toBe(1);
+  });
+});
+
+// A project-scoped grant is confined to the session that minted it, so it may
+// replay only inside THIS gate's workspace. The grant cwd must equal the gate
+// workspace resolvedCwd before roots membership (or an exact request-cwd
+// match) is considered. Before CL-6706, grantCwd === requestCwd short-circuited
+// first, so a foreign grant stamped for /foreign replayed for any request with
+// that same cwd even under a gate whose workspace is /proj — a cross-project
+// replay. The predicate, the shared scoping predicate, and both live call
+// sites (evaluateApprovals, isRequestCoveredByGrant) must all reject the foreign
+// case and agree.
+describe("foreign grant cwd matching request cwd under a different workspace is rejected (CL-6706)", () => {
+  const workspace: GrantWorkspace = { resolvedCwd: "/proj", roots: ["/proj", "/proj/wt1"] };
+  const noopRestricted = () => false;
+
+  // Foreign grant: stamped for a different project's root.
+  const foreignGrant: Approval = { tool: "run_shell", pattern: "npm test", cwd: "/foreign" };
+  // Own grant: stamped for this gate's workspace root.
+  const ownGrant: Approval = { tool: "run_shell", pattern: "npm test", cwd: "/proj" };
+
+  test("cwdMatchesGrant: foreign grant cwd equals request cwd but differs from workspace → false", () => {
+    // The pre-CL-6706 short-circuit would have returned true here.
+    expect(cwdMatchesGrant("/foreign", "/foreign", workspace)).toBe(false);
+  });
+
+  test("cwdMatchesGrant: own grant matches its workspace, session root and worktree", () => {
+    expect(cwdMatchesGrant("/proj", "/proj", workspace)).toBe(true); // session root
+    expect(cwdMatchesGrant("/proj", "/proj/wt1", workspace)).toBe(true); // registered worktree
+    expect(cwdMatchesGrant("/proj", "/other/wt1", workspace)).toBe(false); // outside project
+  });
+
+  test("grantScopeMatches agrees: foreign scope does not cover a coinciding request cwd", () => {
+    expect(grantScopeMatches(foreignGrant, "run_shell", undefined, "/foreign", workspace)).toBe(
+      false,
+    );
+  });
+
+  test("both live call sites refuse a foreign grant replaying into /proj's workspace", async () => {
+    // evaluateApprovals
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "npm test",
+        approvals: [foreignGrant],
+        requestCwd: "/foreign",
+        workspace,
+      }),
+    ).toBe(false);
+
+    // isRequestCoveredByGrant (request cwd coincides with the foreign grant's cwd)
+    const request: PermissionRequest = {
+      tool: "run_shell",
+      action: "Run",
+      subject: "npm test",
+      scopes: [],
+      cwd: "/foreign",
+    };
+    expect(
+      isRequestCoveredByGrant(request, foreignGrant, undefined, noopRestricted, workspace),
+    ).toBe(false);
+  });
+
+  test("the same grant with its own workspace still replays the session root", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "npm test",
+        approvals: [ownGrant],
+        requestCwd: "/proj",
+        workspace,
+      }),
+    ).toBe(true);
   });
 });
