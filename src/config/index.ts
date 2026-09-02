@@ -46,6 +46,7 @@ import {
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
   OPENCODE_GO_BASE_URL,
+  OPENCODE_GO_PROVIDER_ID,
   isOpenCodeGoProvider,
   resolveGoEndpoint,
 } from "../../packages/opencode-go/src/index.js";
@@ -372,13 +373,16 @@ export function buildGoSource(fields: {
     };
   }
   // chat-completions (default)
-  return buildOpenAISource({
-    id: fields.id,
-    baseURL: endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
-    apiKey,
-    model: fields.model,
-    ...(fields.reasoningEffort !== undefined ? { reasoningEffort: fields.reasoningEffort } : {}),
-  });
+  return {
+    ...buildOpenAISource({
+      id: fields.id,
+      baseURL: endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
+      apiKey,
+      model: fields.model,
+      ...(fields.reasoningEffort !== undefined ? { reasoningEffort: fields.reasoningEffort } : {}),
+    }),
+    provider: OPENCODE_GO_PROVIDER_ID,
+  };
 }
 
 export interface Config {

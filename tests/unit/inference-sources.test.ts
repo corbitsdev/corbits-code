@@ -178,7 +178,8 @@ test("buildInferenceSourceForRef routes OpenCode Go models by protocol", () => {
     ctx,
     undefined,
   );
-  expect(chat?.provider).toBe("openai-compatible");
+  expect(chat?.provider).toBe("opencode-go");
+  expect(chat?.quirks).toBeUndefined();
   expect(chat?.baseURL).toBe("https://opencode.ai/zen/go/v1");
   expect(chat?.model).toBe("kimi-k2.7-code");
 

@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { ProtocolMismatchError } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions } from "@intx/types/runtime";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
@@ -77,6 +78,19 @@ describe("openai-compatible adapter SSE parse count", () => {
     }
 
     expect(calls).toBe(1);
+  });
+});
+
+describe("openai-compatible adapter null delta fields", () => {
+  test.each(["role", "tool_calls"])("rejects null %s", (field) => {
+    const adapter = createOpenAICompatibleAdapter(source);
+    expect(() =>
+      adapter.parseResponse(
+        JSON.stringify({
+          choices: [{ index: 0, delta: { content: "hello", [field]: null } }],
+        }),
+      ),
+    ).toThrow(ProtocolMismatchError);
   });
 });
 
