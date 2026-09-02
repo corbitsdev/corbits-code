@@ -161,6 +161,7 @@ import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import {
   createProviderFailureAttemptTracker,
+  suppressProviderFailurePresentation,
   type ProviderFailureAttempt,
 } from "./provider-failure-attempt.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -225,7 +226,10 @@ import {
   isResolvedProviderFailureError,
   terminalProviderFailureMessage,
 } from "../inference-error-message.js";
-import type { InferenceErrorLike } from "../inference-gateway-error.js";
+import {
+  normalizeInferenceErrorForTerminal,
+  type InferenceErrorLike,
+} from "../inference-gateway-error.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { imageAttachmentFromPath, type PendingImageAttachment } from "./image-attachments.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
@@ -633,7 +637,9 @@ export function tuiSendFailureMessage(
   if (!providerFailureObserved && !isResolvedProviderFailureError(error)) {
     return error instanceof Error ? error.message : String(error);
   }
-  const providerId = isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId;
+  const providerId =
+    providerError?.providerId ??
+    (isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId);
   const displayLabel = providerId === attempt.providerId ? attempt.displayLabel : undefined;
   if (providerError === undefined && isResolvedProviderFailureError(error)) return error.message;
   const diagnostic = providerError ?? {
@@ -1681,20 +1687,28 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const providerFailureAttempts = createProviderFailureAttemptTracker();
     flushPartialOnCrash = () => cycleRecorder.dispose("crashed").then(() => undefined);
     const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
-      if (event.type === "inference.start" || event.type === "inference.done") {
+      let eventForSink = event;
+      if (event.type === "message.received") {
+        providerFailureAttempts.advanceToNextMessage();
+      } else if (event.type === "inference.start" || event.type === "inference.done") {
         providerFailureAttempts.reset();
       } else if (event.type === "inference.error") {
         const error = event.data.error;
-        providerFailureAttempts.observe({
-          category: error.category,
-          message: error.message,
-          ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
-          ...("providerId" in error && typeof error.providerId === "string"
-            ? { providerId: error.providerId }
-            : {}),
-        });
+        const executingAttempt = providerFailureAttempts.current();
+        const providerId =
+          "providerId" in error && typeof error.providerId === "string"
+            ? error.providerId
+            : (executingAttempt?.providerId ?? config.providerName);
+        providerFailureAttempts.observe(normalizeInferenceErrorForTerminal(error, providerId));
+      } else if (event.type === "connector.reply") {
+        const reply = providerFailureAttempts.consumeConnectorReply();
+        if (reply?.suppressPresentation === true) {
+          eventForSink = suppressProviderFailurePresentation(event);
+        }
+      } else if (event.type === "message.run.ended") {
+        providerFailureAttempts.consumeTerminal();
       }
-      runSink.sink(event);
+      runSink.sink(eventForSink);
       cycleRecorder.handleEvent(event);
       if (onTurnBoundary(event)) {
         sessionCost.addTurn(event.data.usage, billingIdentityFromSource(event.data.source));
@@ -2177,15 +2191,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
       if (failure.kind === "abort") return;
       recordRunError(err);
-      systemNotice(
-        tuiSendFailureMessage(
-          err,
-          failure.kind,
-          providerFailure.observed,
-          attempt,
-          providerFailure.error,
-        ),
-      );
+      if (!providerFailure.presented) {
+        systemNotice(
+          tuiSendFailureMessage(
+            err,
+            failure.kind,
+            providerFailure.observed,
+            attempt,
+            providerFailure.error,
+          ),
+        );
+        providerFailureAttempts.markPresented(providerFailure);
+      }
       setShellRunState(host.shell, "idle");
     };
 
@@ -2199,13 +2216,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     const sendWithAttemptIdentity = async (message: InboundMessage): Promise<void> => {
       const attempt = currentAttemptIdentity();
-      const providerFailure = providerFailureAttempts.begin();
+      const providerFailure = providerFailureAttempts.begin(attempt);
       try {
         await agentProxy.send(message);
       } catch (error) {
         handleSendFailure(error, attempt, providerFailure);
       } finally {
-        providerFailureAttempts.settle(providerFailure);
+        providerFailureAttempts.sendSettled(providerFailure);
       }
     };
 
@@ -2307,6 +2324,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         void sendUserPrompt(text, attachments ?? []).catch((error: unknown) => {
           handleSendFailure(error, currentAttemptIdentity(), {
             observed: false,
+            presented: false,
             error: undefined,
           });
         });
@@ -2396,6 +2414,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           onFailure: (error) =>
             handleSendFailure(error, currentAttemptIdentity(), {
               observed: false,
+              presented: false,
               error: undefined,
             }),
         }),
@@ -2411,6 +2430,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           onFailure: (error) =>
             handleSendFailure(error, currentAttemptIdentity(), {
               observed: false,
+              presented: false,
               error: undefined,
             }),
         }),

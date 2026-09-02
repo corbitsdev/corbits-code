@@ -378,6 +378,41 @@ export function normalizeInferenceErrorForRetry(
   };
 }
 
+function isInferenceErrorCategory(category: string): category is InferenceError["category"] {
+  return (
+    category === "fatal" ||
+    category === "retryable" ||
+    category === "context_overflow" ||
+    category === "credential_failure" ||
+    category === "quota_exhausted" ||
+    category === "aborted" ||
+    category === "timeout" ||
+    category === "protocol_mismatch"
+  );
+}
+
+/** Normalize a provider diagnostic once for terminal presentation without dropping context fields. */
+export function normalizeInferenceErrorForTerminal(
+  error: InferenceErrorLike,
+  fallbackProviderId: string,
+): InferenceErrorLike {
+  const contextual = {
+    ...error,
+    providerId: error.providerId ?? fallbackProviderId,
+  };
+  if (!isInferenceErrorCategory(contextual.category)) return contextual;
+  const normalized = normalizeInferenceErrorForRetry({
+    ...contextual,
+    category: contextual.category,
+    message: contextual.message ?? "Inference error",
+  });
+  return {
+    ...contextual,
+    ...normalized,
+    providerId: contextual.providerId,
+  };
+}
+
 export function gatewayOverloadUserMessage(error: InferenceErrorLike): string {
   if (!isGatewayOverloadInferenceError(error)) return error.message ?? "Inference error";
   return GATEWAY_OVERLOAD_USER_MESSAGE;

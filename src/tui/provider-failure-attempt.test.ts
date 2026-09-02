@@ -14,28 +14,58 @@ describe("provider failure attempt tracker", () => {
 
     const second = tracker.begin();
 
-    expect(second).toEqual({ observed: false, error: undefined });
+    expect(second).toEqual({ observed: false, presented: false, error: undefined });
   });
 
-  test("settling an older attempt does not clear the active attempt", () => {
+  test("a settled send remains current until its terminal stream event is consumed", () => {
     const tracker = createProviderFailureAttemptTracker();
     const first = tracker.begin();
+    tracker.sendSettled(first);
     const second = tracker.begin();
 
-    tracker.settle(first);
     tracker.observe({
       providerId: "xai/work",
       category: "credential_failure",
       message: "HTTP 401",
     });
+    const reply = tracker.consumeConnectorReply();
 
-    expect(second).toEqual({
+    expect(reply).toEqual({ attempt: first, suppressPresentation: false });
+    expect(first).toEqual({
       observed: true,
+      presented: true,
       error: {
         providerId: "xai/work",
         category: "credential_failure",
         message: "HTTP 401",
       },
+    });
+    expect(second).toEqual({ observed: false, presented: false, error: undefined });
+    expect(tracker.current()).toBe(first);
+    tracker.consumeTerminal();
+    expect(tracker.current()).toBe(second);
+  });
+
+  test("a rejected-send fallback advances when the next message starts and suppresses a late reply", () => {
+    const tracker = createProviderFailureAttemptTracker();
+    const first = tracker.begin();
+    tracker.markPresented(first);
+    tracker.sendSettled(first);
+    const second = tracker.begin();
+
+    tracker.advanceToNextMessage();
+    expect(tracker.current()).toBe(second);
+
+    tracker.observe({
+      providerId: "openai",
+      category: "fatal",
+      message: "second failure",
+    });
+    tracker.markPresented(second);
+
+    expect(tracker.consumeConnectorReply()).toEqual({
+      attempt: second,
+      suppressPresentation: true,
     });
   });
 });

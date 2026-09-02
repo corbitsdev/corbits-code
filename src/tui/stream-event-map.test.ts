@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { suppressProviderFailurePresentation } from "./provider-failure-attempt.js";
 import {
   createStreamMapContext,
   mapProductionEvent,
@@ -369,6 +370,59 @@ describe("inference.error text", () => {
         text: "OpenAI Provider failed (retryable): upstream unavailable. Try again.",
       },
     ]);
+  });
+
+  test("does not repeat a fallback diagnostic on the terminal connector reply", () => {
+    const ctx = createStreamMapContext({ providerId: "openai", providerLabel: "OpenAI" });
+    mapProductionEvent(
+      {
+        type: "inference.error",
+        data: { error: { category: "retryable", message: "upstream unavailable" } },
+      },
+      ctx,
+    );
+    const reply = suppressProviderFailurePresentation({
+      type: "connector.reply",
+      data: { content: "generic director reply" },
+    });
+
+    expect(mapProductionEvent(reply, ctx)).toEqual([]);
+    expect(ctx.pendingProviderFailure).toBe(false);
+  });
+
+  test("latches the executing provider when selection changes mid-cycle", () => {
+    const ctx = createStreamMapContext({ providerId: "xai/work", providerLabel: "Work" });
+    mapProductionEvent({ type: "inference.start", data: { model: "grok" } }, ctx);
+
+    ctx.providerId = "openai";
+    ctx.providerLabel = "OpenAI";
+    mapProductionEvent(
+      {
+        type: "inference.error",
+        data: {
+          error: {
+            category: "quota_exhausted",
+            message: "Too many requests",
+            statusCode: 429,
+            raw: { requestId: "req-1" },
+          },
+        },
+      },
+      ctx,
+    );
+
+    expect(ctx.pendingProviderError).toMatchObject({
+      providerId: "xai/work",
+      category: "retryable",
+      statusCode: 429,
+      raw: { requestId: "req-1" },
+    });
+    expect(
+      mapProductionEvent({ type: "connector.reply", data: { content: "generic reply" } }, ctx),
+    ).toContainEqual({
+      type: "assistant",
+      text: "Work Provider failed (retryable): Rate limited — retrying…. Try again.",
+    });
   });
 
   test("an explicit failing provider overrides the selected provider identity", () => {

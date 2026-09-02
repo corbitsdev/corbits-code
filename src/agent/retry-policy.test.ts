@@ -18,6 +18,33 @@ describe("createCorbitsRetryPolicy", () => {
     expect(decision).toEqual({ kind: "retry", delayMs: 500 });
   });
 
+  test("aborts an OpenCode Go malformed streamed SSE schema response", async () => {
+    const policy = createCorbitsRetryPolicy({ providerId: "opencode-go/corbits" });
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "protocol_mismatch",
+        message:
+          "openai parseResponse: SSE chunk failed schema validation: choices0.delta.role must be a string (was null)",
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
+  });
+
+  test("aborts a generic non-overload protocol mismatch", async () => {
+    const policy = createCorbitsRetryPolicy();
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "protocol_mismatch",
+        message: "response did not match the provider protocol",
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
+  });
+
   test("aborts long-window quota exhaustion", async () => {
     const policy = createCorbitsRetryPolicy();
     const decision = await policy({

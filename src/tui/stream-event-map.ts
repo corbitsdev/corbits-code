@@ -10,7 +10,11 @@ import {
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js";
 import { terminalProviderFailureMessage } from "../inference-error-message.js";
-import type { InferenceErrorLike } from "../inference-gateway-error.js";
+import {
+  normalizeInferenceErrorForTerminal,
+  type InferenceErrorLike,
+} from "../inference-gateway-error.js";
+import { isProviderFailurePresentationSuppressed } from "./provider-failure-attempt.js";
 import type { RunState } from "./session-queue.js";
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */
@@ -123,6 +127,9 @@ export interface StreamMapContext {
    */
   providerId?: string;
   providerLabel?: string;
+  /** Provider selection captured when the active inference cycle started. */
+  inferenceProviderId?: string;
+  inferenceProviderLabel?: string;
   /** Classified diagnostics are held only for render-time terminal presentation. */
   pendingProviderFailure: boolean;
   pendingProviderError: InferenceErrorLike | undefined;
@@ -347,6 +354,16 @@ function mapEvent(
         ctx.hadTextDelta = false;
         ctx.attemptArmed = true;
         ctx.attemptCallIds = new Set(ctx.callIdToName.keys());
+        if (ctx.providerId === undefined) {
+          delete ctx.inferenceProviderId;
+        } else {
+          ctx.inferenceProviderId = ctx.providerId;
+        }
+        if (ctx.providerLabel === undefined) {
+          delete ctx.inferenceProviderLabel;
+        } else {
+          ctx.inferenceProviderLabel = ctx.providerLabel;
+        }
         ctx.pendingProviderFailure = false;
         ctx.pendingProviderError = undefined;
       }
@@ -363,6 +380,8 @@ function mapEvent(
       if (ctx) {
         ctx.pendingProviderFailure = false;
         ctx.pendingProviderError = undefined;
+        delete ctx.inferenceProviderId;
+        delete ctx.inferenceProviderLabel;
       }
       return disarmAttempt(ctx);
 
@@ -466,6 +485,14 @@ function mapEvent(
 
     case "connector.reply": {
       const content = typeof data.content === "string" ? data.content : "";
+      if (isProviderFailurePresentationSuppressed(event)) {
+        if (ctx) {
+          ctx.pendingProviderFailure = false;
+          ctx.pendingProviderError = undefined;
+          ctx.hadTextDelta = false;
+        }
+        return [];
+      }
       if (ctx?.pendingProviderFailure === true) {
         ctx.pendingProviderFailure = false;
         ctx.hadTextDelta = false;
@@ -474,10 +501,12 @@ function mapEvent(
           message: "inference error",
         };
         ctx.pendingProviderError = undefined;
-        const providerId = error.providerId ?? ctx.providerId ?? "Unknown";
+        const providerId =
+          error.providerId ?? ctx.inferenceProviderId ?? ctx.providerId ?? "Unknown";
+        const selectedProviderId = ctx.inferenceProviderId ?? ctx.providerId;
         const providerLabel =
-          error.providerId === undefined || error.providerId === ctx.providerId
-            ? ctx.providerLabel
+          error.providerId === undefined || error.providerId === selectedProviderId
+            ? (ctx.inferenceProviderLabel ?? ctx.providerLabel)
             : undefined;
         return [
           {
@@ -515,9 +544,9 @@ function mapEvent(
 
     case "inference.error": {
       // Hand the armed boundary to the next event rather than disarming: a
-      // committed retry start must still retract the failed attempt. Terminal
-      // failures are surfaced once by the runner after agent.send rejects;
-      // provider diagnostics remain in the event stream for observability only.
+      // committed retry start must still retract the failed attempt. Hold the
+      // provider diagnostic for connector.reply, where terminal presentation is
+      // coordinated with any rejected-send fallback from the runner.
       if (ctx?.attemptArmed === true) {
         ctx.attemptArmed = false;
         ctx.errorRollbackArmed = true;
@@ -525,12 +554,22 @@ function mapEvent(
       if (ctx) {
         ctx.pendingProviderFailure = true;
         const rawError = asRecord(data.error);
-        ctx.pendingProviderError = {
+        const error = {
           category: typeof rawError?.category === "string" ? rawError.category : "unknown",
           message: typeof rawError?.message === "string" ? rawError.message : "inference error",
           ...(typeof rawError?.statusCode === "number" ? { statusCode: rawError.statusCode } : {}),
+          ...(rawError?.raw !== undefined ? { raw: rawError.raw } : {}),
+          ...(typeof rawError?.retryAfterMs === "number"
+            ? { retryAfterMs: rawError.retryAfterMs }
+            : {}),
+          ...(typeof rawError?.requestURL === "string" ? { requestURL: rawError.requestURL } : {}),
+          ...(typeof rawError?.opencodeGo === "boolean" ? { opencodeGo: rawError.opencodeGo } : {}),
           ...(typeof rawError?.providerId === "string" ? { providerId: rawError.providerId } : {}),
         };
+        ctx.pendingProviderError = normalizeInferenceErrorForTerminal(
+          error,
+          ctx.inferenceProviderId ?? ctx.providerId ?? "Unknown",
+        );
       }
       return [];
     }
