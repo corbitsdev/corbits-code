@@ -13,6 +13,28 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-09-01
+
+### Changed
+
+- Implementation-worker guidance requires repository-defined typechecks, relevant
+  tests, and every defined full verification command, with exact outcomes and exit
+  statuses reported. Skywalker guidance requires Critic review after delegated
+  Builder work and Greybeard review when architecture is in play.
+- Sub-agent guidance describes completion in terms of the dispatch done-definition
+  rather than a fixed inference-turn budget.
+
+### Fixed
+
+- Empty chat turns settle with a valid empty reply instead of ending in a fatal
+  reactor error, while preserving checkpoint actions.
+- Terminal provider failures show a sanitized category and upstream diagnostic in
+  TUI and headless runs without duplicate or stale notices. Sub-agent failures
+  return a sanitized category and recovery guidance without exposing upstream
+  diagnostics.
+- OpenCode Go normalizes null response-delta `role` and `tool_calls` fields before
+  strict OpenAI parsing; malformed non-null values remain rejected.
+
 ## [0.3.12] - 2026-09-01
 
 ### TUI
