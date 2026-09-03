@@ -6,7 +6,7 @@
 import type { AppShell, ItemDescription, OverlaySelection, PrimaryOverlayKind } from "./shell.js";
 import type { KeyEvent } from "@opentui/core";
 import { wrapOverlayText } from "./overlay-body.js";
-import { openListOverlay } from "./shell.js";
+import { closeReplaceableOverlay, openListOverlay } from "./shell.js";
 
 export type { OverlaySelection, PrimaryOverlayKind };
 
@@ -188,6 +188,7 @@ export interface OpenModelPickerOpts {
 }
 
 export function openModelPickerOverlay(shell: AppShell, opts?: OpenModelPickerOpts): void {
+  closeReplaceableOverlay(shell);
   openListOverlay(shell, {
     kind: "model_picker",
     title: "model / provider",

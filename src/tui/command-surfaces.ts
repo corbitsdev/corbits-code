@@ -1320,7 +1320,7 @@ export function openMcpSurface(
       const target = byName.get(id);
       return target === undefined ? null : mcpDescription(target);
     },
-    onCancel: () => unsubscribe(),
+    onDispose: () => unsubscribe(),
     onOpened: () => {
       unsubscribe =
         mcp.subscribe?.(() => {
@@ -1343,7 +1343,6 @@ export function openMcpSurface(
     },
     onAccept: (selection) => {
       const id = selectedId(selection, rows);
-      unsubscribe();
       if (id === undefined || id === CLOSE_ID || id === EMPTY_MCP_ID) return;
       if (id === ADD_MCP_ID) {
         if (!canAdd) return;

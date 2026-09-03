@@ -14,7 +14,11 @@ import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
-import { openCommandSurface, type CommandSurfaceDeps } from "./command-surfaces";
+import {
+  openCommandSurface,
+  type CommandSurfaceDeps,
+  type PluginsSurfaceDeps,
+} from "./command-surfaces";
 import { wireGates } from "./gate-wire";
 import { openPermissionsOverlay } from "./overlays";
 import {
@@ -768,6 +772,124 @@ describe("overlay host occupancy and opt-in deferral", () => {
       closeReplaceableOverlay(shell);
       expect(shell.overlayList).toBeNull();
     });
+  });
+
+  test("accepting plugins from settings while a gate is queued opens plugins", async () => {
+    const hanging = hangingSettingsList();
+    await withShell(async ({ shell }) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      try {
+        openCommandSurface(shell, "settings", {
+          notify: () => undefined,
+          settings: {
+            read: () => ({
+              compactionMode: "llm",
+              waitForApproval: true,
+              telemetryEnabled: false,
+              showPromptCost: false,
+            }),
+            setCompactionMode: () => undefined,
+            setWaitForApproval: () => undefined,
+            setTelemetryEnabled: () => undefined,
+            setShowPromptCost: () => undefined,
+          },
+          permissions: {
+            list: () => hanging.list,
+            revoke: () => Promise.resolve(),
+          },
+          plugins: {
+            list: () => [],
+            setEnabled: () => Promise.resolve(undefined),
+          } as unknown as PluginsSurfaceDeps,
+        });
+        hanging.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(shell.overlayKind).toBe("settings");
+
+        let resolved: unknown;
+        emitPermissionGate(emitter, (outcome) => {
+          resolved = outcome;
+        });
+        expect(shell.overlayKind).toBe("settings");
+        expect(resolved).toBeUndefined();
+
+        const pluginsIdx = shell.overlayItems.findIndex((row) => row.includes("plugins"));
+        expect(pluginsIdx).toBeGreaterThanOrEqual(0);
+        for (let i = 0; i < pluginsIdx; i++) moveOverlaySelection(shell, 1);
+        acceptOverlaySelection(shell);
+        expect(shell.overlayKind).toBe("plugins");
+        expect(resolved).toBeUndefined();
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test("same-kind /help replaces the live help list instead of deferring", async () => {
+    await withShell(async ({ shell, press, render }) => {
+      openHelpOverlay(shell);
+      expect(shell.overlayKind).toBe("help");
+      openHelpOverlay(shell);
+      expect(shell.overlayKind).toBe("help");
+      expect(
+        shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+      ).toBe(false);
+      press("Escape");
+      await render();
+      await Bun.sleep(60);
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("/help replaces an overlay whose onCancel would reopen another list", async () => {
+    await withShell(async ({ shell }) => {
+      openListOverlay(shell, {
+        kind: "add_provider",
+        items: ["openai"],
+        onCancel: () => {
+          openListOverlay(shell, {
+            kind: "model_picker",
+            items: ["model-a"],
+            deferIfBusy: true,
+          });
+        },
+      });
+      expect(shell.overlayKind).toBe("add_provider");
+      openHelpOverlay(shell);
+      expect(shell.overlayKind).toBe("help");
+      expect(
+        shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+      ).toBe(false);
+    });
+  });
+
+  test("Esc during /settings list() reservation does not paint settings", async () => {
+    const hanging = hangingSettingsList();
+    await withShell(
+      async ({ shell, press, render }) => {
+        const emitter = new EventEmitter();
+        const dispose = wireGates(emitter, shell);
+        try {
+          typePrompt(press, "/settings");
+          press("Enter");
+          expect(shell.overlayKind).not.toBe("settings");
+          expect(shell.overlayKind).not.toBe("permissions");
+
+          press("Escape");
+          await render();
+          await Bun.sleep(60);
+          hanging.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+          expect(shell.overlayKind).not.toBe("settings");
+        } finally {
+          dispose();
+        }
+      },
+      { onCommand: settingsOnCommand(hanging.list) },
+    );
   });
 
   test("settings list() aborts when a newer overlay takes the host", async () => {
