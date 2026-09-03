@@ -650,7 +650,11 @@ async function runSubAgentInner(
         );
       }
       const nd = params.nestedDispatch;
-      const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
+      const fleetSessions =
+        nd.sessions ??
+        createSubAgentSessionStore({
+          admission: params.admission ?? getProcessAdmissionQueue(),
+        });
       const fleetRecords = createFleetMailbox(fleetSessions);
       tools = [
         ...tools,

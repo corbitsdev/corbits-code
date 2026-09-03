@@ -11,7 +11,7 @@ import {
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
-import { createAdmissionQueue } from "./admission.js";
+import { createAdmissionQueue, unlimitedAdmissionQueue } from "./admission.js";
 import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   createInterruptAgentTool,
@@ -69,7 +69,7 @@ function makeDeps(
     run,
     sessions,
     fleetRecords: createFleetMailbox(sessions),
-    admission: createAdmissionQueue({ capacity: Number.POSITIVE_INFINITY }),
+    admission: unlimitedAdmissionQueue(),
     ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     ...(opts.profiles !== undefined ? { profiles: opts.profiles } : {}),
@@ -1968,6 +1968,48 @@ describe("admission queue", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(1);
     expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe("shutdown");
+    expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe("interrupted");
+
+    gate.resolve({ report: "ok" });
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
+  });
+
+  test("interrupt_agent of a queued spawn does not start the run", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let started = 0;
+    const deps = makeDeps(async () => {
+      started += 1;
+      return gate.promise;
+    });
+    deps.admission = createAdmissionQueue({ capacity: 1 });
+    const spawn = createSpawnAgentTool(deps);
+    const first = await callTool(spawn, {
+      description: "holder",
+      prompt: "hold",
+      intent: "explore",
+    });
+    const queued = await callTool(spawn, {
+      description: "queued",
+      prompt: "wait",
+      intent: "explore",
+    });
+    expect(first.status).toBe("running");
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(1);
+
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-q", name: "interrupt_agent", arguments: { target: queued.agent_id } },
+      new AbortController().signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(1);
+    expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe("interrupted");
     expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe("interrupted");
 
     gate.resolve({ report: "ok" });

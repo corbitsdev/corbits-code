@@ -564,6 +564,7 @@ function stubAdmission(notes: { provider: string; until: number }[]): AdmissionQ
       notes.push({ provider, until: untilMs });
     },
     cancel: () => {},
+    occupied: () => false,
   };
 }
 

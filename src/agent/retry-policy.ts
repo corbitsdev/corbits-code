@@ -23,6 +23,7 @@ export interface CorbitsRetryPolicyOptions {
   providerId?: string | (() => string | undefined);
   /** Process admission controller. Tests inject a stub; production omits. */
   admission?: AdmissionQueue;
+  now?: () => number;
 }
 
 /**
@@ -34,6 +35,7 @@ export interface CorbitsRetryPolicyOptions {
 export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): RetryPolicy {
   const defaultPolicy = createDefaultRetryPolicy();
   const admission = options?.admission ?? getProcessAdmissionQueue();
+  const now = options?.now ?? Date.now;
   return (situation: RetrySituation): RetryDecision | Promise<RetryDecision> => {
     const raw = options?.providerId;
     const stampedProviderId = typeof raw === "function" ? raw() : raw;
@@ -43,10 +45,10 @@ export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): R
         ? { ...incoming, providerId: stampedProviderId }
         : incoming;
     const error = normalizeInferenceErrorForRetry(withProvider);
-    if (error.category === "retryable") {
+    if (error.category === "retryable" && error.statusCode === 429) {
       const pauseMs = Math.min(error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS, MAX_BLIND_WAIT_MS);
       const provider = withProvider.providerId ?? stampedProviderId ?? "unknown";
-      admission.notePressure(provider, Date.now() + pauseMs);
+      admission.notePressure(provider, now() + pauseMs);
     }
     if (
       error.category === "quota_exhausted" &&

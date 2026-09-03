@@ -54,7 +54,7 @@ export interface AgentProgressSession {
  * `stalled` when it has gone quiet with no tool outstanding to explain it —
  * that is the case an operator can act on.
  */
-export type LaneState = "working" | "in_tool" | "stalled";
+export type LaneState = "queued" | "working" | "in_tool" | "stalled";
 
 export interface AgentProgress {
   /** Dim trailer painted after the row's subject, e.g. "0:42 · grep". */
@@ -118,7 +118,7 @@ export function laneState(
   // Waiting on the director is work, not silence — never trip IN_TOOL_STALL_MS.
   if (session.currentToolName === "ask_director") return "in_tool";
   if (session.lifecycleStatus === "pending_init" && session.runInFlight === false) {
-    return "working";
+    return "queued";
   }
   if (nowMs - session.lastActivityAt < stallMs) return "working";
   const toolStartedAt = session.currentToolStartedAt;
@@ -162,8 +162,8 @@ export function agentProgress(
   if (session.lifecycleStatus === "pending_init" && session.runInFlight === false) {
     return {
       stat: "queued",
-      state: "working",
-      working: false,
+      state: "queued",
+      working: true,
       stalled: false,
     };
   }
@@ -236,6 +236,7 @@ export function fleetProgress(
   for (const session of sessions) {
     if (!agentLaneIsLive(session)) continue;
     switch (laneState(session, nowMs, stallMs)) {
+      case "queued":
       case "working":
         working += 1;
         break;

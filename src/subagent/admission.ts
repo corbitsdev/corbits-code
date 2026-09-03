@@ -1,9 +1,12 @@
 /**
- * FIFO admission in front of worker `run()`. Spawn never refuses for count;
+ * Admission in front of worker `run()`. Spawn never refuses for count;
  * excess jobs report `queued` until a burst slot is free.
  *
  * `DEFAULT_ADMISSION_IN_FLIGHT` is a race-avoidance burst window so a 429 freeze
  * can fire before a herd — not provider truth and not a declared-spawn cap.
+ *
+ * Drain is FIFO among currently admissible jobs. A paused provider is skipped
+ * so it cannot block another provider; it does not freeze bypass of capacity.
  */
 
 export const DEFAULT_ADMISSION_IN_FLIGHT = 8;
@@ -23,6 +26,8 @@ export interface AdmissionQueue {
   setCapacity(n: number): void;
   notePressure(provider: string, untilMs: number): void;
   cancel(id: string): void;
+  /** True while this id currently occupies a burst slot. */
+  occupied(id: string): boolean;
 }
 
 export interface CreateAdmissionQueueOpts {
@@ -30,15 +35,10 @@ export interface CreateAdmissionQueueOpts {
   now?: () => number;
 }
 
-interface QueuedJob {
-  id: string;
-  start: () => void;
-  provider: string;
-  bypass: boolean;
-}
+type QueuedJob = AdmissionJob & { bypass: boolean };
 
 function isValidCapacity(n: number): boolean {
-  return n === Number.POSITIVE_INFINITY || (Number.isFinite(n) && n >= 0);
+  return n === Number.POSITIVE_INFINITY || (Number.isInteger(n) && n >= 0);
 }
 
 export function createAdmissionQueue(opts: CreateAdmissionQueueOpts = {}): AdmissionQueue {
@@ -92,11 +92,12 @@ export function createAdmissionQueue(opts: CreateAdmissionQueueOpts = {}): Admis
       },
       Math.max(0, earliest - t),
     );
-    drainTimer.unref?.();
+    // Keep the process alive while jobs are waiting on a pause.
+    if (queued.length === 0) drainTimer.unref?.();
   };
 
   const drain = (): void => {
-    for (;;) {
+    while (true) {
       const index = queued.findIndex((job) => canAdmit(job));
       if (index < 0) break;
       const next = queued.splice(index, 1)[0];
@@ -122,6 +123,7 @@ export function createAdmissionQueue(opts: CreateAdmissionQueueOpts = {}): Admis
         return "running";
       }
       queued.push(queuedJob);
+      scheduleDrain();
       return "queued";
     },
 
@@ -148,7 +150,15 @@ export function createAdmissionQueue(opts: CreateAdmissionQueueOpts = {}): Admis
       if (index < 0) return;
       queued.splice(index, 1);
     },
+
+    occupied(id: string): boolean {
+      return inFlight.has(id);
+    },
   };
+}
+
+export function unlimitedAdmissionQueue(): AdmissionQueue {
+  return createAdmissionQueue({ capacity: Number.POSITIVE_INFINITY });
 }
 
 let processQueue: AdmissionQueue | undefined;

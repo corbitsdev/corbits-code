@@ -147,7 +147,7 @@ export interface AgentPanelRow {
  * operator answers "is everything fine" without reading a word. This is a
  * display order only; stall/`in_tool` semantics live in `agent-progress`.
  */
-const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working"];
+const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working", "queued"];
 
 /** Always-populated result for setChromeZones (null = hide zone). */
 export interface FormattedChromeZones {

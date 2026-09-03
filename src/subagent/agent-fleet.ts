@@ -467,10 +467,11 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
-    `the workers — they keep running and remain waitable. interrupt_agent and close_agent unblock this wait immediately with ` +
+    `the workers — they keep running and remain waitable. Live wait status includes "queued" (admitted but not yet ` +
+    `started), "running", and "awaiting_director". interrupt_agent and close_agent unblock this wait immediately with ` +
     `status "interrupted". awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
-    `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means "still running", not ` +
-    `"try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
+    `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
+    `queued, running, or awaiting a director answer, not "try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
     `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,
   inputSchema: {
     type: "object",
@@ -903,6 +904,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // of being torn down — close_agent (or resume_agent, transitively)
         // governs it from here on.
         retained: true,
+        provider: provider.providerName,
         ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
       });
       deps.fleetRecords.register(session.id);
@@ -1017,13 +1019,17 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       };
 
       const start = (): void => {
+        if (!stillAdmissible()) {
+          admission.release(session.id);
+          return;
+        }
+        deps.fleetRecords.clearQueued(session.id);
+        deps.sessions.markRunInFlight(session.id);
         void (async () => {
           if (!stillAdmissible()) {
             admission.release(session.id);
             return;
           }
-          deps.fleetRecords.clearQueued(session.id);
-          deps.sessions.markRunInFlight(session.id);
 
           if (deps.useWorktree === true) {
             const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
