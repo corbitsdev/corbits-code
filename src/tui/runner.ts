@@ -2785,13 +2785,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         },
         mcp: {
           list: () =>
-            [...mcpStates.values()].map((status) => ({
-              name: status.name,
-              state: status.state,
-              ...(status.state === "connected" ? { toolCount: status.tools.length } : {}),
-              ...(status.state === "needs-auth" ? { authURL: status.url } : {}),
-              ...(status.state === "failed" ? { error: status.error } : {}),
-            })),
+            [...mcpStates.values()].flatMap((status) => {
+              if (status.state === "disconnected") return [];
+              return [
+                {
+                  name: status.name,
+                  state: status.state,
+                  ...(status.state === "connected" ? { toolCount: status.tools.length } : {}),
+                  ...(status.state === "needs-auth" ? { authURL: status.url } : {}),
+                  ...(status.state === "failed" ? { error: status.error } : {}),
+                },
+              ];
+            }),
           openAuthURL: (url) => openInBrowser(url),
           subscribe: (listener) => {
             emitter.on("mcp.status", listener);

@@ -95,6 +95,10 @@ describe("mcpNotice", () => {
     expect(notice?.kind).toBe("row");
     expect(notice?.text).toContain("its tools are unavailable");
   });
+
+  test("disconnected is not news — the operator chose it", () => {
+    expect(mcpNotice({ name: "linear", state: "disconnected" })).toBeNull();
+  });
 });
 
 describe("grantNotice", () => {
@@ -132,6 +136,7 @@ describe("payload validation", () => {
 
   test("mcp states parse per variant and reject junk", () => {
     expect(mcpServerState({ name: "a", state: "connected", tools: [] })?.state).toBe("connected");
+    expect(mcpServerState({ name: "a", state: "disconnected" })?.state).toBe("disconnected");
     expect(mcpServerState({ name: "a", state: "needs-auth" })).toBeNull();
     expect(mcpServerState("nope")).toBeNull();
   });

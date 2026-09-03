@@ -27,8 +27,13 @@ import {
   type MCPClient,
   type MCPConnectResult,
 } from "../mcp/client.js";
-import { createExaMCPServerConfig, isBuiltinExaMCPServer } from "../mcp/exa.js";
+import {
+  createExaMCPServerConfig,
+  EXA_MCP_SERVER_NAME,
+  isBuiltinExaMCPServer,
+} from "../mcp/exa.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
+import { mcpToolPrefix } from "../mcp/tool-name.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
 import {
@@ -191,7 +196,8 @@ export type MCPServerState =
   | { name: string; state: "connecting" }
   | { name: string; state: "needs-auth"; url: string }
   | { name: string; state: "connected"; tools: string[] }
-  | { name: string; state: "failed"; error: string };
+  | { name: string; state: "failed"; error: string }
+  | { name: string; state: "disconnected" };
 
 export interface MCPConnectCallbacks {
   // Headless hosts must not advertise an auth callback they cannot complete.
@@ -217,9 +223,14 @@ export interface AgentToolset {
     callbacks: MCPConnectCallbacks,
     signal?: AbortSignal,
   ) => Promise<void>;
+  // Drop a server's tools in the running session. Idempotent for unknown and
+  // already-disconnected names. Persist uses hasMCPServer as occupied; this
+  // is the live teardown that disable/remove need.
+  disconnectMCPServer: (name: string, callbacks: MCPConnectCallbacks) => Promise<void>;
   // True while this name is connected or a connection is in flight — not after
-  // a failed connect. Persist uses this to block a second add of an active name;
-  // failed rows retry through connectMCPServer without a second persist.
+  // teardown, and not after a failed connect. Persist uses this to block a
+  // second add of an active name; failed rows retry through connectMCPServer
+  // without a second persist. Still true while disable is in progress.
   hasMCPServer: (name: string) => boolean;
   // Wire the callback the `tool_search` tool invokes to make matched tools
   // advertised. Set by the runner once the director + reload loop exist.
@@ -253,14 +264,15 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
   const builtinExaEnabled = mcpServers.some(isBuiltinExaMCPServer);
   let resolveBuiltinExaConnection: ((result: MCPConnectResult) => void) | undefined;
-  const builtinExaConnection = builtinExaEnabled
+  let builtinExaConnection: Promise<MCPConnectResult> | undefined = builtinExaEnabled
     ? new Promise<MCPConnectResult>((resolve) => {
         resolveBuiltinExaConnection = resolve;
       })
     : undefined;
 
   const waitForBuiltinExaConnection = async (signal: AbortSignal): Promise<MCPConnectResult> => {
-    if (builtinExaConnection === undefined) {
+    const pending = builtinExaConnection;
+    if (pending === undefined) {
       return { ok: false, serverName: "exa", error: "built-in Exa MCP is not enabled" };
     }
     if (signal.aborted) {
@@ -279,7 +291,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         });
       };
       signal.addEventListener("abort", onAbort, { once: true });
-      builtinExaConnection.then((result) => {
+      pending.then((result) => {
         signal.removeEventListener("abort", onAbort);
         resolve(result);
       });
@@ -528,6 +540,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   const connectedClients = new Map<string, MCPClient>();
   const inFlightConnections = new Map<string, Promise<void>>();
+  const inFlightEpochs = new Map<string, number>();
+  const disabledNames = new Set<string>();
+  const serverAborts = new Map<string, AbortController>();
+  const serverEpochs = new Map<string, number>();
+  const serverOpQueues = new Map<string, Promise<void>>();
   const mcpAbortController = new AbortController();
   let disposed = false;
   let disposal: Promise<void> | undefined;
@@ -564,24 +581,113 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     return allowed;
   };
 
+  const currentEpoch = (name: string): number => serverEpochs.get(name) ?? 0;
+
+  const bumpEpoch = (name: string): number => {
+    const next = currentEpoch(name) + 1;
+    serverEpochs.set(name, next);
+    return next;
+  };
+
+  const enqueueServerOp = (name: string, op: () => Promise<void>): Promise<void> => {
+    const previous = serverOpQueues.get(name) ?? Promise.resolve();
+    const run = previous.then(op, op);
+    const tracked = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    serverOpQueues.set(name, tracked);
+    void tracked.then(() => {
+      if (serverOpQueues.get(name) === tracked) serverOpQueues.delete(name);
+    });
+    return run;
+  };
+
+  const failBuiltinExaWaiters = (error: string): void => {
+    resolveBuiltinExaConnection?.({ ok: false, serverName: EXA_MCP_SERVER_NAME, error });
+    resolveBuiltinExaConnection = undefined;
+  };
+
+  const replaceInheritedTool = (toolName: string, tool: AgentTool): void => {
+    const index = inheritedMcpTools.findIndex((entry) => entry.definition.name === toolName);
+    if (index >= 0) inheritedMcpTools.splice(index, 1);
+    inheritedMcpTools.push(tool);
+  };
+
+  const mountWebFetch = (tool: AgentTool): void => {
+    dynamicRunner.removeTools(["web_fetch"]);
+    dynamicRunner.addTools([tool]);
+    replaceInheritedTool("web_fetch", tool);
+  };
+
+  const swapBuiltinExaToNative = (): void => {
+    failBuiltinExaWaiters("built-in Exa MCP was disconnected");
+    mountWebFetch(createWebFetchTool());
+  };
+
+  const remountBuiltinExaAlias = (): void => {
+    failBuiltinExaWaiters("built-in Exa MCP was disconnected");
+    builtinExaConnection = new Promise<MCPConnectResult>((resolve) => {
+      resolveBuiltinExaConnection = resolve;
+    });
+    mountWebFetch(createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection }));
+  };
+
+  const dropServerTools = (name: string): void => {
+    const prefix = mcpToolPrefix(name);
+    const names = dynamicRunner
+      .currentDefinitions()
+      .map((definition) => definition.name)
+      .filter((toolName) => toolName.startsWith(prefix));
+    dynamicRunner.removeTools(names);
+    for (let i = inheritedMcpTools.length - 1; i >= 0; i--) {
+      const entry = inheritedMcpTools[i];
+      if (entry !== undefined && entry.definition.name.startsWith(prefix)) {
+        inheritedMcpTools.splice(i, 1);
+      }
+    }
+  };
+
+  const teardownMcpServer = async (name: string, swapExa: boolean): Promise<void> => {
+    const client = connectedClients.get(name);
+    connectedClients.delete(name);
+    permissionGate.unregisterMcpServer(name);
+    if (client !== undefined) await client.close().catch(() => undefined);
+    dropServerTools(name);
+    if (swapExa) swapBuiltinExaToNative();
+  };
+
   const connectOneMCPServer = (
     config: MCPServerConfig,
     callbacks: MCPConnectCallbacks,
     signal?: AbortSignal,
+    epoch?: number,
   ): Promise<void> => {
     if (disposed) return Promise.resolve();
     if (connectedClients.has(config.name)) return Promise.resolve();
+    const ownedEpoch = epoch ?? currentEpoch(config.name);
     const existing = inFlightConnections.get(config.name);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined && inFlightEpochs.get(config.name) === ownedEpoch) {
+      return existing;
+    }
+    let perServer = serverAborts.get(config.name);
+    if (perServer === undefined) {
+      perServer = new AbortController();
+      serverAborts.set(config.name, perServer);
+    }
     const connectionSignal =
       signal === undefined
-        ? mcpAbortController.signal
-        : AbortSignal.any([mcpAbortController.signal, signal]);
+        ? AbortSignal.any([mcpAbortController.signal, perServer.signal])
+        : AbortSignal.any([mcpAbortController.signal, perServer.signal, signal]);
+
+    const quietDisable = (): boolean =>
+      disabledNames.has(config.name) || currentEpoch(config.name) !== ownedEpoch;
 
     const run = (async () => {
       if (mcpServersSource === "local") {
         const allowed = await filterServersForConnect([config]);
         if (disposed) return;
+        if (quietDisable()) return;
         if (allowed.length === 0) {
           callbacks.onStatus({
             name: config.name,
@@ -591,6 +697,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return;
         }
       }
+      if (quietDisable()) return;
       callbacks.onStatus({ name: config.name, state: "connecting" });
       let result: MCPConnectResult;
       try {
@@ -599,7 +706,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           ...(callbacks.interactiveAuth
             ? {
                 onAuthURL: (name: string, url: string) => {
-                  if (!disposed) callbacks.onStatus({ name, state: "needs-auth", url });
+                  if (!disposed && !quietDisable()) {
+                    callbacks.onStatus({ name, state: "needs-auth", url });
+                  }
                 },
               }
             : {}),
@@ -607,7 +716,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           // event. Re-emit connected only when tools are already registered so
           // first-connect still waits for the real post-connect status.
           onAuthorized: (name) => {
-            if (disposed) return;
+            if (disposed || quietDisable()) return;
             const client = connectedClients.get(name);
             if (client === undefined) return;
             callbacks.onStatus({
@@ -619,6 +728,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           signal: connectionSignal,
         });
       } catch (err) {
+        if (quietDisable()) return;
         const error = err instanceof Error ? err.message : String(err);
         if (isBuiltinExaMCPServer(config)) {
           resolveBuiltinExaConnection?.({ ok: false, serverName: config.name, error });
@@ -637,6 +747,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         }
         return;
       }
+      if (quietDisable()) {
+        if (result.ok) await result.client.close().catch(() => undefined);
+        return;
+      }
       if (!result.ok) {
         if (isBuiltinExaMCPServer(config)) resolveBuiltinExaConnection?.(result);
         callbacks.onStatus({ name: config.name, state: "failed", error: result.error });
@@ -644,6 +758,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       }
 
       try {
+        if (quietDisable()) {
+          await result.client.close().catch(() => undefined);
+          return;
+        }
         permissionGate.registerMcpClient(result.client);
         const mcpTools = mcpClientToAgentTools(result.client, permissionGate, {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
@@ -656,11 +774,17 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       } catch (err) {
         permissionGate.unregisterMcpServer(config.name);
         await result.client.close().catch(() => undefined);
+        if (quietDisable()) return;
         const error = err instanceof Error ? err.message : String(err);
         if (isBuiltinExaMCPServer(config)) {
           resolveBuiltinExaConnection?.({ ok: false, serverName: config.name, error });
         }
         callbacks.onStatus({ name: config.name, state: "failed", error });
+        return;
+      }
+
+      if (quietDisable()) {
+        await teardownMcpServer(config.name, false);
         return;
       }
 
@@ -673,11 +797,69 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
     })();
     inFlightConnections.set(config.name, run);
-    void run.then(
-      () => inFlightConnections.delete(config.name),
-      () => inFlightConnections.delete(config.name),
-    );
+    inFlightEpochs.set(config.name, ownedEpoch);
+    const clearInFlight = (): void => {
+      if (inFlightConnections.get(config.name) === run) {
+        inFlightConnections.delete(config.name);
+        inFlightEpochs.delete(config.name);
+      }
+    };
+    void run.then(clearInFlight, clearInFlight);
     return run;
+  };
+
+  const abortServer = (name: string): void => {
+    const existing = serverAborts.get(name);
+    if (existing !== undefined) {
+      existing.abort();
+      return;
+    }
+    const controller = new AbortController();
+    controller.abort();
+    serverAborts.set(name, controller);
+  };
+
+  const publicConnectMCPServer = (
+    config: MCPServerConfig,
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const reenable = disabledNames.has(config.name);
+    disabledNames.delete(config.name);
+    if (reenable) {
+      const epoch = bumpEpoch(config.name);
+      serverAborts.set(config.name, new AbortController());
+      if (builtinExaEnabled && isBuiltinExaMCPServer(config)) {
+        remountBuiltinExaAlias();
+      }
+      return enqueueServerOp(config.name, () =>
+        connectOneMCPServer(config, callbacks, signal, epoch),
+      );
+    }
+    if (!serverAborts.has(config.name)) {
+      serverAborts.set(config.name, new AbortController());
+    }
+    return enqueueServerOp(config.name, () =>
+      connectOneMCPServer(config, callbacks, signal, currentEpoch(config.name)),
+    );
+  };
+
+  const publicDisconnectMCPServer = (
+    name: string,
+    callbacks: MCPConnectCallbacks,
+  ): Promise<void> => {
+    disabledNames.add(name);
+    const epoch = bumpEpoch(name);
+    abortServer(name);
+    return enqueueServerOp(name, async () => {
+      const inFlight = inFlightConnections.get(name);
+      if (inFlight !== undefined) await inFlight;
+      if (currentEpoch(name) !== epoch) return;
+      if (!disabledNames.has(name)) return;
+      await teardownMcpServer(name, builtinExaEnabled && name === EXA_MCP_SERVER_NAME);
+      callbacks.onStatus({ name, state: "disconnected" });
+      callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
+    });
   };
 
   const connectMCP = async (
@@ -733,7 +915,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   return {
     dynamicRunner,
     connectMCP,
-    connectMCPServer: connectOneMCPServer,
+    connectMCPServer: publicConnectMCPServer,
+    disconnectMCPServer: publicDisconnectMCPServer,
     hasMCPServer: (name) => connectedClients.has(name) || inFlightConnections.has(name),
     setToolPromoter: (promote) => {
       promoter.promote = promote;

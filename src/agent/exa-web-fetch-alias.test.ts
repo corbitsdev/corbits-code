@@ -570,4 +570,101 @@ describe("built-in Exa web_fetch alias", () => {
     expect(names).toContain("web_fetch");
     expect(names).toContain("web_search");
   });
+
+  test("disconnect after connect drops mcp__exa tools and restores native web_fetch", async () => {
+    const toolset = await makeToolset();
+    try {
+      await connect(toolset);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__exa__web_search_exa",
+      );
+
+      await toolset.disconnectMCPServer("exa", {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+
+      const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+      expect(names).toContain("web_fetch");
+      expect(names.some((name) => name.startsWith("mcp__exa__"))).toBe(false);
+
+      calls.length = 0;
+      const result = await runTool(toolset, "web_fetch", { url: "http://127.0.0.1:1", timeout: 1 });
+      expect(calls).toHaveLength(0);
+      expect(String(result.content)).not.toBe("exa fetch result");
+      expect(String(result.content)).not.toContain("Exa MCP");
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("disconnect before connect swaps waiters to native and re-enable remounts the alias", async () => {
+    const toolset = await makeToolset();
+    try {
+      await toolset.disconnectMCPServer("exa", {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+
+      calls.length = 0;
+      const native = await runTool(toolset, "web_fetch", { url: "http://127.0.0.1:1", timeout: 1 });
+      expect(calls).toHaveLength(0);
+      expect(String(native.content)).not.toContain("Exa MCP");
+      expect(toolset.hasMCPServer("exa")).toBe(false);
+
+      const connectsBefore = connectConfigs.length;
+      await toolset.connectMCPServer(createExaMCPServerConfig(), {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      expect(connectConfigs.length).toBe(connectsBefore + 1);
+      expect(toolset.hasMCPServer("exa")).toBe(true);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__exa__web_search_exa",
+      );
+
+      calls.length = 0;
+      const aliased = await runTool(toolset, "web_fetch", { url: "https://example.com" });
+      expect(aliased).toEqual({ callId: "call-web_fetch", content: "exa fetch result" });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        toolName: "web_fetch_exa",
+        args: { urls: ["https://example.com"] },
+      });
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("re-enable remounts the alias with a fresh connection", async () => {
+    const toolset = await makeToolset();
+    try {
+      await connect(toolset);
+      const firstConnects = connectConfigs.length;
+      await toolset.disconnectMCPServer("exa", {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      await toolset.connectMCPServer(createExaMCPServerConfig(), {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      expect(connectConfigs.length).toBe(firstConnects + 1);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__exa__web_search_exa",
+      );
+
+      calls.length = 0;
+      const result = await runTool(toolset, "web_fetch", { url: "https://example.com" });
+      expect(result).toEqual({ callId: "call-web_fetch", content: "exa fetch result" });
+      expect(calls[0]?.toolName).toBe("web_fetch_exa");
+    } finally {
+      await toolset.dispose();
+    }
+  });
 });

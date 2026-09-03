@@ -93,6 +93,8 @@ export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
     // away. The prompt box marks these and /mcp does the authorizing.
     case "needs-auth":
       return null;
+    case "disconnected":
+      return null;
     case "failed":
       return {
         kind: "row",
@@ -159,7 +161,8 @@ export function lifecycleHookEvent(raw: unknown): LifecycleHookEvent | null {
 const mcpState = type({ name: "string", state: "'connecting'" })
   .or({ name: "string", state: "'needs-auth'", url: "string" })
   .or({ name: "string", state: "'connected'", tools: "string[]" })
-  .or({ name: "string", state: "'failed'", error: "string" });
+  .or({ name: "string", state: "'failed'", error: "string" })
+  .or({ name: "string", state: "'disconnected'" });
 
 export function mcpServerState(raw: unknown): MCPServerState | null {
   const parsed = mcpState(raw);
