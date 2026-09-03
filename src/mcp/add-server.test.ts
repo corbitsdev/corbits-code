@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,7 +15,7 @@ import {
   removeMCPServerEntry,
   setMCPServerEntryEnabled,
 } from "./add-server.js";
-import { loadAuthState, saveAuthState } from "./auth-store.js";
+import { loadAuthState, mcpAuthDir, saveAuthState } from "./auth-store.js";
 import { isReadOnlyMcpTool, mcpToolName } from "./tool-name.js";
 
 const dirs: string[] = [];
@@ -422,6 +422,23 @@ describe("persistMCPServerRemoved", () => {
     });
     expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(false);
     expect(await loadAuthState(identity, home)).toEqual({});
+  });
+
+  test("auth-delete failure after a successful write still returns ok", async () => {
+    const path = await settingsPath();
+    const home = await tempHome();
+    await writeFile(path, JSON.stringify({ providers: {}, mcpServers: [linearHTTP] }));
+    await saveAuthState(linearAuth, { codeVerifier: "linear-secret" }, home);
+    const authDir = mcpAuthDir(home);
+    await chmod(authDir, 0o000);
+    const writer = createGlobalSettingsWriter(path);
+    try {
+      const result = await persistMCPServerRemoved(writer, "linear", home);
+      expect(result).toMatchObject({ ok: true, omitted: true, removed: linearHTTP, entries: [] });
+      expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(false);
+    } finally {
+      await chmod(authDir, 0o700);
+    }
   });
 });
 

@@ -61,11 +61,7 @@ import {
   validateMCPServerName,
   type PersistMCPServerListResult,
 } from "../mcp/add-server.js";
-import {
-  createExaMCPServerConfig,
-  EXA_MCP_SERVER_NAME,
-  isBuiltinExaMCPServer,
-} from "../mcp/exa.js";
+import { createExaMCPServerConfig, EXA_MCP_SERVER_NAME } from "../mcp/exa.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
@@ -209,7 +205,8 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
-import { mergeMcpSurfaceEntries } from "./mcp-list.js";
+import { mergeMcpSurfaceEntries, isBuiltinRow } from "./mcp-list.js";
+import { nextMcpCatalog } from "./mcp-catalog.js";
 import {
   createDeliveryGeneration,
   createLeftoverSend,
@@ -2457,22 +2454,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     };
 
     const applyMcpCatalog = (result: Extract<PersistMCPServerListResult, { ok: true }>): void => {
-      configuredMcpEntries = result.entries;
-      const source = config.mcpServersSource ?? "none";
-      if (source === "local") {
-        config = {
-          ...config,
-          mcpServerEntries: result.entries,
-          mcpServers: resolveMcpServers(config.settings?.mcpServers, result.entries),
-        };
-        return;
-      }
+      const next = nextMcpCatalog({
+        source: config.mcpServersSource ?? "none",
+        result,
+        globalServers: config.settings?.mcpServers,
+      });
+      configuredMcpEntries = next.overlayEntries;
       config = {
         ...config,
-        ...(result.settings !== undefined ? { settings: result.settings } : {}),
-        mcpServerEntries: result.entries,
-        mcpServers: resolveMcpServers(result.entries, undefined),
-        mcpServersSource: source === "none" ? "global" : source,
+        ...(next.settings !== undefined ? { settings: next.settings } : {}),
+        mcpServerEntries: next.overlayEntries,
+        mcpServers: next.mcpServers,
+        mcpServersSource: next.mcpServersSource,
       };
     };
 
@@ -2498,14 +2491,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }
       if (name === EXA_MCP_SERVER_NAME) return createExaMCPServerConfig();
       return undefined;
-    };
-
-    const isUnremovableBuiltinExa = (name: string): boolean => {
-      const entry = configuredMcpEntries.find((server) => server.name === name);
-      if (entry !== undefined) return isExaMCPPreset(entry);
-      if (name !== EXA_MCP_SERVER_NAME) return false;
-      const live = (config.mcpServers ?? []).find((server) => server.name === name);
-      return live === undefined || isBuiltinExaMCPServer(live);
     };
 
     const dropConnectedMcpServer = (name: string): void => {
@@ -2929,7 +2914,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             return { ok: true, message: `Enabled ${name}; connecting now.` };
           },
           removeServer: async (name) => {
-            if (isUnremovableBuiltinExa(name)) {
+            if (
+              isBuiltinRow(
+                name,
+                configuredMcpEntries.find((entry) => entry.name === name),
+                config.mcpServers ?? [],
+              )
+            ) {
               return { ok: false, message: "Built-in Exa cannot be removed." };
             }
             const source = config.mcpServersSource ?? "none";
@@ -2950,6 +2941,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             await toolset.disconnectMCPServer(name, mcpConnectCallbacks);
             mcpStates.delete(name);
             dropConnectedMcpServer(name);
+            for (const server of config.mcpServers ?? []) {
+              connectLateMCPServer(server);
+            }
             return { ok: true, message: `Removed ${name}.` };
           },
         },

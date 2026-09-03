@@ -1,6 +1,3 @@
-/**
- * `/mcp` list merge: configured catalog plus live non-disconnected names.
- */
 import { describe, expect, test } from "bun:test";
 
 import type { MCPServerState } from "../agent/tools.js";

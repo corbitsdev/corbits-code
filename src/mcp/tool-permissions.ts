@@ -1,5 +1,5 @@
 import type { Tier } from "../permission/classify.js";
-import { isReadOnlyMcpTool, mcpToolName, mcpToolPrefix } from "./tool-name.js";
+import { isReadOnlyMcpTool, mcpToolName, parseMcpToolName } from "./tool-name.js";
 
 // Subset of MCP ToolAnnotations used for permission tiering (hints from tools/list).
 export interface McpToolAnnotations {
@@ -23,9 +23,8 @@ export function createMcpToolPermissionRegistry(): McpToolPermissionRegistry {
       tiers.set(name, tier);
     },
     removeToolsForServer(serverName) {
-      const prefix = mcpToolPrefix(serverName);
       for (const key of tiers.keys()) {
-        if (key.startsWith(prefix)) tiers.delete(key);
+        if (parseMcpToolName(key)?.server === serverName) tiers.delete(key);
       }
     },
     tierFor(name) {

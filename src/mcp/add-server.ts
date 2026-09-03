@@ -350,7 +350,11 @@ export async function persistMCPServerRemoved(
   if (settings === null) return { ok: false, reason: "skipped" };
   if (refuse !== undefined) return { ok: false, reason: refuse };
   if (removed === undefined) return { ok: false, reason: "not-found" };
-  await deleteRemovedAuth(name, removed, home);
+  try {
+    await deleteRemovedAuth(name, removed, home);
+  } catch {
+    // Settings already committed; leftover auth is better than split-brain.
+  }
   return { ok: true, entries, omitted, removed, settings };
 }
 
@@ -400,6 +404,10 @@ export async function persistLocalMCPServerRemoved(
   if (local === null) return { ok: false, reason: "skipped" };
   if (refuse !== undefined) return { ok: false, reason: refuse };
   if (removed === undefined) return { ok: false, reason: "not-found" };
-  await deleteRemovedAuth(name, removed, home);
+  try {
+    await deleteRemovedAuth(name, removed, home);
+  } catch {
+    // Settings already committed; leftover auth is better than split-brain.
+  }
   return { ok: true, entries, omitted, removed, local };
 }

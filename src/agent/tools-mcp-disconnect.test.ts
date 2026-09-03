@@ -1,19 +1,26 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
-import type { ResolvedMCPServerConfig } from "../mcp/exa.js";
+import { createExaMCPServerConfig, type ResolvedMCPServerConfig } from "../mcp/exa.js";
 import type { MCPConnectOptions } from "../mcp/client.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { MCPServerState } from "./tools.js";
 
+const dirs: string[] = [];
 const closedClients: string[] = [];
 const closedGenerations: number[] = [];
 let connectGeneration = 0;
 let connectOptions: MCPConnectOptions[] = [];
 let releaseDeferredConnect: (() => void) | undefined;
 let connectMode: "success" | "deferred" = "success";
+
+function tempCwd(): string {
+  const dir = mkdtempSync(join(tmpdir(), "corbits-mcp-disconnect-"));
+  dirs.push(dir);
+  return dir;
+}
 
 await withMockedModule(
   import.meta.resolve("../mcp/client.js"),
@@ -58,7 +65,7 @@ function permissionGate() {
 
 async function makeToolset() {
   return createAgentToolset({
-    cwd: mkdtempSync(join(tmpdir(), "corbits-mcp-disconnect-")),
+    cwd: tempCwd(),
     permissionGate: permissionGate(),
     onOperatorGate: async () => ({ kind: "cancel" }),
     mcpServers: resolveMcpServers([{ name: "exa", enabled: false }], undefined),
@@ -66,6 +73,9 @@ async function makeToolset() {
 }
 
 const acme = { name: "acme", type: "http" as const, url: "https://mcp.acme.test/mcp" };
+const lin = { name: "lin", type: "http" as const, url: "https://mcp.lin.test/mcp" };
+const linear = { name: "linear", type: "http" as const, url: "https://mcp.linear.test/mcp" };
+const customExa = { name: "exa", type: "http" as const, url: "https://custom.exa.test/mcp" };
 
 function callbacks(states: MCPServerState[], toolsChanged: number[] = []) {
   return {
@@ -76,6 +86,12 @@ function callbacks(states: MCPServerState[], toolsChanged: number[] = []) {
     },
   };
 }
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 beforeEach(() => {
   closedClients.length = 0;
@@ -106,7 +122,7 @@ describe("disconnectMCPServer", () => {
       inner(name);
     };
     const toolset = await createAgentToolset({
-      cwd: mkdtempSync(join(tmpdir(), "corbits-mcp-disconnect-")),
+      cwd: tempCwd(),
       permissionGate: gate,
       onOperatorGate: async () => ({ kind: "cancel" }),
       mcpServers: resolveMcpServers([{ name: "exa", enabled: false }], undefined),
@@ -149,6 +165,52 @@ describe("disconnectMCPServer", () => {
       );
       expect(toolset.hasMCPServer("acme")).toBe(true);
       expect(states.some((s) => s.state === "failed")).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("disconnecting lin does not drop linear tools", async () => {
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    try {
+      await toolset.connectMCPServer(lin, callbacks(states));
+      await toolset.connectMCPServer(linear, callbacks(states));
+      const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+      expect(names).toContain("mcp__lin__list");
+      expect(names).toContain("mcp__linear__list");
+
+      await toolset.disconnectMCPServer("lin", callbacks(states));
+
+      const after = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+      expect(after).not.toContain("mcp__lin__list");
+      expect(after).toContain("mcp__linear__list");
+      expect(toolset.hasMCPServer("linear")).toBe(true);
+      expect(toolset.hasMCPServer("lin")).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("disconnect of custom exa then connect of builtin remounts tools", async () => {
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    try {
+      await toolset.connectMCPServer(customExa, callbacks(states));
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__exa__list",
+      );
+
+      await toolset.disconnectMCPServer("exa", callbacks(states));
+      expect(
+        toolset.dynamicRunner.currentDefinitions().some((d) => d.name.startsWith("mcp__exa__")),
+      ).toBe(false);
+
+      await toolset.connectMCPServer(createExaMCPServerConfig(), callbacks(states));
+      expect(toolset.hasMCPServer("exa")).toBe(true);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__exa__list",
+      );
     } finally {
       await toolset.dispose();
     }

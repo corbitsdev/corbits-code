@@ -1,6 +1,3 @@
-/**
- * `/mcp` list merge: configured catalog plus live non-disconnected names.
- */
 import type { MCPServerState } from "../agent/tools.js";
 import type { MCPServerConfig, MCPServerSettingsEntry } from "../config/settings.js";
 import { isExaMCPPreset } from "../config/settings.js";
@@ -11,7 +8,7 @@ function isConfiguredDisabled(entry: MCPServerSettingsEntry | undefined): boolea
   return entry?.enabled === false;
 }
 
-function isBuiltinRow(
+export function isBuiltinRow(
   name: string,
   entry: MCPServerSettingsEntry | undefined,
   liveServers: readonly MCPServerConfig[],

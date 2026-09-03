@@ -1070,9 +1070,12 @@ export function mcpRowLabel(entry: McpEntry): string {
 }
 
 function mcpHowToImpact(entry: McpEntry): string {
-  return entry.builtin === true
-    ? "Built-in Exa cannot be removed; Alt+D disables it."
-    : "Alt+D disables this server. Alt+R removes it.";
+  if (entry.builtin === true) {
+    return entry.state === "disabled"
+      ? "Enter re-enables. Built-in Exa cannot be removed."
+      : "Built-in Exa cannot be removed; Alt+D disables it.";
+  }
+  return "Alt+D disables this server. Alt+R removes it.";
 }
 
 function mcpDescription(entry: McpEntry): ItemDescription {
@@ -1101,10 +1104,7 @@ function mcpDescription(entry: McpEntry): ItemDescription {
     case "disabled":
       return {
         what: "Disabled — its tools are not advertised.",
-        impact:
-          entry.builtin === true
-            ? "Enter re-enables. Built-in Exa cannot be removed; Alt+D disables it."
-            : "Enter re-enables this server.",
+        impact: entry.builtin === true ? mcpHowToImpact(entry) : "Enter re-enables this server.",
       };
   }
 }
@@ -1122,19 +1122,26 @@ function runMcpSurfaceAction(
   deps: CommandSurfaceDeps,
   action: Promise<PluginActionResult>,
   failPrefix: string,
+  name: string,
+  focusOnSuccess: "name" | "default" = "name",
 ): void {
   closeInsetOverlay(shell);
   const continuation = captureOverlayContinuation(shell);
+  const reopen = (focus: "name" | "default"): void => {
+    if (focus === "name") openMcpSurface(shell, deps, name);
+    else openMcpSurface(shell, deps);
+  };
   void action
     .then(
       (result) => {
         if (!isOverlayContinuationCurrent(shell, continuation)) return;
         deps.notify(result.message);
-        if (isOverlayContinuationCurrent(shell, continuation)) openMcpSurface(shell, deps);
+        if (isOverlayContinuationCurrent(shell, continuation)) reopen(focusOnSuccess);
       },
       (err: unknown) => {
         if (!isOverlayContinuationCurrent(shell, continuation)) return;
         deps.notify(`${failPrefix}: ${errorText(err)}`);
+        if (isOverlayContinuationCurrent(shell, continuation)) reopen("name");
       },
     )
     .catch(() => {
@@ -1175,7 +1182,7 @@ function openMcpRemoveConfirm(
       if (id === "remove") {
         const removeServer = mcp.removeServer;
         if (removeServer === undefined) return;
-        runMcpSurfaceAction(shell, deps, removeServer(name), "Remove failed");
+        runMcpSurfaceAction(shell, deps, removeServer(name), "Remove failed", name, "default");
         return;
       }
       openMcpSurface(shell, deps, name);
@@ -1207,7 +1214,7 @@ function openAddMcpURLPane(
           deps.notify("Adding MCP servers is not available in this session.");
           return;
         }
-        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed");
+        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed", name);
       },
     },
     buffer,
@@ -1288,13 +1295,19 @@ export function openMcpSurface(
       if (target.state === "disabled") {
         const setEnabled = mcp.setEnabled;
         if (setEnabled === undefined) return;
-        runMcpSurfaceAction(shell, deps, setEnabled(target.name, true), "Enable failed");
+        runMcpSurfaceAction(
+          shell,
+          deps,
+          setEnabled(target.name, true),
+          "Enable failed",
+          target.name,
+        );
         return;
       }
       if (target.state === "failed") {
         const retryServer = mcp.retryServer;
         if (retryServer === undefined) return;
-        runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed");
+        runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed", target.name);
         return;
       }
       const url = target.authURL;
@@ -1322,7 +1335,7 @@ export function openMcpSurface(
         const setEnabled = mcp.setEnabled;
         if (setEnabled === undefined) return false;
         unsubscribe();
-        runMcpSurfaceAction(shell, deps, setEnabled(id, false), "Disable failed");
+        runMcpSurfaceAction(shell, deps, setEnabled(id, false), "Disable failed", id);
         return true;
       }
       if (name === "r") {
