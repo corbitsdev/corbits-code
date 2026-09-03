@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { splitChainedCommand } from "../permission/command.js";
 import {
   collapseSegmentPayloads,
+  formatCommandForApproval,
   groupChainSegmentsForDisplay,
   verbatimCommandLines,
   middleEllipsis,
@@ -274,6 +275,24 @@ test("collapseSegmentPayloads never collapses a pipe into bash", () => {
 test("collapseSegmentPayloads never collapses echo piped to sh", () => {
   const segment = 'echo "a\nb" | sh';
   expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("formatCommandForApproval keeps multiline quoted code piped to bash visible", () => {
+  const command = "echo 'echo safe\nrm -rf /tmp/victim' | bash";
+  const display = formatCommandForApproval(command);
+
+  expect(display.payloadCount).toBe(0);
+  expect(display.lines.join("\n")).toContain("rm -rf /tmp/victim");
+  expect(display.lines.join("\n")).not.toContain("<text,");
+});
+
+test("formatCommandForApproval keeps heredoc code piped to sh visible", () => {
+  const command = "cat <<'EOF' | sh\necho safe\nrm -rf /tmp/victim\nEOF";
+  const display = formatCommandForApproval(command);
+
+  expect(display.payloadCount).toBe(0);
+  expect(display.lines.join("\n")).toContain("rm -rf /tmp/victim");
+  expect(display.lines.join("\n")).not.toContain("<heredoc,");
 });
 
 test("collapseSegmentPayloads never collapses a quoted bash -c flag", () => {

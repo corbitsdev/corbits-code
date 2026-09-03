@@ -202,6 +202,7 @@ function segmentWords(segment: string): string[] {
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
+  let heredocPending: string | null = null;
 
   const push = (): void => {
     if (current.length > 0) words.push(current);
@@ -242,14 +243,23 @@ function segmentWords(segment: string): string[] {
       const marker = parseHeredocMarker(segment, i);
       if (marker !== null) {
         push();
-        heredocMarker = marker;
-        while (i < segment.length && segment[i] !== "\n") i++;
+        heredocPending = marker;
+        i += 2;
+        if (segment[i] === "-") i++;
+        while (segment[i] === " " || segment[i] === "\t") i++;
+        const markerQuote = segment[i] === "'" || segment[i] === '"' ? segment[i++] : null;
+        i += marker.length;
+        if (markerQuote !== null && segment[i] === markerQuote) i++;
         continue;
       }
     }
 
     if (ch === " " || ch === "\t" || ch === "\n") {
       push();
+      if (ch === "\n" && heredocPending !== null) {
+        heredocMarker = heredocPending;
+        heredocPending = null;
+      }
       i++;
       continue;
     }
@@ -278,10 +288,6 @@ function programBasename(word: string): string {
 // prefixes (env, sudo, nohup, timeout, ...) are handled for free because this
 // scans every word rather than just the first.
 //
-// Also true when any *other* segment of a pipe/chain is code-consuming: the
-// caller checks each segment, and `groupChainSegmentsForDisplay` keeps pipes
-// in one display segment, so `cat <<EOF … | bash` is one segment containing
-// both `cat` and `bash` and fails closed via the bash word.
 function isCodeConsumingSegment(segment: string): boolean {
   const words = segmentWords(segment);
   const bareWord = (word: string): string => word.replace(/^[(`]+/, "").replace(/^\$\(/, "");
@@ -401,7 +407,14 @@ export function formatCommandForApproval(
   const segments = groupChainSegmentsForDisplay(command);
   if (segments.length === 0) return { lines: [command], payloadCount: 0 };
 
-  const collapsed = segments.map(collapseSegmentPayloads);
+  // The canonical splitter deliberately discards operators, so it cannot tell
+  // a pipeline from another chain after splitting. If any connected segment
+  // consumes code, fail open for the whole chain rather than hide a payload
+  // that may feed that interpreter through a pipe.
+  const chainConsumesCode = segments.some(isCodeConsumingSegment);
+  const collapsed = chainConsumesCode
+    ? segments.map((segment) => ({ display: segment, payloads: [] }))
+    : segments.map(collapseSegmentPayloads);
   const chained = segments.length > 1;
   const lines: string[] = [];
   let payloadCount = 0;
