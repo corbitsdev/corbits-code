@@ -21,7 +21,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
     expect(text).toContain('spawn_agent(agent="builder")');
     expect(text).toContain("Model role: implement.");
-    expect(text).toContain("style, philosophy, typescript");
+    expect(text).toContain("style, philosophy, idiot-proof, typescript");
     expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
@@ -30,7 +30,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("Optional skills: none by default");
   });
 
-  test("bakes real style/philosophy/typescript bodies for builder workers (CL-6803)", () => {
+  test("bakes real style/philosophy/idiot-proof/typescript bodies for builder workers (CL-6803)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     const style = stripFrontmatter(
       readFileSync(
@@ -44,6 +44,12 @@ describe("formatDirectorSystemPrompt", () => {
         "utf8",
       ),
     );
+    const idiotProof = stripFrontmatter(
+      readFileSync(
+        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/idiot-proof/SKILL.md"),
+        "utf8",
+      ),
+    );
     const typescript = stripFrontmatter(
       readFileSync(
         join(import.meta.dirname, "../../../plugins/corbits-skills/skills/typescript/SKILL.md"),
@@ -53,6 +59,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("# Baked skill guidance");
     expect(text).toContain(style);
     expect(text).toContain(philosophy);
+    expect(text).toContain(idiotProof);
     expect(text).toContain(typescript);
   });
 

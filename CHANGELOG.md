@@ -19,6 +19,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   Excess dispatches report `queued` until a burst slot is free. Nested children
   of an already-admitted parent bypass the burst window (not a 429 pause).
   Capacity changes never cancel in-flight work.
+- Builder and critic bake a compact less-is-more quality bar (`idiot-proof`:
+  deletion, reuse, clean only files you already touch, read first). It is not a
+  slash and is not listed for `use_skill`. Critic flags correctness plus hygiene
+  the diff introduced and still never implements. Skywalker no longer treats
+  that hygiene lens as over-engineering theater.
 
 ### Changed
 

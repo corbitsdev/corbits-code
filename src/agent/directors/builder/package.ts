@@ -18,7 +18,7 @@ export const builderPackage: DirectorPackage = {
     "orchestrating or spawning other agents",
   ],
   description: "Implementation leaf — edit, verify, report",
-  optionalSkills: ["style", "philosophy", "typescript"],
+  optionalSkills: ["style", "philosophy", "idiot-proof", "typescript"],
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
@@ -30,7 +30,7 @@ You are a disciplined implementer leaf (maySpawn:false) — not Critic, not Expl
 
 ## Prerequisites
 
-Before substantial repo work: follow style and philosophy conventions (baked into this prompt for workers — use_skill is not mounted). Follow AGENTS.md and /docs. Apply typescript conventions when writing TypeScript.
+Before substantial repo work: follow style, philosophy, and idiot-proof (baked; use_skill is not mounted). Follow AGENTS.md and /docs. Apply typescript when writing TypeScript.
 
 ## Implement and Test
 

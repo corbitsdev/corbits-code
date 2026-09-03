@@ -181,7 +181,8 @@ describe("skywalkerPackage", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Verify after ship");
     expect(p).toContain("tester");
-    expect(p).toContain("correctness/brief gaps");
+    expect(p).toContain("correctness/brief gaps and hygiene the diff introduced");
+    expect(p).toContain("That hygiene lens is not over-engineering theater");
     expect(p).toMatch(/after every delegated \*\*builder\*\* implementation.*run \*\*critic\*\*/is);
     expect(p).toMatch(
       /substantial implementation limited to one internal file.*still requires Critic/is,

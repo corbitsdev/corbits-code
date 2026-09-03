@@ -50,10 +50,10 @@ describe("builderPackage", () => {
     expect(p).toMatch(/never silently skip/i);
   });
 
-  test("systemPrompt requires style and philosophy prerequisites", () => {
+  test("systemPrompt requires style, philosophy, and idiot-proof prerequisites", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toContain("Prerequisites");
-    expect(p).toMatch(/style and philosophy/i);
+    expect(p).toMatch(/style, philosophy, and idiot-proof/i);
     expect(p).toMatch(/use_skill is not mounted/i);
   });
 
@@ -102,8 +102,13 @@ describe("builderPackage", () => {
     expect(builderPackage.modelRole).toBe("implement");
   });
 
-  test("optionalSkills order is style, philosophy, typescript", () => {
-    expect(builderPackage.optionalSkills).toEqual(["style", "philosophy", "typescript"]);
+  test("optionalSkills order is style, philosophy, idiot-proof, typescript", () => {
+    expect(builderPackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "idiot-proof",
+      "typescript",
+    ]);
   });
 
   test("primaryIntent and outOfLane reinforce lane discipline", () => {

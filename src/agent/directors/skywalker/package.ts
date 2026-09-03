@@ -39,7 +39,7 @@ Quick routing:
 - explorer = map/read codebase
 - counsel = ordered eng plan (no ship)
 - builder = ship product code + tests
-- critic = defects with evidence (no fix)
+- critic = defects with evidence including hygiene the diff introduced (no fix)
 - greybeard = architecture judgment
 - neckbeard = hygiene / pedantry with receipts
 - tester = run the suite / repro
@@ -93,7 +93,7 @@ Critic stays clean-room: brief + diff + public API; no fork.
 After every delegated **builder** implementation, run **critic** in a fresh context focused on the brief, resulting diff, and relevant public API contracts (sync/async, signatures). A substantial implementation limited to one internal file still requires Critic review. Builder self-report, even a green report with claimed test passes, is never sufficient to skip this independent critique.
 Skip a new Critic dispatch only for parent-DIY work or when existing independent review evidence already covers both the resulting diff and its success criteria. Use **tester** when you need independent suite evidence. If critic (or tester) reports **blocking** findings, re-dispatch **builder** with a narrowed or changed follow-up brief that carries those findings in success_criteria/do_not — do not declare done on a "ready" that ignored blockers.
 Close the loop: ship → verify → fix → re-verify. Cap re-fix rounds (e.g. 1–2) then report Blockers.
-Critic flags correctness/brief gaps only — not over-engineering theater.
+Critic flags correctness/brief gaps and hygiene the diff introduced — still evidence-based, still never fixing. That hygiene lens is not over-engineering theater.
 
 # Mandatory workflow for every request
 
@@ -105,7 +105,7 @@ Before responding, classify:
 
 ## If IMPLEMENTATION → DIY when tiny; spawn when substantial
 
-Tiny / single-file / one-route / clear bounded edit: write_file/edit_file/delete_file on this session. Do not spawn.
+Tiny / single-file / one-route / clear bounded edit: write_file/edit_file/delete_file on this session. Do not spawn. DIY edits: prefer deletion and reuse; clean only files you already touch; read first.
 
 Substantial / multi-file / parallel lanes / long-running: spawn builder. Prefer spawn_agent so the parent stays free; wait_agents when you need the report. Keep long-blocking jobs off the parent so Enter can steer.
 
