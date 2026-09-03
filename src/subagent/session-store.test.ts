@@ -1135,6 +1135,66 @@ describe("pending ask_director", () => {
     expect(resolved).toBe("src/foo.ts");
   });
 
+  test("interrupt then late registerAsk returns false and leaves no pending ask", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    expect(store.interruptOne(session.id).ok).toBe(true);
+
+    expect(
+      store.registerAsk(session.id, {
+        question: "late?",
+        questionId: "ask-1",
+        resolve: () => {
+          throw new Error("should not resolve");
+        },
+        reject: () => {
+          throw new Error("should not reject");
+        },
+      }),
+    ).toBe(false);
+    expect(store.hasPendingAsk(session.id)).toBe(false);
+  });
+
+  test("interruptOne with missing handle does not cancel the pending ask", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    let rejected: unknown;
+    let resolved: string | undefined;
+    store.registerAsk(session.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      resolve: (answer) => {
+        resolved = answer;
+      },
+      reject: (reason) => {
+        rejected = reason;
+      },
+    });
+
+    expect(store.interruptOne(session.id)).toEqual({
+      ok: false,
+      status: "running",
+    });
+    expect(store.hasPendingAsk(session.id)).toBe(true);
+    expect(rejected).toBeUndefined();
+    expect(resolved).toBeUndefined();
+    expect(store.resolveAsk(session.id, "src/foo.ts")).toBe(true);
+    expect(resolved).toBe("src/foo.ts");
+  });
+
   test("complete and close cancel a pending ask", async () => {
     const store = createSubAgentSessionStore();
     const completed = store.start({ description: "c", agentId: "a", brief: "b" });

@@ -112,6 +112,11 @@ export async function handleAskDirector(args: {
       });
       if (args.signal.aborted) {
         onAbort();
+        try {
+          await answerP;
+        } catch {
+          // cancelAsk rejects this; await so it is not an unhandledRejection.
+        }
         return "Error: ask_director was cancelled.";
       }
       commitAskDirector(args.state);

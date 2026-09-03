@@ -108,13 +108,17 @@ describe("evaluateAskDirector", () => {
     const state = createAskDirectorState();
     const controller = new AbortController();
     let cancelled = 0;
+    let rejectAnswer: ((reason: unknown) => void) | undefined;
     const port = {
       register: (): Promise<string> => {
         controller.abort();
-        return new Promise<string>(() => {});
+        return new Promise<string>((_resolve, reject) => {
+          rejectAnswer = reject;
+        });
       },
       cancel: () => {
         cancelled += 1;
+        rejectAnswer?.(new Error("ask_director aborted"));
       },
     };
     const message = await handleAskDirector({
@@ -127,6 +131,44 @@ describe("evaluateAskDirector", () => {
     expect(state.questions).toBe(0);
     expect(state.pending).toBe(false);
     expect(cancelled).toBeGreaterThan(0);
+  });
+
+  test("abort after register does not leave an unhandled rejection", async () => {
+    const state = createAskDirectorState();
+    const controller = new AbortController();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      let rejectAnswer: ((reason: unknown) => void) | undefined;
+      const port = {
+        register: (): Promise<string> => {
+          const answer = new Promise<string>((_resolve, reject) => {
+            rejectAnswer = reject;
+          });
+          controller.abort();
+          return answer;
+        },
+        cancel: () => {
+          rejectAnswer?.(new Error("ask_director aborted"));
+        },
+      };
+      const message = await handleAskDirector({
+        question: "which file?",
+        state,
+        port,
+        signal: controller.signal,
+      });
+      expect(message).toContain("cancelled");
+      expect(state.questions).toBe(0);
+      expect(state.pending).toBe(false);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   test("register throw does not consume a cap slot", async () => {

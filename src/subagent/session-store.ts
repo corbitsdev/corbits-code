@@ -1242,7 +1242,9 @@ export function createSubAgentSessionStore(
         reject: (reason: unknown) => void;
       },
     ): boolean {
-      if (!sessions.has(id)) return false;
+      const session = sessions.get(id);
+      if (session === undefined) return false;
+      if (session.lifecycle.state !== "running") return false;
       if (pendingAsks.has(id)) return false;
       pendingAsks.set(id, ask);
       mutate(id, () => {});
@@ -1278,11 +1280,11 @@ export function createSubAgentSessionStore(
       if (!isLiveStrip(session.lifecycle)) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
-      settleCancelsAsks(id, "session interrupted");
       const interrupt = interruptHandles.get(id);
       if (interrupt === undefined) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
+      settleCancelsAsks(id, "session interrupted");
       interrupt();
       mutate(id, (s) => {
         s.lifecycle = {
