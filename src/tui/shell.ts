@@ -4076,6 +4076,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   if (!shell.overlayList) return;
   // Esc (or any other dismiss) must also drop the `/` and `@` popups' key claim.
   slashPopups.delete(shell);
+  if (mentionPopups.has(shell)) clearMentionAccept(shell);
   mentionPopups.delete(shell);
 
   const wasPalette = shell.overlayKind === "palette";
@@ -4451,6 +4452,12 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return;
   }
 
+  if (kind === "mentions" && mentionPopups.has(shell) && !mentionAcceptIsLive(shell)) {
+    // Stale generation or cursor off the @token: operator dismiss, not accept.
+    closeInsetOverlay(shell);
+    return;
+  }
+
   const id = bag?.overlayItemIds[idx];
   // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
   if (id === "") return;
@@ -4475,6 +4482,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
       meta: overlayKindWord(kind),
     });
   }
+  // Accept is not operator dismiss: keep mention accept state for onAccept
+  // after this close (closeInsetOverlay would otherwise bump the generation).
+  if (kind === "mentions") mentionPopups.delete(shell);
   closeInsetOverlay(shell);
   dispatchOverlayAccept(shell, selection, perOpen);
 }
@@ -5058,7 +5068,6 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   const generation = (mentionGenerations.get(shell) ?? 0) + 1;
   mentionGenerations.set(shell, generation);
 
-  const cursor = shell.prompt.cursorOffset;
   const source = shellMentionSource.get(shell) ?? defaultMentionSource;
   const token = splitMentionToken(at.prefix);
   let suggestions = filterMentionSuggestions(await source(token.dir), token.fragment);
@@ -5082,9 +5091,10 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   }
 
   // The onAccept closure reads through this ref rather than closing over
-  // `suggestions`/`at`/`cursor` directly, so a same-session refresh can
-  // update what accept splices without re-binding the callback.
-  mentionAcceptState.set(shell, { suggestions, atStart: at.atStart, cursor });
+  // `suggestions` directly, so a same-session refresh can update what accept
+  // splices without re-binding the callback. Cursor and atStart are read live
+  // at accept so a stale pre-await snapshot cannot splice at the wrong offset.
+  const acceptState = { suggestions, generation };
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening the overlay released the host between the two calls — long
@@ -5093,6 +5103,7 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   // Refreshing the open list in place never releases the host, so a queued
   // gate has nothing to drain into.
   if (isMentionPopupOpen(shell)) {
+    mentionAcceptState.set(shell, acceptState);
     setOverlayItems(shell, [...suggestions]);
     return true;
   }
@@ -5102,12 +5113,16 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
     items: [...suggestions],
     onAccept: (selection) => {
       const state = mentionAcceptState.get(shell);
-      const completion = state?.suggestions[selection.index];
-      if (completion === undefined || state === undefined) return;
+      if (state === undefined) return;
+      if (mentionGenerations.get(shell) !== state.generation) return;
+      const live = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
+      if (live === null) return;
+      const completion = state.suggestions[selection.index];
+      if (completion === undefined) return;
       const spliced = spliceMentionCompletion(
         shell.prompt.value,
-        state.atStart,
-        state.cursor,
+        live.atStart,
+        shell.prompt.cursorOffset,
         completion,
       );
       shell.prompt.value = spliced.value;
@@ -5116,6 +5131,8 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
       if (completion.endsWith("/")) void openAtMentionSuggestions(shell);
     },
   });
+  if (shell.overlayKind !== "mentions") return false;
+  mentionAcceptState.set(shell, acceptState);
   mentionPopups.add(shell);
   return true;
 }
@@ -5124,10 +5141,23 @@ const mentionPopups = new WeakSet<AppShell>();
 const mentionGenerations = new WeakMap<AppShell, number>();
 interface MentionAcceptState {
   readonly suggestions: readonly string[];
-  readonly atStart: number;
-  readonly cursor: number;
+  readonly generation: number;
 }
 const mentionAcceptState = new WeakMap<AppShell, MentionAcceptState>();
+
+/** Drop accept state and invalidate in-flight lookups on operator dismiss. */
+function clearMentionAccept(shell: AppShell): void {
+  mentionAcceptState.delete(shell);
+  mentionGenerations.set(shell, (mentionGenerations.get(shell) ?? 0) + 1);
+}
+
+/** True when Enter would splice a live @token, not a stale overlay row. */
+function mentionAcceptIsLive(shell: AppShell): boolean {
+  const state = mentionAcceptState.get(shell);
+  if (state === undefined) return false;
+  if (mentionGenerations.get(shell) !== state.generation) return false;
+  return parseAtState(shell.prompt.value, shell.prompt.cursorOffset) !== null;
+}
 
 /** True while the `@` path popup owns typed characters. */
 export function isMentionPopupOpen(shell: AppShell): boolean {
@@ -5136,6 +5166,7 @@ export function isMentionPopupOpen(shell: AppShell): boolean {
 
 export function closeMentionPopup(shell: AppShell): void {
   if (!mentionPopups.has(shell)) return;
+  clearMentionAccept(shell);
   mentionPopups.delete(shell);
   if (shell.overlayList) closeInsetOverlay(shell);
 }

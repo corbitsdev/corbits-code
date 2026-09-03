@@ -276,3 +276,139 @@ describe("@ popup narrows as you type", () => {
     });
   });
 });
+
+describe("CL-6718 mention accept gating", () => {
+  function hangableSource(): {
+    source: (prefix: string) => Promise<readonly string[]>;
+    resolveNext: (entries: readonly string[]) => void;
+  } {
+    const pending: ((entries: readonly string[]) => void)[] = [];
+    return {
+      source: () =>
+        new Promise<readonly string[]>((resolve) => {
+          pending.push(resolve);
+        }),
+      resolveNext: (entries) => {
+        const resolve = pending.shift();
+        if (resolve === undefined) throw new Error("no pending mention lookup");
+        resolve(entries);
+      },
+    };
+  }
+
+  const ROOT = ["AGENTS.md", "README.md", "session-notes.md", "src/"] as const;
+
+  test("accept mid-reopen does not splice a stale completion", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const first = openAtMentionSuggestions(shell);
+      resolveNext(ROOT);
+      expect(await first).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      expect(handleMentionPopupKey(shell, printable("s"))).toBe(true);
+      expect(shell.prompt.value).toBe("read @s");
+      // Second lookup is in flight; do not resolve it.
+
+      acceptOverlaySelection(shell);
+      expect(shell.prompt.value).toBe("read @s");
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.streamLog.some((row) => /Chose /.test(row.text))).toBe(false);
+
+      resolveNext(ROOT);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.prompt.value).toBe("read @s");
+    });
+  });
+
+  test("accept after a failed reopen does not splice a mention", async () => {
+    await withShell(async (shell) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+      try {
+        shell.prompt.value = "read @";
+        shell.prompt.cursorOffset = shell.prompt.value.length;
+        const pending = openAtMentionSuggestions(shell);
+
+        emitter.emit("permission.gate", {
+          request: {
+            tool: "run_shell",
+            action: "Run shell command",
+            subject: "bun test",
+            scopes: [],
+          },
+          resolve: () => {},
+        });
+        expect(shell.overlayKind).toBe("permissions");
+
+        resolveNext(ROOT);
+        expect(await pending).toBe(false);
+        expect(isMentionPopupOpen(shell)).toBe(false);
+        expect(shell.overlayKind).not.toBe("mentions");
+
+        acceptOverlaySelection(shell);
+        expect(shell.prompt.value).toBe("read @");
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test("accept with cursor off the @token does not splice", async () => {
+    await withShell(async (shell) => {
+      await openAt(shell, "read @");
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      shell.prompt.cursorOffset = 0;
+      acceptOverlaySelection(shell);
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.prompt.value).toBe("read @");
+      expect(shell.streamLog.some((row) => /Chose /.test(row.text))).toBe(false);
+    });
+  });
+
+  test("dismiss during an in-flight lookup does not reopen or splice", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const first = openAtMentionSuggestions(shell);
+      resolveNext(ROOT);
+      expect(await first).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      expect(handleMentionPopupKey(shell, printable("s"))).toBe(true);
+      expect(shell.prompt.value).toBe("read @s");
+
+      closeMentionPopup(shell);
+      expect(isMentionPopupOpen(shell)).toBe(false);
+
+      resolveNext(ROOT);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+
+      if (shell.overlayList !== null) acceptOverlaySelection(shell);
+      expect(shell.prompt.value).toBe("read @s");
+    });
+  });
+});

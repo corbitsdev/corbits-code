@@ -547,8 +547,12 @@ heuristic is permanently skipped for the rest of the session
 @-mention path completion opens a popup keyed off the `@token` under the
 cursor (`openAtMentionSuggestions`, `shell.ts`); every keystroke re-queries,
 and a generation counter discards a slower, stale query's results if a newer
-one already landed. Directory picks re-open one level down so the operator
-can drill into a path without retyping it.
+one already landed. Accept is refused unless that generation is still current
+and a live `@` token is under the cursor. Enter that fails those checks
+dismisses the popup (same generation bump as Esc) so an in-flight lookup
+cannot reopen it. Dismiss clears the accept handler.
+Directory picks re-open one level down so the operator can drill into a path
+without retyping it.
 
 A readline-style kill ring backs Ctrl+K/U/W (kill) and Ctrl+Y/Alt+Y
 (yank/yank-pop) on top of the textarea's native delete bindings, which
