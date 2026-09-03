@@ -1352,6 +1352,19 @@ const PLUGINS_HINTS = [
   "Esc · Enter",
 ] as const;
 
+const MCP_MANAGE_HINTS_WITH_ADD = [
+  "Esc cancel · Enter choose · Alt+A add · Alt+D disable · Alt+R remove",
+  "Esc · Enter · Alt+A add · Alt+D · Alt+R",
+  "Esc · Enter · Alt+A · Alt+D · Alt+R",
+  "Esc · Enter",
+] as const;
+
+const MCP_MANAGE_HINTS_WITHOUT_ADD = [
+  "Esc cancel · Enter choose · Alt+D disable · Alt+R remove",
+  "Esc · Enter · Alt+D · Alt+R",
+  "Esc · Enter",
+] as const;
+
 function overlayHints(shell: AppShell): readonly string[] {
   const answer = overlayAnswerState(shell);
   const hasChoices = shell.overlayItems.length > 0;
@@ -1380,6 +1393,14 @@ function overlayHints(shell: AppShell): readonly string[] {
     }
     if (shell.overlayKind === "permissions") return PERMISSIONS_HINTS;
     if (shell.overlayKind === "plugins") return PLUGINS_HINTS;
+    if (shell.overlayKind === "mcp") {
+      const mcpBag = internals.get(shell);
+      if (mcpBag?.overlayMcpManageHint === true) {
+        return mcpBag.overlayMcpAddHint === true
+          ? MCP_MANAGE_HINTS_WITH_ADD
+          : MCP_MANAGE_HINTS_WITHOUT_ADD;
+      }
+    }
     return DEFAULT_OVERLAY_HINTS;
   }
   if (answer.active) {
@@ -1955,6 +1976,8 @@ interface PriorOverlaySnapshot {
   readonly onCancel: (() => void) | null;
   readonly addProviderHint: boolean;
   readonly setDefaultHint: boolean;
+  readonly mcpManageHint: boolean;
+  readonly mcpAddHint: boolean;
 }
 
 interface ShellInternals {
@@ -1995,6 +2018,10 @@ interface ShellInternals {
   overlayAddProviderHint: boolean;
   /** Whether the open primary advertises Alt+D in the footer hints. */
   overlaySetDefaultHint: boolean;
+  /** Whether the open `/mcp` list advertises Alt+D / Alt+R. */
+  overlayMcpManageHint: boolean;
+  /** Whether the open `/mcp` list advertises Alt+A add. */
+  overlayMcpAddHint: boolean;
   /**
    * While true the shell ignores its own key/paste/submit handlers. Set for
    * the lifetime of a full-screen surface (inline provider connect) that
@@ -3593,6 +3620,16 @@ export interface OpenListOverlayOpts {
    * only when the caller actually wired an Alt+D handler via `onAction`.
    */
   readonly setDefaultHint?: boolean;
+  /**
+   * Advertise Alt+D disable / Alt+R remove in the `/mcp` footer. Confirm
+   * overlays leave this unset so they fall back to DEFAULT_OVERLAY_HINTS.
+   */
+  readonly mcpManageHint?: boolean;
+  /**
+   * Advertise Alt+A add in the `/mcp` footer. False while local settings
+   * shadow global MCP (add is hidden and Alt+A is a dead chord).
+   */
+  readonly mcpAddHint?: boolean;
 }
 
 /**
@@ -3631,6 +3668,8 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
           onCancel: bag.overlayOnCancel,
           addProviderHint: bag.overlayAddProviderHint,
           setDefaultHint: bag.overlaySetDefaultHint,
+          mcpManageHint: bag.overlayMcpManageHint,
+          mcpAddHint: bag.overlayMcpAddHint,
         };
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -3665,6 +3704,8 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
       bag.overlayOnCancel = opts?.onCancel ?? null;
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
       bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
+      bag.overlayMcpManageHint = opts?.mcpManageHint ?? false;
+      bag.overlayMcpAddHint = opts?.mcpAddHint ?? false;
       // Capture the full unfiltered set so typing can re-narrow in place.
       bag.listFilter =
         opts?.typeToFilter === true
@@ -3689,6 +3730,8 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
       bag.overlayOnCancel = opts?.onCancel ?? null;
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
       bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
+      bag.overlayMcpManageHint = opts?.mcpManageHint ?? false;
+      bag.overlayMcpAddHint = opts?.mcpAddHint ?? false;
       bag.listFilter = null;
     }
     if (!isPalette) {
@@ -4121,6 +4164,8 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnPaste = null;
     bag.overlayAddProviderHint = false;
     bag.overlaySetDefaultHint = false;
+    bag.overlayMcpManageHint = false;
+    bag.overlayMcpAddHint = false;
     bag.overlayAnswer = null;
     bag.overlayOnCancel = null;
   }
@@ -4154,6 +4199,8 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCancel = prior.onCancel;
     bag.overlayAddProviderHint = prior.addProviderHint;
     bag.overlaySetDefaultHint = prior.setDefaultHint;
+    bag.overlayMcpManageHint = prior.mcpManageHint;
+    bag.overlayMcpAddHint = prior.mcpAddHint;
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -6340,6 +6387,8 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayOnPaste: null,
     overlayAddProviderHint: false,
     overlaySetDefaultHint: false,
+    overlayMcpManageHint: false,
+    overlayMcpAddHint: false,
     inputSuspended: false,
     overlayAnswer: null,
     overlayTitleText: "",

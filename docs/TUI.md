@@ -419,6 +419,11 @@ pair as the default (global `defaultProvider` + that provider's `defaultModel`
   active, bare `j`/`k` type into the filter rather than moving the highlight —
   use arrow keys (or the filtered list's navigation) to move.
 
+`/mcp` uses the same longest-first overlay-hint footer as the model picker:
+**Alt+A** add (omitted while local MCP settings shadow global), **Alt+D**
+disable, **Alt+R** remove — never bare letters. A remove confirm drops those
+manage hints so the footer is the default Esc/Enter pair.
+
 The list itself never nests by provider, but connecting a new provider is not
 a flat-list row either: the picker used to grow a "connect →" row per
 not-yet-configured provider kind, filtered out once that kind had any
