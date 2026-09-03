@@ -1,4 +1,5 @@
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import {
@@ -93,6 +94,15 @@ import {
   registerWorkflowPlugins,
   enablePluginConfig,
 } from "../plugins/register.js";
+import {
+  claudeHomeRoot,
+  classifyPluginRemove,
+  deleteOwnedPluginDir,
+  disableBundledPluginSettings,
+  isOwnedDiskInstall,
+  nextPluginPathsAfterRemove,
+  ownedDiskOriginRoot,
+} from "../plugins/uninstall.js";
 import {
   getCommand,
   listCommands,
@@ -1000,12 +1010,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       manifest?: PluginManifest;
       metadataOnly?: boolean;
       origin?: PluginOrigin;
+      pluginPath?: string;
+      source?: string;
     }): PluginDescriptor | undefined =>
-      mod.manifest === undefined
+      mod.manifest === undefined || mod.origin === undefined
         ? undefined
         : {
             id: mod.manifest.id,
             name: mod.manifest.name,
+            origin: mod.origin,
             ...(mod.manifest.kind !== undefined ? { kind: mod.manifest.kind } : {}),
             ...(mod.manifest.description !== undefined
               ? { description: mod.manifest.description }
@@ -1013,6 +1026,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             credentials: mod.manifest.credentials ?? [],
             ...(mod.metadataOnly === true ? { needsTrust: true } : {}),
             ...(mod.origin === "path" && mod.metadataOnly !== true ? { canRevokeTrust: true } : {}),
+            ...(mod.pluginPath !== undefined ? { pluginPath: mod.pluginPath } : {}),
+            ...(mod.source !== undefined ? { source: mod.source } : {}),
           };
     const pluginDescriptors: PluginDescriptor[] = livePluginModules
       .map((m) => toDescriptor(m))
@@ -1265,6 +1280,135 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         };
         await persistPluginSettings();
         return { ok: true, message: "Trust revoked — code stays unloaded from next launch" };
+      },
+      remove: async (id) => {
+        if (id.length === 0) return { ok: false, message: "Unknown plugin" };
+        const desc = pluginDescriptors.find((d) => d.id === id);
+        const mod = livePluginModules.find((m) => m.manifest?.id === id);
+        if (desc === undefined) return { ok: false, message: "Unknown plugin" };
+        const origin = desc.origin;
+        const pluginPath = desc.pluginPath ?? mod?.pluginPath;
+        const hadTools = mod?.createToolPlugin !== undefined;
+        const withToolsNote = (message: string): string =>
+          hadTools ? `${message} Tools from this plugin stay until you restart.` : message;
+
+        const spliceLive = (): void => {
+          const di = pluginDescriptors.findIndex((d) => d.id === id);
+          if (di >= 0) pluginDescriptors.splice(di, 1);
+          livePluginModules = livePluginModules.filter((m) => m.manifest?.id !== id);
+          const wi = webPluginCandidates.findIndex((c) => c.id === id);
+          if (wi >= 0) webPluginCandidates.splice(wi, 1);
+          const ti = toolPluginCandidates.findIndex((c) => c.id === id);
+          if (ti >= 0) toolPluginCandidates.splice(ti, 1);
+        };
+
+        const disableConfig = (): void => {
+          livePluginConfig = disableBundledPluginSettings(livePluginConfig, id);
+          if (liveWebOverride === id) liveWebOverride = undefined;
+        };
+
+        const home = homedir();
+        const owned = isOwnedDiskInstall({
+          origin,
+          ...(pluginPath !== undefined ? { pluginPath } : {}),
+          home,
+          cwd: config.cwd,
+        });
+        const action = classifyPluginRemove({ origin, owned });
+
+        if (action === "disable-bundled") {
+          disableConfig();
+          await persistPluginSettings();
+          return {
+            ok: true,
+            message: withToolsNote(
+              `${desc.name} is bundled and cannot be uninstalled — disabled instead.`,
+            ),
+          };
+        }
+
+        if (action === "disable-unowned-user") {
+          disableConfig();
+          await persistPluginSettings();
+          return {
+            ok: true,
+            message: withToolsNote(
+              `Disabled ${desc.name}. Claude marketplace files were not removed.`,
+            ),
+          };
+        }
+
+        if (action === "delete-owned") {
+          if (pluginPath === undefined) {
+            return { ok: false, message: "Plugin has no path to remove" };
+          }
+          const originRoot = ownedDiskOriginRoot({
+            pluginPath,
+            home,
+            cwd: config.cwd,
+          });
+          if (originRoot === undefined) {
+            return { ok: false, message: "Plugin has no path to remove" };
+          }
+          const disk = await deleteOwnedPluginDir({
+            pluginPath,
+            originRoot,
+            claudeRoot: claudeHomeRoot(home),
+          });
+          if (!disk.ok) return disk;
+          let extra = "";
+          if (origin === "path") {
+            pathTrust = await revokePathPlugin(pluginPath);
+            const planned = await nextPluginPathsAfterRemove({
+              pluginPaths: livePluginPaths,
+              pluginPath,
+              cwd: config.cwd,
+              otherLivePluginPaths: livePluginModules.flatMap((m) =>
+                m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
+              ),
+              expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
+            });
+            livePluginPaths.length = 0;
+            livePluginPaths.push(...planned.pluginPaths);
+            extra = planned.keptSharedRoot
+              ? " Other plugins remain at that marketplace path; this one may return untrusted on restart."
+              : "";
+          }
+          spliceLive();
+          disableConfig();
+          await persistPluginSettings();
+          return { ok: true, message: withToolsNote(`Removed ${desc.name}.${extra}`) };
+        }
+
+        if (action === "remove-path") {
+          if (pluginPath !== undefined) {
+            pathTrust = await revokePathPlugin(pluginPath);
+            const planned = await nextPluginPathsAfterRemove({
+              pluginPaths: livePluginPaths,
+              pluginPath,
+              cwd: config.cwd,
+              otherLivePluginPaths: livePluginModules.flatMap((m) =>
+                m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
+              ),
+              expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
+            });
+            livePluginPaths.length = 0;
+            livePluginPaths.push(...planned.pluginPaths);
+            spliceLive();
+            disableConfig();
+            await persistPluginSettings();
+            const extra = planned.keptSharedRoot
+              ? " Other plugins remain at that marketplace path; this one may return untrusted on restart."
+              : "";
+            return { ok: true, message: withToolsNote(`Removed ${desc.name}.${extra}`) };
+          }
+          spliceLive();
+          disableConfig();
+          await persistPluginSettings();
+          return { ok: true, message: withToolsNote(`Removed ${desc.name}.`) };
+        }
+
+        return { ok: false, message: `Cannot remove ${desc.name}` };
       },
     };
 
@@ -2671,6 +2815,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           },
         },
         plugins: {
+          cwd: config.cwd,
+          home: homedir(),
           list: () => {
             const cfg = pluginsAdmin.getConfig();
             return pluginsAdmin.list().map((p) => {
@@ -2682,6 +2828,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               return {
                 id: p.id,
                 name: p.name,
+                origin: p.origin,
                 enabled: isPluginEnabledForSurface(mod, cfg),
                 credentials: p.credentials,
                 credentialValues: cfg[p.id]?.credentials ?? {},
@@ -2690,9 +2837,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
                 ...(p.needsTrust === true ? { needsTrust: true } : {}),
                 ...(p.canRevokeTrust === true ? { canRevokeTrust: true } : {}),
                 ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
-                ...(p.needsTrust === true && mod?.pluginPath !== undefined
-                  ? { originPath: mod.pluginPath }
-                  : {}),
+                ...(p.pluginPath !== undefined
+                  ? { pluginPath: p.pluginPath, originPath: p.pluginPath }
+                  : mod?.pluginPath !== undefined
+                    ? { pluginPath: mod.pluginPath, originPath: mod.pluginPath }
+                    : {}),
+                ...(p.source !== undefined
+                  ? { source: p.source }
+                  : mod?.source !== undefined
+                    ? { source: mod.source }
+                    : {}),
                 ...(attributed.length > 0 ? { warnings: attributed } : {}),
               };
             });
@@ -2707,6 +2861,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           },
           verify: (id, credentials) => pluginsAdmin.verify(id, credentials),
           addPath: (path) => pluginsAdmin.addPath(path),
+          remove: (id) => pluginsAdmin.remove(id),
           webProviders: () => webPluginCandidates.map((c) => ({ id: c.id, name: c.name })),
           currentWebProvider: () => pluginsAdmin.getWebOverride(),
           setWebProvider: (id) => pluginsAdmin.setWebOverride(id),

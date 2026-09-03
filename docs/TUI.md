@@ -364,6 +364,18 @@ or transcript. The shortcut list it used to open is still reachable, as
 via `openCommandSurface`'s `"help"` case, `command-surfaces.ts`); the `/` row
 in `SHELL_SHORTCUTS` documents that in place of a dedicated `?` row.
 
+`/plugins` lists every discovered plugin in a flat list. The title line carries
+how-to hints (`Esc cancel · Enter toggle · Alt+A add path · Alt+X remove`,
+falling back to shorter forms as the terminal narrows). Enter toggles
+enablement. Alt+A adds a plugin by path. Alt+X removes a user, project, or
+path plugin (owned user/project installs, including a path-origin plugin
+whose directory sits under those roots, confirm before deleting from disk).
+Every remove writes `enabled: false` rather than dropping `settings.plugins[id]`
+so in-session command gating holds; disk and unique `pluginPaths` entries are
+still removed so the plugin is gone after restart. Bundled Corbits plugins
+cannot be uninstalled — Alt+X disables them instead and they stay listed.
+Claude marketplace installs write `enabled: false` and never delete `~/.claude`.
+
 The idle landing paints two doors beside the mark, keys aligned so the
 descriptions share a column (`LANDING_HINTS` in `src/tui/landing.ts`): `/`
 for commands, and `/yolo` so Corbits Code does not have to ask for

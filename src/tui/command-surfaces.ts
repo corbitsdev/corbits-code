@@ -10,6 +10,8 @@
 
 import { isAbsoluteHTTPURL, validateMCPServerName } from "../mcp/add-server.js";
 import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
+import type { PluginOrigin } from "../plugins/admin.js";
+import { classifyPluginRemove, isOwnedDiskInstall } from "../plugins/uninstall.js";
 import { maskEcho, maskSecret } from "./provider-setup.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
 import {
@@ -62,6 +64,12 @@ export interface PluginEntry {
    * agent id, failed tool starts, …). Surfaced in the row hint and description.
    */
   readonly warnings?: readonly string[];
+  /** Discovery origin stamped at load — never inferred from id. */
+  readonly origin: PluginOrigin;
+  /** Absolute path the plugin was discovered at. */
+  readonly pluginPath?: string;
+  /** Provenance label (e.g. "claude"), distinct from origin. */
+  readonly source?: string;
 }
 
 /** Result of a verify/addPath admin action, reported via `deps.notify`. */
@@ -100,9 +108,17 @@ export interface PluginsSurfaceDeps {
   readonly saveCredentials: (id: string, credentials: Record<string, string>) => Promise<void>;
   readonly verify: (id: string, credentials: Record<string, string>) => Promise<PluginActionResult>;
   readonly addPath: (path: string) => Promise<PluginActionResult>;
+  readonly remove: (id: string) => Promise<PluginActionResult>;
   readonly webProviders: () => readonly WebProviderChoice[];
   readonly currentWebProvider: () => string | undefined;
   readonly setWebProvider: (id: string | undefined) => Promise<void>;
+  /**
+   * Session cwd (`config.cwd`, not `process.cwd()` — `--cwd` does not chdir).
+   * Disk-confirm and ownership checks must use this, never `process.cwd()`.
+   */
+  readonly cwd: string;
+  /** Home used for user-plugin / ~/.claude ownership checks. */
+  readonly home: string;
   /**
    * Standing session-level load warnings (or the full set when attribution is
    * weak). Shown as a summary row under `/plugins`; drives `plugin !` via the
@@ -192,6 +208,8 @@ const EMPTY_MCP_ID = "__empty_mcp__";
 const BACK_ID = "__back__";
 /** Synthetic `/plugins` row for standing load warnings (not a plugin id). */
 const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__";
+const REMOVE_CONFIRM_ID = "__remove_confirm__";
+const REMOVE_CANCEL_ID = "__remove_cancel__";
 
 export function grantRowLabel(entry: GrantEntry): string {
   const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : "";
@@ -217,8 +235,38 @@ export function pluginRowLabel(entry: PluginEntry): string {
   return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`;
 }
 
+function pluginNeedsDiskConfirm(entry: PluginEntry, plugins: PluginsSurfaceDeps): boolean {
+  return (
+    classifyPluginRemove({
+      origin: entry.origin,
+      owned: isOwnedDiskInstall({
+        origin: entry.origin,
+        ...(entry.pluginPath !== undefined ? { pluginPath: entry.pluginPath } : {}),
+        home: plugins.home,
+        cwd: plugins.cwd,
+      }),
+    }) === "delete-owned"
+  );
+}
+
+function pluginRemoveHint(entry: PluginEntry, plugins: PluginsSurfaceDeps): string {
+  if (entry.origin === "repo") {
+    return "Bundled with Corbits Code — Alt+X disables it; it cannot be uninstalled.";
+  }
+  if (pluginNeedsDiskConfirm(entry, plugins)) {
+    return "Alt+X removes this plugin from disk after confirmation.";
+  }
+  if (entry.origin === "path") {
+    return "Alt+X removes this path plugin from the session and settings.";
+  }
+  if (entry.origin === "user" && entry.source === "claude") {
+    return "Alt+X disables this Claude marketplace plugin without deleting ~/.claude.";
+  }
+  return "Alt+X removes this plugin.";
+}
+
 /** Description-zone content for the focused plugin row. */
-function pluginDescription(entry: PluginEntry): ItemDescription {
+function pluginDescription(entry: PluginEntry, plugins: PluginsSurfaceDeps): ItemDescription {
   const what = entry.description ?? `${entry.kind ?? "plugin"} plugin.`;
   if (entry.needsTrust === true) {
     const where =
@@ -238,7 +286,7 @@ function pluginDescription(entry: PluginEntry): ItemDescription {
     const summary = formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ");
     return { what, impact: summary, tone: "consequence" };
   }
-  return { what };
+  return { what, impact: pluginRemoveHint(entry, plugins) };
 }
 
 function payload(entries: readonly ResidualCatalogEntry[]): {
@@ -741,6 +789,57 @@ function openAddPathPane(
   );
 }
 
+function applyPluginRemove(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  plugins: PluginsSurfaceDeps,
+  entry: PluginEntry,
+): void {
+  void plugins.remove(entry.id).then(
+    (result) => {
+      deps.notify(result.message);
+      openPluginsSurface(shell, deps);
+    },
+    (err: unknown) => deps.notify(`Remove failed: ${errorText(err)}`),
+  );
+}
+
+function openRemoveConfirmPane(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  plugins: PluginsSurfaceDeps,
+  entry: PluginEntry,
+): void {
+  closeInsetOverlay(shell);
+  const rows: ResidualCatalogEntry[] = [
+    { id: REMOVE_CONFIRM_ID, label: `Remove ${entry.name} from disk` },
+    { id: REMOVE_CANCEL_ID, label: "Cancel" },
+  ];
+  openListOverlay(shell, {
+    kind: "plugin_credentials",
+    title: "remove plugin",
+    frameId: "overlay-plugin-remove",
+    ...payload(rows),
+    describe: (id) => {
+      if (id === REMOVE_CANCEL_ID) return { what: "Return to the plugin list." };
+      return {
+        what: `Delete ${entry.name} from disk and disable it in settings.`,
+        impact: "This cannot be undone.",
+        tone: "consequence",
+      };
+    },
+    onCancel: () => openPluginsSurface(shell, deps),
+    onAccept: (selection) => {
+      const id = selectedId(selection, rows);
+      if (id === undefined || id === REMOVE_CANCEL_ID) {
+        openPluginsSurface(shell, deps);
+        return;
+      }
+      applyPluginRemove(shell, deps, plugins, entry);
+    },
+  });
+}
+
 function openWebProviderChooser(
   shell: AppShell,
   deps: CommandSurfaceDeps,
@@ -756,7 +855,7 @@ function openWebProviderChooser(
     { id: BACK_ID, label: "Back to plugins" },
   ];
   openListOverlay(shell, {
-    kind: "plugins",
+    kind: "plugin_credentials",
     title: "web search provider",
     frameId: "overlay-plugin-web",
     ...payload(rows),
@@ -778,7 +877,7 @@ function openWebProviderChooser(
 /**
  * Discovered plugins. Enter toggles enablement (blocked pre-trust); Alt+C
  * opens credentials, Alt+V verifies, Alt+T trusts, Alt+A adds by path,
- * Alt+W picks the web provider.
+ * Alt+X removes, Alt+W picks the web provider.
  */
 export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
   const plugins = deps.plugins;
@@ -820,7 +919,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
         };
       }
       const target = byId.get(id);
-      return target === undefined ? null : pluginDescription(target);
+      return target === undefined ? null : pluginDescription(target, plugins);
     },
     onAccept: (selection) => {
       const id = selectedId(selection, rows);
@@ -841,7 +940,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       );
     },
     onAction: (id, key) => {
-      // Alt+<key>, never bare — c/v/t/a/w read as ordinary letters the
+      // Alt+<key>, never bare — c/v/t/a/w/x read as ordinary letters the
       // filter-as-you-type list would otherwise swallow. Alt+C never
       // collides with the global copy-mode chord: this surface's overlay
       // branch returns before that handler is reached (see shell.ts's
@@ -879,6 +978,13 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
           return true;
         case "a":
           openAddPathPane(shell, deps, plugins);
+          return true;
+        case "x":
+          if (pluginNeedsDiskConfirm(target, plugins)) {
+            openRemoveConfirmPane(shell, deps, plugins, target);
+          } else {
+            applyPluginRemove(shell, deps, plugins, target);
+          }
           return true;
         case "w":
           openWebProviderChooser(shell, deps, plugins);

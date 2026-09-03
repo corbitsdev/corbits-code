@@ -2,6 +2,8 @@
  * Slash-command surfaces: settings menu, permissions revoke, plugin toggle.
  */
 import { describe, expect, test } from "bun:test";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   grantRowLabel,
@@ -18,6 +20,7 @@ import type { KeyEvent } from "@opentui/core";
 
 import { focusOwner } from "./focus/index.js";
 import { withTestRenderer, type Harness } from "./harness";
+import { projectPluginsRoot, userPluginsRoot } from "../plugins/uninstall.js";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
@@ -95,6 +98,7 @@ describe("surface labels", () => {
       needsTrust: true,
       credentials: [],
       credentialValues: {},
+      origin: "project",
     };
     expect(pluginRowLabel(entry)).toBe("linear — untrusted");
     expect(
@@ -104,6 +108,7 @@ describe("surface labels", () => {
         enabled: true,
         credentials: [],
         credentialValues: {},
+        origin: "user",
       }),
     ).toBe("exa — enabled");
   });
@@ -116,6 +121,7 @@ describe("surface labels", () => {
         enabled: true,
         credentials: [],
         credentialValues: {},
+        origin: "user",
         warnings: ['agent a: skill "style" referenced but not found in skill search path'],
       }),
     ).toBe("agents — enabled — has warnings");
@@ -376,13 +382,17 @@ function charKey(seq: string): KeyEvent {
 }
 
 /** Full-featured fake for the admin-action tests: one secret credential field. */
-function pluginActionDeps(overrides?: Partial<PluginEntry>): {
+function pluginActionDeps(
+  overrides?: Partial<PluginEntry>,
+  roots?: { readonly cwd?: string; readonly home?: string },
+): {
   readonly deps: CommandSurfaceDeps;
   readonly calls: {
     setEnabled: { id: string; enabled: boolean }[];
     saveCredentials: { id: string; credentials: Record<string, string> }[];
     verify: { id: string; credentials: Record<string, string> }[];
     addPath: string[];
+    remove: string[];
     setWebProvider: (string | undefined)[];
   };
   readonly notes: string[];
@@ -392,6 +402,7 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
     saveCredentials: [] as { id: string; credentials: Record<string, string> }[],
     verify: [] as { id: string; credentials: Record<string, string> }[],
     addPath: [] as string[],
+    remove: [] as string[],
     setWebProvider: [] as (string | undefined)[],
   };
   const notes: string[] = [];
@@ -402,9 +413,12 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
     enabled: false,
     credentials: [{ key: "apiKey", label: "API key", secret: true }],
     credentialValues: {},
+    origin: "user",
     ...overrides,
   };
   const plugins: PluginsSurfaceDeps = {
+    cwd: roots?.cwd ?? process.cwd(),
+    home: roots?.home ?? homedir(),
     list: () => [entry],
     setEnabled: (id, enabled) => {
       calls.setEnabled.push({ id, enabled });
@@ -423,6 +437,16 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
     addPath: (path) => {
       calls.addPath.push(path);
       return Promise.resolve({ ok: true, message: `added ${path}` });
+    },
+    remove: (id) => {
+      calls.remove.push(id);
+      return Promise.resolve({
+        ok: true,
+        message:
+          entry.origin === "repo"
+            ? `${entry.name} is bundled and cannot be uninstalled — disabled instead.`
+            : `Removed ${entry.name}.`,
+      });
     },
     webProviders: () => [{ id: "exa", name: "exa-search" }],
     currentWebProvider: () => undefined,
@@ -517,6 +541,8 @@ describe("plugins surface admin actions", () => {
       const { deps, calls } = pluginActionDeps();
       openCommandSurface(shell, "plugins", deps);
       expect(runOverlayAction(shell, altKey("w"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      expect(shell.overlayKind).not.toBe("plugins");
       moveOverlaySelection(shell, 1); // automatic, exa-search, back — pick exa-search
       acceptOverlaySelection(shell);
       await Promise.resolve();
@@ -536,6 +562,149 @@ describe("plugins surface admin actions", () => {
       expect(runOverlayAction(shell, altKey("t"))).toBe(true);
       await Promise.resolve();
       expect(calls.setEnabled).toEqual([{ id: "exa", enabled: true }]);
+    });
+  });
+
+  test("owned user Alt+X opens confirm; accept calls remove; cancel/Esc does not", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        origin: "user",
+        pluginPath: join(userPluginsRoot(), "exa"),
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      expect(shell.overlayItems[0]).toBe("Remove exa-search from disk");
+      expect(calls.remove).toEqual([]);
+
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.remove).toEqual(["exa"]);
+    });
+
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        origin: "user",
+        pluginPath: join(userPluginsRoot(), "exa"),
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      moveOverlaySelection(shell, 1);
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.remove).toEqual([]);
+    });
+
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        origin: "user",
+        pluginPath: join(userPluginsRoot(), "exa"),
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      closeInsetOverlay(shell);
+      await Promise.resolve();
+      expect(calls.remove).toEqual([]);
+      expect(shell.overlayKind).toBe("plugins");
+      expect(shell.overlayItems.some((l) => l.includes("exa-search"))).toBe(true);
+    });
+  });
+
+  test("project-origin Alt+X with cwd !== process.cwd() opens disk-confirm", async () => {
+    const configCwd = join(tmpdir(), "cl-6887-not-process-cwd");
+    expect(configCwd).not.toBe(process.cwd());
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps(
+        {
+          origin: "project",
+          pluginPath: join(projectPluginsRoot(configCwd), "local"),
+        },
+        { cwd: configCwd },
+      );
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      expect(shell.overlayItems[0]).toBe("Remove exa-search from disk");
+      expect(calls.remove).toEqual([]);
+    });
+  });
+
+  test("path Alt+X calls remove immediately", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        origin: "path",
+        pluginPath: "/tmp/my-plugin",
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).not.toBe("plugin_credentials");
+      await Promise.resolve();
+      expect(calls.remove).toEqual(["exa"]);
+    });
+  });
+
+  test("path-origin under user plugins root Alt+X opens disk confirm", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        origin: "path",
+        pluginPath: join(userPluginsRoot(), "exa"),
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      expect(shell.overlayItems[0]).toBe("Remove exa-search from disk");
+      expect(calls.remove).toEqual([]);
+    });
+  });
+
+  test("bundled Alt+X calls remove immediately, no disk-confirm pane", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls, notes } = pluginActionDeps({ origin: "repo" });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).not.toBe("plugin_credentials");
+      await Promise.resolve();
+      expect(calls.remove).toEqual(["exa"]);
+      expect(notes.some((n) => n.includes("cannot be uninstalled"))).toBe(true);
+    });
+  });
+
+  test("Claude-unowned Alt+X immediately, no confirm", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps({
+        origin: "user",
+        source: "claude",
+        pluginPath: join(homedir(), ".claude", "plugins", "exa"),
+      });
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).not.toBe("plugin_credentials");
+      await Promise.resolve();
+      expect(calls.remove).toEqual(["exa"]);
+    });
+  });
+
+  test("Alt+X on warnings/Close is a no-op", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      const plugins = deps.plugins!;
+      const withWarnings: CommandSurfaceDeps = {
+        ...deps,
+        plugins: {
+          ...plugins,
+          loadWarnings: () => [
+            'agent a: skill "style" referenced but not found in skill search path',
+          ],
+        },
+      };
+      openCommandSurface(shell, "plugins", withWarnings);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(false);
+      expect(calls.remove).toEqual([]);
+
+      moveOverlaySelection(shell, 1);
+      moveOverlaySelection(shell, 1);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(false);
+      expect(calls.remove).toEqual([]);
     });
   });
 });

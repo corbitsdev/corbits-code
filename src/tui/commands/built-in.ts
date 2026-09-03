@@ -41,7 +41,7 @@ export function registerBuiltInCommands(): void {
 
   registerCommand({
     name: "plugins",
-    description: "Add plugins, set credentials, verify, and pick the web provider",
+    description: "Add or remove plugins, set credentials, verify, and pick the web provider",
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "plugins" }),
   });
 
