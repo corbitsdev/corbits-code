@@ -4,7 +4,8 @@
  * collect workers; these two verbs let an orchestrator tear one down on
  * purpose (close_agent) or start the next turn on a retained completed
  * or interrupted session (resume_agent), returning immediately so
- * wait_agents collects. send_input steers an in-flight running turn.
+ * wait_agents collects. send_input steers an in-flight running turn, or
+ * answers a pending ask_director (soft; does not deliver a steer inbound).
  */
 
 import { tool } from "@intx/agent";
@@ -320,8 +321,10 @@ const SendInputArgs = type({
 export const sendInputToolDefinition: ToolDefinition = {
   name: "send_input",
   description:
-    "Steer a running worker mid-turn. Soft (default): deliver `message` into the live session " +
-    "and return immediately without awaiting a reply and without completing wait_agents. " +
+    "Steer a running worker mid-turn, or answer a pending ask_director. Soft (default): if the " +
+    "worker has a pending ask_director, the message resolves that question (it does not deliver a " +
+    "steer inbound). Otherwise deliver `message` into the live session and return immediately " +
+    "without awaiting a reply and without completing wait_agents. " +
     "With interrupt:true: stop the current turn (same wait-mailbox flip as interrupt_agent) " +
     "then queue `message` as the next-turn followup without awaiting that reply. Fails on a " +
     "session that is not currently running an active turn, or when the message is empty / oversize. Nested " +
@@ -338,7 +341,7 @@ export const sendInputToolDefinition: ToolDefinition = {
         type: "boolean",
         description:
           "When true, interrupt the current turn then queue message as the next-turn followup. " +
-          "When false/omitted, soft-deliver into the running turn.",
+          "When false/omitted, answer a pending ask_director or soft-deliver into the running turn.",
       },
     },
     required: ["target", "message"],

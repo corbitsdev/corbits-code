@@ -958,3 +958,245 @@ describe("CL-7269 one stored worker lifecycle", () => {
     expect(store.get("reuse")).toBeUndefined();
   });
 });
+
+describe("pending ask_director", () => {
+  test("soft sendInputOne resolves a pending ask without deliver", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.markRunning(session.id);
+    const delivered: string[] = [];
+    store.registerDeliver(session.id, (message) => {
+      delivered.push(message);
+    });
+    let resolved: string | undefined;
+    expect(
+      store.registerAsk(session.id, {
+        question: "which file?",
+        questionId: "ask-1",
+        resolve: (answer) => {
+          resolved = answer;
+        },
+        reject: () => {
+          throw new Error("should not reject");
+        },
+      }),
+    ).toBe(true);
+    expect(store.hasPendingAsk(session.id)).toBe(true);
+    expect(store.peekAsk(session.id)).toEqual({ question: "which file?", questionId: "ask-1" });
+
+    expect(store.sendInputOne(session.id, "src/foo.ts")).toEqual({ ok: true, status: "running" });
+    expect(resolved).toBe("src/foo.ts");
+    expect(delivered).toEqual([]);
+    expect(store.hasPendingAsk(session.id)).toBe(false);
+  });
+
+  test("interruptOne cancels a pending ask", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, async () => "next");
+    let rejected: unknown;
+    store.registerAsk(session.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: (reason) => {
+        rejected = reason;
+      },
+    });
+
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.hasPendingAsk(session.id)).toBe(false);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(String(rejected)).toContain("interrupted");
+  });
+
+  test("sendInputOne interrupt cancels then followup", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    const delivered: string[] = [];
+    store.registerDeliver(session.id, (message) => {
+      delivered.push(message);
+    });
+    store.registerInterrupt(session.id, () => {});
+    const followups: string[] = [];
+    store.registerFollowup(session.id, async (message) => {
+      followups.push(message);
+      return "later";
+    });
+    let rejected: unknown;
+    store.registerAsk(session.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: (reason) => {
+        rejected = reason;
+      },
+    });
+
+    expect(store.sendInputOne(session.id, "stop that", { interrupt: true })).toEqual({
+      ok: true,
+      status: "interrupted",
+    });
+    expect(store.hasPendingAsk(session.id)).toBe(false);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(String(rejected)).toContain("cancelled by send_input interrupt");
+    expect(delivered).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(followups).toEqual(["stop that"]);
+  });
+
+  test("sendInputOne interrupt cancels a descendant pending ask", () => {
+    const store = createSubAgentSessionStore();
+    const parent = store.start({
+      description: "parent",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    const child = store.start({
+      description: "child",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: parent.id,
+    });
+    store.markRunning(parent.id);
+    store.markRunning(child.id);
+    store.registerInterrupt(parent.id, () => {});
+    store.registerFollowup(parent.id, async () => "next");
+    let rejected: unknown;
+    store.registerAsk(child.id, {
+      question: "q",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: (reason) => {
+        rejected = reason;
+      },
+    });
+
+    expect(store.sendInputOne(parent.id, "stop that", { interrupt: true })).toEqual({
+      ok: true,
+      status: "interrupted",
+    });
+    expect(store.hasPendingAsk(child.id)).toBe(false);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(String(rejected)).toContain("cancelled by send_input interrupt");
+  });
+
+  test("sendInputOne interrupt with missing handles does not cancel the pending ask", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.registerFollowup(session.id, async () => "next");
+    let rejected: unknown;
+    let resolved: string | undefined;
+    store.registerAsk(session.id, {
+      question: "which file?",
+      questionId: "ask-1",
+      resolve: (answer) => {
+        resolved = answer;
+      },
+      reject: (reason) => {
+        rejected = reason;
+      },
+    });
+
+    expect(store.sendInputOne(session.id, "stop that", { interrupt: true })).toEqual({
+      ok: false,
+      status: "running",
+    });
+    expect(store.hasPendingAsk(session.id)).toBe(true);
+    expect(rejected).toBeUndefined();
+    expect(resolved).toBeUndefined();
+    expect(store.resolveAsk(session.id, "src/foo.ts")).toBe(true);
+    expect(resolved).toBe("src/foo.ts");
+  });
+
+  test("complete and close cancel a pending ask", async () => {
+    const store = createSubAgentSessionStore();
+    const completed = store.start({ description: "c", agentId: "a", brief: "b" });
+    store.markRunning(completed.id);
+    let completeRejected: unknown;
+    store.registerAsk(completed.id, {
+      question: "q",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: (reason) => {
+        completeRejected = reason;
+      },
+    });
+    store.complete(completed.id, "done");
+    expect(store.hasPendingAsk(completed.id)).toBe(false);
+    expect(String(completeRejected)).toContain("session completed");
+
+    const closed = store.start({ description: "x", agentId: "a", brief: "b", retained: true });
+    store.markRunning(closed.id);
+    store.registerClose(closed.id, async () => {});
+    let closeRejected: unknown;
+    store.registerAsk(closed.id, {
+      question: "q",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: (reason) => {
+        closeRejected = reason;
+      },
+    });
+    await store.closeOne(closed.id, 1000);
+    expect(store.hasPendingAsk(closed.id)).toBe(false);
+    expect(String(closeRejected)).toContain("session closed");
+  });
+
+  test("ancestor settle cancels a descendant ask", () => {
+    const store = createSubAgentSessionStore();
+    const parent = store.start({ description: "parent", agentId: "a", brief: "b" });
+    const child = store.start({
+      description: "child",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: parent.id,
+    });
+    store.markRunning(parent.id);
+    store.markRunning(child.id);
+    let rejected: unknown;
+    store.registerAsk(child.id, {
+      question: "q",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: (reason) => {
+        rejected = reason;
+      },
+    });
+    store.complete(parent.id, "parent done");
+    expect(store.hasPendingAsk(child.id)).toBe(false);
+    expect(String(rejected)).toContain("session completed");
+  });
+});

@@ -53,10 +53,16 @@ export function buildChatRole(_sessionMode: SessionMode = "orchestrator"): strin
 // handed its full toolset upfront and has no tool_search — telling it otherwise
 // wastes turns on a tool that does not exist.
 export function buildHarnessFacts(
-  opts: { dynamicTools?: boolean; subAgent?: boolean; sessionMode?: SessionMode } = {},
+  opts: {
+    dynamicTools?: boolean;
+    subAgent?: boolean;
+    sessionMode?: SessionMode;
+    askDirector?: boolean;
+  } = {},
 ): string {
   const dynamicTools = opts.dynamicTools ?? true;
   const subAgent = opts.subAgent ?? false;
+  const askDirector = opts.askDirector === true;
   return [
     "Harness facts:",
     ...(subAgent
@@ -90,15 +96,18 @@ export function buildHarnessFacts(
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
     `- Session memory lives at ${SETTINGS_DIR_NAME}/MEMORY.md; store durable preferences only, never secrets.`,
     subAgent
-      ? "- If permission denies an action or the brief is unclear, make a best-effort call, finish what you can, and record assumptions under Blockers — you cannot ask the parent mid-run."
+      ? askDirector
+        ? "- If permission denies an action, make a best-effort call, finish what you can, and record assumptions under Blockers. If the brief is genuinely ambiguous, ask_director — you cannot reach the operator."
+        : "- If permission denies an action or the brief is unclear, make a best-effort call, finish what you can, and record assumptions under Blockers — you cannot ask the parent mid-run."
       : "- If an action is blocked or the request is genuinely ambiguous, ask_operator.",
   ].join("\n");
 }
 
 export function buildGuidelines(
-  opts: { subAgent?: boolean; sessionMode?: SessionMode } = {},
+  opts: { subAgent?: boolean; sessionMode?: SessionMode; askDirector?: boolean } = {},
 ): string {
   const subAgent = opts.subAgent ?? false;
+  const askDirector = opts.askDirector === true;
   return [
     "Guidelines:",
     "",
@@ -129,7 +138,9 @@ export function buildGuidelines(
     ...(subAgent
       ? [
           "- Stick to the dispatch brief; proceed autonomously on bounded work.",
-          "- If permission denies an action or the brief is unclear, make a best-effort call and record assumptions under Blockers — you cannot ask the parent mid-run.",
+          askDirector
+            ? "- If permission denies an action, make a best-effort call and record assumptions under Blockers. If the brief is genuinely ambiguous, ask_director — you cannot reach the operator."
+            : "- If permission denies an action or the brief is unclear, make a best-effort call and record assumptions under Blockers — you cannot ask the parent mid-run.",
           "- Preserve unrelated user edits; never revert changes you did not make unless the brief requires it.",
         ]
       : [
@@ -220,13 +231,16 @@ const TOOL_SUMMARIES: Record<string, string> = {
   web_fetch: "fetch the content of a URL",
   spawn_agent:
     "start a worker agent and return immediately with agent_id; pass returned ids from search_agents as agent=...",
-  wait_agents: "wait for spawned workers by agent_id and collect their reports",
+  wait_agents:
+    "wait for spawned workers by agent_id; returns awaiting_director when a worker asks, without collecting that session",
   search_agents:
     "find agent profiles by role or team before spawning with spawn_agent(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
   submit_output: "signal the task is complete, or complete a workflow step by passing its step id",
   ask_operator:
     "pause and ask the user when blocked or genuinely ambiguous; put long rationale in a transcript reply first, then call with a short question and short option labels only",
+  ask_director:
+    "ask the spawning director when the brief is ambiguous; you cannot reach the operator",
   present:
     "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
@@ -344,10 +358,13 @@ export function buildChatSystemPrompt(
 // call `spawn_agent` (no recursion past depth 1). A built-in orchestrator
 // director is the documented exception — its purpose IS to fan work out to
 // other agents — so the appendix grants permission and links the syntax.
-export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
+export function buildSubAgentAppendix(
+  opts: { orchestrator?: boolean; toolNames?: readonly string[] } = {},
+): string {
   // Workers must not be told both "you may spawn" and "do not spawn".
   // Orchestrators get the spawn instruction; everyone else gets the no-recursion
   // rule only.
+  const askDirector = opts.toolNames?.includes("ask_director") === true;
   const recursionRule =
     opts.orchestrator === true
       ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other sub-agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own after `wait_agents`. `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
@@ -356,7 +373,12 @@ export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): st
     `## ${PRODUCT_NAME} notes`,
     "",
     recursionRule,
-    `- Tools use ${PRODUCT_NAME} names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks.`,
+    `- Tools use ${PRODUCT_NAME} names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks${askDirector ? ", ask_director" : ""}.`,
+    ...(askDirector
+      ? [
+          "- If the brief is genuinely ambiguous, ask_director. You cannot reach the operator; the spawning director answers with send_input.",
+        ]
+      : []),
     "- Upstream `mode: primary` is not encoded — every profile here is a spawnable sub-agent definition.",
   ].join("\n");
 }
@@ -364,7 +386,8 @@ export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): st
 // Final-reply envelope the parent can parse. Free-form prose is allowed inside
 // each field; the headings are the structure. When the brief carries Success
 // criteria / Do not, those are the completion gate and scope fence.
-export function buildSubAgentReportContract(): string {
+export function buildSubAgentReportContract(opts: { askDirector?: boolean } = {}): string {
+  const askDirector = opts.askDirector === true;
   return [
     "Reporting back:",
     "- Stick to the dispatch brief. Do not invent scope or wander into unrelated work.",
@@ -384,7 +407,9 @@ export function buildSubAgentReportContract(): string {
     "## Paths",
     'Key file paths you read or changed (one per line). Write "None." if none.',
     "",
-    "- This message is the only thing returned to the parent. Do not ask the parent questions; you cannot receive answers. Make the best-judgment call, act, and note assumptions under Blockers.",
+    askDirector
+      ? "- This message is the only thing returned to the parent. You cannot reach the operator. If the brief is ambiguous, ask_director before finishing; otherwise make the best-judgment call and note assumptions under Blockers."
+      : "- This message is the only thing returned to the parent. Do not ask the parent questions; you cannot receive answers. Make the best-judgment call, act, and note assumptions under Blockers.",
   ].join("\n");
 }
 
@@ -412,18 +437,19 @@ export function buildSubAgentSystemPrompt(
     grokAntiThrash?: boolean;
   } = {},
 ): string {
+  const toolListForPrompt =
+    opts.toolNames && opts.toolNames.length > 0 ? opts.toolNames : defaultChatTools;
+  const askDirector = toolListForPrompt.includes("ask_director");
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
       : joinSections([
           `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
-          buildHarnessFacts({ dynamicTools: false, subAgent: true }),
-          buildGuidelines({ subAgent: true }),
+          buildHarnessFacts({ dynamicTools: false, subAgent: true, askDirector }),
+          buildGuidelines({ subAgent: true, askDirector }),
           buildPromptDisciplineBlock({ subAgent: true }),
-          buildSubAgentReportContract(),
+          buildSubAgentReportContract({ askDirector }),
         ]);
-  const toolListForPrompt =
-    opts.toolNames && opts.toolNames.length > 0 ? opts.toolNames : defaultChatTools;
   const sections = [base, buildAvailableTools(toolListForPrompt), contextSection(env)];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);

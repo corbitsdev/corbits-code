@@ -1573,3 +1573,178 @@ describe("spawn_agent dispatch contracts", () => {
     expect(result.status).toBe("running");
   });
 });
+
+describe("ask_director wait handshake", () => {
+  function readyHandles(): {
+    close: (deadlineMs?: number) => Promise<void>;
+    interrupt: () => void;
+    followup: (message: string) => Promise<string>;
+    deliver: (message: string) => void;
+  } {
+    return {
+      close: async () => {},
+      interrupt: () => {},
+      followup: async () => "",
+      deliver: () => {
+        throw new Error("soft send_input must not deliver while an ask is pending");
+      },
+    };
+  }
+
+  test("wait returns awaiting_director with question; re-wait same question_id; after resolve, running then done", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let answerP: Promise<string> | undefined;
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.(readyHandles());
+      answerP = params.askDirectorPort?.register({
+        question: "which file should I edit?",
+        questionId: "ask-1",
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const first = (waited.results as Record<string, unknown>[])[0]!;
+    expect(first.status).toBe("awaiting_director");
+    expect(first.question).toBe("which file should I edit?");
+    expect(first.question_id).toBe("ask-1");
+    expect(first.description).toBe("need a path");
+
+    const rewait = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(rewait.timed_out).toBe(false);
+    const again = (rewait.results as Record<string, unknown>[])[0]!;
+    expect(again.status).toBe("awaiting_director");
+    expect(again.question_id).toBe("ask-1");
+
+    await callTool(sendInput, { target: id, message: "edit src/foo.ts" });
+    expect(await answerP).toBe("edit src/foo.ts");
+
+    const after = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    expect(after.timed_out).toBe(true);
+    expect((after.results as { status: string }[])[0]!.status).toBe("running");
+
+    gate.resolve({ report: "done" });
+    const done = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(done.timed_out).toBe(false);
+    expect((done.results as { status: string }[])[0]!.status).toBe("done");
+  });
+
+  test("mode=all unblocks on any ask", async () => {
+    const firstGate = deferred<RunSubAgentResult>();
+    const secondGate = deferred<RunSubAgentResult>();
+    let n = 0;
+    const deps = makeDeps(async (params) => {
+      n += 1;
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+        deliver: () => {},
+      });
+      if (n === 1) {
+        void params.askDirectorPort
+          ?.register({
+            question: "which file?",
+            questionId: "ask-1",
+          })
+          .catch(() => {
+            // Session settlement rejects an unanswered ask; this test does not await it.
+          });
+        return firstGate.promise;
+      }
+      return secondGate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const asking = await callTool(spawn, {
+      description: "asking",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const running = await callTool(spawn, {
+      description: "running",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const waited = await callTool(wait, {
+      targets: [asking.agent_id, running.agent_id],
+      mode: "all",
+      timeout_ms: 5000,
+    });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { agent_id: string; status: string }[];
+    expect(results.find((r) => r.agent_id === asking.agent_id)?.status).toBe("awaiting_director");
+    expect(results.find((r) => r.agent_id === running.agent_id)?.status).toBe("running");
+    firstGate.resolve({ report: "a" });
+    secondGate.resolve({ report: "b" });
+  });
+
+  test("isPayload/tombstone does not eat asking workers", () => {
+    const sessions = createSubAgentSessionStore();
+    const mailbox = createFleetMailbox(sessions);
+    for (let i = 0; i < MAX_FLEET_RECORDS; i++) {
+      const id = `done-${i}`;
+      sessions.start({ id, description: `d${i}`, agentId: "a", brief: "b" });
+      sessions.complete(id, "report");
+      mailbox.register(id);
+    }
+    sessions.start({ id: "asking", description: "need answer", agentId: "a", brief: "b" });
+    sessions.markRunning("asking");
+    mailbox.register("asking");
+    expect(
+      sessions.registerAsk("asking", {
+        question: "which file?",
+        questionId: "ask-1",
+        resolve: () => {},
+        reject: () => {},
+      }),
+    ).toBe(true);
+    sessions.start({ id: "extra", description: "e", agentId: "a", brief: "b" });
+    sessions.complete("extra", "extra");
+    mailbox.register("extra");
+
+    const snap = mailbox.peek("asking");
+    expect(snap?.status).toBe("awaiting_director");
+    expect(snap?.tombstoned).not.toBe(true);
+    expect(snap?.question).toBe("which file?");
+    expect(snap?.questionId).toBe("ask-1");
+  });
+
+  test("hasUncollectedTerminal is false for a session with a pending ask", () => {
+    const sessions = createSubAgentSessionStore();
+    const mailbox = createFleetMailbox(sessions);
+    sessions.start({ id: "asking", description: "need answer", agentId: "a", brief: "b" });
+    sessions.markRunning("asking");
+    mailbox.register("asking");
+    expect(
+      sessions.registerAsk("asking", {
+        question: "which file?",
+        questionId: "ask-1",
+        resolve: () => {},
+        reject: () => {},
+      }),
+    ).toBe(true);
+    expect(mailbox.peek("asking")?.status).toBe("awaiting_director");
+    expect(mailbox.hasUncollectedTerminal("asking")).toBe(false);
+  });
+});
