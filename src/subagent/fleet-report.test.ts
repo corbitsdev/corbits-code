@@ -193,6 +193,15 @@ describe("fleetDigest", () => {
     expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe("nothing running · 1 done");
     expect(fleetDigest([], T0)).toBe("nothing running");
   });
+
+  test("cancelled lanes are named separately from failed", () => {
+    expect(
+      fleetDigest(
+        [lane({ id: "api", status: "cancelled" }), lane({ id: "cli", status: "failed" })],
+        T0,
+      ),
+    ).toBe("nothing running · 1 failed · 1 cancelled");
+  });
 });
 
 describe("forced-stop reasons", () => {

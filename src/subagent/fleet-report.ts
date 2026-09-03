@@ -227,14 +227,47 @@ function tally(changes: readonly Change[]): string {
   return parts.join(", ");
 }
 
+type OutcomeCounts = {
+  done: number;
+  failed: number;
+  cancelled: number;
+};
+
+function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
+  let done = 0;
+  let failed = 0;
+  let cancelled = 0;
+  for (const lane of lanes) {
+    switch (lane.status) {
+      case "done":
+        done += 1;
+        break;
+      case "failed":
+        failed += 1;
+        break;
+      case "cancelled":
+        cancelled += 1;
+        break;
+      case "running":
+        break;
+    }
+  }
+  return { done, failed, cancelled };
+}
+
+function formatOutcomeParts(
+  counts: OutcomeCounts,
+  opts: { includeZeroDone: boolean },
+): string[] {
+  const parts: string[] = [];
+  if (opts.includeZeroDone || counts.done > 0) parts.push(`${counts.done} done`);
+  if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+  if (counts.cancelled > 0) parts.push(`${counts.cancelled} cancelled`);
+  return parts;
+}
+
 function idleSummary(lanes: readonly FleetLane[]): string {
-  const done = lanes.filter((l) => l.status === "done").length;
-  const failed = lanes.filter((l) => l.status === "failed").length;
-  const cancelled = lanes.filter((l) => l.status === "cancelled").length;
-  const parts = [`${done} done`];
-  if (failed > 0) parts.push(`${failed} failed`);
-  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
-  return parts.join(", ");
+  return formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: true }).join(", ");
 }
 
 /**
@@ -248,10 +281,6 @@ export function fleetDigest(
 ): string {
   if (lanes.length === 0) return "nothing running";
   const running = lanes.filter((l) => l.status === "running");
-  const done = lanes.filter((l) => l.status === "done").length;
-  const failed = lanes.filter((l) => l.status === "failed").length;
-  const cancelled = lanes.filter((l) => l.status === "cancelled").length;
-
   const parts: string[] = [];
   if (running.length === 0) {
     parts.push("nothing running");
@@ -267,8 +296,6 @@ export function fleetDigest(
     const extra = running.length - Math.min(running.length, DIGEST_NAMED_LANES);
     parts.push(`${running.length} running (${named}${extra > 0 ? `, +${extra} more` : ""})`);
   }
-  if (done > 0) parts.push(`${done} done`);
-  if (failed > 0) parts.push(`${failed} failed`);
-  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
+  parts.push(...formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: false }));
   return parts.join(" · ");
 }
