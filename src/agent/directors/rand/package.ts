@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
- * Rand leaf (CL-5829 / CL-7030 / CL-7015 rename from brand-reviewer).
+ * Rand worker (CL-5829 / CL-7030 / CL-7015 rename from brand-reviewer).
  * Owns DESIGN.md create/use + brand consistency gate for UI.
  */
 export const randPackage: DirectorPackage = {

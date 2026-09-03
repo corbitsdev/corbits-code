@@ -1,6 +1,6 @@
 /**
- * Pure stop / salvage policy for leaf sub-agents: deadlines and parent-facing
- * salvage reports. There is no turn budget — a leaf runs until it produces a
+ * Pure stop / salvage policy for fleet workers: deadlines and parent-facing
+ * salvage reports. There is no turn budget — a worker runs until it produces a
  * report envelope, is cancelled, hits an opt-in wall-clock deadline, or stalls.
  */
 
@@ -16,7 +16,7 @@ export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
 
 /**
  * Clamp an explicit opt-in wall-clock deadline to stay a margin below the
- * effective outer tool-execution watchdog. There is no default leaf deadline —
+ * effective outer tool-execution watchdog. There is no default worker deadline —
  * operator cancel is the primary bound; callers pass deadlineMs only when they
  * want an extra wall-clock stop.
  *
@@ -153,9 +153,9 @@ export function evaluateSubAgentStop(input: {
   return null;
 }
 
-// A sub-agent is a worker, not a chat partner: it runs until it stops calling
+// A worker is not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
-// the dispatcher. It has no submit_output or ask_operator; consequential
+// the dispatcher. It has no ask_operator (it uses ask_director); consequential
 // tools still go through the parent's permission gate (grants, auto mode, or
 // prompts). Unbounded runs terminate only on a model-produced report envelope
 // or an operator/deadline/stall interrupt — there is no turn cap.

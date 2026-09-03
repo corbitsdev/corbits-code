@@ -9,7 +9,7 @@ export const greybeardPackage: DirectorPackage = {
   id: "greybeard",
   primaryIntent: "Architecture judgment; limited spawn",
   outOfLane: ["shipping product code", "pedantic style-only nitpicking"],
-  description: "Architecture judgment leaf",
+  description: "Architecture judgment",
   optionalSkills: ["style", "philosophy"],
   tools: { allow: ORCHESTRATOR_TOOLS },
   spawn: {

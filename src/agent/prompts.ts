@@ -16,8 +16,8 @@ const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
 };
 import { PRODUCT_NAME, SETTINGS_DIR_NAME } from "../branding.js";
 
-// Fallback tool list for sub-agent prompts when the caller does not pass the
-// installed set. Matches the leaf sub-agent install (posix + manage_tasks).
+// Fallback tool list for worker prompts when the caller does not pass the
+// installed set. Matches the worker install (posix + manage_tasks + ask_director).
 const defaultChatTools = [
   "read_file",
   "write_file",
@@ -28,6 +28,7 @@ const defaultChatTools = [
   "list_dir",
   "lsp",
   "manage_tasks",
+  "ask_director",
 ];
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
@@ -166,7 +167,7 @@ export function buildGuidelines(
           "Orchestration:",
           "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle, and `wait_agents` / `list_agents` on a later turn collect their reports without holding this conversation blocked.",
           "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
-          "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
+          "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent` / `wait_agents`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
@@ -235,11 +236,11 @@ const TOOL_SUMMARIES: Record<string, string> = {
   search_agents:
     "find agent profiles by role or team before spawning with spawn_agent(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
+  ask_director:
+    "pause and ask the spawning parent (not the human) a short clarifying question with short option labels; parent answers via send_input; after the cap, proceed with best judgment or put remaining questions in Blockers",
   submit_output: "signal the task is complete, or complete a workflow step by passing its step id",
   ask_operator:
     "pause and ask the user when blocked or genuinely ambiguous; put long rationale in a transcript reply first, then call with a short question and short option labels only",
-  ask_director:
-    "ask the spawning director when the brief is ambiguous; you cannot reach the operator",
   present:
     "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
@@ -344,16 +345,16 @@ export function buildChatSystemPrompt(
   return joinSections(sections);
 }
 
-// Notes appended to every sub-agent's system prompt so corbitsdev-format
+// Notes appended to every worker's system prompt so corbitsdev-format
 // agent definitions translate cleanly to Corbits Code: `spawn_agent` is the
 // spawn surface, tool names are Corbits Code-native, and the upstream
 // `mode: primary` distinction collapses.
 //
 // Vocabulary: an *agent* is a runtime entity; a *task* is a checklist item
-// owned via manage_tasks; a *sub-agent* is a short-lived child agent. Do not
-// conflate spawn with checklist.
+// owned via manage_tasks; a *fleet agent* / worker is a short-lived spawned
+// specialist. Do not conflate spawn with checklist.
 //
-// `orchestrator` flips the recursion rule: by default a sub-agent must NOT
+// `orchestrator` flips the recursion rule: by default a worker must NOT
 // call `spawn_agent` (no recursion past depth 1). A built-in orchestrator
 // director is the documented exception — its purpose IS to fan work out to
 // other agents — so the appendix grants permission and links the syntax.
@@ -366,8 +367,8 @@ export function buildSubAgentAppendix(
   const askDirector = opts.toolNames?.includes("ask_director") === true;
   const recursionRule =
     opts.orchestrator === true
-      ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other sub-agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own after `wait_agents`. `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
-      : `- Only the primary ${PRODUCT_NAME} session (or a built-in orchestrator director) may call \`spawn_agent\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
+      ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other fleet agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own after `wait_agents`. `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
+      : `- Only the primary ${PRODUCT_NAME} session (or a built-in orchestrator director) may call \`spawn_agent\` to spawn fleet agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
     `## ${PRODUCT_NAME} notes`,
     "",
@@ -378,7 +379,7 @@ export function buildSubAgentAppendix(
           "- If the brief is genuinely ambiguous, ask_director. You cannot reach the operator; the spawning director answers with send_input.",
         ]
       : []),
-    "- Upstream `mode: primary` is not encoded — every profile here is a spawnable sub-agent definition.",
+    "- Upstream `mode: primary` is not encoded — every profile here is a spawnable fleet-agent definition.",
   ].join("\n");
 }
 
@@ -443,7 +444,7 @@ export function buildSubAgentSystemPrompt(
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
       : joinSections([
-          `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
+          `You are a fleet agent — a worker dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
           buildHarnessFacts({ dynamicTools: false, subAgent: true, askDirector }),
           buildGuidelines({ subAgent: true, askDirector }),
           buildPromptDisciplineBlock({ subAgent: true }),

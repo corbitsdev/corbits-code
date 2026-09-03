@@ -17,7 +17,7 @@ export const emilPackage: DirectorPackage = {
     "DESIGN.md ownership (rand)",
     "correctness-severity ownership (critic)",
   ],
-  description: "Design-engineering laws review leaf (dev-scoped)",
+  description: "Design-engineering laws review (dev-scoped)",
   // Critique only — write tools not mounted.
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },

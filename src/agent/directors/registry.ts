@@ -37,7 +37,7 @@ export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "gener
 
 /**
  * Closed v1 registry — full packages (prompts, envelopes, spawn, nudge, modelRole).
- * Leaf modules own package bodies; this file only fans them in.
+ * Worker modules own package bodies; this file only fans them in.
  */
 export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> = {
   skywalker: skywalkerPackage,

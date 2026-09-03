@@ -16,4 +16,6 @@ export const CHAT_PROMPT_QUALITY_MARKERS = [
   "load the style and philosophy skills",
   "grep or search_files",
   "never shell-write (echo/heredoc/sed/rm)",
+  "ask_director",
+  "send_input",
 ] as const;

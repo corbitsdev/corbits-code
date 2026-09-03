@@ -72,7 +72,7 @@ prose into a hard-capped inset paragraph (`LIVE_THINKING_MAX_LINES`, currently 1
 (assistant text, a tool call, or settle), the row collapses to its opening
 clause with the rest behind expand. Mid-turn thinking bursts fold onto that
 same one row per turn (`reasoning-fold`); `inference.text.delta` grows the
-open assistant streaming row in place. Sub-agent spawn_agent-row thinking is a
+open assistant streaming row in place. Worker spawn_agent-row thinking is a
 separate path and is unchanged by this preview.
 
 The prompt box's border carries the metadata that would otherwise cost a
@@ -120,7 +120,7 @@ printed identically, so the only way to tell them apart was to wait.
 waiting on something outside itself — and are told apart by motion: `blocked`
 holds perfectly still, which is the signal that the session is waiting on _you_.
 
-While sub-agents are running, the slot reports the _fleet_, not the parent.
+While fleet agents are running, the slot reports the _fleet_, not the parent.
 `resolveTurnLabel` and `resolveRampPhase` take a `FleetProgress` roll-up and
 rank it above the parent's own stall clock: with live lanes the parent is
 idle by design, so its silence says nothing about whether the session is
@@ -128,7 +128,7 @@ progressing, and reporting it was how a session with every lane wedged still
 read as `working`. A fleet with no stalled lane reads `working`; one
 stalled lane makes the whole indicator read `stalled`, which is the state that
 should pull an operator's eye to the panel. A blocked gate and a stopping turn
-still outrank the fleet. With zero running sub-agents the roll-up is empty and
+still outrank the fleet. With zero running fleet agents the roll-up is empty and
 every path through both functions behaves exactly as it does for a plain
 single-agent turn.
 
@@ -249,7 +249,7 @@ when non-zero, e.g. `N done, M failed, K cancelled · nothing running`).
 Per-lane `done — summary` walls and live `dispatched` re-announcements
 are never printed.
 
-`src/subagent/fleet-report.ts` is pure: it reads the same sub-agent session
+`src/subagent/fleet-report.ts` is pure: it reads the same fleet-agent session
 store and the same `agentProgress()` stall definition. Store changes drive it;
 a `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel dispatch settle into
 one observation. Quiet detection uses `FLEET_STALL_POLL_MS` (5s). Past
@@ -553,13 +553,13 @@ at the interrupt itself (`doInterrupt` drains after `port.interrupt()`), not
 left waiting on an idle event the stop may never produce (`interrupt` in
 `session-queue.ts` no longer clears `items`).
 
-**Sub-agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
+**Fleet agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
 (queued drain) leave running workers alone — they never call
 `runner.ts`'s `interrupt()`, so the parent's operation signal stays live and
 spawned workers keep running. Ctrl+C is the explicit fleet teardown:
 `doInterrupt` → `port.interrupt()` → `currentAgent.close()` aborts the shared
 operation signal and routes cancellation through the fleet/session-store
-teardown path, so in-flight sub-agent dispatch reports back as cancelled by
+teardown path, so in-flight fleet-agent dispatch reports back as cancelled by
 the operator rather than being left to finish silently detached. `/clear` and
 session exit still call `subAgentSessions.cancelAll` for an explicit
 session-wide cancel; that path is separate from interrupt and must stay off
@@ -616,7 +616,7 @@ Ctrl+C within a 2-second window (`CTRL_C_EXIT_WINDOW_MS`) quits — this
 replaced an Ink-era yes/no exit-confirm modal with the same intent (an
 explicit second confirmation) without adding a modal (`handleCtrlC`,
 `shell.ts`). See "Soft steer vs. follow-up" above for the two
-mid-run gestures and what interrupting does to sub-agent lanes. The interrupt
+mid-run gestures and what interrupting does to fleet-agent lanes. The interrupt
 keeps whatever is sitting in the queue rather than discarding it — the
 operator typed those messages meaning them delivered, not meaning "cancel
 this run and also throw away what I typed"; the transcript row says so

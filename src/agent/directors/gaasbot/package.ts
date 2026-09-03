@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Risk counsel leaf (CL-7028). Package id/path remains `gaasbot`.
+ * Risk counsel worker (CL-7028). Package id/path remains `gaasbot`.
  * Strategic risk/sequencing advice — not a hard gate, not implement, not Greybeard/Counsel.
  */
 export const gaasbotPackage: DirectorPackage = {
@@ -15,7 +15,7 @@ export const gaasbotPackage: DirectorPackage = {
     "replacing plan eng change plans",
     "applying product fixes",
   ],
-  description: "Risk counsel leaf — strategic ship/sequencing advice, not a gate",
+  description: "Risk counsel — strategic ship/sequencing advice, not a gate",
   optionalSkills: ["philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },

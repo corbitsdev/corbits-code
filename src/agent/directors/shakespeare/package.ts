@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
- * Shakespeare leaf (CL-7029).
+ * Shakespeare worker (CL-7029).
  * Docs maintenance — PRODUCT / ARCHITECTURE / IMPLEMENTATION only; scribe core baked in.
  * Package id/path stays `shakespeare` (global rename is out of scope).
  */
@@ -15,7 +15,7 @@ export const shakespearePackage: DirectorPackage = {
     "orchestration / fleet control",
     "acting as tester or implementer",
   ],
-  description: "Docs maintenance leaf — PRODUCT / ARCHITECTURE / IMPLEMENTATION",
+  description: "Docs maintenance — PRODUCT / ARCHITECTURE / IMPLEMENTATION",
   systemPrompt: `You are ShakespeareDirector (Shakespeare), a specialist in Corbits Code.
 
 PRIMARY INTENT: maintain PRODUCT.md, ARCHITECTURE.md, and IMPLEMENTATION.md. Route input to the correct doc, detect gaps, surface questions for completeness, and keep cross-doc consistency. You are the docs lane only — not Builder, not Critic, not an orchestrator.

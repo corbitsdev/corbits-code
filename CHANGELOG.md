@@ -50,7 +50,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Workers can ask their spawning director via `ask_director` when a brief is
   ambiguous. `wait_agents` returns `awaiting_director` with the question;
   soft `send_input` answers it. The operator is not in that loop unless the
-  director escalates. Leaves still cannot call `ask_operator`.
+  director escalates. Workers still cannot call `ask_operator`.
+- Spawned workers are called fleet agents, not leaves. Director packages still
+  use `tier: "leaf"` as the runtime mount key.
 - Agents and contributor docs move Linear issues to In Review when a PR is ready
   for review.
 

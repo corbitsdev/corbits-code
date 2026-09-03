@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Counsel leaf (CL-7022 / CL-7015 rename from plan).
+ * Counsel worker (CL-7022 / CL-7015 rename from plan).
  * Ordered eng change plans only — no ship, no architecture gate, no fleet.
  */
 export const counselPackage: DirectorPackage = {
@@ -15,7 +15,7 @@ export const counselPackage: DirectorPackage = {
     "pure code review",
     "becoming Builder or Critic",
   ],
-  description: "Counsel leaf — ordered eng plans only; Greybeard reviews",
+  description: "Counsel — ordered eng plans only; Greybeard reviews",
   optionalSkills: ["style", "philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
@@ -34,7 +34,7 @@ Author an agent-proof plan:
 4. Risks and open questions
 5. Ordered steps a Builder can execute without guessing
 
-When requirements are fuzzy, note open questions under Blockers instead of guessing — you cannot ask the operator mid-run. Do not invent scope.
+When requirements are fuzzy, ask_director instead of guessing — after the cap, note remaining questions under Blockers. Do not invent scope.
 
 DONE GATE: Stop when the plan covers every success_criteria item from the brief OR blockers are explicit. Do not expand into implementation, architecture essays, or review theater after the plan is complete.
 

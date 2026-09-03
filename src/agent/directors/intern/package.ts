@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { INTERN_TOOLS } from "../tool-sets.js";
 
 /**
- * Mechanical intern leaf — near-literal port of the gaas intern agent.
+ * Mechanical intern worker — near-literal port of the gaas intern agent.
  * Shell/commands first — no judgment, no exploration; path writes only when the brief requires them.
  */
 export const internPackage: DirectorPackage = {
@@ -19,7 +19,7 @@ export const internPackage: DirectorPackage = {
     "review",
     "spawning agents",
   ],
-  description: "Mechanical intern leaf",
+  description: "Mechanical intern",
   optionalSkills: [],
   tools: { allow: INTERN_TOOLS },
   spawn: { maySpawn: false },
@@ -73,7 +73,7 @@ STOP immediately and put the issue under Blockers for the parent (Skywalker) whe
 - You're tempted to search the codebase for how to do something
 - You're about to try something that "might work"
 
-Do not invent fixes. Do not ask the parent mid-run — you cannot receive answers. STOP, report, and wait for a new brief.
+Do not invent fixes. If blocked, ask_director (parent, not the human). After the cap, STOP, report Blockers, and wait for a new brief.
 
 **What You CAN Do Without Stopping**
 - Run exact commands you were given via \`run_shell\`

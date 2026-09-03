@@ -53,7 +53,7 @@ describe("internPackage", () => {
 
   test("primaryIntent and description", () => {
     expect(internPackage.primaryIntent).toMatch(/mechanical|exact|zero judgment/i);
-    expect(internPackage.description).toBe("Mechanical intern leaf");
+    expect(internPackage.description).toBe("Mechanical intern");
   });
 
   test("outOfLane bans debugging and exploration", () => {

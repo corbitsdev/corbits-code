@@ -34,7 +34,7 @@ export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general"
  *   whole tree.
  * - "nested-orchestrator": Tier 2, scoped to its own subtree (e.g. greybeard).
  *   May manage only its own descendants, never siblings or ancestors.
- * - "leaf": Tier 3, worker bee. No fleet verbs at all.
+ * - "leaf": Tier 3 worker. No fleet verbs at all.
  */
 export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
 
@@ -64,7 +64,7 @@ export interface NudgePolicy {
 /**
  * Optional structured-output contract for a director's worker (CL-6946).
  * Additive alongside the markdown envelope (Summary/Findings/Blockers/Paths,
- * see subagent/report.ts) — declaring `outputSchema` lets a Tier 3 leaf also
+ * see subagent/report.ts) — declaring `outputSchema` lets a Tier 3 worker also
  * submit a JSON payload via `submit_result`, validated against this schema.
  * Omit entirely to keep a director on the markdown-only path.
  */

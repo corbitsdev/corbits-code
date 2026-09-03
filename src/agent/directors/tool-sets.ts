@@ -1,8 +1,8 @@
 // Small, explicit tool allowlists for director packages.
 // Prefer tools.allow at mount (CapabilityFilter include) over huge deny lists.
 // manage_tasks is always mounted by runSubAgent after the filter — omit it here.
-// use_skill / tool_search / ask_operator are primary-session tools: leaves do
-// not mount them (skill guidance is baked into package system prompts).
+// use_skill / tool_search / ask_operator are primary-session tools: fleet agents /
+// workers do not mount ask_operator (skill guidance is baked into package system prompts).
 
 /** Read/search/shell — no product mutation. */
 export const READ_TOOLS = [
@@ -26,7 +26,7 @@ export const PRODUCT_WRITE_TOOLS = ["write_file", "edit_file", "delete_file"] as
 /**
  * Build: read + full file mutation. `shell` and `update_plan` are Codex
  * proxy names (createCodexToolProxies) for `run_shell` / the plan tool; both
- * are listed here so Codex build leaves keep the proxies after the
+ * are listed here so Codex build workers keep the proxies after the
  * capability filter, same rationale as `apply_patch` below.
  */
 export const BUILD_TOOLS = [
@@ -38,13 +38,13 @@ export const BUILD_TOOLS = [
 ] as const;
 
 /**
- * Docs leaves: read/search/lsp/web + file writes — no run_shell.
- * Envelope policy only: docs leaves omit shell so they cannot mutate via the
+ * Docs workers: read/search/lsp/web + file writes — no run_shell.
+ * Envelope policy only: docs workers omit shell so they cannot mutate via the
  * terminal. There is no separate path-level lock on top of the tool envelope.
  *
  * Composed from READ_TOOLS minus run_shell so it tracks the read surface
  * automatically; path writes come from PRODUCT_WRITE_TOOLS. `apply_patch` is
- * included so Codex docs leaves keep the proxy after the capability filter.
+ * included so Codex docs workers keep the proxy after the capability filter.
  * `update_plan` is included for the same reason (its proxy has no `run_shell`
  * dependency, so it is not excluded alongside `shell`).
  */
