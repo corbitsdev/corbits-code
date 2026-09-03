@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
   grantRowLabel,
   openCommandSurface,
+  pluginDescription,
   pluginRowLabel,
   type CommandSurfaceDeps,
   type GrantEntry,
@@ -723,6 +724,24 @@ describe("plugins surface admin actions", () => {
     });
   });
 
+  test("empty plugin list Alt+W still opens web chooser", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      const plugins = deps.plugins!;
+      const empty: CommandSurfaceDeps = {
+        ...deps,
+        plugins: { ...plugins, list: () => [] },
+      };
+      openCommandSurface(shell, "plugins", empty);
+      expect(runOverlayAction(shell, altKey("w"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      moveOverlaySelection(shell, 1);
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.setWebProvider).toEqual(["exa"]);
+    });
+  });
+
   test("Alt+X on warnings/Close is a no-op", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps();
@@ -745,6 +764,80 @@ describe("plugins surface admin actions", () => {
       expect(runOverlayAction(shell, altKey("x"))).toBe(false);
       expect(calls.remove).toEqual([]);
     });
+  });
+
+  test("Alt+D on /plugins is a no-op", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("d"))).toBe(false);
+      expect(calls.remove).toEqual([]);
+    });
+  });
+
+  test("confirm pane does not inherit Alt+X plugins hints", async () => {
+    await withWiredShell(async (shell, h) => {
+      const home = "/tmp/home";
+      const cwd = "/tmp/cwd";
+      const { deps } = pluginActionDeps(
+        { origin: "user", pluginPath: join(userPluginsRoot(home), "exa") },
+        { home, cwd },
+      );
+      openCommandSurface(shell, "plugins", deps);
+      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+      expect(shell.overlayKind).toBe("plugin_credentials");
+      await h.renderOnce();
+      const frame = h.captureCharFrame();
+      expect(frame).toContain("Remove exa-search from disk");
+      const title = frame.split("\n").find((l) => l.includes("remove plugin"));
+      expect(title).toBeDefined();
+      expect(title).not.toContain("Alt+X");
+    });
+  });
+
+  test("description zone names disable-only for bundled and Claude plugins", () => {
+    const { deps } = pluginActionDeps();
+    const plugins = deps.plugins!;
+    const bundled = pluginDescription(
+      {
+        id: "corbits-skills",
+        name: "corbits-skills",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        origin: "repo",
+      },
+      plugins,
+    );
+    expect(bundled.impact).toContain("cannot be uninstalled");
+    const claude = pluginDescription(
+      {
+        id: "exa",
+        name: "exa-search",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        origin: "user",
+        source: "claude",
+        pluginPath: join(homedir(), ".claude", "plugins", "exa"),
+      },
+      plugins,
+    );
+    expect(claude.impact).toContain("without deleting ~/.claude");
+    const warned = pluginDescription(
+      {
+        id: "agents",
+        name: "agents",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        origin: "user",
+        warnings: ['agent a: skill "style" referenced but not found in skill search path'],
+      },
+      plugins,
+    );
+    expect(warned.impact).toContain("skill");
+    expect(warned.impact).not.toContain("Alt+X");
   });
 });
 

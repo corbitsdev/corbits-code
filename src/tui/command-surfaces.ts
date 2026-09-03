@@ -266,7 +266,10 @@ function pluginRemoveHint(entry: PluginEntry, plugins: PluginsSurfaceDeps): stri
 }
 
 /** Description-zone content for the focused plugin row. */
-function pluginDescription(entry: PluginEntry, plugins: PluginsSurfaceDeps): ItemDescription {
+export function pluginDescription(
+  entry: PluginEntry,
+  plugins: PluginsSurfaceDeps,
+): ItemDescription {
   const what = entry.description ?? `${entry.kind ?? "plugin"} plugin.`;
   if (entry.needsTrust === true) {
     const where =

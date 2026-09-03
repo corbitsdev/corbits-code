@@ -94,15 +94,7 @@ import {
   registerWorkflowPlugins,
   enablePluginConfig,
 } from "../plugins/register.js";
-import {
-  claudeHomeRoot,
-  classifyPluginRemove,
-  deleteOwnedPluginDir,
-  disablePluginSettings,
-  isOwnedDiskInstall,
-  nextPluginPathsAfterRemove,
-  ownedDiskOriginRoot,
-} from "../plugins/uninstall.js";
+import { executePluginRemove } from "../plugins/uninstall.js";
 import {
   getCommand,
   listCommands,
@@ -1289,8 +1281,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const origin = desc.origin;
         const pluginPath = desc.pluginPath ?? mod?.pluginPath;
         const hadTools = mod?.createToolPlugin !== undefined;
-        const withToolsNote = (message: string): string =>
-          hadTools ? `${message} Tools from this plugin stay until you restart.` : message;
 
         const spliceLive = (): void => {
           const di = pluginDescriptors.findIndex((d) => d.id === id);
@@ -1302,97 +1292,33 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           if (ti >= 0) toolPluginCandidates.splice(ti, 1);
         };
 
-        const disableConfig = (): void => {
-          livePluginConfig = disablePluginSettings(livePluginConfig, id);
-          if (liveWebOverride === id) liveWebOverride = undefined;
-        };
-
-        const dropPathRegistration = async (path: string): Promise<string> => {
-          pathTrust = await revokePathPlugin(path);
-          const planned = await nextPluginPathsAfterRemove({
-            pluginPaths: livePluginPaths,
-            pluginPath: path,
-            cwd: config.cwd,
-            otherLivePluginPaths: livePluginModules.flatMap((m) =>
-              m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
-            ),
-            expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
-          });
-          livePluginPaths.length = 0;
-          livePluginPaths.push(...planned.pluginPaths);
-          return planned.keptSharedRoot
-            ? " Other plugins remain at that marketplace path; this one may return untrusted on restart."
-            : "";
-        };
-
-        const home = homedir();
-        const owned = isOwnedDiskInstall({
+        const result = await executePluginRemove({
+          id,
+          name: desc.name,
           origin,
           ...(pluginPath !== undefined ? { pluginPath } : {}),
-          home,
+          hadTools,
+          home: homedir(),
           cwd: config.cwd,
+          plugins: livePluginConfig,
+          pluginPaths: livePluginPaths,
+          ...(liveWebOverride !== undefined ? { webOverride: liveWebOverride } : {}),
+          otherLivePluginPaths: livePluginModules.flatMap((m) =>
+            m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
+          ),
+          expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
+          revokePathPlugin: async (path) => {
+            pathTrust = await revokePathPlugin(path);
+          },
         });
-        const action = classifyPluginRemove({ origin, owned });
-
-        if (action === "disable-bundled") {
-          disableConfig();
-          await persistPluginSettings();
-          return {
-            ok: true,
-            message: withToolsNote(
-              `${desc.name} is bundled and cannot be uninstalled — disabled instead.`,
-            ),
-          };
-        }
-
-        if (action === "disable-unowned-user") {
-          disableConfig();
-          await persistPluginSettings();
-          return {
-            ok: true,
-            message: withToolsNote(
-              `Disabled ${desc.name}. Claude marketplace files were not removed.`,
-            ),
-          };
-        }
-
-        if (action === "delete-owned") {
-          if (pluginPath === undefined) {
-            return { ok: false, message: "Plugin has no path to remove" };
-          }
-          const originRoot = ownedDiskOriginRoot({
-            pluginPath,
-            home,
-            cwd: config.cwd,
-          });
-          if (originRoot === undefined) {
-            return { ok: false, message: "Plugin has no path to remove" };
-          }
-          const disk = await deleteOwnedPluginDir({
-            pluginPath,
-            originRoot,
-            claudeRoot: claudeHomeRoot(home),
-          });
-          if (!disk.ok) return disk;
-          let extra = "";
-          if (origin === "path") {
-            extra = await dropPathRegistration(pluginPath);
-          }
-          spliceLive();
-          disableConfig();
-          await persistPluginSettings();
-          return { ok: true, message: withToolsNote(`Removed ${desc.name}.${extra}`) };
-        }
-
-        if (action === "remove-path") {
-          const extra = pluginPath !== undefined ? await dropPathRegistration(pluginPath) : "";
-          spliceLive();
-          disableConfig();
-          await persistPluginSettings();
-          return { ok: true, message: withToolsNote(`Removed ${desc.name}.${extra}`) };
-        }
-
-        return { ok: false, message: `Cannot remove ${desc.name}` };
+        if (!result.ok) return result;
+        if (result.spliceLive) spliceLive();
+        livePluginConfig = result.plugins;
+        livePluginPaths.length = 0;
+        livePluginPaths.push(...result.pluginPaths);
+        liveWebOverride = result.webOverride;
+        await persistPluginSettings();
+        return { ok: true, message: result.message };
       },
     };
 
