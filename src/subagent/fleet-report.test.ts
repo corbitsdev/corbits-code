@@ -141,6 +141,38 @@ describe("observeFleet", () => {
     const { updates } = observeFleet(seeded, after, T0 + 1000);
     expect(updates).toEqual(["9 done, 3 failed · nothing running"]);
   });
+
+  test("a cancelled-only dry fleet counts cancelled, not failed", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [lane({ id: "api", status: "cancelled" }), lane({ id: "docs", status: "cancelled" })],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(["0 done, 2 cancelled · nothing running"]);
+  });
+
+  test("a mixed dry fleet names done, failed, and cancelled separately", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" }), lane({ id: "web" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [
+        lane({ id: "api", status: "done", report: "ok" }),
+        lane({ id: "docs", status: "failed", error: "boom" }),
+        lane({ id: "web", status: "cancelled" }),
+      ],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(["1 done, 1 failed, 1 cancelled · nothing running"]);
+  });
 });
 
 describe("fleetDigest", () => {

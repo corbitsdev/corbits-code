@@ -229,9 +229,11 @@ function tally(changes: readonly Change[]): string {
 
 function idleSummary(lanes: readonly FleetLane[]): string {
   const done = lanes.filter((l) => l.status === "done").length;
-  const failed = lanes.filter((l) => l.status === "failed" || l.status === "cancelled").length;
+  const failed = lanes.filter((l) => l.status === "failed").length;
+  const cancelled = lanes.filter((l) => l.status === "cancelled").length;
   const parts = [`${done} done`];
   if (failed > 0) parts.push(`${failed} failed`);
+  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
   return parts.join(", ");
 }
 
