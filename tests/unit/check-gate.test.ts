@@ -28,8 +28,11 @@ describe("check gate", () => {
     expect(guardSource).toContain('"run", "test"');
   });
 
-  test("CI's test job invokes the same script, not a raw bun test command", () => {
+  test("CI's test job invokes the same script, not a raw test command", () => {
     expect(ci).toContain(`run: bun run ${GUARD_SCRIPT}`);
-    expect(ci).not.toMatch(/^\s*run: bun test /m);
+    // An unguarded suite step here would reintroduce the local-green/CI
+    // mismatch (and skip the projects-dir sandbox) this gate exists to prevent.
+    expect(ci).not.toMatch(/^\s*run: bun test(\s|$)/m);
+    expect(ci).not.toMatch(/^\s*run: bun run test(\s|$)/m);
   });
 });
