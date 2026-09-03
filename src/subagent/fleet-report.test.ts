@@ -181,6 +181,18 @@ describe("observeFleet", () => {
     const { updates } = observeFleet(seeded, after, T0 + 1000);
     expect(updates).toEqual(["4 cancelled"]);
   });
+
+  test("a mixed live burst names failed and cancelled separately", () => {
+    const before = Array.from({ length: 5 }, (_, i) => lane({ id: `l${i}` }));
+    const seeded = observeFleet(createFleetWatch(), before, T0).watch;
+    const after = before.map((l, i) => {
+      if (i < 2) return { ...l, status: "failed" as const, error: "boom" };
+      if (i < 4) return { ...l, status: "cancelled" as const };
+      return l;
+    });
+    const { updates } = observeFleet(seeded, after, T0 + 1000);
+    expect(updates).toEqual(["2 failed, 2 cancelled"]);
+  });
 });
 
 describe("fleetDigest", () => {

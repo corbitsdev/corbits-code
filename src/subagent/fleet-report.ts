@@ -3,7 +3,7 @@
  *
  * Live lanes already paint on the activity strip. Parent prose already narrates
  * phase plans. This module only emits transcript lines for attention the strip
- * cannot keep: a lane failed or went quiet, and the single moment the fleet runs
+ * cannot keep: a lane failed or cancelled, and the single moment the fleet runs
  * dry. Per-lane "done — summary" walls are intentionally never printed — they
  * restate the strip and the parent and turn the transcript into a second
  * status log.
@@ -193,7 +193,7 @@ export function observeFleet(
   const wentDry = running === 0 && previous.running > 0;
 
   // Board owns live lanes. Parent prose owns success narratives. Transcript
-  // only: fail/stall while work is still running, or one dry-fleet tally.
+  // only: fail/cancel/stall while work is still running, or one dry-fleet tally.
   // Never per-lane "done — summary" walls.
   if (wentDry) {
     return {
@@ -220,16 +220,12 @@ export function observeFleet(
 
 function tally(changes: readonly Change[]): string {
   const count = (kind: Change["kind"]): number => changes.filter((c) => c.kind === kind).length;
-  const parts: string[] = [];
-  const done = count("done");
-  const failed = count("failed");
-  const cancelled = count("cancelled");
-  if (done > 0) parts.push(`${done} done`);
-  if (failed > 0) parts.push(`${failed} failed`);
-  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
   // stalled changes are not operator-facing; tally outcomes only
   void count("stalled");
-  return parts.join(", ");
+  return formatOutcomeParts(
+    { done: count("done"), failed: count("failed"), cancelled: count("cancelled") },
+    { includeZeroDone: false },
+  ).join(", ");
 }
 
 interface OutcomeCounts {
