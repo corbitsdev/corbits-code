@@ -1,6 +1,6 @@
 /**
  * ask_director evaluation: pure caps, unit-testable without an agent loop.
- * run.ts wires this into the leaf tool handler and owns per-run AskDirectorState.
+ * run.ts wires this into the leaf tool handler and owns per-turn AskDirectorState.
  */
 
 export const ASK_DIRECTOR_MAX_BYTES = 4096;
@@ -55,7 +55,7 @@ export function evaluateAskDirector(input: AskDirectorInput): {
   if (input.state.questions >= ASK_DIRECTOR_MAX_QUESTIONS) {
     return {
       ok: false,
-      message: `Error: ask_director question cap (${ASK_DIRECTOR_MAX_QUESTIONS}) reached for this run. No further questions accepted — finish with the markdown report envelope instead.`,
+      message: `Error: ask_director question cap (${ASK_DIRECTOR_MAX_QUESTIONS}) reached for this turn. No further questions accepted — finish with the markdown report envelope instead.`,
     };
   }
   // Reserve the one-at-a-time lock so a parallel ask errors, but do not
@@ -64,12 +64,18 @@ export function evaluateAskDirector(input: AskDirectorInput): {
   return { ok: true, message: "ok", question };
 }
 
-/** Count this question against the per-run cap once abort is ruled out and register will run. */
+/** Count this question against the per-turn cap once abort is ruled out and register will run. */
 export function commitAskDirector(state: AskDirectorState): void {
   state.questions += 1;
 }
 
 export function releaseAskDirector(state: AskDirectorState): void {
+  state.pending = false;
+}
+
+/** Fresh 3-question cap for a resume_agent / send_input(interrupt) turn. */
+export function resetAskDirectorTurn(state: AskDirectorState): void {
+  state.questions = 0;
   state.pending = false;
 }
 

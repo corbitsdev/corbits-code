@@ -8,6 +8,7 @@ import {
   evaluateAskDirector,
   handleAskDirector,
   releaseAskDirector,
+  resetAskDirectorTurn,
   skipStallContinuationWhileAskPending,
 } from "./ask-director.js";
 
@@ -64,6 +65,8 @@ describe("evaluateAskDirector", () => {
     const capped = evaluateAskDirector({ question: "one more", state });
     expect(capped.ok).toBe(false);
     expect(capped.message).toContain("question cap");
+    expect(capped.message).toContain("this turn");
+    expect(capped.message).not.toContain("this run");
     expect(state.questions).toBe(ASK_DIRECTOR_MAX_QUESTIONS);
     expect(state.pending).toBe(false);
   });
@@ -205,5 +208,36 @@ describe("requestContinuation stall skip", () => {
       delivered += 1;
     });
     expect(delivered).toBe(1);
+  });
+});
+
+describe("resetAskDirectorTurn", () => {
+  test("zeros questions and pending so a new turn gets a fresh cap", () => {
+    const state = createAskDirectorState();
+    for (let i = 0; i < ASK_DIRECTOR_MAX_QUESTIONS; i++) {
+      expect(evaluateAskDirector({ question: `q${i}`, state }).ok).toBe(true);
+      commitAskDirector(state);
+      releaseAskDirector(state);
+    }
+    expect(evaluateAskDirector({ question: "one more", state }).ok).toBe(false);
+
+    resetAskDirectorTurn(state);
+    expect(state.questions).toBe(0);
+    expect(state.pending).toBe(false);
+
+    const next = evaluateAskDirector({ question: "fresh turn", state });
+    expect(next.ok).toBe(true);
+    expect(next.question).toBe("fresh turn");
+  });
+
+  test("clears a leftover pending lock without waiting for release", () => {
+    const state = createAskDirectorState();
+    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(true);
+    expect(state.pending).toBe(true);
+
+    resetAskDirectorTurn(state);
+    expect(state.questions).toBe(0);
+    expect(state.pending).toBe(false);
+    expect(evaluateAskDirector({ question: "next turn", state }).ok).toBe(true);
   });
 });

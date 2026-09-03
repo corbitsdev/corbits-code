@@ -115,6 +115,7 @@ import {
   ASK_DIRECTOR_MAX_QUESTIONS,
   createAskDirectorState,
   handleAskDirector,
+  resetAskDirectorTurn,
   skipStallContinuationWhileAskPending,
 } from "./ask-director.js";
 import {
@@ -352,7 +353,7 @@ const askDirectorDefinition: ToolDefinition = {
   description:
     "Ask the spawning director when the dispatch brief is genuinely ambiguous. " +
     "You cannot reach the operator. One pending question at a time; " +
-    `at most ${ASK_DIRECTOR_MAX_QUESTIONS} questions per run; ` +
+    `at most ${ASK_DIRECTOR_MAX_QUESTIONS} questions per turn; ` +
     `${ASK_DIRECTOR_MAX_BYTES} byte cap. The director answers with send_input (soft).`,
   inputSchema: {
     type: "object",
@@ -1115,6 +1116,7 @@ async function runSubAgentInner(
       // resume_agent's payoff — call agent.send() again on the same live
       // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
+        resetAskDirectorTurn(askDirectorState);
         interruptController = new AbortController();
         const result = await sendWithProviderFailure(message, { signal: sendAbortSignal() });
         if (terminalProviderError !== undefined) {
