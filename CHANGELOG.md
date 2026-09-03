@@ -16,6 +16,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - Interactive TUI pins OpenTUI 0.5.10 (`@opentui/core`, keymap, solid, and native platform packages in lockstep).
+- `bun run check` now runs the full test suite with the same seed CI uses
+  (`--randomize --seed 424242`), so a local green can no longer mask a CI test
+  failure. CI's test job invokes the same `check:projects-dir-guard` script
+  instead of duplicating the test command, and the projects-dir guard no longer
+  squats on the `test` script name.
 
 ## [0.3.14] - 2026-09-03
 

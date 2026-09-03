@@ -42,11 +42,14 @@ When refactoring replaces an old path, delete the old one. No back-compat shims,
 bun run check
 ```
 
-`bun run check` is the single pre-PR gate: it runs `lint`, `typecheck`, `build`, and `test`, in that order, matching CI.
+`bun run check` is the single pre-PR gate: it runs `lint`, `typecheck`,
+`build`, and `check:projects-dir-guard` — which runs the `test` suite under
+the projects-dir sandbox guard — in that order, matching CI.
 
 Run the full suite before declaring any task complete. Do not substitute individual targets. If a failure is pre-existing and unrelated to your change, say so explicitly.
 
-`bun run test` runs `bun test ./src ./tests ./evals`. A bare `bun test` also
+`bun run test` runs `bun test ./src ./tests ./evals --randomize --seed 424242` —
+the same suite CI runs. A bare `bun test` also
 scans `vendor/`, adding hundreds of unrelated results and making pass/fail
 counts meaningless to compare across branches — always use `bun run test`.
 
