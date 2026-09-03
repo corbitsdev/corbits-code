@@ -173,6 +173,14 @@ describe("observeFleet", () => {
     );
     expect(updates).toEqual(["1 done, 1 failed, 1 cancelled · nothing running"]);
   });
+
+  test("a burst of live cancels coalesces as cancelled, not failed", () => {
+    const before = Array.from({ length: 5 }, (_, i) => lane({ id: `l${i}` }));
+    const seeded = observeFleet(createFleetWatch(), before, T0).watch;
+    const after = before.map((l, i) => (i < 4 ? { ...l, status: "cancelled" as const } : l));
+    const { updates } = observeFleet(seeded, after, T0 + 1000);
+    expect(updates).toEqual(["4 cancelled"]);
+  });
 });
 
 describe("fleetDigest", () => {

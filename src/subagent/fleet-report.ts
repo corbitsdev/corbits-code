@@ -121,6 +121,7 @@ type Change =
   | { readonly kind: "dispatched"; readonly line: string }
   | { readonly kind: "done"; readonly line: string }
   | { readonly kind: "failed"; readonly line: string }
+  | { readonly kind: "cancelled"; readonly line: string }
   | { readonly kind: "stalled"; readonly line: string };
 
 export interface FleetObservation {
@@ -175,7 +176,7 @@ export function observeFleet(
         });
       } else if (lane.status === "cancelled") {
         changes.push({
-          kind: "failed",
+          kind: "cancelled",
           line: `${lane.description} stopped — ${clip(lane.stopReason ?? "cancelled", OUTCOME_CHARS)}`,
         });
       }
@@ -201,7 +202,9 @@ export function observeFleet(
     };
   }
 
-  const attention = changes.filter((c) => c.kind === "failed" || c.kind === "stalled");
+  const attention = changes.filter(
+    (c) => c.kind === "failed" || c.kind === "cancelled" || c.kind === "stalled",
+  );
   if (attention.length === 0) {
     return { watch, updates: [] };
   }
@@ -220,18 +223,20 @@ function tally(changes: readonly Change[]): string {
   const parts: string[] = [];
   const done = count("done");
   const failed = count("failed");
+  const cancelled = count("cancelled");
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
-  // stalled changes are not operator-facing; tally fails/done only
+  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
+  // stalled changes are not operator-facing; tally outcomes only
   void count("stalled");
   return parts.join(", ");
 }
 
-type OutcomeCounts = {
+interface OutcomeCounts {
   done: number;
   failed: number;
   cancelled: number;
-};
+}
 
 function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
   let done = 0;
@@ -255,10 +260,7 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
   return { done, failed, cancelled };
 }
 
-function formatOutcomeParts(
-  counts: OutcomeCounts,
-  opts: { includeZeroDone: boolean },
-): string[] {
+function formatOutcomeParts(counts: OutcomeCounts, opts: { includeZeroDone: boolean }): string[] {
   const parts: string[] = [];
   if (opts.includeZeroDone || counts.done > 0) parts.push(`${counts.done} done`);
   if (counts.failed > 0) parts.push(`${counts.failed} failed`);
