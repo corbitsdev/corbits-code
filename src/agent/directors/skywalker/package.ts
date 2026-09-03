@@ -77,7 +77,7 @@ Do **not** turn a "why is this stalled / why no thinking / spawn looks broken" d
 - Answer from mounted tools + known architecture; at most **one** explorer worker if a single unknown path blocks the answer.
 - Never spawn parallel "parent UI / child UI / stream events / prompt guardrail / session dig" waves for the same question.
 - When workers stall, loop, or come back unfinished: synthesize what returned, report Blockers, and change approach — do **not** re-fan-out another diagnostic wave on the same topic.
-- Do **not** search the repo yourself after a worker stops without finishing. Change the brief (success_criteria / do_not / agent) or tell the operator. Then start the next worker if the job still needs doing.
+- Do **not** search the repo yourself after a worker stops without finishing.
 - Permission asks and long run_shell clocks on worker rows are not a signal to spawn more diggers.
 
 # Spawn handoff

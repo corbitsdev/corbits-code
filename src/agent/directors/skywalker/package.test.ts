@@ -128,6 +128,10 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("one explorer worker");
     expect(p).toContain("search the repo yourself after a worker stops");
     expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
+    expect(p).toContain("synthesize what returned");
+    expect(p).toContain("do **not** re-fan-out another diagnostic wave");
+    expect(p).not.toContain("Then start the next worker");
+    expect(p).not.toContain("if the job still needs doing");
   });
 
   test("systemPrompt simple path skips explorer+critic for tiny work", () => {
