@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { splitChainedCommand } from "../permission/command.js";
 import {
   collapseSegmentPayloads,
   groupChainSegmentsForDisplay,
@@ -6,9 +7,29 @@ import {
   middleEllipsis,
 } from "./command-display.js";
 
-test("pipe stages stay inline while chain operators split", () => {
+test("display segments exactly match authorization segments", () => {
+  const commands = [
+    "npm install && npm test",
+    "ls | grep foo",
+    "a; b || c",
+    "sleep 1 & echo done",
+    `echo "a && b" | cat`,
+    "cat > /tmp/out.md << 'EOF'\nline one; still body && more\nEOF",
+    "cat << 'EOF'\nline one; still body && more\nEOF\necho after",
+    "cmd1 && \\\ncmd2",
+    "(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)",
+    "echo start && (cd apps/web && bun test) && echo done",
+  ];
+
+  for (const command of commands) {
+    expect(groupChainSegmentsForDisplay(command)).toEqual(splitChainedCommand(command));
+  }
+});
+
+test("pipe stages use authorization boundaries", () => {
   expect(groupChainSegmentsForDisplay("ls | head -5 && echo done")).toEqual([
-    "ls | head -5",
+    "ls",
+    "head -5",
     "echo done",
   ]);
 });
@@ -31,8 +52,7 @@ test("backslash-newline continuation does not split a display segment", () => {
 test("heredoc bodies are not enumerated as segments", () => {
   const cmd = "cat << 'EOF'\nline one; still body && more\nEOF\necho after";
   expect(groupChainSegmentsForDisplay(cmd)).toEqual([
-    "cat << 'EOF'\nline one; still body && more\nEOF",
-    "echo after",
+    "cat << 'EOF'\nline one; still body && more\nEOF\necho after",
   ]);
 });
 

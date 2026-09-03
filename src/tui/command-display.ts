@@ -1,20 +1,5 @@
-// Display-only helpers for the chained-command approval modal. These never
-// influence classification, grant scopes, or what actually executes — only
-// how an already-sanitized command string is grouped and truncated on screen.
-// Splitting logic used for approval/classification lives in
-// src/permission/command.ts and is intentionally not reused here: this
-// grouping is coarser (pipes stay inline) and must never feed back into a
-// security decision.
-
+import { splitChainedCommand } from "../shell/command-segments.js";
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
-
-// `&` participates in a redirect when it opens a bash combined redirect
-// (`&>file`) or duplicates a fd (`2>&1`, `<&-`); only a lone `&` word is the
-// background operator. Mirrors the same rule in src/permission/command.ts.
-function isRedirectAmpersand(next: string | undefined): boolean {
-  return !(next === undefined || next === " " || next === "\t");
-}
-
 // The marker word of a heredoc redirect starting at `i` (pointing at `<<`),
 // or null when `<<` is not a heredoc opener (e.g. `<<<` here-string).
 function parseHeredocMarker(command: string, i: number): string | null {
@@ -39,106 +24,8 @@ function parseHeredocMarker(command: string, i: number): string | null {
   return marker.length > 0 ? marker : null;
 }
 
-// Mirrors the top-level boundary rules in splitChainedCommand (quote-, paren-,
-// heredoc- and continuation-aware; && / || / ; / newline / lone & are chain
-// boundaries) but treats a single "|" as part of the current segment instead
-// of a boundary, so a pipe stage never shows up as its own meaningless
-// numbered item.
 export function groupChainSegmentsForDisplay(command: string): string[] {
-  const segments: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | "`" | null = null;
-  let heredocMarker: string | null = null;
-  let parenDepth = 0;
-
-  const push = (): void => {
-    const trimmed = current.trim();
-    current = "";
-    if (trimmed.length > 0) segments.push(trimmed);
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i] as string;
-
-    if (heredocMarker !== null) {
-      if (ch === "\n") {
-        const lines = current.split("\n");
-        const lastLine = lines[lines.length - 1] ?? "";
-        if (lastLine.trim() === heredocMarker) {
-          // The newline that closes the heredoc is a real chain boundary.
-          heredocMarker = null;
-          push();
-          continue;
-        }
-      }
-      current += ch;
-      continue;
-    }
-
-    if (quote !== null) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-
-    // The shell elides a backslash-newline, joining the lines into one
-    // command — so it is never a display boundary either.
-    if (ch === "\\" && (command[i + 1] === "\n" || command[i + 1] === "\r")) {
-      i += 1;
-      if (command[i] === "\r" && command[i + 1] === "\n") i += 1;
-      continue;
-    }
-
-    if (ch === "<" && command[i + 1] === "<") {
-      const marker = parseHeredocMarker(command, i);
-      if (marker !== null) {
-        let j = i;
-        while (j < command.length && command[j] !== "\n") j++;
-        current += command.slice(i, j);
-        i = j - 1;
-        heredocMarker = marker;
-        continue;
-      }
-    }
-
-    if (ch === "(") {
-      parenDepth++;
-      current += ch;
-      continue;
-    }
-    if (ch === ")") {
-      if (parenDepth > 0) parenDepth--;
-      current += ch;
-      continue;
-    }
-    if (parenDepth > 0) {
-      current += ch;
-      continue;
-    }
-
-    const next = command[i + 1];
-    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
-      push();
-      i++;
-      continue;
-    }
-    if (ch === "&" && isRedirectAmpersand(next)) {
-      current += ch;
-      continue;
-    }
-    if (ch === ";" || ch === "\n" || ch === "&") {
-      push();
-      continue;
-    }
-    current += ch;
-  }
-  push();
-  return segments;
+  return splitChainedCommand(command);
 }
 
 export interface VerbatimLine {
