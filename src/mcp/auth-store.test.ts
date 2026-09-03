@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAuthState, saveAuthState, updateAuthState } from "./auth-store.js";
+import { deleteAuthState, loadAuthState, saveAuthState, updateAuthState } from "./auth-store.js";
 
 const linear = { serverName: "linear", serverURL: "https://mcp.linear.app/mcp" };
 
@@ -122,5 +122,40 @@ describe("mcp auth-store", () => {
     expect(scopedFiles).toEqual([
       `${prefixName}-825ce19c43a3d0135fa8efda61d61c23a13e6917eb90ea42a6cc43744c0b8b5d.json`,
     ]);
+  });
+
+  test("deleteAuthState removes an existing file", async () => {
+    const home = await tempHome();
+    await saveAuthState(linear, { codeVerifier: "secret" }, home);
+    expect((await loadAuthState(linear, home)).codeVerifier).toBe("secret");
+
+    await deleteAuthState(linear, home);
+    expect(await loadAuthState(linear, home)).toEqual({});
+  });
+
+  test("deleteAuthState succeeds when the file was never written or already gone", async () => {
+    const home = await tempHome();
+    await deleteAuthState(linear, home);
+    await deleteAuthState(linear, home);
+    expect(await loadAuthState(linear, home)).toEqual({});
+  });
+
+  test("concurrent updateAuthState and deleteAuthState do not throw ENOENT on rename", async () => {
+    const home = await tempHome();
+    await saveAuthState(linear, { codeVerifier: "v0" }, home);
+
+    await Promise.all([
+      updateAuthState(
+        linear,
+        (state) => {
+          state.codeVerifier = "v1";
+        },
+        home,
+      ),
+      deleteAuthState(linear, home),
+    ]);
+
+    const final = await loadAuthState(linear, home);
+    expect(final.codeVerifier === undefined || final.codeVerifier === "v1").toBe(true);
   });
 });
