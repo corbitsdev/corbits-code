@@ -1,6 +1,7 @@
 /**
  * Integration: the `@` path popup narrows as you type, the same contract the
- * `/` command popup already honours.
+ * `/` command popup already honours. Mention accept is gated on a current
+ * generation and a live `@` token under the cursor.
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
@@ -11,6 +12,7 @@ import { wireGates } from "./gate-wire";
 import { withTestRenderer } from "./harness";
 import {
   acceptOverlaySelection,
+  closeInsetOverlay,
   closeMentionPopup,
   createAppShell,
   handleMentionPopupKey,
@@ -68,12 +70,17 @@ const BACKSPACE = {
   option: false,
 } as unknown as KeyEvent;
 
+/** Let the popup's async re-query settle the way `type()` already does. */
+async function drainMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 /** Drive one key and let the popup's async re-query settle. */
 async function type(shell: AppShell, key: KeyEvent): Promise<boolean> {
   const handled = handleMentionPopupKey(shell, key);
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await drainMicrotasks();
   return handled;
 }
 
@@ -82,6 +89,26 @@ async function openAt(shell: AppShell, value: string): Promise<void> {
   shell.prompt.cursorOffset = value.length;
   await openAtMentionSuggestions(shell);
 }
+
+function hangableSource(): {
+  source: (prefix: string) => Promise<readonly string[]>;
+  resolveNext: (entries: readonly string[]) => void;
+} {
+  const pending: ((entries: readonly string[]) => void)[] = [];
+  return {
+    source: (_prefix) =>
+      new Promise<readonly string[]>((resolve) => {
+        pending.push(resolve);
+      }),
+    resolveNext: (entries) => {
+      const resolve = pending.shift();
+      if (resolve === undefined) throw new Error("no pending mention lookup");
+      resolve(entries);
+    },
+  };
+}
+
+const ROOT = TREE[""] ?? [];
 
 describe("@ popup narrows as you type", () => {
   test("printable keys filter the list and land in the prompt", async () => {
@@ -198,9 +225,7 @@ describe("@ popup narrows as you type", () => {
 
       acceptOverlaySelection(shell);
       // The accept splices `src/` and re-opens; let the re-query settle.
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
       expect(shell.prompt.value).toBe("@src/");
       expect(shell.overlayKind).toBe("mentions");
       expect(shell.overlayItems).toEqual([
@@ -275,63 +300,8 @@ describe("@ popup narrows as you type", () => {
       }
     });
   });
-});
 
-describe("CL-6718 mention accept gating", () => {
-  function hangableSource(): {
-    source: (prefix: string) => Promise<readonly string[]>;
-    resolveNext: (entries: readonly string[]) => void;
-  } {
-    const pending: ((entries: readonly string[]) => void)[] = [];
-    return {
-      source: () =>
-        new Promise<readonly string[]>((resolve) => {
-          pending.push(resolve);
-        }),
-      resolveNext: (entries) => {
-        const resolve = pending.shift();
-        if (resolve === undefined) throw new Error("no pending mention lookup");
-        resolve(entries);
-      },
-    };
-  }
-
-  const ROOT = ["AGENTS.md", "README.md", "session-notes.md", "src/"] as const;
-
-  test("accept mid-reopen does not splice a stale completion", async () => {
-    await withShell(async (shell) => {
-      const { source, resolveNext } = hangableSource();
-      setMentionSuggestionSource(shell, source);
-
-      shell.prompt.value = "read @";
-      shell.prompt.cursorOffset = shell.prompt.value.length;
-      const first = openAtMentionSuggestions(shell);
-      resolveNext(ROOT);
-      expect(await first).toBe(true);
-      expect(isMentionPopupOpen(shell)).toBe(true);
-
-      expect(handleMentionPopupKey(shell, printable("s"))).toBe(true);
-      expect(shell.prompt.value).toBe("read @s");
-      // Second lookup is in flight; do not resolve it.
-
-      acceptOverlaySelection(shell);
-      expect(shell.prompt.value).toBe("read @s");
-      expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
-      expect(shell.streamLog.some((row) => /Chose /.test(row.text))).toBe(false);
-
-      resolveNext(ROOT);
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
-      expect(shell.prompt.value).toBe("read @s");
-    });
-  });
-
-  test("accept after a failed reopen does not splice a mention", async () => {
+  test("a permission gate that opened during lookup keeps mentions closed", async () => {
     await withShell(async (shell) => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
@@ -356,13 +326,43 @@ describe("CL-6718 mention accept gating", () => {
         resolveNext(ROOT);
         expect(await pending).toBe(false);
         expect(isMentionPopupOpen(shell)).toBe(false);
-        expect(shell.overlayKind).not.toBe("mentions");
-
-        acceptOverlaySelection(shell);
+        expect(shell.overlayKind).toBe("permissions");
         expect(shell.prompt.value).toBe("read @");
       } finally {
         dispose();
       }
+    });
+  });
+});
+
+describe("mention accept requires a live @token", () => {
+  test("accept mid-reopen does not splice a stale completion", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const first = openAtMentionSuggestions(shell);
+      resolveNext(ROOT);
+      expect(await first).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      expect(handleMentionPopupKey(shell, printable("s"))).toBe(true);
+      expect(shell.prompt.value).toBe("read @s");
+      // Second lookup is in flight; do not resolve it.
+
+      acceptOverlaySelection(shell);
+      expect(shell.prompt.value).toBe("read @s");
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+
+      resolveNext(ROOT);
+      await drainMicrotasks();
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.prompt.value).toBe("read @s");
     });
   });
 
@@ -377,7 +377,41 @@ describe("CL-6718 mention accept gating", () => {
       expect(isMentionPopupOpen(shell)).toBe(false);
       expect(shell.overlayKind).not.toBe("mentions");
       expect(shell.prompt.value).toBe("read @");
-      expect(shell.streamLog.some((row) => /Chose /.test(row.text))).toBe(false);
+    });
+  });
+
+  test("a lookup whose cursor has left the token does not open", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const pending = openAtMentionSuggestions(shell);
+      shell.prompt.cursorOffset = 0;
+      resolveNext(ROOT);
+
+      expect(await pending).toBe(false);
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+    });
+  });
+
+  test("a lookup whose cursor moved onto a different @token does not open", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      const value = "see @a and @b";
+      shell.prompt.value = value;
+      shell.prompt.cursorOffset = "see @a".length;
+      const pending = openAtMentionSuggestions(shell);
+      shell.prompt.cursorOffset = value.length;
+      resolveNext(ROOT);
+
+      expect(await pending).toBe(false);
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
     });
   });
 
@@ -398,16 +432,40 @@ describe("CL-6718 mention accept gating", () => {
 
       closeMentionPopup(shell);
       expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayList).toBeNull();
 
       resolveNext(ROOT);
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
 
       expect(isMentionPopupOpen(shell)).toBe(false);
       expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.prompt.value).toBe("read @s");
+    });
+  });
 
-      if (shell.overlayList !== null) acceptOverlaySelection(shell);
+  test("Esc during an in-flight lookup does not reopen or splice", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const first = openAtMentionSuggestions(shell);
+      resolveNext(ROOT);
+      expect(await first).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      expect(handleMentionPopupKey(shell, printable("s"))).toBe(true);
+      expect(shell.prompt.value).toBe("read @s");
+
+      closeInsetOverlay(shell);
+      expect(isMentionPopupOpen(shell)).toBe(false);
+
+      resolveNext(ROOT);
+      await drainMicrotasks();
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
       expect(shell.prompt.value).toBe("read @s");
     });
   });

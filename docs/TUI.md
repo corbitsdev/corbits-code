@@ -545,12 +545,14 @@ heuristic is permanently skipped for the rest of the session
 (`shell.ts`, the `sawBracketedPaste` guard).
 
 @-mention path completion opens a popup keyed off the `@token` under the
-cursor (`openAtMentionSuggestions`, `shell.ts`); every keystroke re-queries,
+cursor (`openAtMentionSuggestions`, `src/tui/shell.ts`); every keystroke re-queries,
 and a generation counter discards a slower, stale query's results if a newer
 one already landed. Accept is refused unless that generation is still current
-and a live `@` token is under the cursor. Enter that fails those checks
+and a live `@` token is under the cursor (the same `@` the lookup started on).
+Enter that fails those checks
 dismisses the popup (same generation bump as Esc) so an in-flight lookup
-cannot reopen it. Dismiss clears the accept handler.
+cannot reopen it. A lookup that finishes after the cursor has left that
+token does not open. Dismiss clears mention accept state and bumps generation.
 Directory picks re-open one level down so the operator can drill into a path
 without retyping it.
 

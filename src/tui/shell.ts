@@ -34,7 +34,7 @@ import {
 } from "./components/prompt-action-bar-label.js";
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
-import { parseAtState } from "./components/at-mention/parse.js";
+import { parseAtState, type AtState } from "./components/at-mention/parse.js";
 import {
   formatAttachmentSummary,
   readClipboardImage,
@@ -5050,11 +5050,19 @@ const MOTION_KEYS: ReadonlySet<string> = new Set([
 const defaultMentionSource: MentionSuggestionSource = (prefix) =>
   listPathSuggestions(prefix, process.cwd());
 
+interface MentionAcceptState {
+  readonly suggestions: readonly string[];
+  readonly generation: number;
+}
+
 /**
  * Open path suggestions for the @token under the cursor and splice the
  * accepted entry back into the prompt. Directory picks re-open one level
  * down so the operator can drill in without typing the path.
  * Returns false when the cursor is not inside an @token or nothing matched.
+ *
+ * Accept requires a current generation and a live `@` token under the cursor.
+ * A lookup that finishes after the cursor has left this token does not open.
  */
 export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean> {
   const at = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
@@ -5090,11 +5098,19 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
     return false;
   }
 
+  // The operator may have left this token while the lookup was in flight.
+  // Do not open, and do not arm accept, on a vanished or different @token.
+  const liveAt = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
+  if (liveAt === null || liveAt.atStart !== at.atStart) {
+    closeMentionPopup(shell);
+    return false;
+  }
+
   // The onAccept closure reads through this ref rather than closing over
   // `suggestions` directly, so a same-session refresh can update what accept
   // splices without re-binding the callback. Cursor and atStart are read live
   // at accept so a stale pre-await snapshot cannot splice at the wrong offset.
-  const acceptState = { suggestions, generation };
+  const acceptState: MentionAcceptState = { suggestions, generation };
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening the overlay released the host between the two calls — long
@@ -5112,16 +5128,13 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   openMentionsOverlay(shell, {
     items: [...suggestions],
     onAccept: (selection) => {
-      const state = mentionAcceptState.get(shell);
-      if (state === undefined) return;
-      if (mentionGenerations.get(shell) !== state.generation) return;
-      const live = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
-      if (live === null) return;
-      const completion = state.suggestions[selection.index];
+      const ready = liveMentionAccept(shell);
+      if (ready === null) return;
+      const completion = ready.state.suggestions[selection.index];
       if (completion === undefined) return;
       const spliced = spliceMentionCompletion(
         shell.prompt.value,
-        live.atStart,
+        ready.live.atStart,
         shell.prompt.cursorOffset,
         completion,
       );
@@ -5139,10 +5152,6 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
 
 const mentionPopups = new WeakSet<AppShell>();
 const mentionGenerations = new WeakMap<AppShell, number>();
-interface MentionAcceptState {
-  readonly suggestions: readonly string[];
-  readonly generation: number;
-}
 const mentionAcceptState = new WeakMap<AppShell, MentionAcceptState>();
 
 /** Drop accept state and invalidate in-flight lookups on operator dismiss. */
@@ -5151,12 +5160,19 @@ function clearMentionAccept(shell: AppShell): void {
   mentionGenerations.set(shell, (mentionGenerations.get(shell) ?? 0) + 1);
 }
 
+/** Live accept snapshot, or null when generation is stale or the cursor left the token. */
+function liveMentionAccept(shell: AppShell): { state: MentionAcceptState; live: AtState } | null {
+  const state = mentionAcceptState.get(shell);
+  if (state === undefined) return null;
+  if (mentionGenerations.get(shell) !== state.generation) return null;
+  const live = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
+  if (live === null) return null;
+  return { state, live };
+}
+
 /** True when Enter would splice a live @token, not a stale overlay row. */
 function mentionAcceptIsLive(shell: AppShell): boolean {
-  const state = mentionAcceptState.get(shell);
-  if (state === undefined) return false;
-  if (mentionGenerations.get(shell) !== state.generation) return false;
-  return parseAtState(shell.prompt.value, shell.prompt.cursorOffset) !== null;
+  return liveMentionAccept(shell) !== null;
 }
 
 /** True while the `@` path popup owns typed characters. */
