@@ -91,6 +91,10 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("0–1 worker");
     expect(p).toContain("named, non-overlapping lanes");
     expect(p).not.toContain("2–4 workers");
+    expect(p).not.toContain("at most 4");
+    expect(p).not.toContain("Prefer synthesizing early returns");
+    expect(p).toContain("queues excess");
+    expect(p).toContain("Do not invent a numeric cap");
   });
 
   test("systemPrompt prefers spawn_agent then wait_agents (idle-orchestrator)", () => {

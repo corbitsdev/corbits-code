@@ -66,7 +66,13 @@ import {
   type AgentLifecycleStatus,
   type SubAgentSessionStore,
 } from "./session-store.js";
-import { projectWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
+import {
+  isLiveStrip,
+  isLiveWaitStatus,
+  projectWaitStatus,
+  type WaitJSONStatus,
+} from "./lifecycle.js";
+import { getProcessAdmissionQueue, type AdmissionQueue } from "./admission.js";
 import type {
   NestedDispatchDeps,
   RunSubAgentParams,
@@ -119,6 +125,8 @@ interface FleetOverlay {
   pinHeld?: boolean;
   /** send_input interrupt:true / close_agent — wait interrupted while session may still be running. */
   forceInterrupted?: boolean;
+  /** Admission overlay: wait JSON `queued` while run() has not been admitted. */
+  forceQueued?: boolean;
   /** Frozen wait status after collect. Later session completed must not resurrect this mailbox. */
   frozenStatus?: WaitJSONStatus;
   /** Last wait projection seen while the session still existed. */
@@ -175,18 +183,27 @@ class FleetMailbox {
 
   hasUncollectedTerminal(id: string): boolean {
     const record = this.peek(id);
-    return (
-      record !== undefined &&
-      record.status !== "running" &&
-      record.status !== "awaiting_director" &&
-      record.collected !== true
-    );
+    return record !== undefined && !isLiveWaitStatus(record.status) && record.collected !== true;
   }
 
   markProviderFailure(id: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
     existing.providerFailure = true;
+  }
+
+  markQueued(id: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined || existing.collected === true) return;
+    existing.forceQueued = true;
+    this.sessions?.wake();
+  }
+
+  clearQueued(id: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined || existing.forceQueued !== true) return;
+    delete existing.forceQueued;
+    this.sessions?.wake();
   }
 
   /**
@@ -202,6 +219,7 @@ class FleetMailbox {
       return;
     }
     existing.forceInterrupted = true;
+    delete existing.forceQueued;
     this.sessions?.wake();
     this.enforceCap();
   }
@@ -245,8 +263,7 @@ class FleetMailbox {
     const overlay = this.records.get(id);
     if (overlay === undefined) return undefined;
     const snap = this.snapshot(id);
-    if (snap.status === "awaiting_director") return snap;
-    if (snap.status !== "running" && overlay.collected !== true) {
+    if (!isLiveWaitStatus(snap.status) && overlay.collected !== true) {
       overlay.frozenStatus = snap.status;
       overlay.collected = true;
       if (overlay.pinHeld === true) {
@@ -260,7 +277,11 @@ class FleetMailbox {
   private rememberLiveWaitStatuses(): void {
     for (const [id, overlay] of this.records) {
       const wait = this.sessionWaitStatus(id);
-      if (wait !== undefined) overlay.lastWaitStatus = wait;
+      if (wait === undefined) continue;
+      // Do not overwrite lastWait with the session's pending_init/running
+      // projection while the overlay is still admission-queued.
+      if (overlay.forceQueued === true && isLiveWaitStatus(wait)) continue;
+      overlay.lastWaitStatus = wait;
     }
   }
 
@@ -276,17 +297,22 @@ class FleetMailbox {
 
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
     if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
-    if (overlay.forceInterrupted === true) return "interrupted";
     if (this.sessions.hasPendingAsk(id)) return "awaiting_director";
     const live = this.sessionWaitStatus(id);
+    if (live !== undefined && !isLiveWaitStatus(live)) {
+      overlay.lastWaitStatus = live;
+      return live;
+    }
+    if (overlay.forceQueued === true) return "queued";
+    if (overlay.forceInterrupted === true) return "interrupted";
     if (live !== undefined) {
       overlay.lastWaitStatus = live;
       return live;
     }
     const last = overlay.lastWaitStatus;
-    if (last !== undefined && last !== "running") return last;
+    if (last !== undefined && !isLiveWaitStatus(last)) return last;
     const evicted = this.waitStatusFromEvicted(id);
-    if (evicted !== undefined && evicted !== "running") return evicted;
+    if (evicted !== undefined && !isLiveWaitStatus(evicted)) return evicted;
     return "interrupted";
   }
 
@@ -334,9 +360,7 @@ class FleetMailbox {
   private isPayload(id: string, overlay: FleetOverlay): boolean {
     if (overlay.tombstoned === true || overlay.collected === true) return false;
     if (overlay.pinHeld !== true) return false;
-    const status = this.projectedStatus(id, overlay);
-    if (status === "running" || status === "awaiting_director") return false;
-    return true;
+    return !isLiveWaitStatus(this.projectedStatus(id, overlay));
   }
 
   /**
@@ -387,7 +411,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: SPAWN_AGENT_TOOL_NAME,
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them. Excess fan-out is queued rather than refused.",
   inputSchema: {
     type: "object",
     properties: {
@@ -500,6 +524,8 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
   telemetry?: Telemetry;
+  /** Tests inject a private queue. Production omits and uses the process singleton. */
+  admission?: AdmissionQueue;
 };
 
 function resolveDep<T>(value: T | (() => T)): T {
@@ -917,8 +943,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         });
       };
 
+      const admission = deps.admission ?? getProcessAdmissionQueue();
       const childCtl = new AbortController();
       deps.sessions.registerCancel(session.id, () => {
+        admission.cancel(session.id);
         if (!childCtl.signal.aborted) childCtl.abort();
       });
 
@@ -932,27 +960,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         deps.sessions.appendEvent(session.id, event);
         deps.onEvent?.(event);
       };
-
-      let worktreeCwd: string | undefined;
-      let worktreeStashBaseline: readonly string[] | null = [];
-      let worktreeHeadAtCreate: string | undefined;
-      if (deps.useWorktree === true) {
-        const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
-        try {
-          const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
-          worktreeCwd = worktree.path;
-          worktreeStashBaseline = worktree.stashBaseline;
-          worktreeHeadAtCreate = worktree.headAtCreate;
-        } catch (err) {
-          const message =
-            err instanceof WorktreeError
-              ? err.message
-              : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
-          deps.sessions.fail(session.id, message);
-          finalizeEnd(true);
-          return fleetResult(call.id, `Error: ${message}`);
-        }
-      }
 
       const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
         ? {
@@ -977,6 +984,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             parentSessionId: session.id,
             ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
             ...(nestedSpawnAllowlist !== undefined ? { spawnAllowlist: nestedSpawnAllowlist } : {}),
+            admission,
           }
         : undefined;
 
@@ -984,6 +992,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       // When true, the worktree stays until close_agent / eviction calls the
       // wrapped close below; otherwise the run's finally reclaims it immediately.
       let keepWorktreeAlive = false;
+      let worktreeCwd: string | undefined;
+      let worktreeStashBaseline: readonly string[] | null = [];
+      let worktreeHeadAtCreate: string | undefined;
       const reclaimWorktree = async (): Promise<void> => {
         if (worktreeCwd === undefined) return;
         const path = worktreeCwd;
@@ -1000,198 +1011,239 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         }
       };
 
-      // Detect, don't lock: warn when another lane still running right now
-      // is already working in this same cwd. Worktree-isolated lanes never
-      // collide here (each gets its own directory); this only fires in the
-      // shared-cwd fallback, where two lanes genuinely can overwrite each
-      // other's writes. Never blocks the spawn — the least destructive
-      // response that still tells the operator something true, since a
-      // shared cwd does not by itself prove the two lanes touch the same
-      // files, only that they could.
-      const laneCwd = worktreeCwd ?? deps.cwd;
-      for (const [otherId, other] of activeLanes) {
-        if (other.cwd !== laneCwd) continue;
-        recordConflict({
-          id: "concurrent-lane-overlap",
-          class: "conflict",
-          detail:
-            `"${description}" (${call.id}) and "${other.description}" (${otherId}) ` +
-            `are both running against ${laneCwd} at once`,
-        });
-      }
-      activeLanes.set(call.id, { description, cwd: laneCwd });
-
-      const params: RunSubAgentParams = {
-        // Name the trace directory after the session-store id so the
-        // descendant-scoping check behind read_agent_trace can resolve this
-        // worker's parent chain.
-        id: session.id,
-        permissionGate: deps.permissionGate,
-        ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
-        ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
-        ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
-        ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
-        ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
-        cwd: worktreeCwd ?? deps.cwd,
-        workdirBase: deps.getWorkdirBase(),
-        provider,
-        ...(settings !== undefined ? { settings } : {}),
-        ...(catalog !== undefined ? { catalog } : {}),
-        description,
-        ...(context !== undefined && context.length > 0 ? { context } : {}),
-        prompt,
-        ...(goals.length > 0 ? { goals } : {}),
-        ...(intent !== undefined ? { intent } : {}),
-        ...(successCriteria.length > 0 ? { successCriteria } : {}),
-        ...(doNot.length > 0 ? { doNot } : {}),
-        ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
-        signal: childCtl.signal,
-        onEvent,
-        onRunSettled: (summary) => {
-          settlement = summary;
-        },
-        ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
-        ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
-        ...(resolved.systemPromptRole !== undefined
-          ? { systemPromptRole: resolved.systemPromptRole }
-          : {}),
-        directorId: resolved.directorId,
-        ...(orchestrator
-          ? {
-              orchestrator: true,
-              ...(resolved.orchestratorTier !== undefined
-                ? { orchestratorTier: resolved.orchestratorTier }
-                : {}),
-              nestedDispatch: nestedDispatch!,
-            }
-          : {}),
-        ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
-        ...(resolved.pkg !== undefined
-          ? { tier: resolved.pkg.tier }
-          : orchestrator
-            ? {}
-            : { tier: "leaf" }),
-        ...(resolved.pkg?.reportContract?.outputType !== undefined
-          ? { reportType: resolved.pkg.reportContract.outputType }
-          : {}),
-        // Keep the session open after a clean completion, and hand the
-        // store a bounded close for close_agent to call later.
-        // Worktree cleanup is deferred until that close when the session
-        // stays alive for followup (agentRetained / interrupt keep-alive) —
-        // matching run.ts's persisting gate so resume_agent does not hit a
-        // removed cwd.
-        persist: deps.persist !== false,
-        askDirectorPort: {
-          register: ({ question, questionId }) => {
-            const hold: {
-              resolve?: (answer: string) => void;
-              reject?: (reason: unknown) => void;
-            } = {};
-            const answer = new Promise<string>((resolve, reject) => {
-              hold.resolve = resolve;
-              hold.reject = reject;
-            });
-            if (hold.resolve === undefined || hold.reject === undefined) {
-              const err = new Error("ask_director could not register a pending question");
-              hold.reject?.(err);
-              void answer.catch(() => {});
-              throw err;
-            }
-            const ok = deps.sessions.registerAsk(session.id, {
-              question,
-              questionId,
-              resolve: hold.resolve,
-              reject: hold.reject,
-            });
-            if (!ok) {
-              const err = new Error("ask_director could not register a pending question");
-              hold.reject(err);
-              void answer.catch(() => {});
-              throw err;
-            }
-            return answer;
-          },
-          cancel: (reason) => {
-            deps.sessions.cancelAsk(session.id, reason);
-          },
-        },
-        onAgentReady: ({ close, interrupt, followup, deliver }) => {
-          deps.sessions.registerClose(session.id, async (deadlineMs) => {
-            try {
-              await close(deadlineMs);
-            } finally {
-              await reclaimWorktree();
-            }
-          });
-          deps.sessions.registerInterrupt(session.id, interrupt);
-          deps.sessions.registerFollowup(session.id, followup);
-          deps.sessions.registerDeliver(session.id, deliver);
-          deps.sessions.markRunning(session.id);
-        },
+      const stillAdmissible = (): boolean => {
+        const live = deps.sessions.get(session.id);
+        return live !== undefined && isLiveStrip(live.lifecycle);
       };
 
-      // Fire and forget: this handler must return before the worker finishes.
-      // Wait JSON projects stored WorkerLifecycle plus the per-install overlay.
-      deps
-        .run(params)
-        .then((result) => {
-          if (result.interrupted === true) {
-            keepWorktreeAlive = true;
-            runInterrupted = true;
-            const now = deps.sessions.get(session.id);
-            const overlay = deps.fleetRecords.peek(session.id);
-            // send_input interrupt:true already started a followup (session
-            // running + overlay interrupted). Do not stamp that turn interrupted
-            // or clear its in-flight bit.
-            const followupLive =
-              now?.lifecycle.state === "running" && overlay?.status === "interrupted";
-            if (!followupLive) {
-              deps.sessions.attachReport(session.id, result.report);
-            }
+      const start = (): void => {
+        void (async () => {
+          if (!stillAdmissible()) {
+            admission.release(session.id);
             return;
           }
-          const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
-          if (alreadyCancelled) {
-            deps.sessions.attachReport(session.id, result.report);
-            return;
-          }
-          // result.agentRetained is only true on run.ts's clean-completion
-          // path when persist actually skipped teardown — a deadline/cancel
-          // salvage resolves through the same promise but always disposed
-          // its agent first, so the store must not treat it as resumable
-          // just because retained:true was requested at spawn.
-          const agentRetained = result.agentRetained === true;
-          if (agentRetained) keepWorktreeAlive = true;
-          deps.sessions.complete(session.id, result.report, {
-            agentRetained,
-            ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
-          });
-        })
-        .catch((err) => {
-          const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
-          if (alreadyCancelled || isSubAgentCancelError(err, childCtl.signal)) {
-            if (!alreadyCancelled) {
-              deps.sessions.cancel(session.id, DEFAULT_CANCEL_REASON);
-            }
-            deps.sessions.settleRun(session.id);
-            return;
-          }
-          const isProviderFailure = isResolvedProviderFailureError(err);
-          const diagnosticMessage = err instanceof Error ? err.message : String(err);
-          const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
-          const failReason = authMessage ?? diagnosticMessage;
-          if (isProviderFailure || providerFailureObserved) {
-            deps.fleetRecords.markProviderFailure(session.id);
-          }
-          deps.sessions.fail(session.id, failReason);
-        })
-        .finally(() => {
-          activeLanes.delete(call.id);
-          finalizeEnd();
-          if (!keepWorktreeAlive) void reclaimWorktree();
-        });
+          deps.fleetRecords.clearQueued(session.id);
+          deps.sessions.markRunInFlight(session.id);
 
-      return fleetResult(call.id, JSON.stringify({ agent_id: session.id, status: "running" }));
+          if (deps.useWorktree === true) {
+            const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
+            try {
+              const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
+              worktreeCwd = worktree.path;
+              worktreeStashBaseline = worktree.stashBaseline;
+              worktreeHeadAtCreate = worktree.headAtCreate;
+            } catch (err) {
+              const message =
+                err instanceof WorktreeError
+                  ? err.message
+                  : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+              log.error("spawn_agent worktree setup failed: {error}", { error: message });
+              deps.sessions.fail(session.id, message);
+              finalizeEnd(true);
+              admission.release(session.id);
+              return;
+            }
+          }
+
+          if (!stillAdmissible()) {
+            await reclaimWorktree();
+            admission.release(session.id);
+            return;
+          }
+
+          // Detect, don't lock: warn when another lane still running right now
+          // is already working in this same cwd. Worktree-isolated lanes never
+          // collide here (each gets its own directory); this only fires in the
+          // shared-cwd fallback, where two lanes genuinely can overwrite each
+          // other's writes. Never blocks the spawn — the least destructive
+          // response that still tells the operator something true, since a
+          // shared cwd does not by itself prove the two lanes touch the same
+          // files, only that they could.
+          const laneCwd = worktreeCwd ?? deps.cwd;
+          for (const [otherId, other] of activeLanes) {
+            if (other.cwd !== laneCwd) continue;
+            recordConflict({
+              id: "concurrent-lane-overlap",
+              class: "conflict",
+              detail:
+                `"${description}" (${call.id}) and "${other.description}" (${otherId}) ` +
+                `are both running against ${laneCwd} at once`,
+            });
+          }
+          activeLanes.set(call.id, { description, cwd: laneCwd });
+
+          const params: RunSubAgentParams = {
+            // Name the trace directory after the session-store id so the
+            // descendant-scoping check behind read_agent_trace can resolve this
+            // worker's parent chain.
+            id: session.id,
+            permissionGate: deps.permissionGate,
+            ...(deps.inheritMcpTools !== undefined
+              ? { inheritMcpTools: deps.inheritMcpTools }
+              : {}),
+            ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+            ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
+            ...(deps.extraToolPlugins !== undefined
+              ? { extraToolPlugins: deps.extraToolPlugins }
+              : {}),
+            ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
+            cwd: worktreeCwd ?? deps.cwd,
+            workdirBase: deps.getWorkdirBase(),
+            provider,
+            ...(settings !== undefined ? { settings } : {}),
+            ...(catalog !== undefined ? { catalog } : {}),
+            description,
+            ...(context !== undefined && context.length > 0 ? { context } : {}),
+            prompt,
+            ...(goals.length > 0 ? { goals } : {}),
+            ...(intent !== undefined ? { intent } : {}),
+            ...(successCriteria.length > 0 ? { successCriteria } : {}),
+            ...(doNot.length > 0 ? { doNot } : {}),
+            ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
+            signal: childCtl.signal,
+            admission,
+            onEvent,
+            onRunSettled: (summary) => {
+              settlement = summary;
+            },
+            ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+            ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
+            ...(resolved.systemPromptRole !== undefined
+              ? { systemPromptRole: resolved.systemPromptRole }
+              : {}),
+            directorId: resolved.directorId,
+            ...(orchestrator
+              ? {
+                  orchestrator: true,
+                  ...(resolved.orchestratorTier !== undefined
+                    ? { orchestratorTier: resolved.orchestratorTier }
+                    : {}),
+                  nestedDispatch: nestedDispatch!,
+                }
+              : {}),
+            ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
+            ...(resolved.pkg !== undefined
+              ? { tier: resolved.pkg.tier }
+              : orchestrator
+                ? {}
+                : { tier: "leaf" }),
+            ...(resolved.pkg?.reportContract?.outputType !== undefined
+              ? { reportType: resolved.pkg.reportContract.outputType }
+              : {}),
+            persist: deps.persist !== false,
+            askDirectorPort: {
+              register: ({ question, questionId }) => {
+                const hold: {
+                  resolve?: (answer: string) => void;
+                  reject?: (reason: unknown) => void;
+                } = {};
+                const answer = new Promise<string>((resolve, reject) => {
+                  hold.resolve = resolve;
+                  hold.reject = reject;
+                });
+                if (hold.resolve === undefined || hold.reject === undefined) {
+                  const err = new Error("ask_director could not register a pending question");
+                  hold.reject?.(err);
+                  void answer.catch(() => {});
+                  throw err;
+                }
+                const ok = deps.sessions.registerAsk(session.id, {
+                  question,
+                  questionId,
+                  resolve: hold.resolve,
+                  reject: hold.reject,
+                });
+                if (!ok) {
+                  const err = new Error("ask_director could not register a pending question");
+                  hold.reject(err);
+                  void answer.catch(() => {});
+                  throw err;
+                }
+                return answer;
+              },
+              cancel: (reason) => {
+                deps.sessions.cancelAsk(session.id, reason);
+              },
+            },
+            onAgentReady: ({ close, interrupt, followup, deliver }) => {
+              deps.sessions.registerClose(session.id, async (deadlineMs) => {
+                try {
+                  await close(deadlineMs);
+                } finally {
+                  await reclaimWorktree();
+                }
+              });
+              deps.sessions.registerInterrupt(session.id, interrupt);
+              deps.sessions.registerFollowup(session.id, followup);
+              deps.sessions.registerDeliver(session.id, deliver);
+              deps.sessions.markRunning(session.id);
+            },
+          };
+
+          // Fire and forget: this handler must return before the worker finishes.
+          // Wait JSON projects stored WorkerLifecycle plus the per-install overlay.
+          deps
+            .run(params)
+            .then((result) => {
+              if (result.interrupted === true) {
+                keepWorktreeAlive = true;
+                runInterrupted = true;
+                const now = deps.sessions.get(session.id);
+                const overlay = deps.fleetRecords.peek(session.id);
+                const followupLive =
+                  now?.lifecycle.state === "running" && overlay?.status === "interrupted";
+                if (!followupLive) {
+                  deps.sessions.attachReport(session.id, result.report);
+                }
+                return;
+              }
+              const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
+              if (alreadyCancelled) {
+                deps.sessions.attachReport(session.id, result.report);
+                return;
+              }
+              const agentRetained = result.agentRetained === true;
+              if (agentRetained) keepWorktreeAlive = true;
+              deps.sessions.complete(session.id, result.report, {
+                agentRetained,
+                ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+              });
+            })
+            .catch((err) => {
+              const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
+              if (alreadyCancelled || isSubAgentCancelError(err, childCtl.signal)) {
+                if (!alreadyCancelled) {
+                  deps.sessions.cancel(session.id, DEFAULT_CANCEL_REASON);
+                }
+                deps.sessions.settleRun(session.id);
+                return;
+              }
+              const isProviderFailure = isResolvedProviderFailureError(err);
+              const diagnosticMessage = err instanceof Error ? err.message : String(err);
+              const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
+              const failReason = authMessage ?? diagnosticMessage;
+              if (isProviderFailure || providerFailureObserved) {
+                deps.fleetRecords.markProviderFailure(session.id);
+              }
+              deps.sessions.fail(session.id, failReason);
+            })
+            .finally(() => {
+              activeLanes.delete(call.id);
+              finalizeEnd();
+              if (!keepWorktreeAlive) void reclaimWorktree();
+              admission.release(session.id);
+            });
+        })();
+      };
+
+      const status = admission.enqueue({
+        id: session.id,
+        provider: provider.providerName,
+        bypass: deps.parentSessionId !== undefined,
+        start,
+      });
+      if (status === "queued") deps.fleetRecords.markQueued(session.id);
+      return fleetResult(call.id, JSON.stringify({ agent_id: session.id, status }));
     },
   });
 }
@@ -1210,9 +1262,7 @@ interface WaitAgentsDeps {
 
 function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   const record = fleetRecords.peek(id);
-  return (
-    record !== undefined && record.status !== "running" && record.status !== "awaiting_director"
-  );
+  return record !== undefined && !isLiveWaitStatus(record.status);
 }
 
 /**
@@ -1320,8 +1370,8 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         if (record === undefined) {
           return { agent_id: id, status: "unknown" as const };
         }
-        if (record.status === "running") {
-          return { agent_id: id, status: "running" as const };
+        if (isLiveWaitStatus(record.status)) {
+          return { agent_id: id, status: record.status };
         }
         const taken = deps.fleetRecords.take(id) ?? record;
         return {

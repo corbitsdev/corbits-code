@@ -106,6 +106,8 @@ export interface SubAgentSession {
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
   // directly from the primary session's spawn_agent tool.
   parentSessionId?: string;
+  /** True while an admitted run or followup has not settled. */
+  runInFlight?: boolean;
   /**
    * Projection of `lifecycle` for close/resume/interrupt JSON. Maps cancelled →
    * interrupted and failed → shutdown so those verbs do not leak new enum values.
@@ -190,6 +192,8 @@ export interface SubAgentSessionStore {
   // CL-6943: flips a "pending_init" session to "running" once its agent
   // object actually exists. No-op on an unknown id or one already past init.
   markRunning(id: string): void;
+  /** Mark the admitted run as in-flight. Deferred until admission, not start(). */
+  markRunInFlight(id: string): void;
   // Registers the bounded close function close_agent will call later. Only
   // one is kept per id (a later call replaces an earlier one, matching
   // start()'s replace-on-reuse behavior for cancelHandles).
@@ -487,9 +491,16 @@ export function createSubAgentSessionStore(
 
   const snapshotOf = (session: StoredSession): SubAgentSession => {
     const revision = revisions.get(session.id) ?? 0;
+    const inFlight = runInFlight.has(session.id);
     const cached = snapshotCache.get(session.id);
-    if (cached !== undefined && cached.revision === revision) return cached.snapshot;
-    const snapshot = cloneSession(session);
+    if (
+      cached !== undefined &&
+      cached.revision === revision &&
+      cached.snapshot.runInFlight === inFlight
+    ) {
+      return cached.snapshot;
+    }
+    const snapshot = cloneSession(session, inFlight);
     snapshotCache.set(session.id, { revision, snapshot });
     return snapshot;
   };
@@ -854,7 +865,6 @@ export function createSubAgentSessionStore(
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
-      runInFlight.add(id);
       bumpRevision(id);
       notify();
       return snapshotOf(session);
@@ -1084,6 +1094,13 @@ export function createSubAgentSessionStore(
       });
     },
 
+    markRunInFlight(id: string): void {
+      if (!sessions.has(id) || runInFlight.has(id)) return;
+      runInFlight.add(id);
+      bumpRevision(id);
+      notify();
+    },
+
     registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void {
       if (!sessions.has(id)) return;
       closeHandles.set(id, close);
@@ -1110,6 +1127,28 @@ export function createSubAgentSessionStore(
         return projectLifecycleStatus(session.lifecycle);
       }
       if (close === undefined) {
+        if (session.lifecycle.state === "pending_init" && !runInFlight.has(id)) {
+          const abort = cancelHandles.get(id);
+          try {
+            abort?.();
+          } catch {
+            // Abort hooks must not throw into the close path.
+          }
+          mutate(id, (s) => {
+            const error = s.error ?? "Closed by close_agent";
+            s.lifecycle = { state: "shutdown", error };
+            s.retained = false;
+            s.finishedAt = s.finishedAt ?? now();
+            s.error = error;
+          });
+          cancelHandles.delete(id);
+          interruptHandles.delete(id);
+          followupHandles.delete(id);
+          deliverHandles.delete(id);
+          runInFlight.delete(id);
+          pruneCompleted();
+          return "shutdown";
+        }
         // CL-7001: close_agent landed in the setup window — the session
         // exists but createAgentWithLiveToolDispatch hasn't finished and
         // registerClose hasn't fired yet. Wait for it (bounded) instead of
@@ -1464,7 +1503,7 @@ export function createSubAgentSessionStore(
   };
 }
 
-function cloneSession(session: StoredSession): SubAgentSession {
+function cloneSession(session: StoredSession, inFlight: boolean): SubAgentSession {
   return {
     id: session.id,
     description: session.description,
@@ -1481,6 +1520,7 @@ function cloneSession(session: StoredSession): SubAgentSession {
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt,
     lifecycleStatus: projectLifecycleStatus(session.lifecycle),
+    runInFlight: inFlight,
     ...(session.retained !== undefined ? { retained: session.retained } : {}),
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),

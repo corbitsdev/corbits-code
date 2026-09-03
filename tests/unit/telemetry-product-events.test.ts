@@ -20,6 +20,7 @@ import {
   createSpawnAgentTool,
   createWaitAgentsTool,
 } from "../../src/subagent/agent-fleet.js";
+import { createAdmissionQueue } from "../../src/subagent/admission.js";
 
 import { createSubAgentSessionStore } from "../../src/subagent/session-store.js";
 import {
@@ -262,6 +263,7 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     ],
     sessions,
     fleetRecords,
+    admission: createAdmissionQueue({ capacity: Number.POSITIVE_INFINITY }),
     run: async (params) => {
       params.onRunSettled?.({
         turn_count: 2,
@@ -339,6 +341,7 @@ test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last 
     ],
     sessions,
     fleetRecords,
+    admission: createAdmissionQueue({ capacity: Number.POSITIVE_INFINITY }),
     run: async () => ({ report: "done" }),
     telemetry,
   });

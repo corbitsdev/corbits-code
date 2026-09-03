@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Added
+
+- Sub-agent admission queue: `spawn_agent` never refuses for worker count.
+  Excess dispatches report `queued` until a burst slot is free. Nested children
+  of an already-admitted parent bypass the cap. Capacity changes never cancel
+  in-flight work. Short provider 429s freeze new admits via the shared retry
+  remapper.
+
 ### Changed
 
 - Interactive TUI pins OpenTUI 0.5.10 (`@opentui/core`, keymap, solid, and native platform packages in lockstep).

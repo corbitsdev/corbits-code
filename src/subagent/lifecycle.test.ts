@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isAlreadyClosed,
   isLiveStrip,
+  isLiveWaitStatus,
   isResumableLifecycle,
   projectLifecycleStatus,
   projectStripStatus,
@@ -73,5 +74,14 @@ describe("WorkerLifecycle projections", () => {
     expect(projectWaitStatus({ state: "cancelled" }, true)).toBe("running");
     expect(projectWaitStatus({ state: "completed", report: "first" }, false)).toBe("done");
     expect(projectWaitStatus({ state: "failed", error: "boom" }, true)).toBe("failed");
+  });
+
+  test("queued is a live wait status, not terminal", () => {
+    expect(isLiveWaitStatus("running")).toBe(true);
+    expect(isLiveWaitStatus("queued")).toBe(true);
+    expect(isLiveWaitStatus("awaiting_director")).toBe(true);
+    expect(isLiveWaitStatus("done")).toBe(false);
+    expect(isLiveWaitStatus("failed")).toBe(false);
+    expect(isLiveWaitStatus("interrupted")).toBe(false);
   });
 });

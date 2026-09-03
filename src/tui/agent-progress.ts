@@ -38,6 +38,11 @@ export interface AgentProgressSession {
   readonly currentToolStartedAt: number | null;
   readonly startedAt: number;
   readonly lastActivityAt: number;
+  /**
+   * False while the worker is admission-queued (pending_init, run not started).
+   * Missing means unknown — treat as in-flight for stall purposes.
+   */
+  readonly runInFlight?: boolean;
 }
 
 /**
@@ -112,6 +117,9 @@ export function laneState(
 ): LaneState {
   // Waiting on the director is work, not silence — never trip IN_TOOL_STALL_MS.
   if (session.currentToolName === "ask_director") return "in_tool";
+  if (session.lifecycleStatus === "pending_init" && session.runInFlight === false) {
+    return "working";
+  }
   if (nowMs - session.lastActivityAt < stallMs) return "working";
   const toolStartedAt = session.currentToolStartedAt;
   if (
@@ -151,6 +159,14 @@ export function agentProgress(
   stallMs: number = DEFAULT_STALL_MS,
 ): AgentProgress | null {
   if (session.status !== "running") return null;
+  if (session.lifecycleStatus === "pending_init" && session.runInFlight === false) {
+    return {
+      stat: "queued",
+      state: "working",
+      working: false,
+      stalled: false,
+    };
+  }
   const elapsed = clockLabel(nowMs - session.startedAt);
   // Prefer the argument subject over the bare tool name — six shell commands
   // on a fleet board are six different situations, not six identical labels.

@@ -241,4 +241,42 @@ describe("createCorbitsRetryPolicy", () => {
     current = "openai";
     expect(await policy(bare429)).toEqual({ kind: "abort" });
   });
+
+  test("retryable 429 notes admission pressure; quota_exhausted does not", async () => {
+    const notes: { provider: string; until: number }[] = [];
+    const admission = {
+      enqueue: () => "running" as const,
+      release: () => {},
+      setCapacity: () => {},
+      notePressure: (provider: string, untilMs: number) => {
+        notes.push({ provider, until: untilMs });
+      },
+      cancel: () => {},
+    };
+    const policy = createCorbitsRetryPolicy({ providerId: "xai/thegreataxios", admission });
+    const before = Date.now();
+    await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "retryable",
+        message: "Too Many Requests",
+        retryAfterMs: 2_000,
+      },
+    });
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.provider).toBe("xai/thegreataxios");
+    expect(notes[0]!.until).toBeGreaterThanOrEqual(before + 2_000);
+    notes.length = 0;
+    await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "monthly cap",
+        retryAfterMs: 86_400_000,
+      },
+    });
+    expect(notes).toHaveLength(0);
+  });
 });

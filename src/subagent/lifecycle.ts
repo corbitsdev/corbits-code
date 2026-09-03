@@ -76,7 +76,18 @@ export function isResumableLifecycle(
   );
 }
 
-export type WaitJSONStatus = "running" | "done" | "failed" | "interrupted" | "awaiting_director";
+export type WaitJSONStatus =
+  | "running"
+  | "queued"
+  | "done"
+  | "failed"
+  | "interrupted"
+  | "awaiting_director";
+
+/** Wait statuses that must not collect, freeze, or tombstone as a payload. */
+export function isLiveWaitStatus(status: WaitJSONStatus): boolean {
+  return status === "running" || status === "queued" || status === "awaiting_director";
+}
 
 /**
  * Wait JSON projection of stored lifecycle. Operator cancel (`cancelled`) is

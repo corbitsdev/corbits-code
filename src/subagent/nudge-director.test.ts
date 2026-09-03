@@ -5,8 +5,10 @@ import type {
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
+import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { SubAgentDirector } from "./nudge-director.js";
+import type { AdmissionQueue } from "./admission.js";
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {
@@ -550,5 +552,80 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     expect(secondEmpty.some((action) => action.type === "infer")).toBe(false);
     expect(secondEmpty.some((action) => action.type === "reply")).toBe(false);
     expect(secondEmpty).toContainEqual({ type: "wait" });
+  });
+});
+
+function stubAdmission(notes: { provider: string; until: number }[]): AdmissionQueue {
+  return {
+    enqueue: () => "running",
+    release: () => {},
+    setCapacity: () => {},
+    notePressure: (provider, untilMs) => {
+      notes.push({ provider, until: untilMs });
+    },
+    cancel: () => {},
+  };
+}
+
+describe("SubAgentDirector infer retryPolicy", () => {
+  test("infer carries createCorbitsRetryPolicy; retryable 429 notes pressure, quota_exhausted does not", async () => {
+    const notes: { provider: string; until: number }[] = [];
+    const retryPolicy = createCorbitsRetryPolicy({
+      providerId: "xai/thegreataxios",
+      admission: stubAdmission(notes),
+    });
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      Date.now,
+      false,
+      retryPolicy,
+    );
+    const infer = inferAction(await director.decide(messageReceived("go"), state, capabilities()));
+    const stamped = infer.options?.retryPolicy;
+    expect(stamped).toBeDefined();
+    if (stamped === undefined) throw new Error("expected infer retryPolicy");
+
+    await stamped({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "retryable",
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 2_000,
+      },
+    });
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.provider).toBe("xai/thegreataxios");
+
+    notes.length = 0;
+    await stamped({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: { error: { message: "Too Many Requests" } },
+      },
+    });
+    // xAI remaps this bare 429 to retryable — still notes pressure.
+    expect(notes).toHaveLength(1);
+
+    notes.length = 0;
+    await stamped({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "monthly cap",
+        retryAfterMs: 86_400_000,
+      },
+    });
+    expect(notes).toHaveLength(0);
   });
 });

@@ -11,6 +11,8 @@ import {
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
+import { createAdmissionQueue } from "./admission.js";
+import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   createInterruptAgentTool,
   createCloseAgentTool,
@@ -67,6 +69,7 @@ function makeDeps(
     run,
     sessions,
     fleetRecords: createFleetMailbox(sessions),
+    admission: createAdmissionQueue({ capacity: Number.POSITIVE_INFINITY }),
     ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     ...(opts.profiles !== undefined ? { profiles: opts.profiles } : {}),
@@ -81,7 +84,7 @@ function waitUntilMailboxTerminal(
   return new Promise((resolve) => {
     const done = (): boolean => {
       const snap = mailbox.peek(id);
-      return snap !== undefined && snap.status !== "running";
+      return snap !== undefined && !isLiveWaitStatus(snap.status);
     };
     if (done()) {
       resolve();
@@ -1846,5 +1849,213 @@ describe("ask_director wait handshake", () => {
       process.off("unhandledRejection", onUnhandled);
       gate.resolve({ report: "done" });
     }
+  });
+});
+
+describe("admission queue", () => {
+  test("20 concurrent spawns admit or queue without error", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let started = 0;
+    const deps = makeDeps(async () => {
+      started += 1;
+      return gate.promise;
+    });
+    deps.admission = createAdmissionQueue({ capacity: 2 });
+    const spawn = createSpawnAgentTool(deps);
+    const results: { agent_id: string; status: string }[] = [];
+    for (let i = 0; i < 20; i++) {
+      const result = await callTool(spawn, {
+        description: `job-${i}`,
+        prompt: "do it",
+        intent: "explore",
+      });
+      results.push({ agent_id: result.agent_id as string, status: result.status as string });
+    }
+    expect(results).toHaveLength(20);
+    expect(results.every((r) => typeof r.agent_id === "string" && r.agent_id.length > 0)).toBe(
+      true,
+    );
+    expect(results.filter((r) => r.status === "running")).toHaveLength(2);
+    expect(results.filter((r) => r.status === "queued")).toHaveLength(18);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(2);
+
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    if (list.kind !== "full") throw new Error("expected full tool");
+    const raw = await list.handler(
+      { id: "list-q", name: "list_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const parsed = JSON.parse(content) as { agents: { status: string }[] };
+    expect(parsed.agents.filter((a) => a.status === "queued")).toHaveLength(18);
+    expect(parsed.agents.filter((a) => a.status === "running")).toHaveLength(2);
+
+    const queuedId = results.find((r) => r.status === "queued")!.agent_id;
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const waited = await callTool(wait, { targets: [queuedId], timeout_ms: 50 });
+    expect(waited.timed_out).toBe(true);
+    const waitResults = waited.results as { agent_id: string; status: string }[];
+    expect(waitResults).toEqual([{ agent_id: queuedId, status: "queued" }]);
+
+    gate.resolve({ report: "ok" });
+    await Promise.all(
+      results.map((r) => waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, r.agent_id)),
+    );
+  });
+
+  test("nested children bypass a full window", async () => {
+    let started = 0;
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async () => {
+      started += 1;
+      return gate.promise;
+    });
+    deps.admission = createAdmissionQueue({ capacity: 0 });
+    deps.parentSessionId = "parent-1";
+    const spawn = createSpawnAgentTool(deps);
+    const result = await callTool(spawn, {
+      description: "nested",
+      prompt: "do it",
+      intent: "explore",
+    });
+    expect(result.status).toBe("running");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(1);
+    gate.resolve({ report: "ok" });
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, result.agent_id as string);
+  });
+
+  test("close_agent of a queued spawn does not start the run", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let started = 0;
+    const deps = makeDeps(async () => {
+      started += 1;
+      return gate.promise;
+    });
+    deps.admission = createAdmissionQueue({ capacity: 1 });
+    const spawn = createSpawnAgentTool(deps);
+    const first = await callTool(spawn, {
+      description: "holder",
+      prompt: "hold",
+      intent: "explore",
+    });
+    const queued = await callTool(spawn, {
+      description: "queued",
+      prompt: "wait",
+      intent: "explore",
+    });
+    expect(first.status).toBe("running");
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(1);
+
+    const close = createCloseAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    if (close.kind !== "full") throw new Error("expected full tool");
+    await close.handler(
+      { id: "close-q", name: "close_agent", arguments: { target: queued.agent_id } },
+      new AbortController().signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(1);
+    expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe("shutdown");
+    expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe("interrupted");
+
+    gate.resolve({ report: "ok" });
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
+  });
+
+  test("sessions.cancel of a queued spawn makes wait_agents report interrupted, not queued", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let started = 0;
+    const deps = makeDeps(async () => {
+      started += 1;
+      return gate.promise;
+    });
+    deps.admission = createAdmissionQueue({ capacity: 1 });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const first = await callTool(spawn, {
+      description: "holder",
+      prompt: "hold",
+      intent: "explore",
+    });
+    const queued = await callTool(spawn, {
+      description: "queued",
+      prompt: "wait",
+      intent: "explore",
+    });
+    expect(first.status).toBe("running");
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(1);
+    const queuedId = queued.agent_id as string;
+
+    const startedAt = Date.now();
+    expect(deps.sessions.cancel(queuedId)).toBe(true);
+    const waited = await callTool(wait, { targets: [queuedId], timeout_ms: 200 });
+    const elapsed = Date.now() - startedAt;
+    expect(elapsed).toBeLessThan(200);
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { agent_id: string; status: string }[];
+    expect(results).toEqual([{ agent_id: queuedId, status: "interrupted" }]);
+    expect(started).toBe(1);
+
+    gate.resolve({ report: "ok" });
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
+  });
+
+  test("start() threads fleet admission onto RunSubAgentParams", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const deps = makeDeps(async (params) => {
+      captured = params;
+      return { report: "ok" };
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const result = await callTool(spawn, {
+      description: "job",
+      prompt: "do it",
+      intent: "explore",
+    });
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, result.agent_id as string);
+    expect(captured?.admission).toBe(deps.admission);
+  });
+
+  test("lowering capacity does not cancel in-flight work", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let started = 0;
+    const admission = createAdmissionQueue({ capacity: 2 });
+    const deps = makeDeps(async () => {
+      started += 1;
+      return gate.promise;
+    });
+    deps.admission = admission;
+    const spawn = createSpawnAgentTool(deps);
+    const a = await callTool(spawn, { description: "a", prompt: "do it", intent: "explore" });
+    const b = await callTool(spawn, { description: "b", prompt: "do it", intent: "explore" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(2);
+    admission.setCapacity(0);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(2);
+    expect(deps.sessions.get(a.agent_id as string)?.status).toBe("running");
+    expect(deps.sessions.get(b.agent_id as string)?.status).toBe("running");
+    gate.resolve({ report: "ok" });
+    await Promise.all([
+      waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, a.agent_id as string),
+      waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, b.agent_id as string),
+    ]);
   });
 });

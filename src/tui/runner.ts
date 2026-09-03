@@ -2763,6 +2763,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           startedAt: s.startedAt,
           lastActivityAt: s.lastActivityAt,
           ...(s.finishedAt !== undefined ? { finishedAt: s.finishedAt } : {}),
+          ...(s.runInFlight !== undefined ? { runInFlight: s.runInFlight } : {}),
         })),
       }),
       subscribeChrome: (notify) => {

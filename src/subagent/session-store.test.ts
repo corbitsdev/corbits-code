@@ -933,12 +933,28 @@ describe("CL-7269 one stored worker lifecycle", () => {
   test("closeOne during setup then fail() does not wait the deadline", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.markRunInFlight(session.id);
     const started = Date.now();
     const closePromise = store.closeOne(session.id, 5000);
     setTimeout(() => store.fail(session.id, "boom"), 15);
     expect(await closePromise).toBe("shutdown");
     expect(Date.now() - started).toBeLessThan(200);
     expect(store.get(session.id)?.lifecycle.state).toBe("failed");
+  });
+
+  test("closeOne of a queued pending_init session does not wait for a close handle", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    let cancelled = 0;
+    store.registerCancel(session.id, () => {
+      cancelled += 1;
+    });
+    const started = Date.now();
+    expect(await store.closeOne(session.id, 5000)).toBe("shutdown");
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(cancelled).toBe(1);
+    expect(store.get(session.id)?.lifecycle.state).toBe("shutdown");
+    expect(store.get(session.id)?.runInFlight).toBe(false);
   });
 
   test("start() reuse of an id drops leftover pins", () => {

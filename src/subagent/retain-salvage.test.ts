@@ -116,7 +116,8 @@ describe("retained session lifecycle", () => {
       brief: "b",
       retained: true,
     });
-    // No registerClose yet — closeOne races the agent-setup window.
+    store.markRunInFlight(s.id);
+    // No registerClose yet — closeOne races the post-admit agent-setup window.
     const closePromise = store.closeOne(s.id, 200);
     let registeredClose = false;
     setTimeout(() => {
