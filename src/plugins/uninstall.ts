@@ -126,7 +126,7 @@ export async function deleteOwnedPluginDir(
   return { ok: true };
 }
 
-export function disableBundledPluginSettings(
+export function disablePluginSettings(
   plugins: Record<string, PluginConfig>,
   id: string,
 ): Record<string, PluginConfig> {

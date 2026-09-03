@@ -684,6 +684,45 @@ describe("plugins surface admin actions", () => {
     });
   });
 
+  test("empty plugin list Alt+A still opens add-path", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      const plugins = deps.plugins!;
+      const empty: CommandSurfaceDeps = {
+        ...deps,
+        plugins: { ...plugins, list: () => [] },
+      };
+      openCommandSurface(shell, "plugins", empty);
+      expect(runOverlayAction(shell, altKey("a"))).toBe(true);
+      for (const ch of "/tmp/my-plugin") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.addPath).toEqual(["/tmp/my-plugin"]);
+    });
+  });
+
+  test("Alt+A on warnings/Close still opens add-path", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = pluginActionDeps();
+      const plugins = deps.plugins!;
+      const withWarnings: CommandSurfaceDeps = {
+        ...deps,
+        plugins: {
+          ...plugins,
+          loadWarnings: () => [
+            'agent a: skill "style" referenced but not found in skill search path',
+          ],
+        },
+      };
+      openCommandSurface(shell, "plugins", withWarnings);
+      expect(runOverlayAction(shell, altKey("a"))).toBe(true);
+      for (const ch of "/tmp/from-warnings") runOverlayAction(shell, charKey(ch));
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      expect(calls.addPath).toEqual(["/tmp/from-warnings"]);
+    });
+  });
+
   test("Alt+X on warnings/Close is a no-op", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps();

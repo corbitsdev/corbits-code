@@ -946,10 +946,20 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       // branch returns before that handler is reached (see shell.ts's
       // top-level onKey), so exactly one of the two can ever fire.
       if (key.ctrl || !(key.meta || key.option)) return false;
+      const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
+      // Surface-level chords — advertised in the how-to even when focus is on
+      // Close, the empty-list row, or load warnings.
+      if (name === "a") {
+        openAddPathPane(shell, deps, plugins);
+        return true;
+      }
+      if (name === "w") {
+        openWebProviderChooser(shell, deps, plugins);
+        return true;
+      }
       if (id === PLUGIN_LOAD_WARNINGS_ID) return false;
       const target = byId.get(id);
       if (target === undefined) return false;
-      const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
       switch (name) {
         case "c":
           if (target.credentials.length === 0) return false;
@@ -976,18 +986,12 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
             (err: unknown) => deps.notify(`Trust failed: ${errorText(err)}`),
           );
           return true;
-        case "a":
-          openAddPathPane(shell, deps, plugins);
-          return true;
         case "x":
           if (pluginNeedsDiskConfirm(target, plugins)) {
             openRemoveConfirmPane(shell, deps, plugins, target);
           } else {
             applyPluginRemove(shell, deps, plugins, target);
           }
-          return true;
-        case "w":
-          openWebProviderChooser(shell, deps, plugins);
           return true;
         default:
           return false;

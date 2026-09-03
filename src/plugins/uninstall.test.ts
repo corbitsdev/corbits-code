@@ -7,7 +7,7 @@ import type { PluginConfig } from "../config/settings.js";
 import {
   classifyPluginRemove,
   deleteOwnedPluginDir,
-  disableBundledPluginSettings,
+  disablePluginSettings,
   isOwnedDiskInstall,
   nextPluginPathsAfterRemove,
   ownedDiskOriginRoot,
@@ -195,7 +195,7 @@ describe("plugin remove settings policy", () => {
       exa: { enabled: true, credentials: { apiKey: "k" } },
       other: { enabled: true },
     };
-    const next = disableBundledPluginSettings(plugins, "exa");
+    const next = disablePluginSettings(plugins, "exa");
     expect(next.exa?.enabled).toBe(false);
     expect(next.exa?.credentials).toEqual({ apiKey: "k" });
     expect(next.other).toEqual({ enabled: true });
@@ -206,22 +206,12 @@ describe("plugin remove settings policy", () => {
     const plugins: Record<string, PluginConfig> = {
       "corbits-skills": { enabled: true },
     };
-    expect(disableBundledPluginSettings(plugins, "corbits-skills")).toEqual({
+    expect(disablePluginSettings(plugins, "corbits-skills")).toEqual({
       "corbits-skills": { enabled: false },
     });
-    expect(disableBundledPluginSettings({}, "corbits-skills")).toEqual({
+    expect(disablePluginSettings({}, "corbits-skills")).toEqual({
       "corbits-skills": { enabled: false },
     });
-  });
-
-  test("disableBundledPluginSettings keeps plugins[id].enabled === false", () => {
-    const plugins: Record<string, PluginConfig> = {
-      exa: { enabled: true, credentials: { apiKey: "k" } },
-    };
-    const next = disableBundledPluginSettings(plugins, "exa");
-    expect(next.exa?.enabled).toBe(false);
-    expect(next.exa?.credentials).toEqual({ apiKey: "k" });
-    expect("exa" in next).toBe(true);
   });
 
   test("path drops unique pluginPaths and keeps a shared marketplace root", async () => {

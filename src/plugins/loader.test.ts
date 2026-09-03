@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { dedupePluginModules, type PluginModule } from "./loader.js";
 import { isPluginModuleEnabled } from "./register.js";
-import { disableBundledPluginSettings } from "./uninstall.js";
+import { disablePluginSettings } from "./uninstall.js";
 
 function repoDefaultEnabled(id: string): PluginModule {
   return {
@@ -82,12 +82,12 @@ describe("isPluginModuleEnabled with dedupe shadowing", () => {
     expect(isPluginModuleEnabled(survivor!, { scout: { enabled: false } })).toBe(false);
   });
 
-  test("disableBundledPluginSettings then isPluginModuleEnabled is false for shadowedRepoDefaultEnabled", () => {
+  test("disablePluginSettings then isPluginModuleEnabled is false for shadowedRepoDefaultEnabled", () => {
     const repo = repoDefaultEnabled("scout");
     const user = userInstall("scout");
     const [survivor] = dedupePluginModules([repo, user]);
     expect(survivor!.shadowedRepoDefaultEnabled).toBe(true);
-    const plugins = disableBundledPluginSettings({}, "scout");
+    const plugins = disablePluginSettings({}, "scout");
     expect(plugins.scout?.enabled).toBe(false);
     expect(isPluginModuleEnabled(survivor!, plugins)).toBe(false);
   });

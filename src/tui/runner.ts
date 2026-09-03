@@ -98,7 +98,7 @@ import {
   claudeHomeRoot,
   classifyPluginRemove,
   deleteOwnedPluginDir,
-  disableBundledPluginSettings,
+  disablePluginSettings,
   isOwnedDiskInstall,
   nextPluginPathsAfterRemove,
   ownedDiskOriginRoot,
@@ -1303,8 +1303,26 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         };
 
         const disableConfig = (): void => {
-          livePluginConfig = disableBundledPluginSettings(livePluginConfig, id);
+          livePluginConfig = disablePluginSettings(livePluginConfig, id);
           if (liveWebOverride === id) liveWebOverride = undefined;
+        };
+
+        const dropPathRegistration = async (path: string): Promise<string> => {
+          pathTrust = await revokePathPlugin(path);
+          const planned = await nextPluginPathsAfterRemove({
+            pluginPaths: livePluginPaths,
+            pluginPath: path,
+            cwd: config.cwd,
+            otherLivePluginPaths: livePluginModules.flatMap((m) =>
+              m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
+            ),
+            expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
+          });
+          livePluginPaths.length = 0;
+          livePluginPaths.push(...planned.pluginPaths);
+          return planned.keptSharedRoot
+            ? " Other plugins remain at that marketplace path; this one may return untrusted on restart."
+            : "";
         };
 
         const home = homedir();
@@ -1358,21 +1376,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           if (!disk.ok) return disk;
           let extra = "";
           if (origin === "path") {
-            pathTrust = await revokePathPlugin(pluginPath);
-            const planned = await nextPluginPathsAfterRemove({
-              pluginPaths: livePluginPaths,
-              pluginPath,
-              cwd: config.cwd,
-              otherLivePluginPaths: livePluginModules.flatMap((m) =>
-                m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
-              ),
-              expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
-            });
-            livePluginPaths.length = 0;
-            livePluginPaths.push(...planned.pluginPaths);
-            extra = planned.keptSharedRoot
-              ? " Other plugins remain at that marketplace path; this one may return untrusted on restart."
-              : "";
+            extra = await dropPathRegistration(pluginPath);
           }
           spliceLive();
           disableConfig();
@@ -1381,31 +1385,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         }
 
         if (action === "remove-path") {
-          if (pluginPath !== undefined) {
-            pathTrust = await revokePathPlugin(pluginPath);
-            const planned = await nextPluginPathsAfterRemove({
-              pluginPaths: livePluginPaths,
-              pluginPath,
-              cwd: config.cwd,
-              otherLivePluginPaths: livePluginModules.flatMap((m) =>
-                m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
-              ),
-              expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
-            });
-            livePluginPaths.length = 0;
-            livePluginPaths.push(...planned.pluginPaths);
-            spliceLive();
-            disableConfig();
-            await persistPluginSettings();
-            const extra = planned.keptSharedRoot
-              ? " Other plugins remain at that marketplace path; this one may return untrusted on restart."
-              : "";
-            return { ok: true, message: withToolsNote(`Removed ${desc.name}.${extra}`) };
-          }
+          const extra = pluginPath !== undefined ? await dropPathRegistration(pluginPath) : "";
           spliceLive();
           disableConfig();
           await persistPluginSettings();
-          return { ok: true, message: withToolsNote(`Removed ${desc.name}.`) };
+          return { ok: true, message: withToolsNote(`Removed ${desc.name}.${extra}`) };
         }
 
         return { ok: false, message: `Cannot remove ${desc.name}` };

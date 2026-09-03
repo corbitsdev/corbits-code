@@ -22,6 +22,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   instead of duplicating the test command, and the projects-dir guard no longer
   squats on the `test` script name.
 
+### TUI
+
+- `/plugins` uninstalls user, project, and path-installed plugins with Alt+X.
+  Bundled plugins disable only and stay listed. Claude marketplace plugins
+  disable in settings without deleting `~/.claude`. The screen opens with a
+  how-to header.
+
 ## [0.3.14] - 2026-09-03
 
 ### Changed
