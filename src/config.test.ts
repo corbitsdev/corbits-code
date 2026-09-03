@@ -118,6 +118,7 @@ describe("loadConfig", () => {
       assertConfigured(config);
       expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
       expect(config.mcpServersSource).toBe("none");
+      expect(config.mcpServerEntries).toEqual([]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -140,6 +141,7 @@ describe("loadConfig", () => {
       assertConfigured(globalConfig);
       expect(globalConfig.mcpServers).toEqual([BUILTIN_EXA_MCP]);
       expect(globalConfig.mcpServersSource).toBe("global");
+      expect(globalConfig.mcpServerEntries).toEqual([{ name: "exa", enabled: true }]);
 
       await writeGlobalSettings(cwd, { exa: { enabled: false } });
       const disabledConfig = await loadConfig(["--cwd", cwd, "hello"], {
@@ -148,6 +150,7 @@ describe("loadConfig", () => {
       assertConfigured(disabledConfig);
       expect(disabledConfig.mcpServers).toEqual([]);
       expect(disabledConfig.mcpServersSource).toBe("global");
+      expect(disabledConfig.mcpServerEntries).toEqual([{ name: "exa", enabled: false }]);
 
       await writeGlobalSettings(cwd, { exa: { enabled: true } });
       await mkdir(join(cwd, ".corbits"), { recursive: true });
@@ -164,6 +167,7 @@ describe("loadConfig", () => {
         { name: "local", command: "local-mcp" },
       ]);
       expect(localConfig.mcpServersSource).toBe("local");
+      expect(localConfig.mcpServerEntries).toEqual([{ name: "local", command: "local-mcp" }]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -203,6 +207,64 @@ describe("loadConfig", () => {
         [{ name: "exa", type: "http", url: "https://local.example.test/mcp" }],
       ),
     ).toEqual([{ name: "exa", type: "http", url: "https://local.example.test/mcp" }]);
+  });
+
+  test("drops disabled transport rows without expanding them to Exa", () => {
+    expect(
+      resolveMcpServers(
+        [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false }],
+        undefined,
+      ),
+    ).toEqual([BUILTIN_EXA_MCP]);
+    expect(
+      resolveMcpServers(
+        [
+          { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+          { name: "files", command: "files-mcp" },
+        ],
+        undefined,
+      ),
+    ).toEqual([BUILTIN_EXA_MCP, { name: "files", command: "files-mcp" }]);
+  });
+
+  test("resolves custom enabled Exa HTTP without duplicating the builtin", () => {
+    expect(
+      resolveMcpServers(
+        [{ name: "exa", type: "http", url: "https://example.test/mcp", enabled: true }],
+        undefined,
+      ),
+    ).toEqual([{ name: "exa", type: "http", url: "https://example.test/mcp" }]);
+  });
+
+  test("loadConfig keeps disabled global transport rows in mcpServerEntries only", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd, {
+        linear: { type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+      });
+      const config = await loadConfig(["--cwd", cwd, "hello"], { globalSettingsPath: globalPath });
+      assertConfigured(config);
+      expect(config.mcpServersSource).toBe("global");
+      expect(config.mcpServerEntries).toEqual([
+        { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+      ]);
+      expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("loadConfig with no mcp list uses empty mcpServerEntries and source none", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["--cwd", cwd, "hello"], { globalSettingsPath: globalPath });
+      assertConfigured(config);
+      expect(config.mcpServerEntries).toEqual([]);
+      expect(config.mcpServersSource).toBe("none");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   test("local custom MCP requires trust while built-in Exa bypasses project trust", async () => {

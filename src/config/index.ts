@@ -59,6 +59,8 @@ import {
   resolveLocalSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
+  hasMcpTransport,
+  isExaMCPPreset,
   type MCPServerSettingsEntry,
   type ResolvedProvider,
   type Settings,
@@ -134,17 +136,20 @@ function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
 
 function globalExaSuppressesBuiltin(servers: MCPServerSettingsEntry[] | undefined): boolean {
   return (
-    servers?.some(
-      (server) =>
-        server.name === EXA_MCP_SERVER_NAME && (!("enabled" in server) || !server.enabled),
-    ) === true
+    servers?.some((server) => {
+      if (server.name !== EXA_MCP_SERVER_NAME) return false;
+      if (isExaMCPPreset(server)) return !server.enabled;
+      return hasMcpTransport(server);
+    }) === true
   );
 }
 
 function expandMcpServers(servers: MCPServerSettingsEntry[]): ResolvedMCPServerConfig[] {
   return servers.flatMap((server) => {
-    if (!("enabled" in server)) return [server];
-    return server.enabled ? [createExaMCPServerConfig()] : [];
+    if (isExaMCPPreset(server)) return server.enabled ? [createExaMCPServerConfig()] : [];
+    if (server.enabled === false) return [];
+    const { enabled: _enabled, ...connect } = server;
+    return [connect];
   });
 }
 
@@ -430,6 +435,8 @@ export interface Config {
   mcpServers?: ResolvedMCPServerConfig[];
   /** Local project MCP lists replace global lists and require project trust. */
   mcpServersSource?: "local" | "global" | "none";
+  /** Unexpanded owning list. Empty with source `"none"` means no list (builtin may inject). */
+  mcpServerEntries: MCPServerSettingsEntry[];
   sessionId: string;
   /** When true, runTUI shows a session picker first (resume flow). */
   resumePicker?: boolean;
@@ -919,15 +926,18 @@ export async function loadConfig(
       ? {
           mcpServers: resolveMcpServers(settings?.mcpServers, local.mcpServers),
           mcpServersSource: "local" as const,
+          mcpServerEntries: local.mcpServers,
         }
       : settings?.mcpServers !== undefined
         ? {
             mcpServers: resolveMcpServers(settings.mcpServers, undefined),
             mcpServersSource: "global" as const,
+            mcpServerEntries: settings.mcpServers,
           }
         : {
             mcpServers: resolveMcpServers(undefined, undefined),
             mcpServersSource: "none" as const,
+            mcpServerEntries: [],
           }),
     // Runtime view includes OAuth projections so inference resolution can see
     // Codex/xAI providers that are never written to settings.json. Not safe

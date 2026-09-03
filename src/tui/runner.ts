@@ -33,6 +33,7 @@ import {
   markLastChangelogVersion,
   toggleFavoriteModel,
   setDefaultModel,
+  isExaMCPPreset,
   type ModelRef,
   type ResolvedProvider,
   type Settings,
@@ -2428,11 +2429,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
     };
 
-    const persistedMCPServer = (name: string): MCPServerConfig | undefined =>
-      (config.mcpServers ?? []).find((server) => server.name === name) ??
-      (config.settings?.mcpServers ?? []).find(
-        (server): server is MCPServerConfig => server.name === name && !("enabled" in server),
+    const persistedMCPServer = (name: string): MCPServerConfig | undefined => {
+      const fromConnect = (config.mcpServers ?? []).find((server) => server.name === name);
+      if (fromConnect !== undefined) return fromConnect;
+      const entry = config.mcpServerEntries.find(
+        (server) => server.name === name && !isExaMCPPreset(server),
       );
+      if (entry === undefined) return undefined;
+      const { enabled: _enabled, ...connect } = entry;
+      return connect;
+    };
 
     const host = await mountRunnerHost({
       // An unnamed session shows nothing rather than a placeholder.

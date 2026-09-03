@@ -31,8 +31,8 @@ You may also spell the default explicitly:
 ```
 
 The preset connects to `https://mcp.exa.ai/mcp`. To use a different server under
-the same name, provide an ordinary transport-bearing entry instead of an
-`enabled` marker:
+the same name, provide an ordinary transport-bearing entry instead of the Exa
+no-transport `{ "enabled": true | false }` preset:
 
 ```jsonc
 {
@@ -41,6 +41,10 @@ the same name, provide an ordinary transport-bearing entry instead of an
   },
 }
 ```
+
+Transport-bearing rows may also set `enabled: false` to stay configured without
+connecting. The Exa no-transport `{ "name": "exa", "enabled": ... }` form remains
+the builtin preset.
 
 Anonymous preset use requires no account, API key, OAuth provider, or callback
 server and is rate limited by Exa; a `429` response means the anonymous limit has

@@ -66,19 +66,37 @@ describe("MCP settings validation", () => {
     ]);
   });
 
-  test("rejects empty, unknown transport-less, and mixed preset entries", () => {
+  test("rejects empty and transport-less non-Exa entries", () => {
     expect(normalizeMcpServers({ exa: {} })).toBeUndefined();
     expect(normalizeMcpServers({ unknown: { enabled: true } })).toBeUndefined();
     expect(normalizeMcpServers({ unknown: { enabled: false } })).toBeUndefined();
-    expect(
-      normalizeMcpServers({ exa: { enabled: true, url: "https://mcp.exa.ai/mcp" } }),
-    ).toBeUndefined();
-    expect(normalizeMcpServers({ exa: { enabled: false, command: "custom-exa" } })).toBeUndefined();
+  });
+
+  test("accepts transport-bearing Exa rows with enabled", () => {
+    expect(normalizeMcpServers({ exa: { enabled: true, url: "https://mcp.exa.ai/mcp" } })).toEqual([
+      { name: "exa", enabled: true, url: "https://mcp.exa.ai/mcp" },
+    ]);
+    expect(normalizeMcpServers({ exa: { enabled: false, command: "custom-exa" } })).toEqual([
+      { name: "exa", command: "custom-exa", enabled: false },
+    ]);
   });
 
   test("preserves a custom transport-bearing server named Exa", () => {
     expect(normalizeMcpServers({ exa: { url: "https://example.test/custom" } })).toEqual([
       { name: "exa", url: "https://example.test/custom" },
+    ]);
+  });
+
+  test("normalizes optional enabled on transport rows", () => {
+    expect(
+      normalizeMcpServers({
+        linear: { type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+      }),
+    ).toEqual([
+      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+    ]);
+    expect(normalizeMcpServers({ linear: { url: "https://mcp.linear.app/mcp" } })).toEqual([
+      { name: "linear", url: "https://mcp.linear.app/mcp" },
     ]);
   });
 });
