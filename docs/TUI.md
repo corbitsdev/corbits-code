@@ -261,9 +261,10 @@ for `/status` or an operator question mid-run.
 A blocking surface (permissions, an operator question, the model/provider
 picker, help) occupies the shell's **single overlay host**
 (`src/tui/geometry/resolve.ts`,
-`src/tui/shell.ts:openListOverlay`). Opening a second surface either
-replaces the one that was open or stacks over it; either way Escape always
-walks back along a single path to the prompt.
+`src/tui/shell.ts:openListOverlay`). A second command surface does not
+replace or stack on that host — it waits with a system line until the host
+is idle. Palette may stack over a primary; Escape always walks back along
+a single path to the prompt.
 
 Accepting a `/` command or palette row keeps that host until dispatch
 settles: the list closes without advertising idle, the command runs, and

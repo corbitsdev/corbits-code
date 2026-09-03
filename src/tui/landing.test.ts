@@ -553,6 +553,8 @@ describe("landing screen", () => {
       try {
         await settle(h);
         const frame = h.captureCharFrame();
+        // Assert the badge token, not "queue": this worktree path contains
+        // "queued" and would false-fail a cwd substring check.
         for (const gone of ["BUSY", "IDLE", "FOLLOW", "follow-up", "lines", "focus"]) {
           expect(frame).not.toContain(gone);
         }

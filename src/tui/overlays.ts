@@ -82,6 +82,8 @@ export interface OpenPermissionsOpts {
   readonly onToggleExpand?: () => void;
   /** Per-open Esc/dismiss; host binds resolve(ApprovalOutcome) so Esc denies instead of hanging. */
   readonly onCancel?: () => void;
+  /** True when this open is a live permission gate, not admin `/permissions`. */
+  readonly isGate?: boolean;
   /**
    * Suppress the generic accept/answer echo for this open. Decision gates
    * pass `false` so a settled permission does not replay into the
@@ -104,6 +106,7 @@ export function openPermissionsOverlay(shell: AppShell, opts?: OpenPermissionsOp
     ...(opts?.onToggleExpand !== undefined ? { onToggleExpand: opts.onToggleExpand } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
+    ...(opts?.isGate !== undefined ? { isGate: opts.isGate } : {}),
     ...(opts?.echoChoice !== undefined ? { echoChoice: opts.echoChoice } : {}),
   });
 }
@@ -119,6 +122,8 @@ export interface OpenOperatorOpts {
   readonly onTextAnswer?: (text: string) => void;
   /** Per-open Esc/dismiss; host binds resolve(cancel) so Esc cancels instead of hanging. */
   readonly onCancel?: () => void;
+  /** True when this open is a live operator gate. */
+  readonly isGate?: boolean;
   /**
    * Suppress the generic accept/answer echo for this open. Decision gates
    * pass `false` so a settled operator question does not replay into the
@@ -153,6 +158,7 @@ export function openOperatorOverlay(shell: AppShell, opts?: OpenOperatorOpts): v
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.onTextAnswer !== undefined ? { onTextAnswer: opts.onTextAnswer } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
+    ...(opts?.isGate !== undefined ? { isGate: opts.isGate } : {}),
     ...(opts?.echoChoice !== undefined ? { echoChoice: opts.echoChoice } : {}),
   });
 }
@@ -196,6 +202,7 @@ export function openModelPickerOverlay(shell: AppShell, opts?: OpenModelPickerOp
     ...(opts?.typeToFilter !== undefined ? { typeToFilter: opts.typeToFilter } : {}),
     ...(opts?.addProviderHint !== undefined ? { addProviderHint: opts.addProviderHint } : {}),
     ...(opts?.setDefaultHint !== undefined ? { setDefaultHint: opts.setDefaultHint } : {}),
+    deferIfBusy: true,
   });
 }
 
@@ -224,5 +231,6 @@ export function openAddProviderOverlay(shell: AppShell, opts?: OpenAddProviderOp
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
+    deferIfBusy: true,
   });
 }

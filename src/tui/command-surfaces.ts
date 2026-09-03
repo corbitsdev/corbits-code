@@ -16,9 +16,9 @@ import { maskEcho, maskSecret } from "./provider-setup.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
 import {
   captureOverlayContinuation,
-  closeInsetOverlay,
   closeReplaceableOverlay,
   isOverlayContinuationCurrent,
+  isOverlayGenerationCurrent,
   openHelpOverlay,
   openListOverlay,
   openSettingsOverlay,
@@ -563,10 +563,12 @@ export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): 
     renderSettingsMenu(shell, deps, settings, settingsSyncNavRows(deps));
     return;
   }
+  const token = captureOverlayContinuation(shell);
   const release = reserveOverlayHost(shell);
   void deps.permissions.list().then(
     (entries) => {
       try {
+        if (!isOverlayGenerationCurrent(shell, token)) return;
         renderSettingsMenu(shell, deps, settings, [
           permissionsNavRow(entries.length),
           ...settingsSyncNavRows(deps),
@@ -577,6 +579,7 @@ export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): 
     },
     (err: unknown) => {
       try {
+        if (!isOverlayGenerationCurrent(shell, token)) return;
         deps.notify(`Could not read remembered approvals: ${errorText(err)}`);
       } finally {
         release();
@@ -592,10 +595,12 @@ export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps
     deps.notify("Permission administration is not available in this session.");
     return;
   }
+  const token = captureOverlayContinuation(shell);
   const release = reserveOverlayHost(shell);
   void permissions.list().then(
     (entries) => {
       try {
+        if (!isOverlayGenerationCurrent(shell, token)) return;
         closeReplaceableOverlay(shell);
         const rows: ResidualCatalogEntry[] = entries.map((e) => ({
           id: e.id,
@@ -612,6 +617,7 @@ export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps
           kind: "permissions",
           title: "permissions · Enter revokes",
           frameId: "overlay-permissions",
+          deferIfBusy: true,
           ...payload(rows),
           onAccept: (selection) => {
             const id = selectedId(selection, rows);
@@ -632,6 +638,7 @@ export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps
     },
     (err: unknown) => {
       try {
+        if (!isOverlayGenerationCurrent(shell, token)) return;
         deps.notify(`Could not read remembered approvals: ${errorText(err)}`);
       } finally {
         release();
@@ -676,7 +683,7 @@ function openCredentialsPane(
   entry: PluginEntry,
   state: CredentialPaneState,
 ): void {
-  closeInsetOverlay(shell);
+  closeReplaceableOverlay(shell);
   const fields = entry.credentials;
   const rows: ResidualCatalogEntry[] = fields.map((f, i) => ({
     id: f.key,
@@ -687,6 +694,7 @@ function openCredentialsPane(
     kind: "plugin_credentials",
     title: `${entry.name} · credentials`,
     frameId: "overlay-plugin-credentials",
+    deferIfBusy: true,
     activeIndex: Math.min(state.editing ?? 0, rows.length - 1),
     ...payload(rows),
     describe: (id) => {
@@ -764,11 +772,12 @@ function openTextPromptPane(
   },
   buffer: { value: string },
 ): void {
-  closeInsetOverlay(shell);
+  closeReplaceableOverlay(shell);
   openListOverlay(shell, {
     kind: "plugin_credentials",
     title: opts.title,
     frameId: "overlay-plugin-textprompt",
+    deferIfBusy: true,
     items: [buffer.value.length === 0 ? "▏" : `${buffer.value}▏`],
     itemIds: ["value"],
     describe: () => ({ what: opts.what, impact: "Enter accepts. Esc cancels." }),
@@ -879,7 +888,7 @@ function openWebProviderChooser(
   deps: CommandSurfaceDeps,
   plugins: PluginsSurfaceDeps,
 ): void {
-  closeInsetOverlay(shell);
+  closeReplaceableOverlay(shell);
   const providers = plugins.webProviders();
   const current = plugins.currentWebProvider();
   const AUTO_ID = "__auto__";
@@ -892,6 +901,7 @@ function openWebProviderChooser(
     kind: "plugin_credentials",
     title: "web search provider",
     frameId: "overlay-plugin-web",
+    deferIfBusy: true,
     ...payload(rows),
     onAccept: (selection) => {
       const id = selectedId(selection, rows);
@@ -942,6 +952,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     kind: "plugins",
     title: "plugins",
     frameId: "overlay-plugins",
+    deferIfBusy: true,
     ...payload(rows),
     describe: (id) => {
       if (id === PLUGIN_LOAD_WARNINGS_ID) {
@@ -1057,6 +1068,7 @@ export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): voi
     kind: "hooks",
     title: "hooks",
     frameId: "overlay-hooks",
+    deferIfBusy: true,
     ...payload(rows),
     describe: (id) => {
       const target = byId.get(id);
@@ -1297,6 +1309,7 @@ export function openMcpSurface(
     ...(activeIndex >= 0 ? { activeIndex } : {}),
     title: "mcp",
     frameId: "overlay-mcp",
+    deferIfBusy: true,
     // The flash below reports the outcome; the echo would quote the row's
     // pre-authorization label back at the operator forever.
     echoChoice: false,
@@ -1308,6 +1321,26 @@ export function openMcpSurface(
       return target === undefined ? null : mcpDescription(target);
     },
     onCancel: () => unsubscribe(),
+    onOpened: () => {
+      unsubscribe =
+        mcp.subscribe?.(() => {
+          const liveEntries = mcp.list();
+          const liveRows = mcpSurfaceRows(liveEntries, canAdd);
+          rows.splice(0, rows.length, ...liveRows);
+          byName.clear();
+          for (const entry of liveEntries) byName.set(entry.name, entry);
+          if (
+            !setOwnedOverlayItems(
+              shell,
+              "mcp",
+              rows.map((row) => row.label),
+              rows.map((row) => row.id),
+            )
+          ) {
+            unsubscribe();
+          }
+        }) ?? unsubscribe;
+    },
     onAccept: (selection) => {
       const id = selectedId(selection, rows);
       unsubscribe();
@@ -1343,7 +1376,7 @@ export function openMcpSurface(
       // The copy is the fallback that makes this work over SSH, where the
       // browser that must receive the redirect is not on this machine.
       void shell.clipboard.writeText(url);
-      closeInsetOverlay(shell);
+      closeReplaceableOverlay(shell);
       setStatusFlash(shell, `opening ${target.name} authorization — link copied`, {
         ttlMs: MCP_AUTH_FLASH_MS,
       });
@@ -1382,24 +1415,6 @@ export function openMcpSurface(
       return false;
     },
   });
-  unsubscribe =
-    mcp.subscribe?.(() => {
-      const liveEntries = mcp.list();
-      const liveRows = mcpSurfaceRows(liveEntries, canAdd);
-      rows.splice(0, rows.length, ...liveRows);
-      byName.clear();
-      for (const entry of liveEntries) byName.set(entry.name, entry);
-      if (
-        !setOwnedOverlayItems(
-          shell,
-          "mcp",
-          rows.map((row) => row.label),
-          rows.map((row) => row.id),
-        )
-      ) {
-        unsubscribe();
-      }
-    }) ?? unsubscribe;
 }
 
 /** Long enough to notice the browser was asked to open, and why. */

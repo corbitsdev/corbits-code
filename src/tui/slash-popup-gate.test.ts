@@ -16,14 +16,17 @@ import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import { openCommandSurface, type CommandSurfaceDeps } from "./command-surfaces";
 import { wireGates } from "./gate-wire";
+import { openPermissionsOverlay } from "./overlays";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
+  closeReplaceableOverlay,
   createAppShell,
   isSlashPopupOpen,
   moveOverlaySelection,
   onOverlayClosed,
   openHelpOverlay,
+  openListOverlay,
   openPalette,
   type AppShell,
 } from "./shell";
@@ -106,6 +109,45 @@ function emitPermissionGate(
 
 function typePrompt(press: (key: string) => void, text: string): void {
   for (const ch of text) press(ch);
+}
+
+function hangingSettingsList(): {
+  readonly list: Promise<readonly []>;
+  readonly resolve: () => void;
+} {
+  let resolveList: (entries: readonly []) => void = () => undefined;
+  const list = new Promise<readonly []>((resolve) => {
+    resolveList = resolve;
+  });
+  return {
+    list,
+    resolve: () => resolveList([]),
+  };
+}
+
+function settingsOnCommand(list: Promise<readonly []>): (name: string, shell: AppShell) => void {
+  return (name, shell) => {
+    if (name !== "settings") return;
+    openCommandSurface(shell, "settings", {
+      notify: () => undefined,
+      settings: {
+        read: () => ({
+          compactionMode: "llm",
+          waitForApproval: true,
+          telemetryEnabled: false,
+          showPromptCost: false,
+        }),
+        setCompactionMode: () => undefined,
+        setWaitForApproval: () => undefined,
+        setTelemetryEnabled: () => undefined,
+        setShowPromptCost: () => undefined,
+      },
+      permissions: {
+        list: () => list,
+        revoke: () => Promise.resolve(),
+      },
+    });
+  };
 }
 
 describe("/ popup keeps a queued gate queued across a filter refresh", () => {
@@ -623,6 +665,146 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           });
         },
       },
+    );
+  });
+});
+
+describe("overlay host occupancy and opt-in deferral", () => {
+  test("a permission event during /settings list() reservation does not take the host", async () => {
+    const hanging = hangingSettingsList();
+    await withShell(
+      async ({ shell, press }) => {
+        const emitter = new EventEmitter();
+        const dispose = wireGates(emitter, shell);
+        try {
+          typePrompt(press, "/settings");
+          press("Enter");
+          expect(shell.overlayKind).not.toBe("settings");
+          expect(shell.overlayKind).not.toBe("permissions");
+
+          let resolved: unknown;
+          emitPermissionGate(
+            emitter,
+            (outcome) => {
+              resolved = outcome;
+            },
+            { timeoutMs: 5 },
+          );
+          expect(shell.overlayKind).not.toBe("permissions");
+          expect(resolved).toBeUndefined();
+
+          hanging.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+          expect(shell.overlayKind).toBe("settings");
+          expect(resolved).toBeUndefined();
+
+          await Bun.sleep(20);
+          expect(shell.overlayKind).toBe("settings");
+          expect(resolved).toBeUndefined();
+
+          closeInsetOverlay(shell);
+          await Promise.resolve();
+          await Promise.resolve();
+          expect(shell.overlayKind).toBe("permissions");
+          expect(resolved).toBeUndefined();
+        } finally {
+          dispose();
+        }
+      },
+      { onCommand: settingsOnCommand(hanging.list) },
+    );
+  });
+
+  test("busy openListOverlay without deferIfBusy is a silent no-op", async () => {
+    await withShell(async ({ shell }) => {
+      openListOverlay(shell, { kind: "demo", items: ["first"] });
+      expect(shell.overlayItems[0]).toBe("first");
+
+      openListOverlay(shell, { kind: "demo", items: ["second"] });
+      expect(shell.overlayItems[0]).toBe("first");
+      expect(
+        shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+      ).toBe(false);
+
+      closeInsetOverlay(shell);
+      await Promise.resolve();
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("closeReplaceableOverlay leaves an isGate overlay and replaces admin permissions", async () => {
+    await withShell(async ({ shell }) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      try {
+        emitPermissionGate(emitter, () => undefined);
+        expect(shell.overlayKind).toBe("permissions");
+        closeReplaceableOverlay(shell);
+        expect(shell.overlayKind).toBe("permissions");
+        closeInsetOverlay(shell);
+      } finally {
+        dispose();
+      }
+
+      openPermissionsOverlay(shell, {
+        items: ["Allow once", "Deny"],
+        onCancel: () => undefined,
+      });
+      expect(shell.overlayKind).toBe("permissions");
+      closeReplaceableOverlay(shell);
+      expect(shell.overlayList).toBeNull();
+
+      openCommandSurface(shell, "permissions", {
+        notify: () => undefined,
+        permissions: {
+          list: () => Promise.resolve([]),
+          revoke: () => Promise.resolve(),
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(shell.overlayKind).toBe("permissions");
+      closeReplaceableOverlay(shell);
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("settings list() aborts when a newer overlay takes the host", async () => {
+    const hanging = hangingSettingsList();
+    await withShell(
+      async ({ shell, press }) => {
+        const emitter = new EventEmitter();
+        const dispose = wireGates(emitter, shell);
+        try {
+          typePrompt(press, "/settings");
+          press("Enter");
+          expect(shell.overlayKind).not.toBe("settings");
+
+          let resolved: unknown;
+          emitPermissionGate(emitter, (outcome) => {
+            resolved = outcome;
+          });
+          expect(shell.overlayKind).not.toBe("permissions");
+
+          openHelpOverlay(shell);
+          expect(shell.overlayKind).toBe("help");
+
+          hanging.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+          expect(shell.overlayKind).toBe("help");
+          expect(resolved).toBeUndefined();
+
+          closeInsetOverlay(shell);
+          await Bun.sleep(60);
+          expect(shell.overlayKind).toBe("permissions");
+          expect(resolved).toBeUndefined();
+        } finally {
+          dispose();
+        }
+      },
+      { onCommand: settingsOnCommand(hanging.list) },
     );
   });
 });
