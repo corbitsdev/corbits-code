@@ -2042,6 +2042,21 @@ interface ShellInternals {
   /** Fired once the shell has no overlay open, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>;
   /**
+   * Command-surface open while a live overlay still holds the host. One slot;
+   * a newer command replaces an older one. Flushed only after that overlay
+   * has actually closed and the host is idle — never from notifyOverlayClosed,
+   * which would let wireGates drain a queued gate onto the same host.
+   */
+  deferredCommandOverlay: OpenListOverlayOpts | null;
+  /** True while a microtask to flush deferredCommandOverlay is queued. */
+  deferredFlushScheduled: boolean;
+  /**
+   * Host-owned holds that outlive overlayList being null (async /settings
+   * list(), etc.). While > 0, idle-notify must not fire so a queued gate
+   * cannot drain into the gap before the surface paints.
+   */
+  overlayHostReservations: number;
+  /**
    * Registry-backed `/` command catalog (static or lazy), host-injected. Empty
    * when unset.
    */
@@ -3640,10 +3655,15 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
   const kind = opts?.kind ?? "demo";
   const isPalette = kind === "palette";
 
-  // Single host: non-palette open is a no-op while anything is open.
-  // Palette may stack over a prior primary (snapshot paint; focus stacks).
+  // Single host: non-palette open is a no-op while anything is open, except
+  // a command surface requested during palette dispatch — that waits in one
+  // deferred slot instead of silently dropping. Palette may stack over a
+  // prior primary (snapshot paint; focus stacks).
   if (shell.overlayList) {
-    if (!isPalette) return;
+    if (!isPalette) {
+      deferBusyCommandOpen(shell, opts);
+      return;
+    }
     if (shell.overlayKind !== "palette") {
       const bag = internals.get(shell);
       if (bag) {
@@ -4124,7 +4144,10 @@ function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
 }
 
 /** Close overlay/palette if open; restore prior focus (or prior overlay under palette). */
-export function closeInsetOverlay(shell: AppShell): void {
+export function closeInsetOverlay(
+  shell: AppShell,
+  opts?: { readonly notifyClosed?: boolean },
+): void {
   if (!shell.overlayList) return;
   // Esc (or any other dismiss) must also drop the `/` and `@` popups' key claim.
   slashPopups.delete(shell);
@@ -4232,8 +4255,32 @@ export function closeInsetOverlay(shell: AppShell): void {
 
   relayout(shell, { overlayMode: "closed" });
   applyFocus(shell);
-  notifyOverlayClosed(shell);
+  const skipNotify =
+    opts?.notifyClosed === false ||
+    (bag?.deferredCommandOverlay ?? null) !== null ||
+    (bag?.overlayHostReservations ?? 0) > 0;
+  if (!skipNotify) notifyOverlayClosed(shell);
   onCancel?.();
+  scheduleDeferredCommandFlush(shell);
+}
+
+/**
+ * Close the current overlay only when dismissing it does not settle a
+ * permission or operator gate. Command surfaces that need a fresh host
+ * (settings cycle, plugins, mcp) call this instead of `closeInsetOverlay`
+ * so a live gate is left in place and `openListOverlay` can defer.
+ * Overlays that bind `onCancel` for cleanup only (mcp unsubscribe) still
+ * close — those are not decision gates.
+ */
+export function closeReplaceableOverlay(shell: AppShell): void {
+  const kind = shell.overlayKind;
+  if (
+    (kind === "permissions" || kind === "operator") &&
+    internals.get(shell)?.overlayOnCancel != null
+  ) {
+    return;
+  }
+  closeInsetOverlay(shell);
 }
 
 /**
@@ -4253,8 +4300,86 @@ export function onOverlayClosed(shell: AppShell, listener: () => void): () => vo
 function notifyOverlayClosed(shell: AppShell): void {
   const bag = internals.get(shell);
   if (!bag) return;
+  // Idle-notify means idle. A deferred command surface still owns the host.
+  if (bag.deferredCommandOverlay !== null) return;
+  if (bag.overlayHostReservations > 0) return;
   // Copied: a listener may re-open an overlay and unsubscribe mid-iteration.
   for (const listener of [...bag.overlayClosedListeners]) listener();
+}
+
+function notifyIfHostIdle(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  if (shell.overlayList !== null || bag.deferredCommandOverlay !== null) return;
+  if (bag.overlayHostReservations > 0) return;
+  notifyOverlayClosed(shell);
+}
+
+/**
+ * Hold the overlay host idle-notify while an async command surface is still
+ * claiming it (permissions.list() before settings/permissions paint). Release
+ * clears the hold and notifies if the host is actually idle.
+ */
+export function reserveOverlayHost(shell: AppShell): () => void {
+  const bag = internals.get(shell);
+  if (!bag) return () => undefined;
+  bag.overlayHostReservations += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const current = internals.get(shell);
+    if (!current) return;
+    if (current.overlayHostReservations > 0) current.overlayHostReservations -= 1;
+    notifyIfHostIdle(shell);
+  };
+}
+
+/** One deferred command-surface slot while the host is busy. */
+function deferBusyCommandOpen(shell: AppShell, opts: OpenListOverlayOpts | undefined): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  bag.deferredCommandOverlay = opts ?? {};
+  const kind = opts?.kind ?? "overlay";
+  appendStreamRow(shell, {
+    role: "system",
+    text: `${kind.replace(/_/g, " ")} will open when the current overlay closes.`,
+  });
+  scheduleDeferredCommandFlush(shell);
+}
+
+function scheduleDeferredCommandFlush(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag || bag.deferredCommandOverlay === null || bag.deferredFlushScheduled) return;
+  bag.deferredFlushScheduled = true;
+  queueMicrotask(() => {
+    bag.deferredFlushScheduled = false;
+    if (shell.disposed) {
+      bag.deferredCommandOverlay = null;
+      return;
+    }
+    flushDeferredCommandOverlay(shell);
+  });
+}
+
+function flushDeferredCommandOverlay(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  // Host still busy — keep the slot. The next real close schedules another flush.
+  if (shell.overlayList !== null) return;
+  const opts = bag.deferredCommandOverlay;
+  bag.deferredCommandOverlay = null;
+  if (opts !== null) {
+    openListOverlay(shell, opts);
+  }
+  notifyIfHostIdle(shell);
+}
+
+function dropDeferredCommandOverlay(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  bag.deferredCommandOverlay = null;
+  bag.deferredFlushScheduled = false;
 }
 
 /**
@@ -4504,8 +4629,12 @@ export function acceptOverlaySelection(shell: AppShell): void {
       closeInsetOverlay(shell);
       return;
     }
-    closeInsetOverlay(shell);
-    dispatchPaletteSelection(shell, cmd);
+    closeInsetOverlay(shell, { notifyClosed: false });
+    try {
+      dispatchPaletteSelection(shell, cmd);
+    } finally {
+      notifyIfHostIdle(shell);
+    }
     return;
   }
 
@@ -5419,13 +5548,20 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   }
 
   if ((key.name === "return" || key.name === "enter") && !key.ctrl && !key.meta && !key.option) {
-    closeSlashPopup(shell);
-    // Zero matches: nothing to dispatch. Preserve the typed text instead of
-    // wiping it — pre-refresh this state was unreachable (popup closed on
-    // zero matches, so Enter fell through to normal prompt handling).
-    if (!active) return true;
+    // Genuine dismiss (zero matches) still notifies immediately so a queued
+    // gate can drain. Accept-with-match keeps the host until dispatch settles.
+    if (!active) {
+      closeSlashPopup(shell);
+      return true;
+    }
     setPromptText(shell, "");
-    dispatchPaletteSelection(shell, active);
+    slashPopups.delete(shell);
+    closeInsetOverlay(shell, { notifyClosed: false });
+    try {
+      dispatchPaletteSelection(shell, active);
+    } finally {
+      notifyIfHostIdle(shell);
+    }
     return true;
   }
 
@@ -6337,6 +6473,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     disposed: false,
     dispose: () => {
       if (disposed) return;
+      dropDeferredCommandOverlay(shell);
       // Unwind a stacked palette first, then let the primary overlay's owner
       // release subscriptions or settle awaited cancellation exactly once.
       let overlayGuard = 4;
@@ -6394,6 +6531,9 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayTitleText: "",
     overlayOnCancel: null,
     overlayClosedListeners: new Set(),
+    deferredCommandOverlay: null,
+    deferredFlushScheduled: false,
+    overlayHostReservations: 0,
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,
     listFilter: null,

@@ -17,10 +17,12 @@ import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.
 import {
   captureOverlayContinuation,
   closeInsetOverlay,
+  closeReplaceableOverlay,
   isOverlayContinuationCurrent,
   openHelpOverlay,
   openListOverlay,
   openSettingsOverlay,
+  reserveOverlayHost,
   setOwnedOverlayItems,
   setStatusFlash,
   type AppShell,
@@ -490,8 +492,8 @@ function renderSettingsMenu(
   // against the just-written value; closing first forces a real reopen (a
   // second open of the same primary kind while one is showing is a no-op)
   // while the captured index keeps the cursor where the operator left it.
-  const activeIndex = shell.overlayList?.activeIndex ?? 0;
-  closeInsetOverlay(shell);
+  const activeIndex = shell.overlayKind === "settings" ? (shell.overlayList?.activeIndex ?? 0) : 0;
+  closeReplaceableOverlay(shell);
   const snapshot = settings.read();
   const cycleRows = settingsCycleRows(snapshot, settings);
   const byId = new Map<string, SettingsCycleRow>(cycleRows.map((r) => [r.id, r]));
@@ -561,12 +563,26 @@ export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): 
     renderSettingsMenu(shell, deps, settings, settingsSyncNavRows(deps));
     return;
   }
-  void deps.permissions.list().then((entries) => {
-    renderSettingsMenu(shell, deps, settings, [
-      permissionsNavRow(entries.length),
-      ...settingsSyncNavRows(deps),
-    ]);
-  });
+  const release = reserveOverlayHost(shell);
+  void deps.permissions.list().then(
+    (entries) => {
+      try {
+        renderSettingsMenu(shell, deps, settings, [
+          permissionsNavRow(entries.length),
+          ...settingsSyncNavRows(deps),
+        ]);
+      } finally {
+        release();
+      }
+    },
+    (err: unknown) => {
+      try {
+        deps.notify(`Could not read remembered approvals: ${errorText(err)}`);
+      } finally {
+        release();
+      }
+    },
+  );
 }
 
 /** Remembered approvals; Enter revokes the highlighted grant. */
@@ -576,40 +592,51 @@ export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps
     deps.notify("Permission administration is not available in this session.");
     return;
   }
+  const release = reserveOverlayHost(shell);
   void permissions.list().then(
     (entries) => {
-      closeInsetOverlay(shell);
-      const rows: ResidualCatalogEntry[] = entries.map((e) => ({
-        id: e.id,
-        label: grantRowLabel(e),
-      }));
-      if (rows.length === 0) {
-        rows.push({
-          id: CLOSE_ID,
-          label: "No remembered approvals — grants you accept appear here",
+      try {
+        closeReplaceableOverlay(shell);
+        const rows: ResidualCatalogEntry[] = entries.map((e) => ({
+          id: e.id,
+          label: grantRowLabel(e),
+        }));
+        if (rows.length === 0) {
+          rows.push({
+            id: CLOSE_ID,
+            label: "No remembered approvals — grants you accept appear here",
+          });
+        }
+        rows.push({ id: BACK_ID, label: "Back to settings" });
+        openListOverlay(shell, {
+          kind: "permissions",
+          title: "permissions · Enter revokes",
+          frameId: "overlay-permissions",
+          ...payload(rows),
+          onAccept: (selection) => {
+            const id = selectedId(selection, rows);
+            if (id === undefined || id === CLOSE_ID) return;
+            if (id === BACK_ID) {
+              openSettingsSurface(shell, deps);
+              return;
+            }
+            void permissions.revoke(id).then(
+              () => openPermissionsSurface(shell, deps),
+              (err: unknown) => deps.notify(`Revoke failed: ${errorText(err)}`),
+            );
+          },
         });
+      } finally {
+        release();
       }
-      rows.push({ id: BACK_ID, label: "Back to settings" });
-      openListOverlay(shell, {
-        kind: "permissions",
-        title: "permissions · Enter revokes",
-        frameId: "overlay-permissions",
-        ...payload(rows),
-        onAccept: (selection) => {
-          const id = selectedId(selection, rows);
-          if (id === undefined || id === CLOSE_ID) return;
-          if (id === BACK_ID) {
-            openSettingsSurface(shell, deps);
-            return;
-          }
-          void permissions.revoke(id).then(
-            () => openPermissionsSurface(shell, deps),
-            (err: unknown) => deps.notify(`Revoke failed: ${errorText(err)}`),
-          );
-        },
-      });
     },
-    (err: unknown) => deps.notify(`Could not read remembered approvals: ${errorText(err)}`),
+    (err: unknown) => {
+      try {
+        deps.notify(`Could not read remembered approvals: ${errorText(err)}`);
+      } finally {
+        release();
+      }
+    },
   );
 }
 
@@ -892,7 +919,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     deps.notify("Plugin administration is not available in this session.");
     return;
   }
-  closeInsetOverlay(shell);
+  closeReplaceableOverlay(shell);
   const entries = plugins.list();
   const rows: ResidualCatalogEntry[] = entries.map((e) => ({
     id: e.id,
@@ -1018,7 +1045,7 @@ export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): voi
     deps.notify("Hook administration is not available in this session.");
     return;
   }
-  closeInsetOverlay(shell);
+  closeReplaceableOverlay(shell);
   const entries = hooks.list();
   const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.id, label: hookRowLabel(e) }));
   if (rows.length === 0) {
@@ -1257,7 +1284,7 @@ export function openMcpSurface(
     deps.notify("MCP administration is not available in this session.");
     return;
   }
-  closeInsetOverlay(shell);
+  closeReplaceableOverlay(shell);
   const entries = mcp.list();
   const canAdd = canAddMCPServer(mcp);
   const rows: ResidualCatalogEntry[] = mcpSurfaceRows(entries, canAdd);
