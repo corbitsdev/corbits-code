@@ -1,14 +1,36 @@
 import { test, expect } from "bun:test";
+import { splitChainedCommand } from "../permission/command.js";
 import {
   collapseSegmentPayloads,
+  formatCommandForApproval,
   groupChainSegmentsForDisplay,
   verbatimCommandLines,
   middleEllipsis,
 } from "./command-display.js";
 
-test("pipe stages stay inline while chain operators split", () => {
+test("display segments exactly match authorization segments", () => {
+  const commands = [
+    "npm install && npm test",
+    "ls | grep foo",
+    "a; b || c",
+    "sleep 1 & echo done",
+    `echo "a && b" | cat`,
+    "cat > /tmp/out.md << 'EOF'\nline one; still body && more\nEOF",
+    "cat << 'EOF'\nline one; still body && more\nEOF\necho after",
+    "cmd1 && \\\ncmd2",
+    "(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)",
+    "echo start && (cd apps/web && bun test) && echo done",
+  ];
+
+  for (const command of commands) {
+    expect(groupChainSegmentsForDisplay(command)).toEqual(splitChainedCommand(command));
+  }
+});
+
+test("pipe stages use authorization boundaries", () => {
   expect(groupChainSegmentsForDisplay("ls | head -5 && echo done")).toEqual([
-    "ls | head -5",
+    "ls",
+    "head -5",
     "echo done",
   ]);
 });
@@ -31,8 +53,7 @@ test("backslash-newline continuation does not split a display segment", () => {
 test("heredoc bodies are not enumerated as segments", () => {
   const cmd = "cat << 'EOF'\nline one; still body && more\nEOF\necho after";
   expect(groupChainSegmentsForDisplay(cmd)).toEqual([
-    "cat << 'EOF'\nline one; still body && more\nEOF",
-    "echo after",
+    "cat << 'EOF'\nline one; still body && more\nEOF\necho after",
   ]);
 });
 
@@ -254,6 +275,24 @@ test("collapseSegmentPayloads never collapses a pipe into bash", () => {
 test("collapseSegmentPayloads never collapses echo piped to sh", () => {
   const segment = 'echo "a\nb" | sh';
   expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("formatCommandForApproval keeps multiline quoted code piped to bash visible", () => {
+  const command = "echo 'echo safe\nrm -rf /tmp/victim' | bash";
+  const display = formatCommandForApproval(command);
+
+  expect(display.payloadCount).toBe(0);
+  expect(display.lines.join("\n")).toContain("rm -rf /tmp/victim");
+  expect(display.lines.join("\n")).not.toContain("<text,");
+});
+
+test("formatCommandForApproval keeps heredoc code piped to sh visible", () => {
+  const command = "cat <<'EOF' | sh\necho safe\nrm -rf /tmp/victim\nEOF";
+  const display = formatCommandForApproval(command);
+
+  expect(display.payloadCount).toBe(0);
+  expect(display.lines.join("\n")).toContain("rm -rf /tmp/victim");
+  expect(display.lines.join("\n")).not.toContain("<heredoc,");
 });
 
 test("collapseSegmentPayloads never collapses a quoted bash -c flag", () => {
