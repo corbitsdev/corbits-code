@@ -9,6 +9,8 @@ import { createPermissionGate } from "../permission/gate.js";
 import type { MCPServerState } from "./tools.js";
 
 const closedClients: string[] = [];
+const closedGenerations: number[] = [];
+let connectGeneration = 0;
 let connectOptions: MCPConnectOptions[] = [];
 let releaseDeferredConnect: (() => void) | undefined;
 let connectMode: "success" | "deferred" = "success";
@@ -19,6 +21,7 @@ await withMockedModule(
     ...real,
     connectMCPServer: async (config: ResolvedMCPServerConfig, options: MCPConnectOptions = {}) => {
       connectOptions.push(options);
+      const generation = ++connectGeneration;
       if (connectMode === "deferred") {
         await new Promise<void>((resolve) => {
           releaseDeferredConnect = resolve;
@@ -38,6 +41,7 @@ await withMockedModule(
           call: async () => "ok",
           close: async () => {
             closedClients.push(config.name);
+            closedGenerations.push(generation);
           },
         },
       };
@@ -75,6 +79,8 @@ function callbacks(states: MCPServerState[], toolsChanged: number[] = []) {
 
 beforeEach(() => {
   closedClients.length = 0;
+  closedGenerations.length = 0;
+  connectGeneration = 0;
   connectOptions = [];
   releaseDeferredConnect = undefined;
   connectMode = "success";
@@ -183,6 +189,29 @@ describe("disconnectMCPServer", () => {
       expect(toolset.hasMCPServer("ghost")).toBe(false);
       expect(states).toEqual([{ name: "ghost", state: "disconnected" }]);
       expect(toolsChanged).toHaveLength(1);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("overlapping disconnect and connect tears down then reconnects", async () => {
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    try {
+      await toolset.connectMCPServer(acme, callbacks(states));
+      expect(connectOptions).toHaveLength(1);
+
+      const disconnecting = toolset.disconnectMCPServer("acme", callbacks(states));
+      const connecting = toolset.connectMCPServer(acme, callbacks(states));
+      await Promise.all([disconnecting, connecting]);
+
+      expect(toolset.hasMCPServer("acme")).toBe(true);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__acme__list",
+      );
+      expect(states.some((s) => s.state === "failed")).toBe(false);
+      expect(closedGenerations).toContain(1);
+      expect(connectOptions).toHaveLength(2);
     } finally {
       await toolset.dispose();
     }

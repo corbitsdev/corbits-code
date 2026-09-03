@@ -12,6 +12,8 @@ import { createPermissionGate } from "../permission/gate.js";
 
 const calls: { toolName: string; args: Record<string, unknown>; signal: AbortSignal }[] = [];
 const closedClients: string[] = [];
+const closedGenerations: number[] = [];
+let connectGeneration = 0;
 let connectConfigs: ResolvedMCPServerConfig[] = [];
 let connectOptions: MCPConnectOptions[] = [];
 let releaseDeferredConnect: (() => void) | undefined;
@@ -28,6 +30,7 @@ await withMockedModule(
     connectMCPServer: async (config: ResolvedMCPServerConfig, options: MCPConnectOptions = {}) => {
       connectConfigs.push(config);
       connectOptions.push(options);
+      const generation = ++connectGeneration;
       if (connectMode === "auth" || blockInteractiveAuth) {
         options.onAuthURL?.(config.name, "https://auth.test/authorize");
       }
@@ -72,6 +75,7 @@ await withMockedModule(
           },
           close: async () => {
             closedClients.push(config.name);
+            closedGenerations.push(generation);
           },
         },
       };
@@ -119,6 +123,8 @@ async function runTool(
 beforeEach(() => {
   calls.length = 0;
   closedClients.length = 0;
+  closedGenerations.length = 0;
+  connectGeneration = 0;
   connectConfigs = [];
   connectOptions = [];
   releaseDeferredConnect = undefined;
@@ -663,6 +669,44 @@ describe("built-in Exa web_fetch alias", () => {
       const result = await runTool(toolset, "web_fetch", { url: "https://example.com" });
       expect(result).toEqual({ callId: "call-web_fetch", content: "exa fetch result" });
       expect(calls[0]?.toolName).toBe("web_fetch_exa");
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("overlapping disconnect and connect remounts Exa-backed web_fetch", async () => {
+    const toolset = await makeToolset();
+    try {
+      await connect(toolset);
+      const firstConnects = connectConfigs.length;
+
+      const disconnecting = toolset.disconnectMCPServer("exa", {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      const connecting = toolset.connectMCPServer(createExaMCPServerConfig(), {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      await Promise.all([disconnecting, connecting]);
+
+      expect(toolset.hasMCPServer("exa")).toBe(true);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__exa__web_search_exa",
+      );
+      expect(closedGenerations).toContain(1);
+      expect(connectConfigs.length).toBe(firstConnects + 1);
+
+      calls.length = 0;
+      const result = await runTool(toolset, "web_fetch", { url: "https://example.com" });
+      expect(result).toEqual({ callId: "call-web_fetch", content: "exa fetch result" });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        toolName: "web_fetch_exa",
+        args: { urls: ["https://example.com"] },
+      });
     } finally {
       await toolset.dispose();
     }

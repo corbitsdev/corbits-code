@@ -648,12 +648,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }
   };
 
-  const teardownMcpServer = async (name: string, swapExa: boolean): Promise<void> => {
+  const dropLiveClient = async (name: string): Promise<void> => {
     const client = connectedClients.get(name);
     connectedClients.delete(name);
     permissionGate.unregisterMcpServer(name);
     if (client !== undefined) await client.close().catch(() => undefined);
     dropServerTools(name);
+  };
+
+  const teardownMcpServer = async (name: string, swapExa: boolean): Promise<void> => {
+    await dropLiveClient(name);
     if (swapExa) swapBuiltinExaToNative();
   };
 
@@ -825,23 +829,26 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     signal?: AbortSignal,
   ): Promise<void> => {
     const reenable = disabledNames.has(config.name);
-    disabledNames.delete(config.name);
-    if (reenable) {
-      const epoch = bumpEpoch(config.name);
-      serverAborts.set(config.name, new AbortController());
-      if (builtinExaEnabled && isBuiltinExaMCPServer(config)) {
-        remountBuiltinExaAlias();
+    const epochAtCall = currentEpoch(config.name);
+    return enqueueServerOp(config.name, async () => {
+      // A later disconnect (or re-enable) owns this name now.
+      if (currentEpoch(config.name) !== epochAtCall) return;
+      if (disabledNames.has(config.name) && !reenable) return;
+      if (reenable) {
+        disabledNames.delete(config.name);
+        const epoch = bumpEpoch(config.name);
+        serverAborts.set(config.name, new AbortController());
+        if (builtinExaEnabled && isBuiltinExaMCPServer(config)) {
+          remountBuiltinExaAlias();
+        }
+        await connectOneMCPServer(config, callbacks, signal, epoch);
+        return;
       }
-      return enqueueServerOp(config.name, () =>
-        connectOneMCPServer(config, callbacks, signal, epoch),
-      );
-    }
-    if (!serverAborts.has(config.name)) {
-      serverAborts.set(config.name, new AbortController());
-    }
-    return enqueueServerOp(config.name, () =>
-      connectOneMCPServer(config, callbacks, signal, currentEpoch(config.name)),
-    );
+      if (!serverAborts.has(config.name)) {
+        serverAborts.set(config.name, new AbortController());
+      }
+      await connectOneMCPServer(config, callbacks, signal, currentEpoch(config.name));
+    });
   };
 
   const publicDisconnectMCPServer = (
@@ -854,9 +861,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     return enqueueServerOp(name, async () => {
       const inFlight = inFlightConnections.get(name);
       if (inFlight !== undefined) await inFlight;
-      if (currentEpoch(name) !== epoch) return;
-      if (!disabledNames.has(name)) return;
-      await teardownMcpServer(name, builtinExaEnabled && name === EXA_MCP_SERVER_NAME);
+      // Always drop the aborted live client so a queued reconnect cannot no-op
+      // on connectedClients.has(name). Skip Exa-native swap and disconnected
+      // emit only when a newer generation owns the name.
+      await dropLiveClient(name);
+      if (currentEpoch(name) !== epoch || !disabledNames.has(name)) return;
+      if (builtinExaEnabled && name === EXA_MCP_SERVER_NAME) {
+        swapBuiltinExaToNative();
+      }
       callbacks.onStatus({ name, state: "disconnected" });
       callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
     });
