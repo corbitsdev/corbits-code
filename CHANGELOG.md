@@ -11,7 +11,23 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.3.14] - 2026-09-03
+
+### Changed
+
+- Authorization and approval display now use one shared command-segmentation
+  implementation, preventing the two views from drifting while keeping executable
+  pipeline payloads visible.
+- macOS Finder `.DS_Store` metadata is ignored throughout the repository.
+
+### Fixed
+
+- OAuth, xAI, and Codex credential-store updates are serialized so concurrent
+  sessions cannot drop profiles or overwrite refreshed tokens.
+- Path-restriction cache entries are invalidated when symlink resolution changes,
+  preventing stale workspace decisions after filesystem mutation.
+- Project-scoped grants cannot replay in a different workspace even when the
+  request working directory matches the foreign grant.
 
 ## [0.3.13] - 2026-09-01
 
