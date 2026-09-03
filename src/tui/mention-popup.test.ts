@@ -380,6 +380,23 @@ describe("mention accept requires a live @token", () => {
     });
   });
 
+  test("accept with cursor on a different @token does not splice", async () => {
+    await withShell(async (shell) => {
+      const value = "see @a and @b";
+      shell.prompt.value = value;
+      shell.prompt.cursorOffset = "see @a".length;
+      expect(await openAtMentionSuggestions(shell)).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      shell.prompt.cursorOffset = value.length;
+      acceptOverlaySelection(shell);
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.prompt.value).toBe(value);
+    });
+  });
+
   test("a lookup whose cursor has left the token does not open", async () => {
     await withShell(async (shell) => {
       const { source, resolveNext } = hangableSource();

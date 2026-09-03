@@ -5053,13 +5053,15 @@ const defaultMentionSource: MentionSuggestionSource = (prefix) =>
 interface MentionAcceptState {
   readonly suggestions: readonly string[];
   readonly generation: number;
+  readonly atStart: number;
 }
 
 /**
  * Open path suggestions for the @token under the cursor and splice the
  * accepted entry back into the prompt. Directory picks re-open one level
  * down so the operator can drill in without typing the path.
- * Returns false when the cursor is not inside an @token or nothing matched.
+ * Returns false when the cursor is not inside this @token, nothing matched,
+ * a newer lookup superseded this one, or the overlay host was taken.
  *
  * Accept requires a current generation and a live `@` token under the cursor.
  * A lookup that finishes after the cursor has left this token does not open.
@@ -5110,7 +5112,11 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   // `suggestions` directly, so a same-session refresh can update what accept
   // splices without re-binding the callback. Cursor and atStart are read live
   // at accept so a stale pre-await snapshot cannot splice at the wrong offset.
-  const acceptState: MentionAcceptState = { suggestions, generation };
+  const acceptState: MentionAcceptState = {
+    suggestions,
+    generation,
+    atStart: liveAt.atStart,
+  };
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening the overlay released the host between the two calls — long
@@ -5166,7 +5172,7 @@ function liveMentionAccept(shell: AppShell): { state: MentionAcceptState; live: 
   if (state === undefined) return null;
   if (mentionGenerations.get(shell) !== state.generation) return null;
   const live = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
-  if (live === null) return null;
+  if (live === null || live.atStart !== state.atStart) return null;
   return { state, live };
 }
 
