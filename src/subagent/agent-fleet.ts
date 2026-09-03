@@ -1066,7 +1066,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             }
           : {}),
         ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
-        ...(resolved.pkg !== undefined ? { tier: resolved.pkg.tier } : {}),
+        ...(resolved.pkg !== undefined
+          ? { tier: resolved.pkg.tier }
+          : orchestrator
+            ? {}
+            : { tier: "leaf" }),
         ...(resolved.pkg?.reportContract?.outputType !== undefined
           ? { reportType: resolved.pkg.reportContract.outputType }
           : {}),
@@ -1088,7 +1092,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               hold.reject = reject;
             });
             if (hold.resolve === undefined || hold.reject === undefined) {
-              throw new Error("ask_director could not register a pending question");
+              const err = new Error("ask_director could not register a pending question");
+              hold.reject?.(err);
+              void answer.catch(() => {});
+              throw err;
             }
             const ok = deps.sessions.registerAsk(session.id, {
               question,
@@ -1097,7 +1104,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               reject: hold.reject,
             });
             if (!ok) {
-              throw new Error("ask_director could not register a pending question");
+              const err = new Error("ask_director could not register a pending question");
+              hold.reject(err);
+              void answer.catch(() => {});
+              throw err;
             }
             return answer;
           },
@@ -1200,7 +1210,9 @@ interface WaitAgentsDeps {
 
 function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   const record = fleetRecords.peek(id);
-  return record !== undefined && record.status !== "running";
+  return (
+    record !== undefined && record.status !== "running" && record.status !== "awaiting_director"
+  );
 }
 
 /**
@@ -1337,7 +1349,8 @@ export const listAgentsToolDefinition: ToolDefinition = {
   description:
     "List the workers this session started with spawn_agent — the same fleet wait_agents " +
     "collects. Does not list siblings or another orchestrator's workers. Each entry is id, " +
-    "director, description, wait status, lifecycle, and whether wait_agents already collected it.",
+    "director, description, wait status, lifecycle, and whether wait_agents already collected it. " +
+    "When status is awaiting_director, the entry also includes question and question_id.",
   inputSchema: {
     type: "object",
     properties: {},
@@ -1361,6 +1374,12 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
                 description: session.description,
                 lifecycle: session.lifecycleStatus,
               }
+            : {}),
+          ...(record?.status === "awaiting_director" && record.question !== undefined
+            ? { question: record.question }
+            : {}),
+          ...(record?.status === "awaiting_director" && record.questionId !== undefined
+            ? { question_id: record.questionId }
             : {}),
         };
       });

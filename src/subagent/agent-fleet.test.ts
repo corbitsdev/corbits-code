@@ -205,6 +205,8 @@ describe("spawn_agent", () => {
     expect(captured?.directorId).toBe("plugin-reviewer");
     expect(captured?.systemPromptRole).toBe("You are the plugin reviewer.");
     expect(captured?.capabilities).toEqual({ mode: "allow", tools: ["read_file"] });
+    expect(captured?.tier).toBe("leaf");
+    expect(captured?.orchestrator).toBeUndefined();
   });
 });
 
@@ -1270,6 +1272,65 @@ describe("list_agents", () => {
     gate.resolve({ report: "done" });
   });
 
+  test("projects question and question_id while awaiting_director", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+        deliver: () => {},
+      });
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .catch(() => {});
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    await callTool(wait, { targets: [spawned.agent_id], timeout_ms: 5000 });
+    if (list.kind !== "full") throw new Error("expected full tool");
+    const raw = await list.handler(
+      { id: "list-ask-1", name: "list_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const parsed = JSON.parse(content) as {
+      agents: {
+        agent_id: string;
+        status: string;
+        collected: boolean;
+        description?: string;
+        question?: string;
+        question_id?: string;
+      }[];
+    };
+    expect(parsed.agents).toHaveLength(1);
+    expect(parsed.agents[0]!.agent_id).toBe(spawned.agent_id as string);
+    expect(parsed.agents[0]!.status).toBe("awaiting_director");
+    expect(parsed.agents[0]!.collected).toBe(false);
+    expect(parsed.agents[0]!.description).toBe("need a path");
+    expect(parsed.agents[0]!.question).toBe("which file should I edit?");
+    expect(parsed.agents[0]!.question_id).toBe("ask-1");
+    expect(list.definition.description).toContain("question_id");
+    gate.resolve({ report: "done" });
+  });
+
   test("interrupt_agent leaves the strip after the linger window", async () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async (params) => {
@@ -1373,6 +1434,7 @@ describe("spawn_agent dispatch contracts", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]!.orchestrator).toBe(true);
     expect(captured[0]!.orchestratorTier).toBe("nested-orchestrator");
+    expect(captured[0]!.tier).toBe("nested-orchestrator");
     expect(captured[0]!.nestedDispatch).toBeDefined();
     expect(captured[0]!.nestedDispatch?.spawnAllowlist).toEqual(["intern", "explorer", "critic"]);
   });
@@ -1393,6 +1455,7 @@ describe("spawn_agent dispatch contracts", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(captured[0]!.orchestrator).toBeUndefined();
     expect(captured[0]!.nestedDispatch).toBeUndefined();
+    expect(captured[0]!.tier).toBe("nested-orchestrator");
   });
 
   const FAIL_CLOSED_CRITERIA =
@@ -1626,6 +1689,7 @@ describe("ask_director wait handshake", () => {
     expect(first.question).toBe("which file should I edit?");
     expect(first.question_id).toBe("ask-1");
     expect(first.description).toBe("need a path");
+    expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
 
     const rewait = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(rewait.timed_out).toBe(false);
@@ -1746,5 +1810,41 @@ describe("ask_director wait handshake", () => {
     ).toBe(true);
     expect(mailbox.peek("asking")?.status).toBe("awaiting_director");
     expect(mailbox.hasUncollectedTerminal("asking")).toBe(false);
+  });
+
+  test("registerAsk failure rejects the constructed Promise without a cap slot", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let port: RunSubAgentParams["askDirectorPort"];
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.(readyHandles());
+      port = params.askDirectorPort;
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(port).toBeDefined();
+    deps.sessions.complete(id, "done");
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      expect(() => port!.register({ question: "late?", questionId: "ask-1" })).toThrow(
+        "could not register",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      gate.resolve({ report: "done" });
+    }
   });
 });

@@ -587,6 +587,7 @@ export function createSubAgentSessionStore(
   // the cancel handle. Called whenever a session record is dropped, so a
   // retained-but-idle session's real agent is never simply forgotten about.
   const releaseHandles = (id: string): void => {
+    cancelAskInternal(id, "session handles released");
     const close = closeHandles.get(id);
     if (close !== undefined) {
       closeHandles.delete(id);

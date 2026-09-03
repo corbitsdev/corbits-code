@@ -1162,6 +1162,81 @@ describe("pending ask_director", () => {
     expect(store.hasPendingAsk(session.id)).toBe(false);
   });
 
+  test("registerAsk returns false for pending_init, completed, and failed", () => {
+    const store = createSubAgentSessionStore();
+    const ask = {
+      question: "late?",
+      questionId: "ask-1",
+      resolve: () => {
+        throw new Error("should not resolve");
+      },
+      reject: () => {
+        throw new Error("should not reject");
+      },
+    };
+
+    const pending = store.start({ description: "pending", agentId: "a", brief: "b" });
+    expect(store.registerAsk(pending.id, ask)).toBe(false);
+    expect(store.hasPendingAsk(pending.id)).toBe(false);
+
+    const completed = store.start({ description: "done", agentId: "a", brief: "b" });
+    store.markRunning(completed.id);
+    store.complete(completed.id, "done");
+    expect(store.registerAsk(completed.id, ask)).toBe(false);
+    expect(store.hasPendingAsk(completed.id)).toBe(false);
+
+    const failed = store.start({ description: "fail", agentId: "a", brief: "b" });
+    store.markRunning(failed.id);
+    store.fail(failed.id, "boom");
+    expect(store.registerAsk(failed.id, ask)).toBe(false);
+    expect(store.hasPendingAsk(failed.id)).toBe(false);
+  });
+
+  test("evicting a session with a pending ask rejects the ask", () => {
+    const store = createSubAgentSessionStore({ maxRetained: 1 });
+    const session = store.start({
+      description: "asking",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.registerClose(session.id, async () => {});
+    let rejected: unknown;
+    expect(
+      store.registerAsk(session.id, {
+        question: "which file?",
+        questionId: "ask-1",
+        resolve: () => {
+          throw new Error("should not resolve");
+        },
+        reject: (reason) => {
+          rejected = reason;
+        },
+      }),
+    ).toBe(true);
+    // Flip to interrupted without going through interruptOne, so the ask is
+    // still pending when pruneRetained calls releaseHandles.
+    store.attachReport(session.id, "salvage");
+    expect(store.hasPendingAsk(session.id)).toBe(true);
+
+    for (let i = 0; i < 2; i++) {
+      const fill = store.start({
+        description: `fill-${i}`,
+        agentId: "a",
+        brief: "b",
+        retained: true,
+      });
+      store.registerClose(fill.id, async () => {});
+      store.complete(fill.id, "done");
+    }
+
+    expect(store.get(session.id)).toBeUndefined();
+    expect(store.hasPendingAsk(session.id)).toBe(false);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(String(rejected)).toContain("session handles released");
+  });
+
   test("interruptOne with missing handle does not cancel the pending ask", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({
