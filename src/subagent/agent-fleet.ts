@@ -24,6 +24,8 @@
  * Argument shape includes description/prompt/context/goals/intent/
  * success_criteria/do_not/report_focus. Dispatch supports both closed
  * directors and local/plugin AgentProfile ids returned by search_agents.
+ * Implement/review (and their default directors) fail closed without
+ * non-empty success_criteria.
  *
  */
 
@@ -40,6 +42,7 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { generateSessionId } from "../session/index.js";
 import {
+  INTENT_DEFAULT_DIRECTOR,
   isDirectorId,
   packageToCapabilities,
   resolveDirector,
@@ -367,7 +370,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: SPAWN_AGENT_TOOL_NAME,
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them.",
   inputSchema: {
     type: "object",
     properties: {
@@ -387,7 +390,8 @@ export const spawnAgentToolDefinition: ToolDefinition = {
       success_criteria: {
         type: "array",
         items: { type: "string" },
-        description: "Optional concrete done checks.",
+        description:
+          "Concrete done checks. Required for implement/review (and their default directors); recommended otherwise. Empty or whitespace-only arrays fail closed when required.",
       },
       do_not: {
         type: "array",
@@ -679,6 +683,18 @@ function resolveAgentDispatch(input: {
   };
 }
 
+// Dual predicate: intent catches plugin profiles; directorId catches omitted-intent defaults.
+function handoffRequiresSuccessCriteria(
+  intent: TaskIntent | undefined,
+  directorId: string,
+): boolean {
+  if (intent === "implement" || intent === "review") return true;
+  return (
+    directorId === INTENT_DEFAULT_DIRECTOR.implement ||
+    directorId === INTENT_DEFAULT_DIRECTOR.review
+  );
+}
+
 export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   // Concurrent-lane overlap detection, replacing the static per-package
@@ -794,6 +810,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             `Error: spawn of "${resolved.agentLabel}" is outside this director's allowlist. Allowed: ${deps.spawnAllowlist.join(", ")}.`,
           );
         }
+      }
+      if (
+        handoffRequiresSuccessCriteria(intent, resolved.directorId) &&
+        successCriteria.length === 0
+      ) {
+        return fleetResult(
+          call.id,
+          "Error: spawn_agent requires non-empty success_criteria for implement/review dispatches (and their default directors).",
+        );
       }
 
       const orchestrator = resolved.orchestrator;

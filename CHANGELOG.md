@@ -21,6 +21,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   failure. CI's test job invokes the same `check:projects-dir-guard` script
   instead of duplicating the test command, and the projects-dir guard no longer
   squats on the `test` script name.
+- Implement/review `spawn_agent` dispatches (and their default
+  directors) fail closed without non-empty `success_criteria`;
+  children stay blank.
 
 ### TUI
 

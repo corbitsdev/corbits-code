@@ -17,6 +17,7 @@ import {
   createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
+import { INTENT_DEFAULT_DIRECTOR } from "../agent/directors/registry.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
 import { AGENTS_PANEL_LINGER_MS, formatAgentsPanel } from "../tui/chrome-state.js";
@@ -439,11 +440,13 @@ describe("spawn_agent same-cwd concurrency", () => {
       description: "build one",
       prompt: "implement thing one",
       intent: "implement",
+      success_criteria: ["thing one ships"],
     });
     const second = await callTool(spawn, {
       description: "build two",
       prompt: "implement thing two",
       intent: "implement",
+      success_criteria: ["thing two ships"],
     });
 
     expect(first.status).toBe("running");
@@ -465,11 +468,13 @@ describe("spawn_agent same-cwd concurrency", () => {
       description: "build one",
       prompt: "implement thing one",
       intent: "implement",
+      success_criteria: ["thing one ships"],
     });
     await callTool(spawn, {
       description: "build two",
       prompt: "implement thing two",
       intent: "implement",
+      success_criteria: ["thing two ships"],
     });
 
     const path = join(dir, INTERVENTION_FILE);
@@ -1388,5 +1393,183 @@ describe("spawn_agent dispatch contracts", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(captured[0]!.orchestrator).toBeUndefined();
     expect(captured[0]!.nestedDispatch).toBeUndefined();
+  });
+
+  const FAIL_CLOSED_CRITERIA =
+    "Error: spawn_agent requires non-empty success_criteria for implement/review dispatches (and their default directors).";
+
+  const pluginReviewer = {
+    id: "plugin-reviewer",
+    capabilities: { mode: "allow" as const, tools: ["read_file"] },
+    systemPromptRole: "You are the plugin reviewer.",
+  };
+
+  interface DispatchContractCase {
+    name: string;
+    args: Record<string, unknown>;
+    outcome: "error" | "running";
+    spawnAllowlist?: string[];
+    profiles?: NonNullable<AgentFleetDeps["profiles"]>;
+  }
+
+  test.each<DispatchContractCase>([
+    {
+      name: "intent=implement without success_criteria",
+      args: { description: "build", prompt: "ship it", intent: "implement" },
+      outcome: "error" as const,
+    },
+    {
+      name: "intent=review without success_criteria",
+      args: { description: "review", prompt: "critique it", intent: "review" },
+      outcome: "error" as const,
+    },
+    {
+      name: "default implement director without success_criteria when intent is omitted",
+      args: {
+        description: "build",
+        prompt: "ship it",
+        agent: INTENT_DEFAULT_DIRECTOR.implement,
+      },
+      outcome: "error" as const,
+    },
+    {
+      name: "default review director without success_criteria",
+      args: {
+        description: "review",
+        prompt: "critique it",
+        agent: INTENT_DEFAULT_DIRECTOR.review,
+      },
+      outcome: "error" as const,
+    },
+    {
+      name: "intent=explore without success_criteria",
+      args: { description: "look", prompt: "find it", intent: "explore" },
+      outcome: "running" as const,
+    },
+    {
+      name: "agent=intern without success_criteria",
+      args: { description: "chore", prompt: "run it", agent: "intern" },
+      outcome: "running" as const,
+    },
+    {
+      name: "agent=greybeard without intent and without success_criteria",
+      args: { description: "arch", prompt: "judge this", agent: "greybeard" },
+      outcome: "running" as const,
+    },
+    {
+      name: "implement with non-empty success_criteria",
+      args: {
+        description: "build",
+        prompt: "ship it",
+        intent: "implement",
+        success_criteria: ["typecheck green"],
+      },
+      outcome: "running" as const,
+    },
+    {
+      name: "whitespace-only success_criteria for implement",
+      args: {
+        description: "build",
+        prompt: "ship it",
+        intent: "implement",
+        success_criteria: ["  ", ""],
+      },
+      outcome: "error" as const,
+    },
+    {
+      name: "default implement director with intent=explore without success_criteria",
+      args: {
+        description: "build",
+        prompt: "ship it",
+        agent: INTENT_DEFAULT_DIRECTOR.implement,
+        intent: "explore",
+      },
+      outcome: "error" as const,
+    },
+    {
+      name: "intent=implement with agent=explorer without success_criteria",
+      args: {
+        description: "look",
+        prompt: "find it",
+        agent: "explorer",
+        intent: "implement",
+      },
+      outcome: "error" as const,
+    },
+    {
+      name: "intent=review with agent=explorer without success_criteria",
+      args: {
+        description: "look",
+        prompt: "find it",
+        agent: "explorer",
+        intent: "review",
+      },
+      outcome: "error" as const,
+    },
+    {
+      name: "plugin profile with intent=implement without success_criteria",
+      args: {
+        description: "profile job",
+        prompt: "do it",
+        agent: "plugin-reviewer",
+        intent: "implement",
+      },
+      outcome: "error" as const,
+      profiles: [pluginReviewer],
+    },
+    {
+      name: "plugin profile with intent=review without success_criteria",
+      args: {
+        description: "profile job",
+        prompt: "do it",
+        agent: "plugin-reviewer",
+        intent: "review",
+      },
+      outcome: "error" as const,
+      profiles: [pluginReviewer],
+    },
+    {
+      name: "intent=review with non-empty success_criteria",
+      args: {
+        description: "review",
+        prompt: "critique it",
+        intent: "review",
+        success_criteria: ["find defects"],
+      },
+      outcome: "running" as const,
+    },
+    {
+      name: "allowlisted default review director without success_criteria is criteria error",
+      args: {
+        description: "review",
+        prompt: "critique it",
+        agent: INTENT_DEFAULT_DIRECTOR.review,
+      },
+      outcome: "error" as const,
+      spawnAllowlist: ["intern", "explorer", INTENT_DEFAULT_DIRECTOR.review],
+    },
+    {
+      name: "intent=plan without success_criteria",
+      args: { description: "plan", prompt: "outline it", intent: "plan" },
+      outcome: "running" as const,
+    },
+  ])("dispatch contract: $name", async (row) => {
+    const deps = makeDeps(
+      async () => ({ report: "ok" }),
+      row.profiles !== undefined ? { profiles: row.profiles } : {},
+    );
+    if (row.spawnAllowlist !== undefined) {
+      deps.spawnAllowlist = row.spawnAllowlist;
+    }
+    const spawn = createSpawnAgentTool(deps);
+    if (row.outcome === "error") {
+      const raw = await callToolRaw(spawn, row.args);
+      expect(raw.isError).toBe(true);
+      expect(raw.content).toBe(FAIL_CLOSED_CRITERIA);
+      expect(raw.content).not.toContain("allowlist");
+      return;
+    }
+    const result = await callTool(spawn, row.args);
+    expect(result.status).toBe("running");
   });
 });

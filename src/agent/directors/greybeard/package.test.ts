@@ -66,6 +66,14 @@ describe("greybeardPackage", () => {
     expect(p).not.toMatch(/not Build\b/);
   });
 
+  test("systemPrompt requires success_criteria when spawning critic", () => {
+    const p = greybeardPackage.systemPrompt;
+    expect(p).toContain("success_criteria");
+    expect(p).toMatch(/When spawning critic/);
+    expect(p).toMatch(/fail-closes without it/);
+    expect(p).toMatch(/intern and explorer remain optional/);
+  });
+
   test("systemPrompt forbids spawning builder and names off-list directors", () => {
     expect(greybeardPackage.systemPrompt).toContain("Do not spawn builder");
     expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);

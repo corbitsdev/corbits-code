@@ -153,7 +153,7 @@ docs/
 
 Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
 
-1. `spawn_agent(agent=…)` / `spawn_agent(intent=…)` → `resolveDirector` in `agent-fleet.ts` before tools and system prompt are built. Bare `spawn_agent` (neither field) and `intent=general` fail closed.
+1. `spawn_agent(agent=…)` / `spawn_agent(intent=…)` → `resolveDirector` in `agent-fleet.ts` before tools and system prompt are built. Bare `spawn_agent` (neither field) and `intent=general` fail closed. After director resolution, `createSpawnAgentTool` fail-closes implement/review (and their default directors) without non-empty `success_criteria`.
 2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities` and `spawn.maySpawn` → `orchestrator`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
 3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `spawn_agent` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `spawn_agent(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
 4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker. Plugin and local `.agents/agents/` profiles still load, but closed `DIRECTOR_IDS` cannot be overridden or aliased.
