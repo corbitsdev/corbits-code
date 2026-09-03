@@ -2467,18 +2467,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         mcpServers: next.mcpServers,
         mcpServersSource: next.mcpServersSource,
       };
+      toolset.setMcpServersSource(next.mcpServersSource);
     };
 
     const applyAddedMcpCatalog = (entries: MCPServerSettingsEntry[], settings: Settings): void => {
       configuredMcpEntries = entries;
       const source = config.mcpServersSource ?? "none";
+      const nextSource = source === "none" ? "global" : source;
       config = {
         ...config,
         settings,
         mcpServerEntries: entries,
         mcpServers: resolveMcpServers(entries, undefined),
-        mcpServersSource: source === "none" ? "global" : source,
+        mcpServersSource: nextSource,
       };
+      toolset.setMcpServersSource(nextSource);
     };
 
     const mcpTransportForEnable = (name: string): MCPServerConfig | undefined => {

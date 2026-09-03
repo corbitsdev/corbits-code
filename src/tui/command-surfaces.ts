@@ -1341,7 +1341,11 @@ export function openMcpSurface(
       if (name === "r") {
         const target = byName.get(id);
         if (target?.builtin === true) {
-          deps.notify("Built-in Exa cannot be removed; Alt+D disables it.");
+          deps.notify(
+            target.state === "disabled"
+              ? "Built-in Exa cannot be removed."
+              : "Built-in Exa cannot be removed; Alt+D disables it.",
+          );
           return true;
         }
         unsubscribe();

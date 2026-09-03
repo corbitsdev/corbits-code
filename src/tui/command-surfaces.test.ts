@@ -1723,6 +1723,14 @@ describe("mcp surface", () => {
       expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
       expect(shell.overlayItems[1]).toBe("notion — disabled");
       expect(shell.overlayList?.activeIndex).toBe(1);
+
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
+      expect(shell.overlayItems[1]).toBe("notion — connecting");
+      expect(shell.overlayList?.activeIndex).toBe(1);
     });
   });
 
@@ -1872,6 +1880,23 @@ describe("mcp surface", () => {
       expect(notes[0]).toContain("cannot be removed");
       expect(removed).toEqual([]);
       expect(shell.overlayItems[0]).toBe("exa — connected · 1 tool");
+    });
+  });
+
+  test("Alt+R on disabled builtin Exa does not say Alt+D disables it", async () => {
+    await withShell((shell) => {
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => [{ name: "exa", state: "disabled", builtin: true }],
+          openAuthURL: () => {},
+        },
+      });
+      expect(runOverlayAction(shell, altKey("r"))).toBe(true);
+      expect(notes[0]).toContain("cannot be removed");
+      expect(notes[0]).not.toContain("Alt+D disables it");
+      expect(shell.overlayItems[0]).toBe("exa — disabled");
     });
   });
 

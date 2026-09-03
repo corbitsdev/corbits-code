@@ -480,4 +480,21 @@ describe("local MCP persist", () => {
     expect("mcpServers" in localSaved).toBe(false);
     expect(await loadAuthState(linearAuth, home)).toEqual({});
   });
+
+  test("auth-delete failure after a successful write still returns ok", async () => {
+    const path = await settingsPath();
+    const home = await tempHome();
+    await writeFile(path, JSON.stringify({ provider: "a", mcpServers: [linearHTTP] }));
+    await saveAuthState(linearAuth, { codeVerifier: "local-linear" }, home);
+    const authDir = mcpAuthDir(home);
+    await chmod(authDir, 0o000);
+    const writer = createLocalSettingsWriter(path);
+    try {
+      const result = await persistLocalMCPServerRemoved(writer, "linear", home);
+      expect(result).toMatchObject({ ok: true, omitted: true, removed: linearHTTP, entries: [] });
+      expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(false);
+    } finally {
+      await chmod(authDir, 0o700);
+    }
+  });
 });

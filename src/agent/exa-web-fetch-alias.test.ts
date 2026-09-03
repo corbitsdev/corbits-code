@@ -758,4 +758,39 @@ describe("built-in Exa web_fetch alias", () => {
       await toolset.dispose();
     }
   });
+
+  test("in-flight builtin Exa connect does not remount and fail web_fetch waiters", async () => {
+    connectMode = "deferred";
+    const toolset = await makeToolset();
+    const startup = connect(toolset);
+    while (releaseDeferredConnect === undefined) await Promise.resolve();
+    try {
+      const fetchPromise = runTool(toolset, "web_fetch", { url: "https://example.com" });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const late = toolset.connectMCPServer(createExaMCPServerConfig(), {
+        interactiveAuth: false,
+        onStatus: () => undefined,
+        onToolsChanged: () => undefined,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      releaseDeferredConnect?.();
+      await Promise.all([startup, late]);
+
+      const result = await fetchPromise;
+      expect(String(result.content)).not.toContain("disconnected");
+      expect(result).toEqual({ callId: "call-web_fetch", content: "exa fetch result" });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        toolName: "web_fetch_exa",
+        args: { urls: ["https://example.com"] },
+      });
+    } finally {
+      releaseDeferredConnect?.();
+      await toolset.dispose();
+    }
+  });
 });

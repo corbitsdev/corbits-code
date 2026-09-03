@@ -279,3 +279,40 @@ describe("disconnectMCPServer", () => {
     }
   });
 });
+
+describe("setMcpServersSource", () => {
+  test("updates the live trust filter from fail-closed local to global", async () => {
+    const toolset = await createAgentToolset({
+      cwd: tempCwd(),
+      permissionGate: permissionGate(),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+      mcpServers: resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+      mcpServersSource: "local",
+    });
+    const untrusted: MCPServerState[] = [];
+    try {
+      await toolset.connectMCPServer(acme, callbacks(untrusted));
+      expect(untrusted.some((s) => s.state === "failed")).toBe(true);
+      expect(untrusted.find((s) => s.state === "failed")?.error).toMatch(
+        /Not trusted for this project/,
+      );
+      expect(toolset.hasMCPServer("acme")).toBe(false);
+      expect(
+        toolset.dynamicRunner.currentDefinitions().some((d) => d.name.startsWith("mcp__acme__")),
+      ).toBe(false);
+
+      toolset.setMcpServersSource("global");
+      const trusted: MCPServerState[] = [];
+      await toolset.connectMCPServer(acme, callbacks(trusted));
+
+      expect(toolset.hasMCPServer("acme")).toBe(true);
+      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
+        "mcp__acme__list",
+      );
+      expect(trusted.some((s) => s.state === "connected")).toBe(true);
+      expect(trusted.some((s) => s.state === "failed")).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+});

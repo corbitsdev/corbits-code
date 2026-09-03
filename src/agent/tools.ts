@@ -232,6 +232,9 @@ export interface AgentToolset {
   // second add of an active name; failed rows retry through connectMCPServer
   // without a second persist. Still true while disable is in progress.
   hasMCPServer: (name: string) => boolean;
+  // Catalog unshadow can change local → global/none without rebuilding the
+  // toolset; connectOne reads this on every late connect.
+  setMcpServersSource: (source: "local" | "global" | "none") => void;
   // Wire the callback the `tool_search` tool invokes to make matched tools
   // advertised. Set by the runner once the director + reload loop exist.
   setToolPromoter: (promote: (names: string[]) => void) => void;
@@ -244,7 +247,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     permissionGate,
     onOperatorGate,
     mcpServers = [createExaMCPServerConfig()],
-    mcpServersSource = "none",
     projectTrust,
     requestMcpTrust,
     extraToolPlugins = [],
@@ -258,6 +260,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     shellEnv,
     toolAvailability = { languageServerAvailable: true },
   } = args;
+  let mcpServersSource = args.mcpServersSource ?? "none";
   const sessionBlobReader =
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
@@ -829,7 +832,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       if (currentEpoch(config.name) !== epochAtCall) return;
       if (disabledNames.has(config.name) && !reenable) return;
       const remountAliasIfNeeded = (): void => {
-        if (isBuiltinExaMCPServer(config) && !connectedClients.has(config.name)) {
+        if (
+          isBuiltinExaMCPServer(config) &&
+          !connectedClients.has(config.name) &&
+          !inFlightConnections.has(config.name)
+        ) {
           remountBuiltinExaAlias();
           builtinExaEnabled = true;
         }
@@ -929,6 +936,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     connectMCPServer: publicConnectMCPServer,
     disconnectMCPServer: publicDisconnectMCPServer,
     hasMCPServer: (name) => connectedClients.has(name) || inFlightConnections.has(name),
+    setMcpServersSource: (source) => {
+      mcpServersSource = source;
+    },
     setToolPromoter: (promote) => {
       promoter.promote = promote;
     },
