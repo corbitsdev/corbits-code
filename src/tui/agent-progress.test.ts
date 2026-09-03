@@ -62,7 +62,7 @@ describe("agentProgress", () => {
       91_000,
     );
     expect(progress?.stat).toBe("queued");
-    expect(progress?.working).toBe(true);
+    expect(progress?.working).toBe(false);
     expect(progress?.stalled).toBe(false);
     expect(
       laneState(

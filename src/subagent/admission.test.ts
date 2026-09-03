@@ -29,6 +29,31 @@ describe("createAdmissionQueue", () => {
     expect(started).toEqual(["a", "b"]);
   });
 
+  test("a throwing start thunk does not leak the slot", () => {
+    const queue = createAdmissionQueue({ capacity: 1 });
+    expect(() =>
+      queue.enqueue({
+        id: "a",
+        provider: "p",
+        start: () => {
+          throw new Error("boom");
+        },
+      }),
+    ).toThrow("boom");
+    expect(queue.occupied("a")).toBe(false);
+    const started: string[] = [];
+    expect(
+      queue.enqueue({
+        id: "b",
+        provider: "p",
+        start: () => {
+          started.push("b");
+        },
+      }),
+    ).toBe("running");
+    expect(started).toEqual(["b"]);
+  });
+
   test("setCapacity lower does not cancel the running job", () => {
     const started: string[] = [];
     const queue = createAdmissionQueue({ capacity: 2 });

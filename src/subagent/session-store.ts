@@ -1369,7 +1369,7 @@ export function createSubAgentSessionStore(
       }
       const interrupt = interruptHandles.get(id);
       if (interrupt === undefined) {
-        if (session.lifecycle.state === "pending_init" && !runInFlight.has(id)) {
+        if (session.lifecycle.state === "pending_init") {
           const abort = cancelHandles.get(id);
           try {
             abort?.();

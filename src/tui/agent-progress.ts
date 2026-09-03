@@ -163,7 +163,7 @@ export function agentProgress(
     return {
       stat: "queued",
       state: "queued",
-      working: true,
+      working: false,
       stalled: false,
     };
   }

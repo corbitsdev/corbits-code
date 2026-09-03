@@ -70,7 +70,12 @@ export function createAdmissionQueue(opts: CreateAdmissionQueueOpts = {}): Admis
 
   const occupyAndStart = (job: QueuedJob): void => {
     inFlight.add(job.id);
-    job.start();
+    try {
+      job.start();
+    } catch (err) {
+      inFlight.delete(job.id);
+      throw err;
+    }
   };
 
   const scheduleDrain = (): void => {

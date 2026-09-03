@@ -1019,6 +1019,19 @@ describe("CL-7269 one stored worker lifecycle", () => {
     expect(store.get(session.id)?.lifecycle.state).toBe("failed");
   });
 
+  test("interruptOne of pending_init succeeds after markRunInFlight", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    let aborted = 0;
+    store.registerCancel(session.id, () => {
+      aborted += 1;
+    });
+    store.markRunInFlight(session.id);
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(aborted).toBe(1);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
+  });
+
   test("closeOne of a queued pending_init session does not wait for a close handle", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });

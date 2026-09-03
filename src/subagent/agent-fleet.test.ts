@@ -2016,6 +2016,33 @@ describe("admission queue", () => {
     await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
   });
 
+  test("interrupt_agent of an admitted spawn without a handle does not start leftover work", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async () => gate.promise);
+    const spawn = createSpawnAgentTool(deps);
+    const result = await callTool(spawn, {
+      description: "job",
+      prompt: "do it",
+      intent: "explore",
+    });
+    expect(result.status).toBe("running");
+    expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe("pending_init");
+
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    const raw = await interrupt.handler(
+      { id: "int-setup", name: "interrupt_agent", arguments: { target: result.agent_id } },
+      new AbortController().signal,
+    );
+    expect(raw.content).toContain('"status":"interrupted"');
+    expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe("interrupted");
+    expect(deps.fleetRecords.peek(result.agent_id as string)?.status).toBe("interrupted");
+    gate.resolve({ report: "ok" });
+  });
+
   test("sessions.cancel of a queued spawn makes wait_agents report interrupted, not queued", async () => {
     const gate = deferred<RunSubAgentResult>();
     let started = 0;
