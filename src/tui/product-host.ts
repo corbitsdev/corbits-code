@@ -41,7 +41,6 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   clearTranscript,
-  closeReplaceableOverlay,
   createAppShell,
   isAddProviderShortcutKey,
   paintChrome,
@@ -541,7 +540,6 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
       addProviderChoices !== undefined && onConnect !== undefined
         ? (opts?: { returnToModels?: boolean }): void => {
             const rows = addProviderChoices();
-            closeReplaceableOverlay(shell);
             openAddProviderOverlay(shell, {
               items: rows.map(
                 (r) => `${r.label} — ${r.accountCount} account${r.accountCount === 1 ? "" : "s"}`,

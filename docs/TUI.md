@@ -268,12 +268,12 @@ back along a single path to the prompt.
 
 Accepting a `/` command or palette row keeps that host until dispatch
 settles: the list closes without advertising idle, the command runs, and
-`notifyOverlayClosed` fires only if the host is still empty. A command
-surface (`/help`, `/model`) requested while a live gate still holds the
-host does not steal it and does not silently no-op — it waits until that
-gate closes, with a system line so the wait is visible. A gate that was
-only queued (never shown) stays queued while the command surface is up;
-its display timeout does not run.
+the host advertises idle only when no list, deferred slot, or reservation
+remains. A command surface (`/help`, `/model`) requested while a live
+gate still holds the host does not steal it and does not silently no-op
+— it waits until that gate closes, with a system line so the wait is
+visible. A gate that was only queued (never shown) stays queued while
+the command surface is up; its display timeout does not run.
 
 An open overlay reserves a real minimum for its own border, title, and at
 least one content row before anything else — including the transcript floor

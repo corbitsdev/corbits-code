@@ -6,7 +6,7 @@
 import type { AppShell, ItemDescription, OverlaySelection, PrimaryOverlayKind } from "./shell.js";
 import type { KeyEvent } from "@opentui/core";
 import { wrapOverlayText } from "./overlay-body.js";
-import { closeReplaceableOverlay, openListOverlay } from "./shell.js";
+import { closeReplaceableOverlay, openListOverlay, reserveOverlayHost } from "./shell.js";
 
 export type { OverlaySelection, PrimaryOverlayKind };
 
@@ -188,23 +188,28 @@ export interface OpenModelPickerOpts {
 }
 
 export function openModelPickerOverlay(shell: AppShell, opts?: OpenModelPickerOpts): void {
-  closeReplaceableOverlay(shell);
-  openListOverlay(shell, {
-    kind: "model_picker",
-    title: "model / provider",
-    items: opts?.items ?? makeModelPickerItems(),
-    activeIndex: opts?.activeIndex ?? 0,
-    frameId: "overlay-model",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-    ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
-    ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
-    ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
-    ...(opts?.typeToFilter !== undefined ? { typeToFilter: opts.typeToFilter } : {}),
-    ...(opts?.addProviderHint !== undefined ? { addProviderHint: opts.addProviderHint } : {}),
-    ...(opts?.setDefaultHint !== undefined ? { setDefaultHint: opts.setDefaultHint } : {}),
-    deferIfBusy: true,
-  });
+  const release = reserveOverlayHost(shell);
+  try {
+    closeReplaceableOverlay(shell);
+    openListOverlay(shell, {
+      kind: "model_picker",
+      title: "model / provider",
+      items: opts?.items ?? makeModelPickerItems(),
+      activeIndex: opts?.activeIndex ?? 0,
+      frameId: "overlay-model",
+      ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+      ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+      ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
+      ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
+      ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
+      ...(opts?.typeToFilter !== undefined ? { typeToFilter: opts.typeToFilter } : {}),
+      ...(opts?.addProviderHint !== undefined ? { addProviderHint: opts.addProviderHint } : {}),
+      ...(opts?.setDefaultHint !== undefined ? { setDefaultHint: opts.setDefaultHint } : {}),
+      deferIfBusy: true,
+    });
+  } finally {
+    release();
+  }
 }
 
 export interface OpenAddProviderOpts {
@@ -222,16 +227,22 @@ export interface OpenAddProviderOpts {
 
 /** Alt+A from the model picker: every first-class provider kind, no already-connected filtering. */
 export function openAddProviderOverlay(shell: AppShell, opts?: OpenAddProviderOpts): void {
-  openListOverlay(shell, {
-    kind: "add_provider",
-    title: "add provider",
-    items: opts?.items ?? [],
-    activeIndex: opts?.activeIndex ?? 0,
-    frameId: "overlay-add-provider",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-    ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
-    ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
-    deferIfBusy: true,
-  });
+  const release = reserveOverlayHost(shell);
+  try {
+    closeReplaceableOverlay(shell);
+    openListOverlay(shell, {
+      kind: "add_provider",
+      title: "add provider",
+      items: opts?.items ?? [],
+      activeIndex: opts?.activeIndex ?? 0,
+      frameId: "overlay-add-provider",
+      ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+      ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+      ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
+      ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
+      deferIfBusy: true,
+    });
+  } finally {
+    release();
+  }
 }

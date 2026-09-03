@@ -2067,6 +2067,11 @@ interface ShellInternals {
    */
   overlayHostReservations: number;
   /**
+   * Advanced when Esc aborts in-flight reservations so a stale `release()`
+   * cannot decrement a newer hold.
+   */
+  overlayReservationEpoch: number;
+  /**
    * Registry-backed `/` command catalog (static or lazy), host-injected. Empty
    * when unset.
    */
@@ -4303,6 +4308,7 @@ export function closeInsetOverlay(shell: AppShell): void {
 
   relayout(shell, { overlayMode: "closed" });
   applyFocus(shell);
+  if (bag) bag.overlayGeneration += 1;
   if (isOverlayHostIdle(shell)) notifyOverlayClosed(shell);
   try {
     onDispose?.();
@@ -4379,16 +4385,29 @@ export function reserveOverlayHost(shell: AppShell): () => void {
   const bag = internals.get(shell);
   if (!bag) return () => undefined;
   bag.overlayHostReservations += 1;
+  const epoch = bag.overlayReservationEpoch;
   let released = false;
   return () => {
     if (released) return;
     released = true;
     const current = internals.get(shell);
-    if (!current) return;
+    if (!current || current.overlayReservationEpoch !== epoch) return;
     if (current.overlayHostReservations > 0) current.overlayHostReservations -= 1;
     scheduleDeferredCommandFlush(shell);
     notifyIfHostIdle(shell);
   };
+}
+
+/** Drop in-flight host holds. Stale `release()` callbacks become no-ops. */
+function abortOverlayHostReservations(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag || bag.overlayHostReservations === 0) return;
+  bag.overlayReservationEpoch += 1;
+  bag.overlayHostReservations = 0;
+  bag.overlayGeneration += 1;
+  scheduleDeferredCommandFlush(shell);
+  // Next tick so the same Esc cannot also dismiss a gate that this abort drains.
+  queueMicrotask(() => notifyIfHostIdle(shell));
 }
 
 /** One deferred command-surface slot while the host is busy. */
@@ -4435,7 +4454,6 @@ function flushDeferredCommandOverlay(shell: AppShell): void {
     return;
   }
   openListOverlay(shell, opts);
-  notifyIfHostIdle(shell);
 }
 
 function dropDeferredCommandOverlay(shell: AppShell): void {
@@ -5272,15 +5290,20 @@ function helpItems(): readonly string[] {
 }
 
 export function openHelpOverlay(shell: AppShell): void {
-  closeReplaceableOverlay(shell);
-  openListOverlay(shell, {
-    kind: "help",
-    title: "help · keymap",
-    items: helpItems(),
-    activeIndex: 0,
-    frameId: "overlay-help",
-    deferIfBusy: true,
-  });
+  const release = reserveOverlayHost(shell);
+  try {
+    closeReplaceableOverlay(shell);
+    openListOverlay(shell, {
+      kind: "help",
+      title: "help · keymap",
+      items: helpItems(),
+      activeIndex: 0,
+      frameId: "overlay-help",
+      deferIfBusy: true,
+    });
+  } finally {
+    release();
+  }
 }
 
 export function openMentionsOverlay(shell: AppShell, opts: OpenResidualListOpts): void {
@@ -6004,12 +6027,12 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       }
       if (shell.overlayList) {
         key.preventDefault();
+        abortOverlayHostReservations(shell);
         closeInsetOverlay(shell);
         return;
       }
-      const reserved = internals.get(shell);
-      if (reserved && reserved.overlayHostReservations > 0) {
-        reserved.overlayGeneration += 1;
+      if (internals.get(shell)?.overlayHostReservations) {
+        abortOverlayHostReservations(shell);
         key.preventDefault();
         return;
       }
@@ -6562,7 +6585,10 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       let overlayGuard = 4;
       while (shell.overlayList !== null && overlayGuard-- > 0) closeInsetOverlay(shell);
       const bag = internals.get(shell);
-      if (bag) bag.overlayHostReservations = 0;
+      if (bag) {
+        bag.overlayReservationEpoch += 1;
+        bag.overlayHostReservations = 0;
+      }
       disposed = true;
       shell.disposed = true;
       if (wireKeys) {
@@ -6621,6 +6647,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     deferredCommandOverlay: null,
     deferredFlushScheduled: false,
     overlayHostReservations: 0,
+    overlayReservationEpoch: 0,
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,
     listFilter: null,

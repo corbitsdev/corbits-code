@@ -26,6 +26,7 @@ import {
   closeInsetOverlay,
   closeReplaceableOverlay,
   createAppShell,
+  cycleOverlaySelection,
   isSlashPopupOpen,
   moveOverlaySelection,
   onOverlayClosed,
@@ -890,6 +891,86 @@ describe("overlay host occupancy and opt-in deferral", () => {
       },
       { onCommand: settingsOnCommand(hanging.list) },
     );
+  });
+
+  test("Esc while settings is painted during a cycle list() does not resurrect settings", async () => {
+    let listCalls = 0;
+    let resolveSecond: () => void = () => undefined;
+    const second = new Promise<readonly []>((resolve) => {
+      resolveSecond = () => resolve([]);
+    });
+    await withShell(
+      async ({ shell, press, render }) => {
+        typePrompt(press, "/settings");
+        press("Enter");
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(shell.overlayKind).toBe("settings");
+
+        expect(cycleOverlaySelection(shell, 1)).toBe(true);
+        expect(listCalls).toBe(2);
+
+        press("Escape");
+        await render();
+        await Bun.sleep(60);
+        resolveSecond();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(shell.overlayKind).not.toBe("settings");
+      },
+      {
+        onCommand: (name, shell) => {
+          if (name !== "settings") return;
+          openCommandSurface(shell, "settings", {
+            notify: () => undefined,
+            settings: {
+              read: () => ({
+                compactionMode: "llm",
+                waitForApproval: true,
+                telemetryEnabled: false,
+                showPromptCost: false,
+              }),
+              setCompactionMode: () => undefined,
+              setWaitForApproval: () => undefined,
+              setTelemetryEnabled: () => undefined,
+              setShowPromptCost: () => undefined,
+            },
+            permissions: {
+              list: () => {
+                listCalls += 1;
+                if (listCalls === 1) return Promise.resolve([]);
+                return second;
+              },
+              revoke: () => Promise.resolve(),
+            },
+          });
+        },
+      },
+    );
+  });
+
+  test("re-opening help while a gate is queued does not drain the gate", async () => {
+    await withShell(async ({ shell }) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      try {
+        openHelpOverlay(shell);
+        expect(shell.overlayKind).toBe("help");
+
+        let resolved: unknown;
+        emitPermissionGate(emitter, (outcome) => {
+          resolved = outcome;
+        });
+        expect(shell.overlayKind).toBe("help");
+        expect(resolved).toBeUndefined();
+
+        openHelpOverlay(shell);
+        expect(shell.overlayKind).toBe("help");
+        expect(resolved).toBeUndefined();
+      } finally {
+        dispose();
+      }
+    });
   });
 
   test("settings list() aborts when a newer overlay takes the host", async () => {
