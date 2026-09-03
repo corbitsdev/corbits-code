@@ -1,0 +1,150 @@
+import { describe, expect, test } from "bun:test";
+
+import { createAdmissionQueue } from "./admission.js";
+
+describe("createAdmissionQueue", () => {
+  test("FIFO: capacity 1, second job starts only after release", () => {
+    const started: string[] = [];
+    const queue = createAdmissionQueue({ capacity: 1 });
+    expect(
+      queue.enqueue({
+        id: "a",
+        provider: "p",
+        start: () => {
+          started.push("a");
+        },
+      }),
+    ).toBe("running");
+    expect(
+      queue.enqueue({
+        id: "b",
+        provider: "p",
+        start: () => {
+          started.push("b");
+        },
+      }),
+    ).toBe("queued");
+    expect(started).toEqual(["a"]);
+    queue.release("a");
+    expect(started).toEqual(["a", "b"]);
+  });
+
+  test("setCapacity lower does not cancel the running job", () => {
+    const started: string[] = [];
+    const queue = createAdmissionQueue({ capacity: 2 });
+    queue.enqueue({
+      id: "a",
+      provider: "p",
+      start: () => {
+        started.push("a");
+      },
+    });
+    queue.enqueue({
+      id: "b",
+      provider: "p",
+      start: () => {
+        started.push("b");
+      },
+    });
+    expect(
+      queue.enqueue({
+        id: "c",
+        provider: "p",
+        start: () => {
+          started.push("c");
+        },
+      }),
+    ).toBe("queued");
+    queue.setCapacity(1);
+    expect(started).toEqual(["a", "b"]);
+    queue.release("a");
+    expect(started).toEqual(["a", "b"]);
+    queue.release("b");
+    expect(started).toEqual(["a", "b", "c"]);
+  });
+
+  test("notePressure delays the next admit; quota_exhausted is not this module's job", () => {
+    let t = 1_000;
+    const started: string[] = [];
+    const queue = createAdmissionQueue({ capacity: 2, now: () => t });
+    queue.enqueue({
+      id: "a",
+      provider: "p",
+      start: () => {
+        started.push("a");
+      },
+    });
+    queue.release("a");
+    queue.notePressure("p", t + 5_000);
+    expect(
+      queue.enqueue({
+        id: "b",
+        provider: "p",
+        start: () => {
+          started.push("b");
+        },
+      }),
+    ).toBe("queued");
+    expect(started).toEqual(["a"]);
+    t = 6_000;
+    queue.release("missing");
+    expect(started).toEqual(["a", "b"]);
+  });
+
+  test("cancel on queued never invokes the start thunk", () => {
+    const started: string[] = [];
+    const queue = createAdmissionQueue({ capacity: 1 });
+    queue.enqueue({
+      id: "a",
+      provider: "p",
+      start: () => {
+        started.push("a");
+      },
+    });
+    queue.enqueue({
+      id: "b",
+      provider: "p",
+      start: () => {
+        started.push("b");
+      },
+    });
+    queue.cancel("b");
+    queue.release("a");
+    expect(started).toEqual(["a"]);
+    queue.cancel("a");
+    expect(started).toEqual(["a"]);
+  });
+
+  test("nested-parent child bypasses capacity", () => {
+    const started: string[] = [];
+    const queue = createAdmissionQueue({ capacity: 1 });
+    queue.enqueue({
+      id: "parent",
+      provider: "p",
+      start: () => {
+        started.push("parent");
+      },
+    });
+    expect(
+      queue.enqueue({
+        id: "child",
+        provider: "p",
+        bypass: true,
+        start: () => {
+          started.push("child");
+        },
+      }),
+    ).toBe("running");
+    expect(started).toEqual(["parent", "child"]);
+    expect(
+      queue.enqueue({
+        id: "root-extra",
+        provider: "p",
+        start: () => {
+          started.push("root-extra");
+        },
+      }),
+    ).toBe("queued");
+    expect(started).toEqual(["parent", "child"]);
+  });
+});
