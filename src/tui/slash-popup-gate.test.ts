@@ -1,9 +1,8 @@
 /**
  * CL-6699: a queued permission/operator gate must not open onto the host in
  * the middle of a `/` command filter session. The old close-then-reopen
- * refresh (closeSlashPopup -> closeInsetOverlay -> notifyOverlayClosed)
- * released the host between the two calls, and a gate queued behind the
- * popup drained into that gap.
+ * refresh released the host between the two calls (idle-notify via
+ * onOverlayClosed), and a gate queued behind the popup drained into that gap.
  *
  * CL-6711: accepting a slash/palette command must not drain that same queue
  * onto the host before dispatch has claimed it. A live gate already on the
@@ -14,11 +13,7 @@ import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
-import {
-  openCommandSurface,
-  type CommandSurfaceDeps,
-  type PluginsSurfaceDeps,
-} from "./command-surfaces";
+import { openCommandSurface, type CommandSurfaceDeps } from "./command-surfaces";
 import { wireGates } from "./gate-wire";
 import { openPermissionsOverlay } from "./overlays";
 import {
@@ -27,6 +22,7 @@ import {
   closeReplaceableOverlay,
   createAppShell,
   cycleOverlaySelection,
+  isOverlayHostIdle,
   isSlashPopupOpen,
   moveOverlaySelection,
   onOverlayClosed,
@@ -160,14 +156,13 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
     await withShell(async ({ shell, press }) => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
-      // The host closing (onOverlayClosed) is what the queued gate waits
+      // The host going idle (onOverlayClosed) is what the queued gate waits
       // on to drain — see gate-wire.ts's onOverlayClosed/pending. Under the
       // old close-then-reopen refresh this fires on every filter keystroke
-      // (closeSlashPopup -> closeInsetOverlay -> notifyOverlayClosed) even
-      // though the palette immediately re-stacks on top and every assertion
-      // on shell.overlayKind alone sees only "palette" again by the time it
-      // runs. Counting this call directly is what actually distinguishes
-      // the in-place refresh from the old close+reopen one.
+      // even though the palette immediately re-stacks on top and every
+      // assertion on shell.overlayKind alone sees only "palette" again by
+      // the time it runs. Counting this call directly is what actually
+      // distinguishes the in-place refresh from the old close+reopen one.
       let closedCount = 0;
       const disposeClosedSpy = onOverlayClosed(shell, () => {
         closedCount++;
@@ -802,7 +797,13 @@ describe("overlay host occupancy and opt-in deferral", () => {
           plugins: {
             list: () => [],
             setEnabled: () => Promise.resolve(undefined),
-          } as unknown as PluginsSurfaceDeps,
+            saveCredentials: async () => undefined,
+            verify: async () => ({ ok: true, message: "" }),
+            addPath: async () => ({ ok: true, message: "" }),
+            webProviders: () => [],
+            currentWebProvider: () => undefined,
+            setWebProvider: async () => undefined,
+          },
         });
         hanging.resolve();
         await Promise.resolve();
@@ -913,10 +914,13 @@ describe("overlay host occupancy and opt-in deferral", () => {
         press("Escape");
         await render();
         await Bun.sleep(60);
+        expect(shell.overlayKind).not.toBe("settings");
+        expect(isOverlayHostIdle(shell)).toBe(true);
         resolveSecond();
         await Promise.resolve();
         await Promise.resolve();
         expect(shell.overlayKind).not.toBe("settings");
+        expect(isOverlayHostIdle(shell)).toBe(true);
       },
       {
         onCommand: (name, shell) => {
@@ -956,16 +960,19 @@ describe("overlay host occupancy and opt-in deferral", () => {
       try {
         openHelpOverlay(shell);
         expect(shell.overlayKind).toBe("help");
+        expect(isOverlayHostIdle(shell)).toBe(false);
 
         let resolved: unknown;
         emitPermissionGate(emitter, (outcome) => {
           resolved = outcome;
         });
         expect(shell.overlayKind).toBe("help");
+        expect(isOverlayHostIdle(shell)).toBe(false);
         expect(resolved).toBeUndefined();
 
         openHelpOverlay(shell);
         expect(shell.overlayKind).toBe("help");
+        expect(isOverlayHostIdle(shell)).toBe(false);
         expect(resolved).toBeUndefined();
       } finally {
         dispose();

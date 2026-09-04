@@ -531,11 +531,11 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
 
     // Alt+A from the model picker: close it and open a fresh selector over
     // every first-class provider kind, no already-connected filtering. This
-    // gets its own PrimaryOverlayKind opened through the same close-then-open
-    // path openModels itself uses, rather than the palette's priorOverlay
-    // stack — that stack exists so the palette can float over a permission or
-    // operator question without dropping the awaited promise underneath it,
-    // which does not apply here.
+    // gets its own PrimaryOverlayKind opened through the same reserved
+    // close-then-open path openModels itself uses, rather than the palette's
+    // priorOverlay stack — that stack exists so the palette can float over a
+    // permission or operator question without dropping the awaited promise
+    // underneath it, which does not apply here.
     openAddProvider =
       addProviderChoices !== undefined && onConnect !== undefined
         ? (opts?: { returnToModels?: boolean }): void => {
