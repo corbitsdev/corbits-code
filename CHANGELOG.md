@@ -28,6 +28,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   Bundled plugins disable only and stay listed. Claude marketplace plugins
   disable in settings without deleting `~/.claude`. The screen opens with a
   how-to header.
+- Operator-question and permission choice labels wrap instead of collapsing
+  behind a middle ellipsis. `ask_operator` rejects option labels over 48
+  characters so rationale stays in the transcript.
 
 ## [0.3.14] - 2026-09-03
 
