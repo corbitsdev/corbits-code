@@ -76,6 +76,8 @@ export interface ChromeAgentSession {
    * tools keep running.
    */
   readonly finishedAt?: number;
+  /** False while admission-queued. Missing means unknown. */
+  readonly runInFlight?: boolean;
 }
 
 /** Lightweight task row: title + status, as written by manage_tasks. */
@@ -145,7 +147,7 @@ export interface AgentPanelRow {
  * operator answers "is everything fine" without reading a word. This is a
  * display order only; stall/`in_tool` semantics live in `agent-progress`.
  */
-const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working"];
+const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working", "queued"];
 
 /** Always-populated result for setChromeZones (null = hide zone). */
 export interface FormattedChromeZones {
@@ -334,6 +336,7 @@ function toProgressSession(session: ChromeAgentSession): AgentProgressSession | 
     currentToolStartedAt: session.currentToolStartedAt,
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt ?? session.startedAt,
+    ...(session.runInFlight !== undefined ? { runInFlight: session.runInFlight } : {}),
   };
 }
 
@@ -527,6 +530,7 @@ export interface ChromeSessionAgent {
   readonly startedAt?: number;
   readonly lastActivityAt?: number;
   readonly finishedAt?: number;
+  readonly runInFlight?: boolean;
 }
 
 /**
@@ -589,6 +593,7 @@ function mapSessionAgents(
       ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
       ...(a.lastActivityAt !== undefined ? { lastActivityAt: a.lastActivityAt } : {}),
       ...(a.finishedAt !== undefined ? { finishedAt: a.finishedAt } : {}),
+      ...(a.runInFlight !== undefined ? { runInFlight: a.runInFlight } : {}),
     };
   });
 }

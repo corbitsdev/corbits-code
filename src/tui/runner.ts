@@ -163,6 +163,7 @@ import {
   liveFleetCount,
   observeFleet,
 } from "../subagent/index.js";
+import { getProcessAdmissionQueue } from "../subagent/admission.js";
 import type {
   ContextStore,
   InferenceSource,
@@ -983,7 +984,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Dedicated child-session records for enter-session inspection. Child events
     // land here only — never in the parent chat transcript.
-    const subAgentSessions = createSubAgentSessionStore();
+    const subAgentSessions = createSubAgentSessionStore({
+      admission: getProcessAdmissionQueue(),
+    });
 
     const webPluginCandidates = collectWebPlugins(executablePlugins());
     // Tool plugins are wired in only when enabled AND consented.
@@ -2763,6 +2766,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           startedAt: s.startedAt,
           lastActivityAt: s.lastActivityAt,
           ...(s.finishedAt !== undefined ? { finishedAt: s.finishedAt } : {}),
+          ...(s.runInFlight !== undefined ? { runInFlight: s.runInFlight } : {}),
         })),
       }),
       subscribeChrome: (notify) => {

@@ -62,9 +62,10 @@ export const resumeAgentToolDefinition: ToolDefinition = {
   name: "resume_agent",
   description:
     "Start the next turn on a retained worker that is 'completed' or 'interrupted', reusing its " +
-    "prior context rather than spawning a fresh worker. Returns immediately with status 'running'; " +
-    "collect the reply with wait_agents. Fails on a session that is still running, was never " +
-    "retained, or was already closed via close_agent (closing is permanent).",
+    "prior context rather than spawning a fresh worker. Returns immediately with status 'running' " +
+    "or 'queued' if the admission window is full; collect the reply with wait_agents. Fails on a " +
+    "session that is still running, was never retained, or was already closed via close_agent " +
+    "(closing is permanent).",
   inputSchema: {
     type: "object",
     properties: {
@@ -251,7 +252,11 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
           `Error: cannot resume "${target}" (status: ${outcome.status}).${hint}`,
         );
       }
-      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: "running" }));
+      if (outcome.status === "queued") {
+        deps.fleetRecords.register(target);
+        deps.fleetRecords.markQueued(target);
+      }
+      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
     },
   });
 }
@@ -265,11 +270,12 @@ export const interruptAgentToolDefinition: ToolDefinition = {
   description:
     "Stop a worker session's current turn while keeping the session and its context intact and " +
     "reusable — distinct from close_agent, which is permanent. Unblocks any in-flight wait_agents " +
-    "on this id immediately with status 'interrupted'. The worker's in-flight tool call or " +
+    "on this id immediately with status 'interrupted'. Works on a queued spawn that has not started " +
+    "run() yet, and on a running turn. The worker's in-flight tool call or " +
     "inference keeps running in the background (there is no way to hard-stop it without tearing the " +
     "session down); this only stops the caller from waiting on it and marks the session " +
     "'interrupted' so resume_agent can pick it back up with full prior context. " +
-    "Fails on a session that is not currently running.",
+    "Fails on a session that is not queued or running.",
   inputSchema: {
     type: "object",
     properties: {

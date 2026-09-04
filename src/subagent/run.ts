@@ -60,6 +60,7 @@ import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
+import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import {
   createInterventionLog,
   NOOP_INTERVENTION_SINK,
@@ -103,6 +104,7 @@ import {
 } from "./stop-policy.js";
 import { EMPTY_THRASH_STATE, nextThrashState, salvagePathsFromThrash } from "./thrash.js";
 import { SubAgentDirector } from "./nudge-director.js";
+import { getProcessAdmissionQueue } from "./admission.js";
 import { assertTierMayMountFleetVerb } from "./authority.js";
 import { createReadAgentTraceTool } from "./trace-tool.js";
 import {
@@ -648,7 +650,11 @@ async function runSubAgentInner(
         );
       }
       const nd = params.nestedDispatch;
-      const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
+      const fleetSessions =
+        nd.sessions ??
+        createSubAgentSessionStore({
+          admission: params.admission ?? getProcessAdmissionQueue(),
+        });
       const fleetRecords = createFleetMailbox(fleetSessions);
       tools = [
         ...tools,
@@ -702,6 +708,7 @@ async function runSubAgentInner(
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
         ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
         ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
+        ...(nd.admission !== undefined ? { admission: nd.admission } : {}),
       };
       tools = [
         ...tools,
@@ -790,6 +797,10 @@ async function runSubAgentInner(
           modelFamilyPolicy.subAgentStallTimeoutMs,
           Date.now,
           shouldRequireEvidence(params),
+          createCorbitsRetryPolicy({
+            providerId: params.provider.providerName,
+            admission: params.admission ?? getProcessAdmissionQueue(),
+          }),
         );
         director.observeForcedStop((reason) => {
           directorForcedStopReason = reason;

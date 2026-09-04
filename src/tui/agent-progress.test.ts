@@ -50,6 +50,37 @@ describe("agentProgress", () => {
     expect(progress?.stalled).toBe(false);
   });
 
+  test("admission-queued pending_init is queued, not stalled", () => {
+    const progress = agentProgress(
+      {
+        ...base,
+        currentToolName: null,
+        lifecycleStatus: "pending_init",
+        runInFlight: false,
+        lastActivityAt: 0,
+      },
+      91_000,
+    );
+    expect(progress?.stat).toBe("queued");
+    expect(progress?.working).toBe(false);
+    expect(progress?.stalled).toBe(false);
+    expect(
+      laneState(
+        {
+          status: "running",
+          currentToolName: null,
+          currentToolPreview: null,
+          currentToolStartedAt: null,
+          startedAt: 0,
+          lastActivityAt: 0,
+          lifecycleStatus: "pending_init",
+          runInFlight: false,
+        },
+        91_000,
+      ),
+    ).toBe("queued");
+  });
+
   test("an interrupted session with no leftover tool shows plain interrupted", () => {
     const progress = agentProgress(
       {
@@ -252,6 +283,22 @@ describe("fleetProgress", () => {
       30_000,
     );
     expect(fleet).toEqual({ running: 1, working: 1, inTool: 0, stalled: 0 });
+  });
+
+  test("queued pending_init does not count as stalled", () => {
+    const fleet = fleetProgress(
+      [
+        lane({ lastActivityAt: 59_000 }),
+        lane({
+          lifecycleStatus: "pending_init",
+          runInFlight: false,
+          lastActivityAt: 0,
+        }),
+      ],
+      60_000,
+      30_000,
+    );
+    expect(fleet).toEqual({ running: 2, working: 2, inTool: 0, stalled: 0 });
   });
 });
 

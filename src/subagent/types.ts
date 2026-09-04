@@ -19,6 +19,7 @@ import type { SubAgentSessionStore } from "./session-store.js";
 import type { TaskIntent } from "./report.js";
 import type { SubagentTier } from "../agent/directors/types.js";
 import type { ForcedStopReason } from "./stop-policy.js";
+import type { AdmissionQueue } from "./admission.js";
 
 export interface SubAgentProvider {
   providerName: string;
@@ -72,6 +73,8 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
    * may only spawn these director/profile ids. Omitted = no allowlist filter (primary).
    */
   spawnAllowlist?: readonly string[];
+  /** Same process admission queue as the parent spawn. Tests inject. */
+  admission?: AdmissionQueue;
 };
 
 /** Typed spawn intent — optional on `spawn_agent`; omit Intent section when unset. */
@@ -106,6 +109,8 @@ export type RunSubAgentParams = {
   /** What the parent most needs in Findings. */
   reportFocus?: string;
   signal?: AbortSignal;
+  /** Same process admission queue as spawn. Tests inject; worker 429 freeze uses this. */
+  admission?: AdmissionQueue;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
   onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;

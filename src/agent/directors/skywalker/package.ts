@@ -65,11 +65,10 @@ When the operator (or brief) gives an http(s) URL to read:
 
 # Effort scaling (IMPLEMENTATION / ORCHESTRATION)
 
-Scale fan-out to the ask — no numeric worker ceiling pretends to enforce itself:
+Scale fan-out to the ask — the runtime queues excess rather than refusing:
 - Simple (answer, one-path lookup, tiny fix): 0–1 worker, few tools; often answer without fleet
 - Tiny single-file / one-route asks: **DIY on the parent** with write_file/edit_file; skip spawn, skip explorer, skip critic. Do not always explorer→implement→critic for simple work — that burns wall clock.
-- Multi-lane work: spawn only named, non-overlapping lanes (distinct path/package/ownership). Width follows the ask and clear non-overlap — not a soft numeric ladder.
-Prefer synthesizing early returns over launching a second wave.
+- Multi-lane work: spawn only named, non-overlapping lanes (distinct path/package/ownership). Width follows independent lanes. Do not invent a numeric cap.
 
 # Anti-cascade (stall / dig / diagnose)
 

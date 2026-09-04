@@ -12,9 +12,11 @@ import type {
   ToolDefinition,
   ConversationTurn,
   InferenceOptions,
+  RetryPolicy,
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
+import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import {
   EMPTY_THRASH_STATE,
   nextThrashState,
@@ -83,6 +85,7 @@ function isNonEmptyParentMessage(event: ReactorInboundEvent): boolean {
 
 export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
+  private readonly retryPolicy: RetryPolicy;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
@@ -171,6 +174,7 @@ export class SubAgentDirector extends DefaultDirector {
     stallTimeoutMs?: number,
     now: () => number = Date.now,
     requireEvidence = false,
+    retryPolicy: RetryPolicy = createCorbitsRetryPolicy(),
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
@@ -178,6 +182,7 @@ export class SubAgentDirector extends DefaultDirector {
     this.now = now;
     this.lastActivityAt = now();
     this.requireEvidence = requireEvidence;
+    this.retryPolicy = retryPolicy;
   }
 
   override async decide(
@@ -185,6 +190,15 @@ export class SubAgentDirector extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    const infer = capabilities.infer.bind(capabilities);
+    capabilities = {
+      ...capabilities,
+      infer: (options) =>
+        infer({
+          ...(options ?? {}),
+          retryPolicy: options?.retryPolicy ?? this.retryPolicy,
+        }),
+    };
     // A real parent follow-up re-opens the brief; empty continuations do not.
     if (isNonEmptyParentMessage(event)) {
       this.reportReplied = false;

@@ -9,6 +9,7 @@ import {
 } from "./lifecycle-tools.js";
 import { createFleetMailbox, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore, DEFAULT_MAX_ENTRY_CHARS } from "./session-store.js";
+import { createAdmissionQueue } from "./admission.js";
 
 async function callTool(
   tool:
@@ -487,6 +488,35 @@ describe("resume_agent", () => {
     expect(resumeAgentToolDefinition.name).toBe("resume_agent");
     expect(resumeAgentToolDefinition.inputSchema.required).toEqual(["target", "message"]);
     expect(JSON.stringify(resumeAgentToolDefinition)).not.toContain("followup_task");
+  });
+
+  test("resume_agent returns queued when admission is full", async () => {
+    const admission = createAdmissionQueue({ capacity: 0 });
+    const sessions = createSubAgentSessionStore({ admission });
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+      provider: "p",
+    });
+    let started = false;
+    sessions.registerFollowup(worker.id, async () => {
+      started = true;
+      return "second report";
+    });
+    sessions.complete(worker.id, "first report");
+    fleetRecords.register(worker.id);
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    const resumed = await callTool(resumeAgent, { target: worker.id, message: "second turn" });
+    expect(resumed.status).toBe("queued");
+    expect(started).toBe(false);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("pending_init");
+    expect(fleetRecords.peek(worker.id)?.status).toBe("queued");
   });
 });
 

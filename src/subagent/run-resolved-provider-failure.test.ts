@@ -13,6 +13,7 @@ import {
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createFleetMailbox, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import { unlimitedAdmissionQueue } from "./admission.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
@@ -158,6 +159,7 @@ describe("resolved sub-agent provider failures", () => {
         getWorkdirBase: () => join(cwd, ".ctx"),
         sessions,
         fleetRecords,
+        admission: unlimitedAdmissionQueue(),
         run,
       };
       const spawned = await callTool(createSpawnAgentTool(deps), "spawn_agent", {
@@ -210,6 +212,7 @@ describe("resolved sub-agent provider failures", () => {
           getWorkdirBase: () => join(cwd, ".ctx"),
           sessions,
           fleetRecords,
+          admission: unlimitedAdmissionQueue(),
           run,
         };
         const spawned = await callTool(createSpawnAgentTool(deps), "spawn_agent", {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createSubAgentSessionStore, DEFAULT_MAX_ENTRY_CHARS } from "./session-store.js";
+import { createAdmissionQueue } from "./admission.js";
 import { forcedStopReport } from "./stop-policy.js";
 import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
 import { formatAgentsPanel } from "../tui/chrome-state.js";
@@ -316,6 +317,82 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(outcome).toEqual({ ok: true, status: "running" });
     expect(store.get(session.id)?.status).toBe("running");
     expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("resume queues when the burst window is full and does not start until a slot opens", async () => {
+    const started: string[] = [];
+    const admission = createAdmissionQueue({ capacity: 1 });
+    admission.enqueue({
+      id: "holder",
+      provider: "p",
+      start: () => {
+        started.push("holder");
+      },
+    });
+    const store = createSubAgentSessionStore({ admission });
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+      provider: "p",
+    });
+    let finish: (reply: string) => void = () => {};
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((resolve) => {
+          started.push("followup");
+          finish = resolve;
+        }),
+    );
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "queued" });
+    expect(store.get(session.id)?.lifecycleStatus).toBe("pending_init");
+    expect(started).toEqual(["holder"]);
+    expect(store.resumeOne(session.id, "again").ok).toBe(false);
+    admission.release("holder");
+    await Promise.resolve();
+    expect(started).toEqual(["holder", "followup"]);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+    finish("next turn");
+  });
+
+  test("followup on an already-occupied id starts without releasing the slot", async () => {
+    const admission = createAdmissionQueue({ capacity: 1 });
+    const store = createSubAgentSessionStore({ admission });
+    const session = store.start({
+      id: "worker",
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+      provider: "p",
+    });
+    let followupStarted = false;
+    let finish: (reply: string) => void = () => {};
+    store.registerFollowup(
+      session.id,
+      () =>
+        new Promise<string>((resolve) => {
+          followupStarted = true;
+          finish = resolve;
+        }),
+    );
+    store.complete(session.id, "done");
+    expect(
+      admission.enqueue({
+        id: "worker",
+        provider: "p",
+        start: () => {},
+      }),
+    ).toBe("running");
+    expect(admission.occupied("worker")).toBe(true);
+    expect(store.resumeOne(session.id, "continue")).toEqual({ ok: true, status: "running" });
+    await Promise.resolve();
+    expect(followupStarted).toBe(true);
+    expect(admission.occupied("worker")).toBe(true);
+    finish("next");
   });
 
   test("resume-from-completed is a live turn: send_input, interrupt, and appendEvent work", async () => {
@@ -933,12 +1010,41 @@ describe("CL-7269 one stored worker lifecycle", () => {
   test("closeOne during setup then fail() does not wait the deadline", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.markRunInFlight(session.id);
     const started = Date.now();
     const closePromise = store.closeOne(session.id, 5000);
     setTimeout(() => store.fail(session.id, "boom"), 15);
     expect(await closePromise).toBe("shutdown");
     expect(Date.now() - started).toBeLessThan(200);
     expect(store.get(session.id)?.lifecycle.state).toBe("failed");
+  });
+
+  test("interruptOne of pending_init succeeds after markRunInFlight", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    let aborted = 0;
+    store.registerCancel(session.id, () => {
+      aborted += 1;
+    });
+    store.markRunInFlight(session.id);
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(aborted).toBe(1);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
+  });
+
+  test("closeOne of a queued pending_init session does not wait for a close handle", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    let cancelled = 0;
+    store.registerCancel(session.id, () => {
+      cancelled += 1;
+    });
+    const started = Date.now();
+    expect(await store.closeOne(session.id, 5000)).toBe("shutdown");
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(cancelled).toBe(1);
+    expect(store.get(session.id)?.lifecycle.state).toBe("shutdown");
+    expect(store.get(session.id)?.runInFlight).toBe(false);
   });
 
   test("start() reuse of an id drops leftover pins", () => {

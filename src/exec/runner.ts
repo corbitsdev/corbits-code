@@ -45,6 +45,7 @@ import {
   type SubAgentProvider,
   type SubAgentSessionStore,
 } from "../subagent/index.js";
+import { getProcessAdmissionQueue } from "../subagent/admission.js";
 import type {
   ContextStore,
   InferenceSource,
@@ -484,7 +485,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const liveSubAgentProvider: { current: SubAgentProvider } = {
       current: buildSubAgentProvider(config),
     };
-    const fleetSessions = createSubAgentSessionStore();
+    const fleetSessions = createSubAgentSessionStore({
+      admission: getProcessAdmissionQueue(),
+    });
     subAgentSessions = fleetSessions;
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     const toolWatchdog = toolWatchdogFromSettings(config.settings);

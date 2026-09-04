@@ -18,6 +18,7 @@ import {
 } from "./lifecycle.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 import { toolCallPreview } from "./tool-preview.js";
+import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
 
@@ -106,6 +107,10 @@ export interface SubAgentSession {
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
   // directly from the primary session's spawn_agent tool.
   parentSessionId?: string;
+  /** Catalog provider id used for followup admission. */
+  provider?: string;
+  /** True while an admitted run or followup has not settled. */
+  runInFlight?: boolean;
   /**
    * Projection of `lifecycle` for close/resume/interrupt JSON. Maps cancelled →
    * interrupted and failed → shutdown so those verbs do not leak new enum values.
@@ -132,6 +137,8 @@ export interface StartSessionInput {
   parentSessionId?: string;
   // CL-6943: opt in to end-of-turn retention (spawn_agent sets this).
   retained?: boolean;
+  /** Catalog provider id for followup admission. */
+  provider?: string;
 }
 
 export interface SubAgentSessionStoreOptions {
@@ -153,6 +160,8 @@ export interface SubAgentSessionStoreOptions {
   maxEntryChars?: number;
   now?: () => number;
   createId?: () => string;
+  /** When set, resume/followup inference is admitted through this queue. */
+  admission?: AdmissionQueue;
 }
 
 export interface SubAgentSessionStore {
@@ -190,6 +199,8 @@ export interface SubAgentSessionStore {
   // CL-6943: flips a "pending_init" session to "running" once its agent
   // object actually exists. No-op on an unknown id or one already past init.
   markRunning(id: string): void;
+  /** Mark the admitted run as in-flight. Deferred until admission, not start(). */
+  markRunInFlight(id: string): void;
   // Registers the bounded close function close_agent will call later. Only
   // one is kept per id (a later call replaces an earlier one, matching
   // start()'s replace-on-reuse behavior for cancelHandles).
@@ -217,7 +228,9 @@ export interface SubAgentSessionStore {
       onReply?: (reply: string) => void;
       onFail?: (error: unknown) => void;
     },
-  ): { ok: true; status: "running" } | { ok: false; status: AgentLifecycleStatus; hint?: string };
+  ):
+    | { ok: true; status: "running" | "queued" }
+    | { ok: false; status: AgentLifecycleStatus; hint?: string };
   // CL-6997: registers the per-session interrupt/followup handles run.ts
   // hands back via onAgentReady. Distinct maps from registerClose/closeOne
   // above (interrupt must never route through close's codepath).
@@ -422,6 +435,7 @@ export function createSubAgentSessionStore(
   const maxEntryChars = options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS;
   const now = options.now ?? (() => Date.now());
   const createId = options.createId ?? defaultCreateId;
+  const admission = options.admission;
 
   // Insertion order: older first. list() returns a snapshot in that order.
   const sessions = new Map<string, StoredSession>();
@@ -487,9 +501,16 @@ export function createSubAgentSessionStore(
 
   const snapshotOf = (session: StoredSession): SubAgentSession => {
     const revision = revisions.get(session.id) ?? 0;
+    const inFlight = runInFlight.has(session.id);
     const cached = snapshotCache.get(session.id);
-    if (cached !== undefined && cached.revision === revision) return cached.snapshot;
-    const snapshot = cloneSession(session);
+    if (
+      cached !== undefined &&
+      cached.revision === revision &&
+      cached.snapshot.runInFlight === inFlight
+    ) {
+      return cached.snapshot;
+    }
+    const snapshot = cloneSession(session, inFlight);
     snapshotCache.set(session.id, { revision, snapshot });
     return snapshot;
   };
@@ -755,49 +776,85 @@ export function createSubAgentSessionStore(
     id: string,
     message: string,
     failLifecycle: "completed" | "interrupted",
-    opts?: { onReply?: (reply: string) => void; onFail?: (error: unknown) => void },
-  ): void => {
+    opts?: {
+      onStart?: () => void;
+      onReply?: (reply: string) => void;
+      onFail?: (error: unknown) => void;
+    },
+  ): AdmissionStatus => {
     const followup = followupHandles.get(id);
-    if (followup === undefined) return;
-    beginFollowupTurn(id);
-    void followup(message)
-      .then((reply) => {
-        const still = sessions.get(id);
-        if (still === undefined) {
+    if (followup === undefined) return "running";
+    const session = sessions.get(id);
+    const queue = admission;
+    // A followup on an already-admitted id must not enqueue a second job with
+    // the same id (enqueue would no-op start) and must not release the slot
+    // the first run still holds.
+    const takesSlot = queue !== undefined && !queue.occupied(id);
+    const start = (): void => {
+      beginFollowupTurn(id);
+      opts?.onStart?.();
+      void followup(message)
+        .then((reply) => {
+          const still = sessions.get(id);
+          if (still === undefined) {
+            runInFlight.delete(id);
+            return;
+          }
+          if (
+            still.lifecycle.state === "shutdown" ||
+            still.lifecycle.state === "cancelled" ||
+            still.lifecycle.state === "failed" ||
+            still.lifecycle.state === "interrupted"
+          ) {
+            runInFlight.delete(id);
+            return;
+          }
+          mutate(id, (s) => {
+            s.lifecycle = { state: "completed", report: reply };
+            s.finishedAt = now();
+            s.report = reply;
+            pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+          });
           runInFlight.delete(id);
-          return;
-        }
-        if (
-          still.lifecycle.state === "shutdown" ||
-          still.lifecycle.state === "cancelled" ||
-          still.lifecycle.state === "failed" ||
-          still.lifecycle.state === "interrupted"
-        ) {
+          opts?.onReply?.(reply);
+          pruneRetained();
+        })
+        .catch((err: unknown) => {
           runInFlight.delete(id);
-          return;
-        }
-        mutate(id, (s) => {
-          s.lifecycle = { state: "completed", report: reply };
-          s.finishedAt = now();
-          s.report = reply;
-          pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+          if (opts?.onFail !== undefined) {
+            opts.onFail(err);
+          } else {
+            endFollowupTurn(id, failLifecycle);
+          }
+          log.error("followup turn failed for {id}: {error}", {
+            id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          if (takesSlot) queue?.release(id);
         });
-        runInFlight.delete(id);
-        opts?.onReply?.(reply);
-        pruneRetained();
-      })
-      .catch((err: unknown) => {
-        runInFlight.delete(id);
-        if (opts?.onFail !== undefined) {
-          opts.onFail(err);
-        } else {
-          endFollowupTurn(id, failLifecycle);
-        }
-        log.error("followup turn failed for {id}: {error}", {
-          id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+    };
+    if (!takesSlot || queue === undefined) {
+      start();
+      return "running";
+    }
+    const status = queue.enqueue({
+      id,
+      provider: session?.provider ?? "unknown",
+      bypass: session?.parentSessionId !== undefined,
+      start,
+    });
+    if (status === "queued") {
+      cancelHandles.set(id, () => {
+        queue.cancel(id);
       });
+      mutate(id, (s) => {
+        s.lifecycle = { state: "pending_init" };
+        delete s.finishedAt;
+      });
+    }
+    return status;
   };
 
   return {
@@ -852,9 +909,9 @@ export function createSubAgentSessionStore(
         lastActivityAt: now(),
         ...(input.retained === true ? { retained: true } : {}),
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
+        ...(input.provider !== undefined ? { provider: input.provider } : {}),
       };
       sessions.set(id, session);
-      runInFlight.add(id);
       bumpRevision(id);
       notify();
       return snapshotOf(session);
@@ -1084,6 +1141,13 @@ export function createSubAgentSessionStore(
       });
     },
 
+    markRunInFlight(id: string): void {
+      if (!sessions.has(id) || runInFlight.has(id)) return;
+      runInFlight.add(id);
+      bumpRevision(id);
+      notify();
+    },
+
     registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void {
       if (!sessions.has(id)) return;
       closeHandles.set(id, close);
@@ -1110,6 +1174,28 @@ export function createSubAgentSessionStore(
         return projectLifecycleStatus(session.lifecycle);
       }
       if (close === undefined) {
+        if (session.lifecycle.state === "pending_init" && !runInFlight.has(id)) {
+          const abort = cancelHandles.get(id);
+          try {
+            abort?.();
+          } catch {
+            // Abort hooks must not throw into the close path.
+          }
+          mutate(id, (s) => {
+            const error = s.error ?? "Closed by close_agent";
+            s.lifecycle = { state: "shutdown", error };
+            s.retained = false;
+            s.finishedAt = s.finishedAt ?? now();
+            s.error = error;
+          });
+          cancelHandles.delete(id);
+          interruptHandles.delete(id);
+          followupHandles.delete(id);
+          deliverHandles.delete(id);
+          runInFlight.delete(id);
+          pruneCompleted();
+          return "shutdown";
+        }
         // CL-7001: close_agent landed in the setup window — the session
         // exists but createAgentWithLiveToolDispatch hasn't finished and
         // registerClose hasn't fired yet. Wait for it (bounded) instead of
@@ -1283,6 +1369,23 @@ export function createSubAgentSessionStore(
       }
       const interrupt = interruptHandles.get(id);
       if (interrupt === undefined) {
+        if (session.lifecycle.state === "pending_init") {
+          const abort = cancelHandles.get(id);
+          try {
+            abort?.();
+          } catch {
+            // Abort hooks must not throw into the interrupt path.
+          }
+          mutate(id, (s) => {
+            s.lifecycle = {
+              state: "interrupted",
+              ...(s.report !== undefined ? { report: s.report } : {}),
+            };
+            s.finishedAt = s.finishedAt ?? now();
+          });
+          pruneRetained();
+          return { ok: true };
+        }
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
       settleCancelsAsks(id, "session interrupted");
@@ -1307,7 +1410,8 @@ export function createSubAgentSessionStore(
         onFail?: (error: unknown) => void;
       },
     ):
-      { ok: true; status: "running" } | { ok: false; status: AgentLifecycleStatus; hint?: string } {
+      | { ok: true; status: "running" | "queued" }
+      | { ok: false; status: AgentLifecycleStatus; hint?: string } {
       const session = sessions.get(id);
       if (session === undefined) {
         const tombstone = evicted.get(id);
@@ -1341,13 +1445,13 @@ export function createSubAgentSessionStore(
       }
       const priorLifecycle =
         session.lifecycle.state === "interrupted" ? "interrupted" : "completed";
-      queueFollowupTurn(id, message, priorLifecycle, {
+      const status = queueFollowupTurn(id, message, priorLifecycle, {
+        ...(opts?.onStart !== undefined ? { onStart: opts.onStart } : {}),
         ...(opts?.onReply !== undefined ? { onReply: opts.onReply } : {}),
         ...(opts?.onFail !== undefined ? { onFail: opts.onFail } : {}),
       });
-      opts?.onStart?.();
       pruneRetained();
-      return { ok: true, status: "running" };
+      return { ok: true, status };
     },
 
     cancel(id: string, reason = DEFAULT_CANCEL_REASON): boolean {
@@ -1464,7 +1568,7 @@ export function createSubAgentSessionStore(
   };
 }
 
-function cloneSession(session: StoredSession): SubAgentSession {
+function cloneSession(session: StoredSession, inFlight: boolean): SubAgentSession {
   return {
     id: session.id,
     description: session.description,
@@ -1481,12 +1585,14 @@ function cloneSession(session: StoredSession): SubAgentSession {
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt,
     lifecycleStatus: projectLifecycleStatus(session.lifecycle),
+    runInFlight: inFlight,
     ...(session.retained !== undefined ? { retained: session.retained } : {}),
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),
     ...(session.error !== undefined ? { error: session.error } : {}),
     ...(session.stopReason !== undefined ? { stopReason: session.stopReason } : {}),
     ...(session.parentSessionId !== undefined ? { parentSessionId: session.parentSessionId } : {}),
+    ...(session.provider !== undefined ? { provider: session.provider } : {}),
   };
 }
 

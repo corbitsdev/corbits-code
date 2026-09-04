@@ -89,6 +89,7 @@ src/
   subagent/
     index.ts              Sub-agent run exports + SubAgentDirector
     agent-fleet.ts        spawn_agent / wait_agents fleet dispatch and mailbox tools
+    admission.ts          Burst-window admission in front of worker run()
     session-store.ts      Retained child session transcripts for observe UI
     identity-context.ts   ALS: worker description + cwd for gate attribution
   config/

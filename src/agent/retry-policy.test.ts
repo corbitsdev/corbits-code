@@ -1,12 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { createCorbitsRetryPolicy } from "./retry-policy.js";
+import type { AdmissionQueue } from "../subagent/admission.js";
+import { createCorbitsRetryPolicy, type CorbitsRetryPolicyOptions } from "./retry-policy.js";
 
 const HTML_503 = `<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>`;
 
+const silentAdmission: AdmissionQueue = {
+  enqueue: () => "running",
+  release: () => {},
+  setCapacity: () => {},
+  notePressure: () => {},
+  cancel: () => {},
+  occupied: () => false,
+};
+
+function policy(opts: CorbitsRetryPolicyOptions = {}) {
+  return createCorbitsRetryPolicy({ admission: silentAdmission, ...opts });
+}
+
 describe("createCorbitsRetryPolicy", () => {
   test("retries protocol_mismatch when the body is an HTML 503 gateway page", async () => {
-    const policy = createCorbitsRetryPolicy();
-    const decision = await policy({
+    const decision = await policy()({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -19,8 +32,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("aborts an OpenCode Go malformed streamed SSE schema response", async () => {
-    const policy = createCorbitsRetryPolicy({ providerId: "opencode-go/corbits" });
-    const decision = await policy({
+    const decision = await policy({ providerId: "opencode-go/corbits" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -33,8 +45,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("aborts a generic non-overload protocol mismatch", async () => {
-    const policy = createCorbitsRetryPolicy();
-    const decision = await policy({
+    const decision = await policy()({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -46,8 +57,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("aborts long-window quota exhaustion", async () => {
-    const policy = createCorbitsRetryPolicy();
-    const decision = await policy({
+    const decision = await policy()({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -60,8 +70,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("aborts Codex usage_limit_reached when resets_in_seconds is a long window", async () => {
-    const policy = createCorbitsRetryPolicy();
-    const decision = await policy({
+    const decision = await policy()({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -84,8 +93,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("stamped xAI bare 429 retries as retryable, not long-quota abort", async () => {
-    const policy = createCorbitsRetryPolicy({ providerId: "xai/thegreataxios" });
-    const decision = await policy({
+    const decision = await policy({ providerId: "xai/thegreataxios" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -101,8 +109,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("stamped Codex usage-limit 429 retries as retryable, not long-quota abort", async () => {
-    const policy = createCorbitsRetryPolicy({ providerId: "codex/abk-labs" });
-    const decision = await policy({
+    const decision = await policy({ providerId: "codex/abk-labs" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -117,8 +124,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("stamped xAI usage/quota body still aborts on long retryAfterMs", async () => {
-    const policy = createCorbitsRetryPolicy({ providerId: "xai/thegreataxios" });
-    const decision = await policy({
+    const decision = await policy({ providerId: "xai/thegreataxios" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -138,8 +144,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("unknown provider bare 429 with moderate Retry-After still aborts as quota", async () => {
-    const policy = createCorbitsRetryPolicy({ providerId: "openai" });
-    const decision = await policy({
+    const decision = await policy({ providerId: "openai" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -155,7 +160,7 @@ describe("createCorbitsRetryPolicy", () => {
 
   test("live providerId getter: non-xAI → xAI starts remapping bare 429", async () => {
     let current: string | undefined = "openai";
-    const policy = createCorbitsRetryPolicy({ providerId: () => current });
+    const decide = policy({ providerId: () => current });
     const bare429 = {
       attempt: 1,
       elapsedMs: 0,
@@ -167,9 +172,9 @@ describe("createCorbitsRetryPolicy", () => {
         raw: { error: { message: "Too Many Requests" } },
       },
     };
-    expect(await policy(bare429)).toEqual({ kind: "abort" });
+    expect(await decide(bare429)).toEqual({ kind: "abort" });
     current = "xai/thegreataxios";
-    expect(await policy(bare429)).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: 500 });
   });
 
   // CL-6910: the harness only surfaces `inference.error` to the director
@@ -179,7 +184,7 @@ describe("createCorbitsRetryPolicy", () => {
   // ticket names: rate limit (quota_exhausted), gateway error and malformed
   // response (both normalized to retryable/protocol_mismatch here).
   test("rate limit (quota_exhausted) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
-    const policy = createCorbitsRetryPolicy();
+    const decide = policy();
     const situation = (attempt: number) => ({
       attempt,
       elapsedMs: 0,
@@ -190,25 +195,25 @@ describe("createCorbitsRetryPolicy", () => {
         retryAfterMs: 10,
       },
     });
-    expect(await policy(situation(1))).toEqual({ kind: "retry", delayMs: 10 });
-    expect(await policy(situation(2))).toEqual({ kind: "retry", delayMs: 10 });
-    expect(await policy(situation(3))).toEqual({ kind: "abort" });
+    expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 10 });
+    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 10 });
+    expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
   test("gateway error (retryable) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
-    const policy = createCorbitsRetryPolicy();
+    const decide = policy();
     const situation = (attempt: number) => ({
       attempt,
       elapsedMs: 0,
       error: { category: "retryable" as const, message: "gateway timeout" },
     });
-    expect(await policy(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
-    expect(await policy(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
-    expect(await policy(situation(3))).toEqual({ kind: "abort" });
+    expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
   test("malformed response (HTML gateway page) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
-    const policy = createCorbitsRetryPolicy();
+    const decide = policy();
     const situation = (attempt: number) => ({
       attempt,
       elapsedMs: 0,
@@ -218,14 +223,14 @@ describe("createCorbitsRetryPolicy", () => {
         raw: HTML_503,
       },
     });
-    expect(await policy(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
-    expect(await policy(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
-    expect(await policy(situation(3))).toEqual({ kind: "abort" });
+    expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
   test("live providerId getter: xAI → non-xAI stops remapping bare 429", async () => {
     let current: string | undefined = "xai/thegreataxios";
-    const policy = createCorbitsRetryPolicy({ providerId: () => current });
+    const decide = policy({ providerId: () => current });
     const bare429 = {
       attempt: 1,
       elapsedMs: 0,
@@ -237,8 +242,60 @@ describe("createCorbitsRetryPolicy", () => {
         raw: { error: { message: "Too Many Requests" } },
       },
     };
-    expect(await policy(bare429)).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: 500 });
     current = "openai";
-    expect(await policy(bare429)).toEqual({ kind: "abort" });
+    expect(await decide(bare429)).toEqual({ kind: "abort" });
+  });
+
+  test("retryable 429 notes admission pressure; quota_exhausted and non-429 retryable do not", async () => {
+    const notes: { provider: string; until: number }[] = [];
+    const admission: AdmissionQueue = {
+      enqueue: () => "running",
+      release: () => {},
+      setCapacity: () => {},
+      notePressure: (provider: string, untilMs: number) => {
+        notes.push({ provider, until: untilMs });
+      },
+      cancel: () => {},
+      occupied: () => false,
+    };
+    const decide = policy({
+      providerId: "xai/thegreataxios",
+      admission,
+      now: () => 10_000,
+    });
+    await decide({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "retryable",
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 2_000,
+      },
+    });
+    expect(notes).toEqual([{ provider: "xai/thegreataxios", until: 12_000 }]);
+    notes.length = 0;
+    await decide({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "retryable",
+        message: "gateway timeout",
+        statusCode: 502,
+        retryAfterMs: 2_000,
+      },
+    });
+    expect(notes).toHaveLength(0);
+    await decide({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "monthly cap",
+        retryAfterMs: 86_400_000,
+      },
+    });
+    expect(notes).toHaveLength(0);
   });
 });

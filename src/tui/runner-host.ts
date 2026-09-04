@@ -291,6 +291,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
         currentToolStartedAt: s.currentToolStartedAt,
         startedAt: s.startedAt,
         lastActivityAt: s.lastActivityAt,
+        ...(s.runInFlight !== undefined ? { runInFlight: s.runInFlight } : {}),
       })),
     ...(deps.createRenderer !== undefined ? { createRenderer: deps.createRenderer } : {}),
     ...(deps.telemetryNotice !== undefined ? { telemetryNotice: deps.telemetryNotice } : {}),
