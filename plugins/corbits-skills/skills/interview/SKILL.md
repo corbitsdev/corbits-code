@@ -37,9 +37,9 @@ Each question is one `ask_operator` call: `question` (string) plus `options` (ar
 
 **Quality bar for options:**
 
-- Mutually exclusive and concrete — not "yes / no / maybe"
+- Mutually exclusive **short labels** — not "yes / no / maybe"
 - Each option a real, defensible choice — not a strawman
-- Put trade-offs in the option string itself ("simpler but less flexible", "consistent with existing patterns") — `options` are strings, not `{ label, description }` objects
+- Trade-offs, rationale, and context go in the **preceding transcript reply**, then `ask_operator` with a brief question and brief labels. Do not put essays in the option string — `options` are strings, not `{ label, description }` objects
 - Ground options in the topic and context — do not invent generic options when concrete ones exist
 - Combination options only when the dimension genuinely permits more than one answer
 - If you have a recommendation, put it first and label it
@@ -90,34 +90,34 @@ After emitting the findings, stop. Do not load other skills, invoke other agents
 
 **Invocation:** `use_skill(name="interview")` with the topic in the conversation, or `/interview notification system; backend is Node/Postgres, internal users only, must integrate with existing auth`
 
-**Round 1** (three parallel `ask_operator` calls — independent dimensions, so ask together):
+**Round 1** (three parallel `ask_operator` calls — independent dimensions, so ask together). Trade-offs belong in the transcript before the calls, not in the labels — e.g. "critical vs activity vs re-engagement; never-miss vs real-time vs per-event opt-in; in-app vs email vs webhook."
 
 ```
 ask_operator({
   question: "What is the primary goal of the notification system?",
   options: [
-    "Alert on critical events — Errors, security issues, SLA breaches",
-    "Keep users informed of activity — Mentions, replies, updates",
-    "Drive user re-engagement — Digests, reminders, summaries"
+    "Alert on critical events",
+    "Keep users informed of activity",
+    "Drive user re-engagement"
   ]
 })
 
 ask_operator({
   question: "If you had to pick one, which matters most?",
   options: [
-    "Reliability of delivery (recommended) — Never miss a notification, even if delayed",
-    "Latency — Real-time, even if some are dropped under load",
-    "User control — Fine-grained per-event opt-in/out"
+    "Reliability of delivery (recommended)",
+    "Latency",
+    "User control"
   ]
 })
 
 ask_operator({
   question: "Which delivery channels do you want?",
   options: [
-    "In-app — Notification center in the UI",
-    "Email — Per-event or digest",
+    "In-app",
+    "Email",
     "In-app + Email",
-    "Webhook — Outbound HTTP to a user-configured endpoint",
+    "Webhook",
     "All of the above"
   ]
 })

@@ -87,6 +87,12 @@ const AskOperatorArgs = type({
   options: "string[]",
 });
 
+/** Cap on each ask_operator option label (UTF-16 code units). */
+export const ASK_OPERATOR_OPTION_MAX_CHARS = 48;
+
+/** Cap on the ask_operator question (UTF-16 code units). */
+export const ASK_OPERATOR_QUESTION_MAX_CHARS = 160;
+
 const SubmitOutputArgs = type({
   "summary?": "string",
   "step?": "string",
@@ -450,6 +456,23 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const { question, options } = parsed;
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
+        }
+        if (question.length > ASK_OPERATOR_QUESTION_MAX_CHARS) {
+          return (
+            `Error: ask_operator question is ${question.length} characters; ` +
+            `keep it to ${ASK_OPERATOR_QUESTION_MAX_CHARS} or fewer. ` +
+            "Put the essay in a transcript reply first, then retry with a brief question."
+          );
+        }
+        for (let i = 0; i < options.length; i++) {
+          const option = options[i] ?? "";
+          if (option.length > ASK_OPERATOR_OPTION_MAX_CHARS) {
+            return (
+              `Error: ask_operator option ${i + 1} is ${option.length} characters; ` +
+              `keep each label to ${ASK_OPERATOR_OPTION_MAX_CHARS} or fewer. ` +
+              "Put the essay in a transcript reply first, then retry with short option labels."
+            );
+          }
         }
         const result = await onOperatorGate(question, options);
         if (result.kind === "cancel") {

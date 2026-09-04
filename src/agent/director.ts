@@ -118,6 +118,7 @@ export const askOperatorDefinition: ToolDefinition = {
     "Pause execution and ask the operator a short clarifying question with short option labels. " +
     "Put any long rationale, trade-offs, or context in a normal transcript reply first, then call this " +
     "with only a brief question and brief option labels — the overlay is not a place for essays. " +
+    "Each option label must be at most 48 characters. " +
     "Execution resumes when the operator selects an option.",
   inputSchema: {
     type: "object",
@@ -129,8 +130,9 @@ export const askOperatorDefinition: ToolDefinition = {
       },
       options: {
         type: "array",
-        description: "Short option labels the operator can choose from (keep each label brief)",
-        items: { type: "string" },
+        description:
+          "Short option labels the operator can choose from (at most 48 characters each)",
+        items: { type: "string", maxLength: 48 },
         minItems: 1,
       },
     },

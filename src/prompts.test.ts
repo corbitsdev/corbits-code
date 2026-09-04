@@ -266,7 +266,16 @@ test("buildAvailableTools lists exactly the tools it is given", () => {
 });
 
 test("sub-agent prompt carries the report-back contract and harness facts", () => {
-  const prompt = buildSubAgentSystemPrompt();
+  // Context interpolates cwd. A worktree path containing "ask_operator" would
+  // poison this check even when the prompt does not advertise the tool.
+  const prompt = buildSubAgentSystemPrompt(undefined, {
+    cwd: "/repo/root",
+    platform: "Darwin 25.4.0",
+    arch: "arm64",
+    runtime: "Bun 1.2.0",
+    date: new Date(2026, 5, 5),
+    isGitRepo: false,
+  });
   expect(prompt).toContain("short-lived child agent dispatched by Corbits Code");
   expect(prompt).toContain("Reporting back:");
   expect(prompt).toContain("only thing returned to the parent");

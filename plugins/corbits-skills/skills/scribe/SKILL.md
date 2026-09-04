@@ -50,16 +50,15 @@ Before processing input, locate the documentation files:
 
 ## Using the Question Tool
 
-Throughout this skill, you will use `ask_operator` to interact with the user. `ask_operator` presents multiple-choice questions with predefined options.
+Throughout this skill, you will use `ask_operator` to interact with the user. It takes a short `question` and an array of short option labels (strings). The operator picks one, types a custom answer, or dismisses.
 
 **Key mechanics:**
 
-- You can present multiple questions in a single tool call (as an array of questions)
-- Each question has a header, question text, and multiple options
-- Each option has a label and description
-- Users can select one or multiple options (if `multiple: true`)
-- The tool automatically includes a "Type your own answer" option by default
-- Questions are answered together as a batch, but you should make options context-aware based on information you already have
+- Independent questions are parallel `ask_operator` calls in the same turn — not one call with a `questions` array
+- Options are short labels only. Put trade-offs, document routing, and "like [similar feature]" context in the transcript before the tool call
+- Do not invent `{ label, description }` objects, `header`, or `multiple: true` — those are not this tool
+- If the tool rejects a label as too long, put the essay in the transcript and retry with a shorter label
+- Make options context-aware based on information you already have
 
 **When to provide context-aware options:**
 
@@ -68,52 +67,31 @@ Throughout this skill, you will use `ask_operator` to interact with the user. `a
 - Use project-specific terminology from existing documents
 - When no patterns exist (empty/minimal documents), provide general options as fallbacks
 
-**Example invocation:**
+**Example:** transcript first, then two parallel calls.
 
-```json
-{
-  "questions": [
-    {
-      "header": "Document classification",
-      "question": "Is 'fast and reliable' a user-facing promise or a system design requirement?",
-      "options": [
-        {
-          "label": "User-facing promise",
-          "description": "Add to PRODUCT.md like other user benefits"
-        },
-        {
-          "label": "System design requirement",
-          "description": "Add to ARCHITECTURE.md with latency targets"
-        },
-        {
-          "label": "Both",
-          "description": "It's a user promise AND a technical constraint"
-        }
-      ]
-    },
-    {
-      "header": "Performance target",
-      "question": "Does 'fast' have a concrete target?",
-      "options": [
-        {
-          "label": "Under 5 seconds",
-          "description": "Similar to report generation target"
-        },
-        {
-          "label": "Different target",
-          "description": "Specify a different performance goal"
-        },
-        {
-          "label": "No specific target",
-          "description": "Keep it qualitative for now"
-        }
-      ]
-    }
+PRODUCT.md already treats "reports" as a user-facing benefit; ARCHITECTURE.md has latency targets for other services.
+
+```
+ask_operator({
+  question: "Is 'fast and reliable' a user-facing promise or a system design requirement?",
+  options: [
+    "User-facing promise",
+    "System design requirement",
+    "Both"
   ]
-}
+})
+
+ask_operator({
+  question: "Does 'fast' have a concrete target?",
+  options: [
+    "Under 5 seconds",
+    "Different target",
+    "No specific target"
+  ]
+})
 ```
 
-The tool returns the selected options as an array of labels (e.g., `["Both", "Under 5 seconds"]`).
+Each call returns the selected label (or the operator's custom text).
 
 ## Execution Steps
 
@@ -180,20 +158,20 @@ If the input is ambiguous or spans multiple categories, do not simply ask "which
 
 **If documents have content with patterns to reference:**
 
-- When user mentions "fast and reliable", reference existing performance promises or design constraints:
-  - "User-facing promise (add to PRODUCT.md like [similar feature])"
-  - "System design requirement (add to ARCHITECTURE.md with latency targets)"
-  - "Both - it's a user promise AND a technical constraint"
-- When user mentions a component name, reference similar components:
-  - "[Component] is user-facing (like [similar component] in PRODUCT.md)"
-  - "[Component] is an internal abstraction (add to ARCHITECTURE.md)"
+- When user mentions "fast and reliable", reference existing performance promises or design constraints in the transcript, then ask with short labels:
+  - "User-facing promise"
+  - "System design requirement"
+  - "Both"
+- When user mentions a component name, reference similar components in the transcript, then ask:
+  - "User-facing"
+  - "Internal abstraction"
 
 **If documents are empty/minimal (no patterns to reference):**
 
 - Provide general options without specific references:
-  - "User-facing promise (add to PRODUCT.md)"
-  - "System design requirement (add to ARCHITECTURE.md)"
-  - "Both - it's a user promise AND a technical constraint"
+  - "User-facing promise"
+  - "System design requirement"
+  - "Both"
 
 3. Route each extracted piece to its appropriate document. A single user statement may result in updates to multiple documents.
 
@@ -239,11 +217,11 @@ If you just added an export service to ARCHITECTURE.md, and PRODUCT.md has no me
 Use `ask_operator` with:
 
 - Question 1: "Should PRODUCT.md describe data export as a user-facing capability?"
-  - **If PRODUCT.md has similar features**: "Add export as data access capability (like reports feature)" / "Add as part of reporting feature"
-  - **If PRODUCT.md is minimal**: "Yes, add as new user-facing capability" / "No, exports are internal only"
+  - **If PRODUCT.md has similar features**: "Add as data-access capability" / "Fold into reporting"
+  - **If PRODUCT.md is minimal**: "Yes, add as user-facing" / "No, internal only"
 - Question 2: "How should IMPLEMENTATION.md describe export generation?"
-  - **If IMPLEMENTATION.md describes other services**: "Similar to [existing service], using [library]" / "Different approach (specify details)"
-  - **If IMPLEMENTATION.md is minimal**: "Specify library/technology used" / "Defer implementation details for now"
+  - **If IMPLEMENTATION.md describes other services**: "Same approach as [service]" / "Different approach"
+  - **If IMPLEMENTATION.md is minimal**: "Name the library" / "Defer for now"
 
 For each question the user answers, update the corresponding document before proceeding.
 
@@ -265,14 +243,14 @@ Use `ask_operator` to present 2-4 probing questions as a batch. Focus on non-obv
 If you just added an export service to ARCHITECTURE.md:
 
 - Question 1: "What happens when an export fails mid-generation?"
-  - **If other services have retry logic**: "Automatic retry (like [existing service])" / "User must re-trigger" / "Saved as partial export for resume"
-  - **If no retry patterns exist**: "Automatic retry" / "User must re-trigger" / "Partial export saved for resume"
+  - **If other services have retry logic**: "Automatic retry, like [service]" / "User must re-trigger" / "Save partial for resume"
+  - **If no retry patterns exist**: "Automatic retry" / "User must re-trigger" / "Save partial for resume"
 - Question 2: "Are there size or rate limits on exports?"
-  - **If similar features have limits**: "Same limits as [similar feature]" / "Different limits (specify)" / "No hard limits - best effort"
-  - **If no limits documented**: "10k rows / 100MB max" / "No hard limits - best effort" / "To be determined"
+  - **If similar features have limits**: "Same limits as [feature]" / "Different limits" / "No hard limits"
+  - **If no limits documented**: "10k rows / 100MB max" / "No hard limits" / "To be determined"
 - Question 3: "Who has permission to trigger exports?"
-  - **If docs mention role-based access**: "Any authenticated user" / "Only admin/owner roles" / "Configurable per workspace"
-  - **If auth not documented**: "Any authenticated user" / "Role-restricted (specify roles)" / "To be determined"
+  - **If docs mention role-based access**: "Any authenticated user" / "Admin/owner only" / "Configurable per workspace"
+  - **If auth not documented**: "Any authenticated user" / "Role-restricted" / "To be determined"
 
 Update the document with any answers the user provides. If the user declines to answer, move on without pressing.
 
@@ -310,12 +288,12 @@ Instead of asking "which document?", use `ask_operator` to decompose. After read
 Use `ask_operator`:
 
 - Question 1: "Is 'fast and reliable' a promise to users or a system design requirement?"
-  - Option 1: "User-facing promise (add to PRODUCT.md like other user benefits)"
-  - Option 2: "System design requirement (add to ARCHITECTURE.md with latency targets)"
-  - Option 3: "Both - it's a user promise AND a technical constraint"
+  - Option 1: "User-facing promise"
+  - Option 2: "System design requirement"
+  - Option 3: "Both"
 - Question 2: "Does 'fast' have a concrete target?"
-  - Option 1: "Yes - under 5 seconds (similar to report generation target)"
-  - Option 2: "Yes - but different target (specify)"
+  - Option 1: "Under 5 seconds"
+  - Option 2: "Different target"
   - Option 3: "No specific target yet"
 
 If the user selects "Both" and "under 5 seconds", this produces two updates:
@@ -332,13 +310,13 @@ After updating, scribe reads the other documents and finds that PRODUCT.md has n
 Use `ask_operator`:
 
 - Question 1: "Should PRODUCT.md describe notifications as a user-facing capability?"
-  - Option 1: "Yes - add as new notifications feature (users receive updates via email/SMS/push)"
-  - Option 2: "Yes - integrate with existing 'alerts' feature (notifications are how alerts are delivered)"
-  - Option 3: "No - notifications are internal only, not user-facing"
+  - Option 1: "Add as a user-facing feature"
+  - Option 2: "Fold into existing alerts"
+  - Option 3: "Internal only"
 - Question 2: "Should IMPLEMENTATION.md specify the notification providers?"
-  - Option 1: "Yes - using [provider] (similar to how we document other integrations)"
-  - Option 2: "Yes - but different providers (specify which)"
-  - Option 3: "Not yet - still evaluating options"
+  - Option 1: "Yes — name the provider"
+  - Option 2: "Yes — different providers"
+  - Option 3: "Not yet"
 
 ### Gap Detection (Step 5)
 
@@ -349,17 +327,17 @@ After updating, scribe scans the section and identifies gaps. From reading ARCHI
 Use `ask_operator`:
 
 - Question 1: "What happens when a refresh token is revoked?"
-  - Option 1: "User signed out immediately (like session invalidation elsewhere in the system)"
-  - Option 2: "User signed out at next request (deferred enforcement)"
+  - Option 1: "Signed out immediately"
+  - Option 2: "Signed out at next request"
   - Option 3: "Configurable per deployment"
 - Question 2: "Is there a maximum session duration?"
-  - Option 1: "Yes - 30 days (similar to other timeout values in the docs)"
-  - Option 2: "Yes - but different duration (specify)"
-  - Option 3: "No hard limit - refresh tokens last indefinitely until revoked"
+  - Option 1: "30 days"
+  - Option 2: "Different duration"
+  - Option 3: "No hard limit"
 - Question 3: "How are tokens stored on the client side?"
-  - Option 1: "Same as [other sensitive data] - in secure storage"
-  - Option 2: "Different approach (specify storage mechanism)"
-  - Option 3: "Client implementation decision - not specified in architecture"
+  - Option 1: "Same as other secrets"
+  - Option 2: "Different storage"
+  - Option 3: "Client decides"
 
 ## Error Handling
 
@@ -370,8 +348,8 @@ If the target document does not exist, use `ask_operator` to ask the user if the
 Question: "The [DOCUMENT].md file does not exist. Should I create it?"
 Options:
 
-- "Yes, create [DOCUMENT].md (will contain [brief description based on document type])"
-- "No, use a different document instead"
+- "Yes, create it"
+- "Use a different document"
 
 ### Content conflicts
 
@@ -380,9 +358,9 @@ If the new content contradicts existing content, use `ask_operator` to flag it w
 Question: "This conflicts with existing content in [DOCUMENT].md: '[existing content]'. How should I resolve this?"
 Options based on the nature of the conflict:
 
-- "Replace old content with new (new information supersedes old)"
-- "Keep both with clarification (they represent different aspects/contexts)"
-- "Merge the two (combine into comprehensive description)"
+- "Replace with the new content"
+- "Keep both, with clarification"
+- "Merge the two"
 
 ### Unclear scope
 
@@ -391,7 +369,7 @@ If the input is too broad or vague to place in a specific document, use `ask_ope
 Question: "I'm not sure where '[user input]' belongs. Can you help me place it?"
 Options based on what aspects you can detect:
 
-- "PRODUCT.md ([specific user-facing aspect you detected])"
-- "ARCHITECTURE.md ([specific structural aspect you detected])"
-- "IMPLEMENTATION.md ([specific technical aspect you detected])"
-- "Multiple documents (it spans several concerns)"
+- "PRODUCT.md"
+- "ARCHITECTURE.md"
+- "IMPLEMENTATION.md"
+- "Multiple documents"

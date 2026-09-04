@@ -4,6 +4,7 @@ import { withTestRenderer } from "./harness.js";
 import {
   composeDecisionBody,
   decisionChoiceRows,
+  decisionChoiceRowCount,
   DECISION_ACTIVE_MARK,
   DECISION_CHOICE_ROWS,
   DECISION_DITHER,
@@ -12,6 +13,7 @@ import {
 } from "./overlay-body.js";
 import { createAppShell, openListOverlay } from "./shell.js";
 import { UI } from "./theme.js";
+import { stringWidth } from "./view/height.js";
 
 const WIDTHS = [72, 60, 48, 40, 24] as const;
 
@@ -134,18 +136,24 @@ describe("composeDecisionBody", () => {
 
 describe("decisionChoiceRows", () => {
   const LABEL = "Always allow run_shell in /Users/someone/abklabs/corbits-code (session grant)";
+  const SHORT = "Reject";
 
   test("every choice occupies the same row count, wrapped or not", () => {
-    expect(decisionChoiceRows("Reject", true, 60)).toHaveLength(DECISION_CHOICE_ROWS);
-    expect(decisionChoiceRows(LABEL, false, 40)).toHaveLength(DECISION_CHOICE_ROWS);
+    for (const width of [40, 48, 60, 80] as const) {
+      const rows = decisionChoiceRowCount([SHORT, LABEL], width);
+      expect(rows).toBeGreaterThanOrEqual(DECISION_CHOICE_ROWS);
+      expect(decisionChoiceRows(SHORT, true, width, rows)).toHaveLength(rows);
+      expect(decisionChoiceRows(LABEL, false, width, rows)).toHaveLength(rows);
+    }
   });
 
-  test("the active choice is marked, and choices are single-spaced", () => {
+  test("the active choice is marked, and short labels pad to two rows", () => {
     const rows = decisionChoiceRows("Reject", true, 60);
     expect(rows[0]?.text).toBe(`${DECISION_ACTIVE_MARK} Reject`);
     expect(rows[0]?.fg).toBe(UI.text);
-    // One row per choice: the list reads as one list, not three statements.
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(DECISION_CHOICE_ROWS);
+    expect(rows[1]?.text).toBe("");
+    expect(rows[1]?.fg).toBe(UI.textDim);
   });
 
   test("an inactive choice is dim and unmarked", () => {
@@ -154,17 +162,34 @@ describe("decisionChoiceRows", () => {
     expect(rows[0]?.fg).toBe(UI.textDim);
   });
 
+  test("a long label wraps on word boundaries and never ellipsizes", () => {
+    for (const width of [40, 48, 60, 80] as const) {
+      const rows = decisionChoiceRows(LABEL, false, width);
+      const joined = rows
+        .map((r) => r.text)
+        .join(" ")
+        .replace(/\s+/g, " ");
+      expect(joined).not.toContain("...");
+      expect(joined).not.toContain("…");
+      expect(joined).toContain("session grant");
+      expect(rows.length).toBeGreaterThan(1);
+      for (const row of rows) {
+        expect(stringWidth(row.text)).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
   for (const width of WIDTHS) {
     test(`a long label stays inside ${width} columns`, () => {
       const rows = decisionChoiceRows(LABEL, false, width);
-      for (const row of rows) expect(row.text.length).toBeLessThanOrEqual(width);
+      for (const row of rows) expect(stringWidth(row.text)).toBeLessThanOrEqual(width);
       expect(rows[0]?.text.endsWith("-")).toBe(false);
     });
   }
 });
 
 describe("decision overlay paints at narrow widths", () => {
-  for (const width of [60, 48]) {
+  for (const width of [40, 48, 60, 80]) {
     test(`permission overlay rows stay inside the box at ${width} columns`, async () => {
       const frame = await withTestRenderer(
         async (h) => {
@@ -173,9 +198,9 @@ describe("decision overlay paints at narrow widths", () => {
             kind: "permissions",
             title: "permission",
             items: [
+              "Always allow run_shell in this workspace (session grant)",
               "Reject",
               "Accept once",
-              "Always allow run_shell in this workspace (session grant)",
             ],
             body: `run_shell\nRun shell command\n1) npm install ${LONG_URL}\ne expand 1 collapsed payload`,
           });
@@ -202,7 +227,26 @@ describe("decision overlay paints at narrow widths", () => {
         expect(/│\S/.test(line)).toBe(false);
       }
       expect(frame).toContain(`${DECISION_DITHER} run_shell`);
-      expect(frame).toContain(`${DECISION_ACTIVE_MARK} Reject`);
+      const interior = lines
+        .slice(top + 1, bottom)
+        .join(" ")
+        .replace(/[│┌┐└┘─]/g, " ")
+        .replace(/\s+/g, " ");
+      expect(interior).toContain("session grant");
+      expect(interior).toContain("Always allow");
+      const choiceLines = lines.filter(
+        (l) =>
+          l.includes("Always allow") ||
+          l.includes("session") ||
+          l.includes("grant") ||
+          l.includes("Accept once") ||
+          l.includes("Reject"),
+      );
+      expect(choiceLines.length).toBeGreaterThan(0);
+      for (const line of choiceLines) {
+        expect(line).not.toContain("...");
+        expect(line).not.toContain("…");
+      }
     });
   }
 });

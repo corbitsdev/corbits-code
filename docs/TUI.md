@@ -317,9 +317,12 @@ framed content in the shell, and they are shaped rather than merely listed
 subject in the action color — the only Breakthrough Orange on the card.
 The overlay host border and title use calm dim chrome (`UI.textDim`);
 consequence impact in the description zone paints `UI.warning` (sand), not
-orange. A blank row separates the subject from context, and each choice gets
-one row with the active choice marked by a solid block (`█`) rather than a
-background fill (cream text, not orange).
+orange. A blank row separates the subject from context. Choices wrap on word
+boundaries — never middle-ellipsized — to a shared row count at the current
+width (minimum two rows so short labels still breathe; a taller wrap raises
+every choice to the same height so list paging stays a simple multiple). The
+active choice is marked by a solid block (`█`) rather than a background fill
+(cream text, not orange).
 
 ## How selectors should work
 

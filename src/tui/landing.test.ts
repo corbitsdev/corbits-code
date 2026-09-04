@@ -489,7 +489,7 @@ describe("landing screen", () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
-          terminal: { columns: 100, rows: 36 },
+          terminal: { columns: 100, rows: 48 },
           wireKeys: false,
           run: "idle",
         });
@@ -509,7 +509,7 @@ describe("landing screen", () => {
           shell.dispose();
         }
       },
-      { width: 100, height: 36 },
+      { width: 100, height: 48 },
     );
   });
 
