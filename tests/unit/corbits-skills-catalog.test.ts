@@ -23,6 +23,7 @@ const SKILL_DIRS = [
   "linear-issue-workflow",
   "opsh",
   "plan",
+  "idiot-proof",
 ] as const;
 
 const SPAWN_RECIPE_SKILLS = ["implement"] as const;
@@ -39,6 +40,9 @@ const USE_SKILL_ONLY = [
 
 /** Background libs: absent from slash and use_skill listing; explicit resolve only. */
 const BACKGROUND_ONLY = ["git-worktrees"] as const;
+
+/** Bake source only: no slash, no use_skill listing; workers load via bake-skills. */
+const BAKE_ONLY = ["idiot-proof"] as const;
 
 const SLASH_SKILLS = [
   "implement",
@@ -86,8 +90,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 16 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(16);
+test("corbits-skills catalog lists 17 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(17);
   const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
@@ -108,6 +112,17 @@ test("spawn-recipe skills contain spawn_agent(agent=", async () => {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
     expect(skill).toContain("spawn_agent(agent=");
   }
+});
+
+test("idiot-proof is a bake-only less-is-more bar", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/idiot-proof/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("Prefer deletion over addition");
+  expect(skill).toContain("Do not copy");
+  expect(skill).toContain("files you already touch");
+  expect(skill).toContain("Read the target");
+  expect(skill).toContain("Do not fix");
 });
 
 test("typescript skill guides TS quality without fake enforcement", async () => {
@@ -250,10 +265,11 @@ test("background-only skills set both exclusion flags", async () => {
   }
 });
 
-test("only background libs carry disable-model-invocation", async () => {
+test("only background and bake-only skills carry disable-model-invocation", async () => {
+  const hidden = new Set<string>([...BACKGROUND_ONLY, ...BAKE_ONLY]);
   for (const name of SKILL_DIRS) {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
-    if ((BACKGROUND_ONLY as readonly string[]).includes(name)) {
+    if (hidden.has(name)) {
       expect(skill).toContain(DISABLE_MODEL_INVOCATION);
     } else {
       expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);

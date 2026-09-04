@@ -40,16 +40,16 @@ describe("criticPackage", () => {
     expect(p).toMatch(/invent defects from vibes/i);
   });
 
-  test("systemPrompt is correctness-only / anti-over-engineering", () => {
-    expect(criticPackage.systemPrompt).toMatch(/correctness-only/i);
-    expect(criticPackage.systemPrompt).toMatch(/anti-over-engineering/i);
-    expect(criticPackage.systemPrompt).toMatch(
-      /correctness or the stated requirements\/success_criteria/i,
-    );
-    expect(criticPackage.systemPrompt).toMatch(/style nits/i);
-    expect(criticPackage.systemPrompt).toMatch(/file-for-later/i);
-    expect(criticPackage.systemPrompt).toMatch(/Do not drive over-engineering/i);
-    expect(criticPackage.systemPrompt).toMatch(/impossible cases/i);
+  test("systemPrompt is correctness plus this-diff hygiene", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toMatch(/Correctness and this-diff hygiene/i);
+    expect(p).toMatch(/correctness or the stated requirements\/success_criteria/i);
+    expect(p).toMatch(/hygiene this diff introduced/i);
+    expect(p).toMatch(/dead code/i);
+    expect(p).toMatch(/file-for-later/i);
+    expect(p).toMatch(/Do not drive over-engineering/i);
+    expect(p).toMatch(/impossible cases/i);
+    expect(p).not.toMatch(/correctness-only/i);
   });
 
   test("systemPrompt flags API contract / sync→async as blocking", () => {
@@ -95,12 +95,14 @@ describe("criticPackage", () => {
     expect(criticPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills order is style, philosophy", () => {
-    expect(criticPackage.optionalSkills).toEqual(["style", "philosophy"]);
+  test("optionalSkills order is style, philosophy, idiot-proof", () => {
+    expect(criticPackage.optionalSkills).toEqual(["style", "philosophy", "idiot-proof"]);
   });
 
   test("primaryIntent and outOfLane match critic lane", () => {
-    expect(criticPackage.primaryIntent).toBe("Evidence-based code review; never fix product code");
+    expect(criticPackage.primaryIntent).toBe(
+      "Evidence-based code review including hygiene the diff introduced; never fix product code",
+    );
     expect(criticPackage.outOfLane).toContain("implementing fixes");
     expect(criticPackage.outOfLane).toContain("architecture portfolio without code evidence");
     expect(criticPackage.outOfLane).toContain("visual brand");
