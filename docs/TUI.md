@@ -429,19 +429,18 @@ landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
 known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
 
-While the landing is mounted, a mount-scoped ~8 fps timer
-(`LANDING_IDLE_REPAINT_INTERVAL_MS` in `src/tui/shell.ts`) advances snow
-across a frozen mountain. It is cancelled on the first real transcript
-row (`clearLandingMark`) or on shell dispose, and does not run during a
-session. `still` freezes the mountain's draw/fill/fade timeline only;
-snow still drifts on the idle landing. Reduced-motion, when a setting
-exists, suppresses snow via `reducedMotion` on `renderMark` — not via
-`still`. There is no live TUI setting yet.
+While the landing is mounted, a mount-scoped 125ms timer advances snow
+across a frozen mountain. It is cancelled on the first transcript row or
+on shell dispose. While the landing is still up, the callback no-ops if
+a turn is already driving the mark. `still` freezes the mountain's
+draw/fill/fade timeline only; snow still drifts. Reduced motion drops
+snow at `renderMark` independently of `still`; the idle timer always
+paints with that hook off.
 
-The mark is not driven from the renderer's FRAME event: FRAME follows
-dirty rows, not a clock, so that path self-starves under throttle.
-Keeping the monitor ticking on idle would mix turn-chrome cadence into a
-pre-session surface; the monitor idle-stop stays correct for turn chrome.
+That timer is the pre-session frame source. The renderer FRAME event
+follows dirty rows, not a clock, and starves under throttle. The turn
+monitor stays idle-stopped: mixing its cadence into the landing would
+couple a pre-session surface to session activity.
 
 The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):

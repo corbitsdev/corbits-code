@@ -50,11 +50,6 @@ const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";
 const nativeSetInterval = globalThis.setInterval;
 const nativeClearInterval = globalThis.clearInterval;
 
-afterEach(() => {
-  globalThis.setInterval = nativeSetInterval;
-  globalThis.clearInterval = nativeClearInterval;
-});
-
 /**
  * 125 is `LANDING_IDLE_REPAINT_INTERVAL_MS` in shell.ts. Hardcoded so a
  * cadence change fails these tests on purpose rather than tracking a product
@@ -62,35 +57,42 @@ afterEach(() => {
  */
 const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 
-type IntervalHandle = ReturnType<typeof nativeSetInterval>;
+type IdleTimerHandle = { unref?: () => void };
 
-/** Wrap globals; the original handle is returned so `unref` still exists. */
 function wrapLandingIdleTimer(): {
-  armed: IntervalHandle[];
-  cleared: unknown[];
+  armed: IdleTimerHandle[];
+  cleared: IdleTimerHandle[];
 } {
-  const armed: IntervalHandle[] = [];
-  const cleared: unknown[] = [];
+  const armed: IdleTimerHandle[] = [];
+  const cleared: IdleTimerHandle[] = [];
+  // Stub the landing cadence without a real timer — these tests only assert
+  // arm/clear. `unref` exists because the product calls it on the handle.
   globalThis.setInterval = ((
     handler: Parameters<typeof nativeSetInterval>[0],
     delay?: number,
     ...args: unknown[]
   ) => {
-    const handle = nativeSetInterval.call(globalThis, handler, delay, ...args);
-    if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) armed.push(handle);
-    return handle;
+    if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) {
+      const handle: IdleTimerHandle = { unref() {} };
+      armed.push(handle);
+      return handle;
+    }
+    return nativeSetInterval.call(globalThis, handler, delay, ...args);
   }) as typeof nativeSetInterval;
   globalThis.clearInterval = ((handle: Parameters<typeof nativeClearInterval>[0]) => {
-    cleared.push(handle);
+    cleared.push(handle as IdleTimerHandle);
+    if (armed.includes(handle as IdleTimerHandle)) return;
     return nativeClearInterval.call(globalThis, handle);
   }) as typeof nativeClearInterval;
   return { armed, cleared };
 }
 
-function soleLandingIdleHandle(armed: readonly IntervalHandle[]): IntervalHandle {
+function soleLandingIdleHandle(armed: readonly IdleTimerHandle[]): IdleTimerHandle {
   const handle = armed[0];
   if (armed.length !== 1 || handle === undefined) {
-    throw new Error(`expected exactly one 125ms interval, got ${String(armed.length)}`);
+    throw new Error(
+      `expected exactly one ${String(LANDING_IDLE_REPAINT_INTERVAL_MS)}ms interval, got ${String(armed.length)}`,
+    );
   }
   return handle;
 }
@@ -355,38 +357,79 @@ describe("landing screen", () => {
     }, SIZE);
   }, 15_000);
 
-  test("appending a transcript row clears the landing idle timer", async () => {
-    const { armed, cleared } = wrapLandingIdleTimer();
+  test("paintLanding with reducedMotion draws no snow on a clock that otherwise snows", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
-        run: "idle",
-        wireKeys: false,
         terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "idle",
       });
       try {
-        const handle = soleLandingIdleHandle(armed);
-        appendStreamRow(shell, { role: "user", text: "first prompt" });
-        expect(isLanding(shell)).toBe(false);
-        expect(cleared).toContain(handle);
         await settle(h);
+        const clocks = [0, 1500, 3000, 4500, 6000, 7500];
+        let snowingAt: number | undefined;
+        for (const nowMs of clocks) {
+          paintLanding(shell, nowMs, false, false);
+          await settle(h);
+          if (markRows(h).some((row) => row.includes(SNOW_CHAR))) {
+            snowingAt = nowMs;
+            break;
+          }
+        }
+        if (snowingAt === undefined) {
+          throw new Error("expected a still-mode clock that draws snow through paintLanding");
+        }
+        paintLanding(shell, snowingAt, false, true);
+        await settle(h);
+        expect(markRows(h).some((row) => row.includes(SNOW_CHAR))).toBe(false);
       } finally {
         shell.dispose();
       }
     }, SIZE);
   });
 
-  test("disposing the shell with no transcript clears the landing idle timer", async () => {
-    const { armed, cleared } = wrapLandingIdleTimer();
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        run: "idle",
-        wireKeys: false,
-        terminal: { columns: 80, rows: 24 },
-      });
-      const handle = soleLandingIdleHandle(armed);
-      shell.dispose();
-      expect(cleared).toContain(handle);
-    }, SIZE);
+  describe("landing idle timer", () => {
+    afterEach(() => {
+      globalThis.setInterval = nativeSetInterval;
+      globalThis.clearInterval = nativeClearInterval;
+    });
+
+    test("appending a transcript row clears the landing idle timer", async () => {
+      const { armed, cleared } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const handle = soleLandingIdleHandle(armed);
+          appendStreamRow(shell, { role: "user", text: "first prompt" });
+          expect(isLanding(shell)).toBe(false);
+          expect(cleared).toContain(handle);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("disposing the shell with no transcript clears the landing idle timer", async () => {
+      const { armed, cleared } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const handle = soleLandingIdleHandle(armed);
+          shell.dispose();
+          expect(cleared).toContain(handle);
+        } finally {
+          if (isLanding(shell)) shell.dispose();
+        }
+      }, SIZE);
+    });
   });
 
   test("a starter key fills the prompt; a typed prompt keeps its digits", async () => {

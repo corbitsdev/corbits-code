@@ -2110,10 +2110,10 @@ interface ShellInternals {
   /** Clock of the last painted mark frame, so a resize can redraw in place. */
   landingNowMs: number;
   /**
-   * Cancels the mount-scoped idle repaint timer (see `armLandingIdleTimer`
-   * in `createAppShell`), or null while none is armed. Cleared by whichever
-   * teardown happens first — the landing going away (`clearLandingMark`) or
-   * the whole shell disposing (`dispose`) — so it can never outlive either.
+   * Cancels the mount-scoped idle repaint timer armed in `createAppShell`,
+   * or null while none is armed. Cleared by whichever teardown happens
+   * first — the landing going away (`clearLandingMark`) or the whole shell
+   * disposing (`dispose`) — so it can never outlive either.
    */
   landingIdleTimerCancel: (() => void) | null;
   /** Chrome content (empty array = zone off). */
@@ -2797,8 +2797,8 @@ function clearLandingMark(shell: AppShell): void {
 }
 
 /**
- * Cadence of the mount-scoped idle repaint timer (see `armLandingIdleTimer`
- * in `createAppShell`). The snow only needs to advance about half a row per
+ * Cadence of the mount-scoped idle repaint timer armed in `createAppShell`.
+ * The snow only needs to advance about half a row per
  * second, so ~8fps is comfortably enough to read as motion.
  */
 const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
@@ -2811,9 +2811,8 @@ const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
  * Always repaints while the landing is up, even when `animating` is false:
  * the landing is idle by definition (no turn processing), and snow still
  * needs to drift across a frozen mountain. Driven by the mount-scoped timer
- * armed in `createAppShell` (see `armLandingIdleTimer`) rather than a render
- * event, so the repaint cadence is independent of however often the renderer
- * happens to paint.
+ * armed in `createAppShell` rather than a render event, so the repaint
+ * cadence is independent of however often the renderer happens to paint.
  */
 export function paintLanding(
   shell: AppShell,
