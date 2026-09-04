@@ -70,7 +70,7 @@ const BACKSPACE = {
   option: false,
 } as unknown as KeyEvent;
 
-/** Let the popup's async re-query settle the way `type()` already does. */
+/** Flush the three microtask hops `openAtMentionSuggestions` takes after a key. */
 async function drainMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -108,7 +108,7 @@ function hangableSource(): {
   };
 }
 
-const ROOT = TREE[""] ?? [];
+const ROOT = TREE[""]!;
 
 describe("@ popup narrows as you type", () => {
   test("printable keys filter the list and land in the prompt", async () => {
@@ -153,14 +153,8 @@ describe("@ popup narrows as you type", () => {
           wireKeys: false,
           run: "idle",
         });
-        let resolveLookup: (entries: readonly string[]) => void = () => {};
-        setMentionSuggestionSource(
-          shell,
-          () =>
-            new Promise<readonly string[]>((resolve) => {
-              resolveLookup = resolve;
-            }),
-        );
+        const { source, resolveNext } = hangableSource();
+        setMentionSuggestionSource(shell, source);
 
         shell.prompt.value = "read @";
         shell.prompt.cursorOffset = shell.prompt.value.length;
@@ -168,7 +162,7 @@ describe("@ popup narrows as you type", () => {
 
         // The operator quits before the filesystem lookup answers.
         shell.dispose();
-        resolveLookup(["AGENTS.md", "README.md"]);
+        resolveNext(["AGENTS.md", "README.md"]);
 
         await expect(pending).resolves.toBe(false);
         expect(shell.overlayKind).toBeNull();
@@ -336,7 +330,28 @@ describe("@ popup narrows as you type", () => {
 });
 
 describe("mention accept requires a live @token", () => {
-  test("accept mid-reopen does not splice a stale completion", async () => {
+  test("accept after the lookup resolves splices the live token", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const pending = openAtMentionSuggestions(shell);
+      resolveNext(ROOT);
+      expect(await pending).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+      const first = shell.overlayItems[0];
+      expect(first).toBeDefined();
+
+      acceptOverlaySelection(shell);
+      expect(shell.prompt.value).toBe(`read @${first}`);
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).toBeNull();
+    });
+  });
+
+  test("accept during an in-flight re-query does not splice", async () => {
     await withShell(async (shell) => {
       const { source, resolveNext } = hangableSource();
       setMentionSuggestionSource(shell, source);
@@ -355,14 +370,43 @@ describe("mention accept requires a live @token", () => {
       acceptOverlaySelection(shell);
       expect(shell.prompt.value).toBe("read @s");
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
 
       resolveNext(ROOT);
       await drainMicrotasks();
 
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
       expect(shell.prompt.value).toBe("read @s");
+    });
+  });
+
+  test("accept during an in-flight no-match re-query does not splice", async () => {
+    await withShell(async (shell) => {
+      const { source, resolveNext } = hangableSource();
+      setMentionSuggestionSource(shell, source);
+
+      shell.prompt.value = "read @";
+      shell.prompt.cursorOffset = shell.prompt.value.length;
+      const first = openAtMentionSuggestions(shell);
+      resolveNext(ROOT);
+      expect(await first).toBe(true);
+      expect(isMentionPopupOpen(shell)).toBe(true);
+
+      expect(handleMentionPopupKey(shell, printable("z"))).toBe(true);
+      expect(shell.prompt.value).toBe("read @z");
+
+      acceptOverlaySelection(shell);
+      expect(shell.prompt.value).toBe("read @z");
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).toBeNull();
+
+      resolveNext([]);
+      await drainMicrotasks();
+
+      expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).toBeNull();
+      expect(shell.prompt.value).toBe("read @z");
     });
   });
 
@@ -375,7 +419,7 @@ describe("mention accept requires a live @token", () => {
       acceptOverlaySelection(shell);
 
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
       expect(shell.prompt.value).toBe("read @");
     });
   });
@@ -392,7 +436,7 @@ describe("mention accept requires a live @token", () => {
       acceptOverlaySelection(shell);
 
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
       expect(shell.prompt.value).toBe(value);
     });
   });
@@ -410,7 +454,7 @@ describe("mention accept requires a live @token", () => {
 
       expect(await pending).toBe(false);
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
     });
   });
 
@@ -428,11 +472,11 @@ describe("mention accept requires a live @token", () => {
 
       expect(await pending).toBe(false);
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
     });
   });
 
-  test("dismiss during an in-flight lookup does not reopen or splice", async () => {
+  test("closeMentionPopup during an in-flight lookup does not reopen", async () => {
     await withShell(async (shell) => {
       const { source, resolveNext } = hangableSource();
       setMentionSuggestionSource(shell, source);
@@ -450,17 +494,18 @@ describe("mention accept requires a live @token", () => {
       closeMentionPopup(shell);
       expect(isMentionPopupOpen(shell)).toBe(false);
       expect(shell.overlayList).toBeNull();
+      expect(shell.overlayKind).toBeNull();
 
       resolveNext(ROOT);
       await drainMicrotasks();
 
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
       expect(shell.prompt.value).toBe("read @s");
     });
   });
 
-  test("Esc during an in-flight lookup does not reopen or splice", async () => {
+  test("closeInsetOverlay during an in-flight lookup does not reopen", async () => {
     await withShell(async (shell) => {
       const { source, resolveNext } = hangableSource();
       setMentionSuggestionSource(shell, source);
@@ -477,12 +522,13 @@ describe("mention accept requires a live @token", () => {
 
       closeInsetOverlay(shell);
       expect(isMentionPopupOpen(shell)).toBe(false);
+      expect(shell.overlayKind).toBeNull();
 
       resolveNext(ROOT);
       await drainMicrotasks();
 
       expect(isMentionPopupOpen(shell)).toBe(false);
-      expect(shell.overlayKind).not.toBe("mentions");
+      expect(shell.overlayKind).toBeNull();
       expect(shell.prompt.value).toBe("read @s");
     });
   });
