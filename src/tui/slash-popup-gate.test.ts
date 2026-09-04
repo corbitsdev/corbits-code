@@ -15,7 +15,7 @@ import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import { openCommandSurface, type CommandSurfaceDeps } from "./command-surfaces";
 import { wireGates } from "./gate-wire";
-import { openPermissionsOverlay } from "./overlays";
+import { openAddProviderOverlay, openPermissionsOverlay } from "./overlays";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
@@ -29,6 +29,7 @@ import {
   openHelpOverlay,
   openListOverlay,
   openPalette,
+  reserveOverlayHost,
   type AppShell,
 } from "./shell";
 
@@ -882,6 +883,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
           press("Escape");
           await render();
           await Bun.sleep(60);
+          expect(isOverlayHostIdle(shell)).toBe(true);
           hanging.resolve();
           await Promise.resolve();
           await Promise.resolve();
@@ -1016,5 +1018,69 @@ describe("overlay host occupancy and opt-in deferral", () => {
       },
       { onCommand: settingsOnCommand(hanging.list) },
     );
+  });
+
+  test("palette stacked over help then Enter /help leaves a single help overlay", async () => {
+    await withShell(async ({ shell }) => {
+      openHelpOverlay(shell);
+      expect(shell.overlayKind).toBe("help");
+
+      openPalette(shell, { catalog: CATALOG });
+      expect(shell.overlayKind).toBe("palette");
+
+      acceptOverlaySelection(shell);
+      expect(shell.overlayKind).toBe("help");
+      expect(
+        shell.streamLog.filter((row) => row.role === "system" && /will open/i.test(row.text)),
+      ).toHaveLength(0);
+
+      closeInsetOverlay(shell);
+      await Promise.resolve();
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("add-provider while a live gate is up defers instead of denying the gate", async () => {
+    await withShell(async ({ shell }) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      try {
+        let resolved: unknown;
+        emitPermissionGate(emitter, (outcome) => {
+          resolved = outcome;
+        });
+        expect(shell.overlayKind).toBe("permissions");
+
+        openAddProviderOverlay(shell, { items: ["custom"], itemIds: ["custom"] });
+        expect(shell.overlayKind).toBe("permissions");
+        expect(resolved).toBeUndefined();
+        expect(
+          shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+        ).toBe(true);
+
+        closeInsetOverlay(shell);
+        await Promise.resolve();
+        expect(shell.overlayKind).toBe("add_provider");
+        expect(resolved).not.toBeUndefined();
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test("Esc during a host reservation idles the host", async () => {
+    await withShell(async ({ shell, press, render }) => {
+      const release = reserveOverlayHost(shell);
+      expect(shell.overlayList).toBeNull();
+      expect(isOverlayHostIdle(shell)).toBe(false);
+
+      press("Escape");
+      await render();
+      await Bun.sleep(60);
+      expect(isOverlayHostIdle(shell)).toBe(true);
+
+      release();
+      expect(isOverlayHostIdle(shell)).toBe(true);
+    });
   });
 });
