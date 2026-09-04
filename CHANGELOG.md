@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-09-04
+
 ### Added
 
 - Sub-agent admission queue: `spawn_agent` never refuses for worker count.
