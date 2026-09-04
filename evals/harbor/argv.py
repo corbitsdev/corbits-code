@@ -51,6 +51,30 @@ def api_key_env_names(provider: str) -> tuple[str, str]:
     return ("CORBITS_API_KEY", f"{provider.upper()}_API_KEY")
 
 
+def resolve_base_url(
+    *,
+    override: str | None,
+    configured: str | None,
+    env_url: str | None,
+    inferred: str | None,
+) -> str:
+    """Pick the Corbits ``providers.<p>.baseURL`` from adapter sources.
+
+    Precedence: explicit kwarg, Harbor ``configured_base_url`` (env such as
+    ``XAI_BASE_URL`` / ``CORBITS_BASE_URL``), adapter env, then Harbor's
+    inferred catalog default (e.g. xAI → ``https://api.x.ai/v1`` when an API
+    key is present). Does not invent the grok-cli OAuth proxy URL.
+    """
+    for value in (override, configured, env_url, inferred):
+        if value:
+            return value
+    raise ValueError(
+        "No base URL for Corbits Harbor adapter. Pass base_url=… in agent "
+        "kwargs, set CORBITS_BASE_URL, or configure Harbor model connection "
+        "base URL. Corbits settings require providers.<provider>.baseURL."
+    )
+
+
 def build_exec_argv(
     *,
     cwd: str,

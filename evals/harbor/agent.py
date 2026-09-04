@@ -19,11 +19,17 @@ from harbor.agents.installed.base import (
     BaseInstalledAgent,
     with_prompt_template,
 )
+from harbor.agents.model_connection import ModelConnectionSpec
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 from harbor.models.trial.paths import EnvironmentPaths
 
-from evals.harbor.argv import api_key_env_names, build_exec_argv, build_settings
+from evals.harbor.argv import (
+    api_key_env_names,
+    build_exec_argv,
+    build_settings,
+    resolve_base_url,
+)
 
 _REMOTE_BIN_DIR = PurePosixPath("/usr/local/bin")
 _REMOTE_CORBITS = _REMOTE_BIN_DIR / "corbits"
@@ -36,6 +42,13 @@ _DEFAULT_TASK_CWD = "/app"
 
 class Corbits(BaseInstalledAgent):
     """Installed-agent adapter: Harbor → ``corbits exec`` (yolo for that process)."""
+
+    # No default_provider: ``-m xai/grok-4.5`` and ``-m openai/…`` both work.
+    # CORBITS_* is tried before Harbor's per-provider catalog env names.
+    MODEL_CONNECTION = ModelConnectionSpec(
+        api_key_envs=("CORBITS_API_KEY",),
+        base_url_envs=("CORBITS_BASE_URL",),
+    )
 
     def __init__(
         self,
@@ -120,19 +133,12 @@ class Corbits(BaseInstalledAgent):
         )
 
     def _resolve_base_url(self) -> str:
-        if self._base_url:
-            return self._base_url
         access = self.model_connection
-        configured = getattr(access, "configured_base_url", None)
-        if configured:
-            return str(configured)
-        env_url = self._get_env("CORBITS_BASE_URL")
-        if env_url:
-            return env_url
-        raise ValueError(
-            "No base URL for Corbits Harbor adapter. Pass base_url=… in agent "
-            "kwargs, set CORBITS_BASE_URL, or configure Harbor model connection "
-            "base URL. Corbits settings require providers.<provider>.baseURL."
+        return resolve_base_url(
+            override=self._base_url,
+            configured=getattr(access, "configured_base_url", None),
+            env_url=self._get_env("CORBITS_BASE_URL"),
+            inferred=getattr(access, "base_url", None),
         )
 
     @override
