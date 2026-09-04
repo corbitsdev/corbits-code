@@ -289,6 +289,42 @@ describe("resume_agent", () => {
     expect(results[0]).toEqual({ agent_id: worker.id, status: "done", report: "first report" });
   });
 
+  test("does not demand wait_agents for a worker with a pending ask", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerFollowup(worker.id, async () => "second report");
+    fleetRecords.register(worker.id);
+    expect(
+      sessions.registerAsk(worker.id, {
+        question: "which file?",
+        questionId: "ask-1",
+        resolve: () => {},
+        reject: () => {},
+      }),
+    ).toBe(true);
+
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
+    const result = await resumeAgent.handler(
+      {
+        id: "resume-while-asking",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "next" },
+      },
+      new AbortController().signal,
+    );
+
+    expect(String(result.content)).not.toContain("prior result is collected");
+    expect(String(result.content)).not.toContain("wait_agents");
+  });
+
   test("wait_agents collects the resumed turn after resume_agent returns", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);

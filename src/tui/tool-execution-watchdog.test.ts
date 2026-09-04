@@ -64,6 +64,22 @@ describe("tool execution watchdog", () => {
     ).toBeUndefined();
   });
 
+  test("ask_director with no settings timeout is unbounded", () => {
+    expect(
+      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "ask_director", arguments: {} }),
+    ).toBeUndefined();
+  });
+
+  test("ask_director is exempt from the settings watchdog", () => {
+    // Awaiting the director can outlast settings.tools.timeoutMs; aborting
+    // would cancel the pending ask so later send_input steers instead of answering.
+    const call = { id: "1", name: "ask_director", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 1_800_000 }, call),
+    ).toBeUndefined();
+  });
+
   test("wait_agents run outlasting the generic budget completes with its own report", async () => {
     const runner = createDynamicToolRunner(
       [
@@ -81,6 +97,24 @@ describe("tool execution watchdog", () => {
     );
     expect(result.isError).toBeUndefined();
     expect(result.content).toContain("worker report");
+  });
+
+  test("ask_director run outlasting the generic budget completes with its own answer", async () => {
+    const runner = createDynamicToolRunner(
+      [
+        stringTool("ask_director", async () => {
+          await new Promise((r) => setTimeout(r, 120));
+          return "src/foo.ts";
+        }),
+      ],
+      { defaultMs: 30 },
+    );
+    const result = await runner.run(
+      { id: "t", name: "ask_director", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain("src/foo.ts");
   });
 
   test("omitted config does not arm a default watchdog", () => {

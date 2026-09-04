@@ -70,11 +70,13 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  * layer cannot beat shell-guard). A requested run_shell timeout is not clamped
  * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
  *
- * spawn_agent returns immediately; wait_agents is the long block. Both are
- * exempt: wait_agents can outlast settings.tools.timeoutMs while workers
- * still run, and aborting collect would not stop those workers. spawn_agent
- * stays exempt so the generic per-tool budget cannot abort a dispatch that
- * should return at once (or a worker that carries its own bound).
+ * spawn_agent returns immediately; wait_agents and ask_director are the long
+ * blocks. All three are exempt: wait_agents can outlast settings.tools.timeoutMs
+ * while workers still run, and aborting collect would not stop those workers.
+ * spawn_agent stays exempt so the generic per-tool budget cannot abort a
+ * dispatch that should return at once (or a worker that carries its own bound).
+ * ask_director is a long block awaiting the director; aborting it cancels the
+ * pending ask so later send_input steers instead of answering.
  *
  * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
  * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
@@ -85,7 +87,13 @@ export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
   call?: ToolCall,
 ): number | undefined {
-  if (call?.name === "spawn_agent" || call?.name === "wait_agents") return undefined;
+  if (
+    call?.name === "spawn_agent" ||
+    call?.name === "wait_agents" ||
+    call?.name === "ask_director"
+  ) {
+    return undefined;
+  }
   if (call?.name === "run_shell") {
     const requested = requestedRunShellTimeoutMs(call);
     if (requested !== undefined) {

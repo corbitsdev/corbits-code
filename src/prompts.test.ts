@@ -289,6 +289,15 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
   expect(prompt).not.toContain("ask_operator");
 });
 
+test("when ask_director is in toolNames, the worker prompt mentions ask_director", () => {
+  const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+    toolNames: ["read_file", "ask_director"],
+  });
+  expect(prompt).toContain("ask_director");
+  expect(prompt).toContain("cannot reach the operator");
+  expect(prompt).not.toContain("ask_operator");
+});
+
 test("sub-agent report contract treats Success criteria as completion gate", () => {
   const contract = buildSubAgentReportContract();
   expect(contract).toContain("Success criteria");

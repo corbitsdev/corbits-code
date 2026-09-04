@@ -108,6 +108,9 @@ interface FleetRecord {
   tombstoned?: boolean;
   /** Present only on a tombstoned record — how to recover the detail. */
   hint?: string;
+  question?: string;
+  questionId?: string;
+  description?: string;
 }
 
 /** Per-install overlay: membership, pin, collected, optional wait override. */
@@ -172,7 +175,12 @@ class FleetMailbox {
 
   hasUncollectedTerminal(id: string): boolean {
     const record = this.peek(id);
-    return record !== undefined && record.status !== "running" && record.collected !== true;
+    return (
+      record !== undefined &&
+      record.status !== "running" &&
+      record.status !== "awaiting_director" &&
+      record.collected !== true
+    );
   }
 
   markProviderFailure(id: string): void {
@@ -237,6 +245,7 @@ class FleetMailbox {
     const overlay = this.records.get(id);
     if (overlay === undefined) return undefined;
     const snap = this.snapshot(id);
+    if (snap.status === "awaiting_director") return snap;
     if (snap.status !== "running" && overlay.collected !== true) {
       overlay.frozenStatus = snap.status;
       overlay.collected = true;
@@ -268,6 +277,7 @@ class FleetMailbox {
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
     if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
     if (overlay.forceInterrupted === true) return "interrupted";
+    if (this.sessions.hasPendingAsk(id)) return "awaiting_director";
     const live = this.sessionWaitStatus(id);
     if (live !== undefined) {
       overlay.lastWaitStatus = live;
@@ -305,6 +315,7 @@ class FleetMailbox {
       overlay.tombstoned !== true && session !== undefined && sessionWait === status
         ? session
         : undefined;
+    const ask = status === "awaiting_director" ? this.sessions.peekAsk(id) : undefined;
     return {
       status,
       ...(overlay.collected === true ? { collected: true } : {}),
@@ -313,13 +324,19 @@ class FleetMailbox {
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
       ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
       ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
+      ...(ask !== undefined ? { question: ask.question, questionId: ask.questionId } : {}),
+      ...(status === "awaiting_director" && session !== undefined
+        ? { description: session.description }
+        : {}),
     };
   }
 
   private isPayload(id: string, overlay: FleetOverlay): boolean {
     if (overlay.tombstoned === true || overlay.collected === true) return false;
     if (overlay.pinHeld !== true) return false;
-    return this.projectedStatus(id, overlay) !== "running";
+    const status = this.projectedStatus(id, overlay);
+    if (status === "running" || status === "awaiting_director") return false;
+    return true;
   }
 
   /**
@@ -420,13 +437,15 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    `Block until the given agents reach a terminal state (done, failed, or interrupted), or timeout_ms elapses. ` +
-    `Default mode is "any" (return when the first target finishes). Pass mode="all" to wait until every target is ` +
-    `terminal. Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
+    `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses. ` +
+    `Default mode is "any" (return when the first target finishes or asks). Pass mode="all" to wait until every target is ` +
+    `terminal — except a pending ask_director unblocks immediately regardless of mode so the director can send_input. ` +
+    `Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
     `the workers — they keep running and remain waitable. interrupt_agent and close_agent unblock this wait immediately with ` +
-    `status "interrupted". Do not call this in a tight zero-progress loop: a timeout means "still running", not ` +
+    `status "interrupted". awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
+    `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means "still running", not ` +
     `"try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
     `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,
   inputSchema: {
@@ -446,7 +465,7 @@ export const waitAgentsToolDefinition: ToolDefinition = {
         type: "string",
         enum: ["any", "all"],
         description:
-          '"any" (default) returns when the first target is terminal. "all" waits until every target is terminal.',
+          '"any" (default) returns when the first target is terminal or awaiting_director. "all" waits until every target is terminal, but a pending ask still unblocks immediately.',
       },
     },
   },
@@ -1047,7 +1066,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             }
           : {}),
         ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
-        ...(resolved.pkg !== undefined ? { tier: resolved.pkg.tier } : {}),
+        ...(resolved.pkg !== undefined
+          ? { tier: resolved.pkg.tier }
+          : orchestrator
+            ? {}
+            : { tier: "leaf" }),
         ...(resolved.pkg?.reportContract?.outputType !== undefined
           ? { reportType: resolved.pkg.reportContract.outputType }
           : {}),
@@ -1058,6 +1081,40 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // matching run.ts's persisting gate so resume_agent does not hit a
         // removed cwd.
         persist: deps.persist !== false,
+        askDirectorPort: {
+          register: ({ question, questionId }) => {
+            const hold: {
+              resolve?: (answer: string) => void;
+              reject?: (reason: unknown) => void;
+            } = {};
+            const answer = new Promise<string>((resolve, reject) => {
+              hold.resolve = resolve;
+              hold.reject = reject;
+            });
+            if (hold.resolve === undefined || hold.reject === undefined) {
+              const err = new Error("ask_director could not register a pending question");
+              hold.reject?.(err);
+              void answer.catch(() => {});
+              throw err;
+            }
+            const ok = deps.sessions.registerAsk(session.id, {
+              question,
+              questionId,
+              resolve: hold.resolve,
+              reject: hold.reject,
+            });
+            if (!ok) {
+              const err = new Error("ask_director could not register a pending question");
+              hold.reject(err);
+              void answer.catch(() => {});
+              throw err;
+            }
+            return answer;
+          },
+          cancel: (reason) => {
+            deps.sessions.cancelAsk(session.id, reason);
+          },
+        },
         onAgentReady: ({ close, interrupt, followup, deliver }) => {
           deps.sessions.registerClose(session.id, async (deadlineMs) => {
             try {
@@ -1153,7 +1210,9 @@ interface WaitAgentsDeps {
 
 function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   const record = fleetRecords.peek(id);
-  return record !== undefined && record.status !== "running";
+  return (
+    record !== undefined && record.status !== "running" && record.status !== "awaiting_director"
+  );
 }
 
 /**
@@ -1171,10 +1230,12 @@ async function waitForTerminal(
   mode: "any" | "all",
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const ready = (): boolean =>
-    mode === "all"
+  const ready = (): boolean => {
+    if (targets.some((id) => fleetRecords.peek(id)?.status === "awaiting_director")) return true;
+    return mode === "all"
       ? targets.every((id) => isWaitTerminal(id, fleetRecords))
       : targets.some((id) => isWaitTerminal(id, fleetRecords));
+  };
   if (signal?.aborted) return true;
   if (ready()) return false;
 
@@ -1266,6 +1327,9 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         return {
           agent_id: id,
           status: taken.status,
+          ...(taken.question !== undefined ? { question: taken.question } : {}),
+          ...(taken.questionId !== undefined ? { question_id: taken.questionId } : {}),
+          ...(taken.description !== undefined ? { description: taken.description } : {}),
           ...(taken.status !== "failed" && taken.report !== undefined
             ? { report: taken.report }
             : {}),
@@ -1285,7 +1349,8 @@ export const listAgentsToolDefinition: ToolDefinition = {
   description:
     "List the workers this session started with spawn_agent — the same fleet wait_agents " +
     "collects. Does not list siblings or another orchestrator's workers. Each entry is id, " +
-    "director, description, wait status, lifecycle, and whether wait_agents already collected it.",
+    "director, description, wait status, lifecycle, and whether wait_agents already collected it. " +
+    "When status is awaiting_director, the entry also includes question and question_id.",
   inputSchema: {
     type: "object",
     properties: {},
@@ -1309,6 +1374,12 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
                 description: session.description,
                 lifecycle: session.lifecycleStatus,
               }
+            : {}),
+          ...(record?.status === "awaiting_director" && record.question !== undefined
+            ? { question: record.question }
+            : {}),
+          ...(record?.status === "awaiting_director" && record.questionId !== undefined
+            ? { question_id: record.questionId }
             : {}),
         };
       });

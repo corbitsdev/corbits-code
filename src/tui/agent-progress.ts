@@ -110,6 +110,8 @@ export function laneState(
   stallMs: number = DEFAULT_STALL_MS,
   inToolStallMs: number = IN_TOOL_STALL_MS,
 ): LaneState {
+  // Waiting on the director is work, not silence — never trip IN_TOOL_STALL_MS.
+  if (session.currentToolName === "ask_director") return "in_tool";
   if (nowMs - session.lastActivityAt < stallMs) return "working";
   const toolStartedAt = session.currentToolStartedAt;
   if (
@@ -174,7 +176,9 @@ export function agentProgress(
     };
   }
 
-  const base = hasSubject ? `${elapsed} · ${subject}` : elapsed;
+  const liveSubject = tool === "ask_director" ? "ask_director · waiting on director" : subject;
+  const hasLiveSubject = liveSubject !== null;
+  const base = hasLiveSubject ? `${elapsed} · ${liveSubject}` : elapsed;
   // Never render "quiet" — operator chrome only shows motion (elapsed / tool).
   // Internal `state` still carries stalled for recovery consumers.
   const stat =

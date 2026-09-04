@@ -76,7 +76,7 @@ export function isResumableLifecycle(
   );
 }
 
-export type WaitJSONStatus = "running" | "done" | "failed" | "interrupted";
+export type WaitJSONStatus = "running" | "done" | "failed" | "interrupted" | "awaiting_director";
 
 /**
  * Wait JSON projection of stored lifecycle. Operator cancel (`cancelled`) is

@@ -157,6 +157,15 @@ export type RunSubAgentParams = {
    */
   persist?: boolean;
   /**
+   * Narrow session-store port for leaf `ask_director`. The store owns the
+   * pending Promise; this run only registers and awaits. Omit when the
+   * caller has no mailbox (tests, non-fleet dispatches).
+   */
+  askDirectorPort?: {
+    register: (input: { question: string; questionId: string }) => Promise<string>;
+    cancel: (reason: string) => void;
+  };
+  /**
    * Fired once the underlying agent object exists (before the prompt is
    * sent), with handles the caller can register for later use against this
    * session:

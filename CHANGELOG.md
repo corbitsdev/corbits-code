@@ -24,6 +24,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Implement/review `spawn_agent` dispatches (and their default
   directors) fail closed without non-empty `success_criteria`;
   children stay blank.
+- Workers can ask their spawning director via `ask_director` when a brief is
+  ambiguous. `wait_agents` returns `awaiting_director` with the question;
+  soft `send_input` answers it. The operator is not in that loop unless the
+  director escalates. Leaves still cannot call `ask_operator`.
 
 ### TUI
 

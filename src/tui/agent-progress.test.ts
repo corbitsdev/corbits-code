@@ -161,6 +161,23 @@ describe("agentProgress", () => {
       agentProgress({ ...base, currentToolName: null, lastActivityAt: 0 }, 301_000)?.stalled,
     ).toBe(true);
   });
+
+  test("an ask_director lane names waiting on the director and is not stalled", () => {
+    const progress = agentProgress(
+      {
+        ...base,
+        currentToolName: "ask_director",
+        currentToolStartedAt: 0,
+        lastActivityAt: 0,
+      },
+      IN_TOOL_STALL_MS + 1_000,
+    );
+    expect(progress?.stalled).toBe(false);
+    expect(progress?.working).toBe(true);
+    expect(progress?.state).toBe("in_tool");
+    expect(progress?.stat).toContain("ask_director");
+    expect(progress?.stat).toContain("waiting on director");
+  });
 });
 
 describe("laneState", () => {
@@ -278,6 +295,17 @@ describe("the in-tool bound", () => {
   test("a call outstanding past the bound escalates to stalled", () => {
     expect(laneState(wedged, IN_TOOL_STALL_MS - 1_000)).toBe("in_tool");
     expect(laneState(wedged, IN_TOOL_STALL_MS + 1_000)).toBe("stalled");
+  });
+
+  test("ask_director past the in-tool bound stays in_tool, never stalled", () => {
+    const asking = { ...wedged, currentToolName: "ask_director" };
+    expect(laneState(asking, IN_TOOL_STALL_MS + 1_000)).toBe("in_tool");
+    expect(fleetProgress([asking], IN_TOOL_STALL_MS + 1_000)).toEqual({
+      running: 1,
+      working: 0,
+      inTool: 1,
+      stalled: 0,
+    });
   });
 
   test("an escalated lane counts toward the fleet stall count", () => {

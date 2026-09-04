@@ -235,6 +235,23 @@ export interface SubAgentSessionStore {
     opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
   ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
   /**
+   * One pending ask_director per session. `sendInputOne` (soft) resolves it;
+   * interrupt/settle/close cancel it. Wait JSON projects this, not lifecycle.
+   */
+  registerAsk(
+    id: string,
+    ask: {
+      question: string;
+      questionId: string;
+      resolve: (answer: string) => void;
+      reject: (reason: unknown) => void;
+    },
+  ): boolean;
+  resolveAsk(id: string, answer: string): boolean;
+  cancelAsk(id: string, reason?: string): boolean;
+  hasPendingAsk(id: string): boolean;
+  peekAsk(id: string): { question: string; questionId: string } | undefined;
+  /**
    * Refcount so wait mailboxes can pin an uncollected result. pruneCompleted
    * will not delete a session while its pin count is greater than zero.
    */
@@ -423,6 +440,15 @@ export function createSubAgentSessionStore(
   const interruptHandles = new Map<string, () => void>();
   const followupHandles = new Map<string, (message: string) => Promise<string>>();
   const deliverHandles = new Map<string, (message: string) => void>();
+  const pendingAsks = new Map<
+    string,
+    {
+      question: string;
+      questionId: string;
+      resolve: (answer: string) => void;
+      reject: (reason: unknown) => void;
+    }
+  >();
   const listeners = new Set<() => void>();
   // CL-7007: tombstones for sessions dropped by pruneRetained, keyed by id,
   // insertion-ordered (Map preserves it) so the oldest can be dropped first
@@ -472,6 +498,44 @@ export function createSubAgentSessionStore(
     for (const listener of listeners) listener();
   };
 
+  const isSessionUnder = (id: string, ancestorId: string): boolean => {
+    const seen = new Set<string>();
+    let current = sessions.get(id);
+    while (current !== undefined) {
+      if (seen.has(current.id)) return false;
+      seen.add(current.id);
+      if (current.parentSessionId === ancestorId) return true;
+      if (current.parentSessionId === undefined) return false;
+      current = sessions.get(current.parentSessionId);
+    }
+    return false;
+  };
+
+  const cancelAskInternal = (id: string, reason: string): boolean => {
+    const pending = pendingAsks.get(id);
+    if (pending === undefined) return false;
+    pendingAsks.delete(id);
+    try {
+      pending.reject(new Error(reason));
+    } catch {
+      // Reject must not throw into settle/interrupt paths.
+    }
+    notify();
+    return true;
+  };
+
+  const cancelDescendantAsks = (ancestorId: string, reason: string): void => {
+    for (const session of sessions.values()) {
+      if (session.id === ancestorId) continue;
+      if (isSessionUnder(session.id, ancestorId)) cancelAskInternal(session.id, reason);
+    }
+  };
+
+  const settleCancelsAsks = (id: string, reason: string): void => {
+    cancelAskInternal(id, reason);
+    cancelDescendantAsks(id, reason);
+  };
+
   const markCancelled = (session: StoredSession, reason: string): void => {
     session.lifecycle = { state: "cancelled", error: reason };
     session.retained = false;
@@ -492,6 +556,7 @@ export function createSubAgentSessionStore(
   };
 
   const cancelSession = (id: string, reason: string): boolean => {
+    settleCancelsAsks(id, reason);
     const session = sessions.get(id);
     if (session === undefined || !isLiveStrip(session.lifecycle)) return false;
     const abort = cancelHandles.get(id);
@@ -522,6 +587,7 @@ export function createSubAgentSessionStore(
   // the cancel handle. Called whenever a session record is dropped, so a
   // retained-but-idle session's real agent is never simply forgotten about.
   const releaseHandles = (id: string): void => {
+    cancelAskInternal(id, "session handles released");
     const close = closeHandles.get(id);
     if (close !== undefined) {
       closeHandles.delete(id);
@@ -761,6 +827,7 @@ export function createSubAgentSessionStore(
       const id = input.id !== undefined && input.id.length > 0 ? input.id : createId();
       // Replacing an existing id (e.g. parent reuses a callId) keeps the strip
       // from growing duplicates when a tool call is retried.
+      cancelAskInternal(id, "session replaced");
       cancelHandles.delete(id);
       closeHandles.delete(id);
       interruptHandles.delete(id);
@@ -941,6 +1008,7 @@ export function createSubAgentSessionStore(
       report: string,
       opts?: { agentRetained?: boolean; stopReason?: ForcedStopReason },
     ): void {
+      settleCancelsAsks(id, "session completed");
       // CL-7001: run.ts always disposes on a salvage return (deadline/cancel)
       // even though it resolves through this same success path — only trust
       // "still open, resumable" when the caller says the agent genuinely
@@ -981,6 +1049,7 @@ export function createSubAgentSessionStore(
     },
 
     fail(id: string, error: string): void {
+      settleCancelsAsks(id, "session failed");
       mutate(id, (session) => {
         if (!isLiveStrip(session.lifecycle) || session.lifecycle.state === "cancelled") return;
         // Spawn-path throws already dispose in run.ts's finally. Resume of a
@@ -1034,6 +1103,7 @@ export function createSubAgentSessionStore(
         if (evicted.has(id)) return "shutdown";
         return "not_found";
       }
+      settleCancelsAsks(id, "session closed");
       let close = closeHandles.get(id);
       const alreadyClosed = isAlreadyClosed(session.lifecycle);
       if (alreadyClosed && close === undefined) {
@@ -1137,6 +1207,7 @@ export function createSubAgentSessionStore(
         if (interrupt === undefined || followup === undefined) {
           return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
         }
+        settleCancelsAsks(id, "cancelled by send_input interrupt");
         interrupt();
         queueFollowupTurn(id, message, "interrupted", {
           ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
@@ -1145,12 +1216,63 @@ export function createSubAgentSessionStore(
         return { ok: true, status: "interrupted" };
       }
 
+      if (pendingAsks.has(id)) {
+        const pending = pendingAsks.get(id);
+        if (pending !== undefined) {
+          pendingAsks.delete(id);
+          pending.resolve(message);
+          notify();
+        }
+        return { ok: true, status: "running" };
+      }
+
       const deliver = deliverHandles.get(id);
       if (deliver === undefined) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
       deliver(message);
       return { ok: true, status: "running" };
+    },
+
+    registerAsk(
+      id: string,
+      ask: {
+        question: string;
+        questionId: string;
+        resolve: (answer: string) => void;
+        reject: (reason: unknown) => void;
+      },
+    ): boolean {
+      const session = sessions.get(id);
+      if (session === undefined) return false;
+      if (session.lifecycle.state !== "running") return false;
+      if (pendingAsks.has(id)) return false;
+      pendingAsks.set(id, ask);
+      mutate(id, () => {});
+      return true;
+    },
+
+    resolveAsk(id: string, answer: string): boolean {
+      const pending = pendingAsks.get(id);
+      if (pending === undefined) return false;
+      pendingAsks.delete(id);
+      pending.resolve(answer);
+      notify();
+      return true;
+    },
+
+    cancelAsk(id: string, reason = "ask_director cancelled"): boolean {
+      return cancelAskInternal(id, reason);
+    },
+
+    hasPendingAsk(id: string): boolean {
+      return pendingAsks.has(id);
+    },
+
+    peekAsk(id: string): { question: string; questionId: string } | undefined {
+      const pending = pendingAsks.get(id);
+      if (pending === undefined) return undefined;
+      return { question: pending.question, questionId: pending.questionId };
     },
 
     interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
@@ -1163,6 +1285,7 @@ export function createSubAgentSessionStore(
       if (interrupt === undefined) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
+      settleCancelsAsks(id, "session interrupted");
       interrupt();
       mutate(id, (s) => {
         s.lifecycle = {
@@ -1303,6 +1426,7 @@ export function createSubAgentSessionStore(
     },
 
     settleRun(id: string): void {
+      cancelAskInternal(id, "run settled");
       if (!runInFlight.delete(id)) return;
       notify();
     },
@@ -1322,6 +1446,7 @@ export function createSubAgentSessionStore(
       // CL-7001: invoke every registered close (best-effort, fire-and-forget)
       // before dropping the maps — this used to drop closeHandles without
       // calling them, leaking every retained session's agent permanently.
+      for (const id of pendingAsks.keys()) cancelAskInternal(id, "store cleared");
       for (const id of closeHandles.keys()) releaseHandles(id);
       cancelHandles.clear();
       closeHandles.clear();

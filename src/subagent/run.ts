@@ -111,6 +111,14 @@ import {
   SUBMIT_RESULT_MAX_CORRECTIONS,
 } from "./submit-result.js";
 import {
+  ASK_DIRECTOR_MAX_BYTES,
+  ASK_DIRECTOR_MAX_QUESTIONS,
+  createAskDirectorState,
+  handleAskDirector,
+  resetAskDirectorTurn,
+  skipStallContinuationWhileAskPending,
+} from "./ask-director.js";
+import {
   abortError,
   createSubAgentSpawnRegistryPlugin,
   disposeSubAgentSession,
@@ -340,6 +348,25 @@ const submitResultDefinition: ToolDefinition = {
   },
 };
 
+const askDirectorDefinition: ToolDefinition = {
+  name: "ask_director",
+  description:
+    "Ask the spawning director when the dispatch brief is genuinely ambiguous. " +
+    "You cannot reach the operator. One pending question at a time; " +
+    `at most ${ASK_DIRECTOR_MAX_QUESTIONS} questions per turn; ` +
+    `${ASK_DIRECTOR_MAX_BYTES} byte cap. The director answers with send_input (soft).`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      question: {
+        type: "string",
+        description: "The question for the spawning director (non-empty).",
+      },
+    },
+    required: ["question"],
+  },
+};
+
 interface CodexProxyToolRunner {
   run(call: ToolCall, signal: AbortSignal): Promise<ToolResult>;
 }
@@ -421,6 +448,7 @@ async function runSubAgentInner(
   // orchestrator (echoing an old token) is rejected.
   const turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
+  const askDirectorState = createAskDirectorState();
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
   // Child tools resolve spills against the child's own store first, then
   // the parent's: parent tool-output:// URIs handed in the brief must
@@ -566,6 +594,27 @@ async function runSubAgentInner(
             return outcome.message;
           },
         }),
+        stringTool({
+          definition: askDirectorDefinition,
+          handler: async (
+            rawArgs: Record<string, unknown>,
+            signal: AbortSignal,
+          ): Promise<string> => {
+            const port = params.askDirectorPort;
+            if (port === undefined) {
+              return (
+                "Error: ask_director has no director mailbox for this run and cannot suspend. " +
+                "Record the question under Blockers and finish with the markdown report envelope."
+              );
+            }
+            return handleAskDirector({
+              question: rawArgs.question,
+              state: askDirectorState,
+              port,
+              signal,
+            });
+          },
+        }),
       ];
     }
 
@@ -709,11 +758,13 @@ async function runSubAgentInner(
     let directorForcedStopReason: ForcedStopReason | undefined;
     let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
     const requestContinuation = (): void => {
-      try {
-        agentHandle?.deliver(buildCompactionContinuationMessage());
-      } catch {
-        // Agent may be closing; a dropped continuation is harmless.
-      }
+      skipStallContinuationWhileAskPending(askDirectorState, () => {
+        try {
+          agentHandle?.deliver(buildCompactionContinuationMessage());
+        } catch {
+          // Agent may be closing; a dropped continuation is harmless.
+        }
+      });
     };
 
     const modelFamilyPolicy = resolveModelFamilyPolicy({
@@ -1065,6 +1116,7 @@ async function runSubAgentInner(
       // resume_agent's payoff — call agent.send() again on the same live
       // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
+        resetAskDirectorTurn(askDirectorState);
         interruptController = new AbortController();
         const result = await sendWithProviderFailure(message, { signal: sendAbortSignal() });
         if (terminalProviderError !== undefined) {

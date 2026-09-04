@@ -218,6 +218,8 @@ status / current tool) — Amp/Codex-style lanes without a FLEET header board:
 ● general  write tests  · 1:07 · write_file
 ```
 
+An `ask_director` lane stays live and reads as waiting on the director, not stalled.
+
 `formatChromeZones` → `formatAgentsPanel` owns that paint. Geometry stays
 stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is
 `AGENTS_PANEL_MAX_VISIBLE + 1` (lanes plus a trailing `+N more`). Finished
