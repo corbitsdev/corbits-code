@@ -47,6 +47,8 @@ describe("codex-responses buildRequest", () => {
     expect(body["model"]).toBe("gpt-5-codex");
     expect(body["stream"]).toBe(true);
     expect(body["store"]).toBe(false);
+    expect(body).not.toHaveProperty("previous_response_id");
+    expect(body["parallel_tool_calls"]).toBe(false);
     expect(body["include"]).toEqual(["reasoning.encrypted_content"]);
     expect(body["prompt_cache_key"]).toBe("sess-1");
     expect(body["input"]).toEqual([

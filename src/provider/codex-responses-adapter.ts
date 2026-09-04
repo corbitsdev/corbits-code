@@ -30,8 +30,15 @@ import { PRODUCT_NAME, ENVIRONMENT_TAG_NAME } from "../branding.js";
 // Credentials and the chatgpt-account-id ride through differently: the access
 // token is injected by the harness via the bearer sentinel, while the account
 // id and session id travel in `source.defaults.providerOptions` (merged into
-// InferenceOptions.providerOptions by the harness) and are lifted into headers
-// here. Neither is placed in the request body.
+// InferenceOptions.providerOptions by the harness). Account id is headers-only
+// (`chatgpt-account-id`). Session id is the `session_id` header and
+// `prompt_cache_key` in the body — the only cache-routing signal under
+// `store: false`.
+//
+// Continuity is not Responses store chaining. The ChatGPT Codex backend
+// requires `store: false` (`store: true` → 400) and rejects
+// `previous_response_id`. Every turn resends the full `input`; encrypted
+// reasoning captured from the prior stream is resent as a `reasoning` item.
 
 export const CODEX_RESPONSES_PROVIDER = "codex-responses";
 
@@ -342,6 +349,10 @@ function buildRequest(
     store: false,
     stream: true,
     include: ["reasoning.encrypted_content"],
+    // Serial at the request layer. The reactor already executes a multi-call
+    // batch concurrently; this flag is what the ChatGPT Codex backend is sent.
+    // Do not flip without verifying the backend accepts true — unlike store /
+    // previous_response_id there is no recorded 400.
     parallel_tool_calls: false,
   };
   // The Codex backend rejects `max_output_tokens`; it is intentionally omitted.
