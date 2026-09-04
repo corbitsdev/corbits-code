@@ -146,7 +146,7 @@ Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md`
 - **Authz:** `@intx/authz` for grant matching; Corbits owns the gate, store, and TUI ask
 - **Persistence:** `@intx/storage-isogit` for git-backed resume
 - **MCP:** Model Context Protocol SDK for external tool servers
-- **TUI:** OpenTUI (`@opentui/core`, `@opentui/solid`)
+- **TUI:** OpenTUI (`@opentui/core`)
 
 ## Architecture
 

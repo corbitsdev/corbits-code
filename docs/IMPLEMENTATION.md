@@ -20,9 +20,6 @@ CLI binary: `corbits` (`./dist/index.js`). Version lives in `package.json` only.
 | `@intx/types`          | workspace       | Runtime types (`ReactorDirector`, `ReactorState`, `ToolDefinition`, `ToolCall`, `ToolResult`, …) |
 | `@intx/storage-isogit` | workspace       | Git-backed context persistence                                                                   |
 | `@opentui/core`        | 0.5.10          | Terminal UI renderer                                                                             |
-| `@opentui/keymap`      | 0.5.10          | OpenTUI keybinding support                                                                       |
-| `@opentui/solid`       | 0.5.10          | Solid bindings for OpenTUI                                                                       |
-| `solid-js`             | 1.9.14          | Reactive primitives used by the OpenTUI bindings                                                 |
 | `arktype`              | catalog ^2.1.29 | Runtime validation                                                                               |
 
 Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`, `@intx/log`, `@intx/crypto-node`) are pulled transitively via the above.
