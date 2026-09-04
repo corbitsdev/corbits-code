@@ -27,9 +27,17 @@ const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
 export type PendingImageAttachment = MessageAttachment & {
   id: string;
   path?: string;
-  /** SHA-256 of the source image file's bytes, used to dedupe repeat pastes. */
+  /** SHA-256 of the source image file's bytes, used to identify identical images. */
   contentHash: string;
 };
+
+/** First existing attachment whose `contentHash` matches the candidate, if any. */
+export function findDuplicateAttachment(
+  existing: readonly PendingImageAttachment[],
+  candidate: PendingImageAttachment,
+): PendingImageAttachment | undefined {
+  return existing.find((attachment) => attachment.contentHash === candidate.contentHash);
+}
 
 export type AttachImageResult =
   { ok: true; attachment: PendingImageAttachment } | { ok: false; reason: string };
@@ -101,7 +109,7 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
   };
 }
 
-/** SHA-256 of the source image file's bytes, used to identify identical pastes regardless of filename or timing. */
+/** SHA-256 of the source image file's bytes, used to identify identical images regardless of filename or timing. */
 async function hashImageBytes(bytes: Buffer): Promise<string> {
   // Buffer's type parameter is the looser ArrayBufferLike (it may back onto a
   // pooled allocation), but readFile never actually hands back a

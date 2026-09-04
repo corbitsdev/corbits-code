@@ -4,6 +4,7 @@ import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  findDuplicateAttachment,
   findImagePathMentions,
   imageMimeTypeForPath,
   capImageForIngestion,
@@ -130,10 +131,10 @@ describe("image attachment helpers", () => {
     expect(result.contentType).toBe("image/png");
   });
 
-  // The dedupe fix (see shell.ts attachClipboardImage) rests entirely on this:
-  // two ingests of identical source bytes must hash identically even though
-  // capImageForIngestion re-encodes oversized images through `sips`, whose
-  // JPEG output is not byte-stable across runs. Sizing the fixture above
+  // Identity is SHA-256 of the source bytes, not the (lossy, non-deterministic)
+  // capped output -- two ingests of identical source bytes must hash identically
+  // even though capImageForIngestion re-encodes oversized images through `sips`,
+  // whose JPEG output is not byte-stable across runs. Sizing the fixture above
   // DOWNSCALE_THRESHOLD_BYTES (300 KB) exercises that re-encode path -- a
   // small fixture would pass even if the hash were taken after capping.
   test("hashes identical source bytes the same regardless of filename, even through the sips recompression path", async () => {
@@ -173,5 +174,31 @@ describe("image attachment helpers", () => {
     ];
     expect(userRowText("hello", attachments)).toBe("hello\n[1 image attached: shot.png]");
     expect(userRowText("", attachments)).toBe("[1 image attached: shot.png]");
+  });
+});
+
+describe("findDuplicateAttachment", () => {
+  const first = {
+    id: "a",
+    name: "kept.png",
+    contentType: "image/png",
+    data: new Uint8Array([1]),
+    contentHash: "hash-a",
+  };
+  const other = {
+    id: "b",
+    name: "other.png",
+    contentType: "image/png",
+    data: new Uint8Array([2]),
+    contentHash: "hash-b",
+  };
+
+  test("returns the first existing attachment with the same content hash", () => {
+    const candidate = { ...first, id: "later", name: "copy.png", path: "/tmp/copy.png" };
+    expect(findDuplicateAttachment([first, other], candidate)).toBe(first);
+  });
+
+  test("returns undefined when no existing attachment shares the hash", () => {
+    expect(findDuplicateAttachment([first], other)).toBeUndefined();
   });
 });

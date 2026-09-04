@@ -41,6 +41,7 @@ import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { parseAtState, type AtState } from "./components/at-mention/parse.js";
 import {
+  findDuplicateAttachment,
   readClipboardImage,
   userRowText,
   type ClipboardImageResult,
@@ -997,9 +998,7 @@ export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
     });
     return false;
   }
-  const duplicate = shell.pendingAttachments.find(
-    (attachment) => attachment.contentHash === result.attachment.contentHash,
-  );
+  const duplicate = findDuplicateAttachment(shell.pendingAttachments, result.attachment);
   if (duplicate !== undefined) {
     setStatusFlash(shell, `${duplicate.name} is already attached`, {
       ttlMs: RUNTIME_FLASH_MS,
