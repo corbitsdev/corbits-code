@@ -258,3 +258,117 @@ export function decisionChoiceRows(
   }
   return rows;
 }
+
+/** Below this overlay width the description zone has no room to say anything legible. */
+const DESCRIPTION_ZONE_MIN_WIDTH = 16;
+/** Below this overlay width the zone keeps `what` only and drops `impact`. */
+const DESCRIPTION_ZONE_IMPACT_MIN_WIDTH = 32;
+
+/** Content lines the description zone paints below the rule (what, impact). */
+export const DESCRIPTION_ZONE_LINES = 2;
+
+/**
+ * Shape a description into its fixed two content rows.
+ *
+ * `what`'s wrapped lines fill the budget first; `impact` gets whatever is
+ * left, so a `what` that wraps to both lines quietly drops `impact` the same
+ * way a narrow overlay does — one budget, one degrade path. `null` (no
+ * description for this item, or width too narrow to say anything) renders
+ * two blank rows rather than collapsing the zone: the reservation is fixed
+ * whenever `describe` is set, whether or not this item has anything to say.
+ */
+export function describeZoneLines(
+  desc: {
+    readonly what: string;
+    readonly impact?: string;
+    readonly tone?: "plain" | "consequence";
+  } | null,
+  width: number,
+): { readonly lines: readonly string[]; readonly fgs: readonly string[] } {
+  const lines: string[] = [];
+  const fgs: string[] = [];
+  if (desc !== null && width >= DESCRIPTION_ZONE_MIN_WIDTH) {
+    for (const line of wrapWords(desc.what, width)) {
+      if (lines.length >= DESCRIPTION_ZONE_LINES) break;
+      lines.push(line);
+      fgs.push(UI.textDim);
+    }
+    if (desc.impact !== undefined && width >= DESCRIPTION_ZONE_IMPACT_MIN_WIDTH) {
+      const impactFg = desc.tone === "consequence" ? UI.warning : UI.textFaint;
+
+      for (const line of wrapWords(desc.impact, width)) {
+        if (lines.length >= DESCRIPTION_ZONE_LINES) break;
+        lines.push(line);
+        fgs.push(impactFg);
+      }
+    }
+  }
+  while (lines.length < DESCRIPTION_ZONE_LINES) {
+    lines.push("");
+    fgs.push(UI.textFaint);
+  }
+  return { lines, fgs };
+}
+
+/**
+ * Context rows a decision overlay's body may occupy on a terminal with room
+ * to spare. The shaped body charges its header and its two rows of air on
+ * top of this, so the spacing never costs the operator a row of the command
+ * they are being asked to approve.
+ */
+const DECISION_CONTEXT_ROWS = 8;
+
+/**
+ * Rows the shaped body always spends, budget or not: one header line plus
+ * the trailing blank row. Approximate (a header long enough to wrap costs
+ * one more), but an underestimate here only makes `decisionContextBudget`
+ * more generous than it should be, which the fraction cap downstream still
+ * catches — the failure mode this guards against is starving the choices,
+ * never overshooting the frame.
+ */
+const DECISION_HEADER_AND_TRAILER_ROWS = 2;
+
+/**
+ * Extra rows a non-zero context budget costs on top of the header/trailer:
+ * the blank row of air between the header and the context lines themselves.
+ */
+const DECISION_CONTEXT_BLANK_ROWS = 1;
+
+/**
+ * Shrink the decision body's context budget so its own chrome never crowds
+ * out the one thing this fix guarantees down to a 10-row terminal: at least
+ * one choice row, with the prompt box still seated at its floor below it. A
+ * generous, fixed context budget reads fine on a tall terminal, but on a
+ * short one it can consume the entire overlay host, leaving no room to paint
+ * a single option — the operator is then asked to decide between choices
+ * they cannot see. Shrinking the context first, down to dropping it entirely
+ * on the shortest terminals, is the deliberate trade: the header (which tool,
+ * which question) and the choices are the two things an approval cannot
+ * render without; the surrounding detail can give way first.
+ *
+ * Below 10 rows this budget alone cannot save the frame: the resolver's own
+ * collapse fallback (`resolveGeometry` in geometry/resolve.ts) can still hand
+ * the overlay host fewer rows than its render minimum once every other zone
+ * is already at floor, which is a pre-existing gap in the resolver, not
+ * something this budget controls.
+ */
+export function decisionContextBudget(input: {
+  readonly terminalHeight: number;
+  readonly overlayRowsPerItem: number;
+  readonly overlayTitleRows: number;
+  readonly overlayHostBorderRows: number;
+  readonly overlayMaxFraction: number;
+  readonly promptBaseRows: number;
+}): number {
+  const fixedChrome =
+    input.overlayHostBorderRows + input.overlayTitleRows + DECISION_HEADER_AND_TRAILER_ROWS;
+  // The resolver never lets the overlay host past the fraction cap even when
+  // the transcript floor and every other zone have already given up their
+  // rows, so that cap — not just the prompt floor — bounds how much context
+  // this budget can safely ask for.
+  const fracCap = Math.floor(input.terminalHeight * input.overlayMaxFraction);
+  const maxOverlayRows = Math.min(input.terminalHeight - input.promptBaseRows, fracCap);
+  const baseline =
+    maxOverlayRows - input.overlayRowsPerItem - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
+  return Math.max(0, Math.min(DECISION_CONTEXT_ROWS, baseline));
+}
