@@ -224,19 +224,24 @@ test("philosophy skill is 1:1 with GaaS philosophy", async () => {
   expect(skill).not.toContain("use_skill(");
 });
 
-test("review skill is a code-review playbook, not a director router", async () => {
+test("review skill is 1:1 with GaaS code-review except slash name", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
-  expect(skill).toContain("git diff <base>...HEAD");
+  expect(skill).toContain("name: review");
+  expect(skill).not.toContain("name: code-review");
+  expect(skill).toContain("description: Perform a code review or pull request review on a branch");
+  expect(skill).toContain("# Code Review");
+  expect(skill).toContain("Ask the user");
+  expect(skill).toContain("sub-agents");
+  expect(skill).toContain("typescript-conventions");
   expect(skill).toContain("Cite the Check");
-  expect(skill).toContain("Signal Over Noise");
-  expect(skill).toContain("Pre-existing Code");
-  expect(skill).toContain("do not implement fixes");
-  expect(skill).toContain("Findings only");
+  expect(skill).toContain("git diff <base>...HEAD");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain("argument-hint");
+  expect(skill).not.toContain("Findings only");
+  expect(skill).not.toContain("Post the Review on GitHub");
   expect(skill).not.toContain("spawn_agent");
   expect(skill).not.toContain("wait_agents");
-  expect(skill).not.toContain('task(agent="critic")');
-  expect(skill).not.toContain('task(agent="neckbeard")');
-  expect(skill).not.toContain('task(agent="greybeard")');
+  expect(skill).not.toContain("fleet agents");
 });
 
 test("refactor skill is 1:1 with GaaS refactor", async () => {
@@ -370,10 +375,11 @@ test("linear-issue-workflow is 1:1 with GaaS", async () => {
   expect(skill).not.toContain('set the issue state to "In Review"');
 });
 
-test("review skill does not own the Linear In Review write", async () => {
+test("review skill does not own GitHub posting or Linear In Review", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
-  expect(skill).toContain("`linear-issue-workflow` owns the In Review write");
-  expect(skill).not.toContain("Reviewers do not change Linear state");
+  expect(skill).not.toContain("Post the Review on GitHub");
+  expect(skill).not.toContain("`linear-issue-workflow` owns the In Review write");
+  expect(skill).not.toContain("this skill does not set Linear state");
 });
 
 test("slash skills do not set user-invocable: false", async () => {
@@ -437,6 +443,8 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("Do not fork the GaaS refactor body");
   expect(skill).toContain("Do not fork the GaaS scribe body");
   expect(skill).toContain("Do not fork the GaaS ast-grep body");
+  expect(skill).toContain("Do not fork the GaaS code-review body");
+  expect(skill).toContain("findings-only");
   expect(skill).toContain("run `sg` via `run_shell`");
   expect(skill).toContain("prove");
 });

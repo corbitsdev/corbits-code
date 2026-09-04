@@ -20,12 +20,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
+- Restore the /review skill body 1:1 with GaaS code-review. Slash stays /review. GitHub posting, Linear In Review, ask_operator, and findings-only stay on native-integration.
 - Restore the scribe skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /scribe remains.
 - Restore the ast-grep skill 1:1 with GaaS. run_shell mapping stays on native-integration. Slash /ast-grep remains.
 - Restore the opsh skill 1:1 with GaaS. Tool/shell mapping stays on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the pull-request-review skill 1:1 with GaaS. ask_operator, /review mapping, and GitHub posting stay on native-integration. Slash /pull-request-review remains.
 - Restore the refactor skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /refactor remains.
-- Ignore GaaS opsh, refactor, scribe, and ast-grep SKILL.md in prettier so table/list alignment stays 1:1.
+- Ignore GaaS opsh, refactor, scribe, ast-grep, and review SKILL.md in prettier so GaaS emphasis/table alignment stays 1:1.
 - Restore the git-rebase skill body 1:1 with GaaS. Intern execution recipe stays on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the linear-issue-workflow skill body 1:1 with GaaS. Claim-first, In Review, and git-worktrees extras stay on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the interview skill body 1:1 with GaaS (AskUserQuestion). Operator-ask mapping stays on native-integration. Slash /interview remains.
