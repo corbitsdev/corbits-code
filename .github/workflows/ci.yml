@@ -116,13 +116,12 @@ jobs:
       - name: Build
         run: bun run build
 
-      # Corbits Code codebase only — ./src and ./tests. The vendored interchange
-      # inference package (vendor/) is out of scope for this repo's CI.
+      # Same script the local `bun run check` gate runs: the projects-dir
+      # guard wraps `bun run test`, which is the seeded, randomized suite
+      # (bun test ./src ./tests ./evals --randomize --seed 424242) defined
+      # once in package.json. Randomized order catches tests that only pass
+      # in the default file order (shared module-level state, an unrestored
+      # global mock, a leaked env var); the seed is fixed so a failure here
+      # reproduces locally with `bun run test`.
       - name: Test
-        run: bun run test
-
-      # Catches tests that only pass because of the default file order (shared
-      # module-level state, an unrestored global mock, a leaked env var). The
-      # seed is fixed so a failure here reproduces locally with the same flag.
-      - name: Test (randomized order)
-        run: bun test ./src ./tests ./evals --randomize --seed 424242
+        run: bun run check:projects-dir-guard

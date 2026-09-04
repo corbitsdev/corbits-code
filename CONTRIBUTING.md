@@ -30,8 +30,11 @@ bun run build
 bun run test
 ```
 
-These match the CI workflow in `.github/workflows/ci.yml`. Run the full suite
-before opening a PR. Do not substitute a bare `bun test` (it also scans
+These match the CI workflow in `.github/workflows/ci.yml`. Run `bun run check`
+(lint, typecheck, build, and the guarded test suite) before opening a PR —
+`bun run test` alone skips the projects-dir sandbox guard, which only runs
+under `bun run check` and CI. Do
+not substitute a bare `bun test` (it also scans
 `vendor/` and pollutes pass/fail counts).
 
 ## Commits

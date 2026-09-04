@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
-// Runs `bun test` and fails the run if any test wrote into the real
+// Runs the test suite (`bun run test` — the same seeded, randomized command
+// CI runs) and fails the run if any test wrote into the real
 // ~/.corbits/projects directory. Tests must sandbox state under a temp
 // `home` (see src/session/index.ts's `home` overrides); nothing running
 // under this wrapper is allowed to fall back to the developer's own
@@ -44,8 +45,7 @@ async function main(): Promise<void> {
   const runTmpDir = join(tmpdir(), `corbits-test-guard-${runId}`);
   await mkdir(runTmpDir, { recursive: true });
 
-  const args = process.argv.slice(2);
-  const child = spawn("bun", ["test", ...args], {
+  const child = spawn("bun", ["run", "test"], {
     stdio: "inherit",
     env: { ...process.env, TMPDIR: runTmpDir, TMP: runTmpDir, TEMP: runTmpDir },
   });
