@@ -56,6 +56,7 @@ const nativeClearInterval = globalThis.clearInterval;
  * export.
  */
 const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
+const SNOW_SAMPLE_CLOCKS_MS = [0, 1500, 3000, 4500, 6000, 7500] as const;
 
 type IdleTimerHandle = { unref?: () => void };
 
@@ -65,15 +66,14 @@ function wrapLandingIdleTimer(): {
 } {
   const armed: IdleTimerHandle[] = [];
   const cleared: IdleTimerHandle[] = [];
-  // Stub the landing cadence without a real timer — these tests only assert
-  // arm/clear. `unref` exists because the product calls it on the handle.
+  // Do not arm a real interval: these tests assert arm/clear, not ticks.
   globalThis.setInterval = ((
     handler: Parameters<typeof nativeSetInterval>[0],
     delay?: number,
     ...args: unknown[]
   ) => {
     if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) {
-      const handle: IdleTimerHandle = { unref() {} };
+      const handle: IdleTimerHandle = {};
       armed.push(handle);
       return handle;
     }
@@ -91,7 +91,7 @@ function soleLandingIdleHandle(armed: readonly IdleTimerHandle[]): IdleTimerHand
   const handle = armed[0];
   if (armed.length !== 1 || handle === undefined) {
     throw new Error(
-      `expected exactly one ${String(LANDING_IDLE_REPAINT_INTERVAL_MS)}ms interval, got ${String(armed.length)}`,
+      `expected exactly one ${LANDING_IDLE_REPAINT_INTERVAL_MS}ms interval, got ${armed.length}`,
     );
   }
   return handle;
@@ -357,41 +357,47 @@ describe("landing screen", () => {
     }, SIZE);
   }, 15_000);
 
-  test("paintLanding with reducedMotion draws no snow on a clock that otherwise snows", async () => {
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-        run: "idle",
-      });
-      try {
-        await settle(h);
-        const clocks = [0, 1500, 3000, 4500, 6000, 7500];
-        let snowingAt: number | undefined;
-        for (const nowMs of clocks) {
-          paintLanding(shell, nowMs, false, false);
-          await settle(h);
-          if (markRows(h).some((row) => row.includes(SNOW_CHAR))) {
-            snowingAt = nowMs;
-            break;
-          }
-        }
-        if (snowingAt === undefined) {
-          throw new Error("expected a still-mode clock that draws snow through paintLanding");
-        }
-        paintLanding(shell, snowingAt, false, true);
-        await settle(h);
-        expect(markRows(h).some((row) => row.includes(SNOW_CHAR))).toBe(false);
-      } finally {
-        shell.dispose();
-      }
-    }, SIZE);
-  });
-
   describe("landing idle timer", () => {
     afterEach(() => {
       globalThis.setInterval = nativeSetInterval;
       globalThis.clearInterval = nativeClearInterval;
+    });
+
+    test("paintLanding with reducedMotion draws no snow on a clock that otherwise snows", async () => {
+      wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        try {
+          await settle(h);
+          const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
+          let snowingAt: number | undefined;
+          let snowing = "";
+          for (const nowMs of SNOW_SAMPLE_CLOCKS_MS) {
+            paintLanding(shell, nowMs, false, false);
+            await settle(h);
+            const frame = markRows(h).join("\n");
+            if (frame.includes(SNOW_CHAR)) {
+              snowingAt = nowMs;
+              snowing = frame;
+              break;
+            }
+          }
+          if (snowingAt === undefined) {
+            throw new Error("expected a still-mode clock that draws snow through paintLanding");
+          }
+          paintLanding(shell, snowingAt, false, true);
+          await settle(h);
+          const quiet = markRows(h).join("\n");
+          expect(quiet.includes(SNOW_CHAR)).toBe(false);
+          expect(stripSnow(quiet)).toBe(stripSnow(snowing));
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
     });
 
     test("appending a transcript row clears the landing idle timer", async () => {
@@ -426,7 +432,7 @@ describe("landing screen", () => {
           shell.dispose();
           expect(cleared).toContain(handle);
         } finally {
-          if (isLanding(shell)) shell.dispose();
+          shell.dispose();
         }
       }, SIZE);
     });

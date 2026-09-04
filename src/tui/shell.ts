@@ -2798,8 +2798,8 @@ function clearLandingMark(shell: AppShell): void {
 
 /**
  * Cadence of the mount-scoped idle repaint timer armed in `createAppShell`.
- * The snow only needs to advance about half a row per
- * second, so ~8fps is comfortably enough to read as motion.
+ * The snow only needs to advance about half a row per second, so 8fps is
+ * comfortably enough to read as motion.
  */
 const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 
@@ -6663,7 +6663,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   // turn monitor is deliberately quiet (idle, no session yet). A plain timer
   // armed at mount is that source: it does not depend on the renderer
   // scheduling further frames, so it cannot stall the way riding the
-  // renderer's own FRAME event did (see CL-5737 history in the PR).
+  // renderer's FRAME event does: FRAME follows dirty rows, not a clock.
   //
   // Only repaints while idle (`landingAnimating` false): while a turn is
   // processing, `paintPhaseAt` in runtime-bridge.ts drives the mountain's

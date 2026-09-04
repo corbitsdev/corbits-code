@@ -430,12 +430,13 @@ known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
 
 While the landing is mounted, a mount-scoped 125ms timer advances snow
-across a frozen mountain. It is cancelled on the first transcript row or
-on shell dispose. While the landing is still up, the callback no-ops if
-a turn is already driving the mark. `still` freezes the mountain's
-draw/fill/fade timeline only; snow still drifts. Reduced motion drops
-snow at `renderMark` independently of `still`; the idle timer always
-paints with that hook off.
+across a frozen mountain. It is cancelled on the first real transcript
+row or on shell dispose. Deferred system notices do not count. While
+the landing is still up, the callback no-ops if a turn is already
+driving the mark. `still` freezes the mountain's draw/fill/fade
+timeline only; snow still drifts. Reduced motion drops snow at
+`renderMark` independently of `still`; the idle timer always paints
+with that hook off.
 
 That timer is the pre-session frame source. The renderer FRAME event
 follows dirty rows, not a clock, and starves under throttle. The turn
