@@ -288,20 +288,17 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
   }
 });
 
-test("linear-issue-workflow references use_skill(git-worktrees)", async () => {
+test("linear-issue-workflow is 1:1 with GaaS", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
-  expect(skill).toContain('use_skill("git-worktrees")');
-  expect(skill).not.toContain("git worktree add");
-});
-
-test("linear-issue-workflow moves ready-for-review PRs to In Review", async () => {
-  const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
-  expect(skill).toContain('set the issue state to "In Review"');
-  expect(skill).toMatch(/ready for review/);
-  expect(skill).toContain("Draft or WIP PRs stay **In Progress**");
-  expect(skill).toContain("Draft or WIP PRs stay In Progress");
-  expect(skill).toContain("Do not mark the Linear issue Done on open PR alone");
-  expect(skill).toContain("Do not leave it In Review after merge when work remains");
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("git worktree add");
+  expect(skill).toContain("code-review");
+  expect(skill).toContain("critique` subagent");
+  expect(skill).toContain('Mark the issue as "In Progress"');
+  expect(skill).not.toContain('use_skill("git-worktrees")');
+  expect(skill).not.toContain("Claim immediately");
+  expect(skill).not.toContain('set the issue state to "In Review"');
 });
 
 test("review skill does not own the Linear In Review write", async () => {
@@ -354,6 +351,14 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("idiot-proof");
   expect(skill).toContain("bun:test");
   expect(skill).toContain('import t from "tap"');
+  expect(skill).toContain("git worktree add");
+  expect(skill).toContain('use_skill("git-worktrees")');
+  expect(skill).toContain('set the issue state to "In Review"');
+  expect(skill).toMatch(/ready for review/);
+  expect(skill).toContain("Draft or WIP PRs stay **In Progress**");
+  expect(skill).toContain("Draft or WIP PRs stay In Progress");
+  expect(skill).toContain("Do not mark the Linear issue Done on open PR alone");
+  expect(skill).toContain("Do not leave it In Review after merge when work remains");
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {
