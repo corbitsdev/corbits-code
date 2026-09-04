@@ -1878,10 +1878,15 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     repaintTranscriptWindow(shell);
   }
 
-  // Width change changes the column budget the board fits to. Content may be
-  // unchanged, so setChromeZones would skip the rebuild — do it here.
-  if (widthChanged && bag !== undefined && bag.chrome.agents.length > 0) {
-    renderAgentsRows(shell, clampBoardRows(bag.chrome.agents, agentsH), layout.contentWidth);
+  // Width change changes the column budget chrome rows fit to. Content may
+  // be unchanged, so setChromeZones would skip the rebuild — do it here.
+  if (widthChanged && bag !== undefined) {
+    if (bag.chrome.task.length > 0) {
+      renderTasksRows(shell, bag.chrome.task, layout.contentWidth);
+    }
+    if (bag.chrome.agents.length > 0) {
+      renderAgentsRows(shell, clampBoardRows(bag.chrome.agents, agentsH), layout.contentWidth);
+    }
   }
 
   paintChrome(shell);
