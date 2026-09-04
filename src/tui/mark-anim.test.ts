@@ -135,6 +135,29 @@ describe("renderMark", () => {
     expect(new Set(withSnow).size).toBeGreaterThan(1);
   });
 
+  test("reducedMotion drops snow at a clock that otherwise snows, without reshaping the mountain", () => {
+    const times = [0, 1500, 3000, 4500, 6000, 7500];
+    const nowMs = times.find((t) =>
+      renderMark({ nowMs: t, still: true, reducedMotion: false, grid: MARK_LARGE })
+        .flat()
+        .some((cell) => isSnow(cell.char)),
+    );
+    if (nowMs === undefined) {
+      throw new Error("expected a still-mode clock that draws snow");
+    }
+
+    const snowing = renderMark({ nowMs, still: true, reducedMotion: false, grid: MARK_LARGE });
+    const quiet = renderMark({ nowMs, still: true, reducedMotion: true, grid: MARK_LARGE });
+    expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
+    expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
+
+    const mountainOnly = (grid: typeof snowing) =>
+      grid
+        .map((row) => row.map((cell) => (isMountain(cell.char) ? cell.char : " ")).join(""))
+        .join("\n");
+    expect(mountainOnly(quiet)).toBe(mountainOnly(snowing));
+  });
+
   test("the animated frame advances with the injected clock", () => {
     const frames = [0, 400, 900, 1500, 2400, 3200].map((nowMs) =>
       markText(renderMark({ nowMs, still: false })),

@@ -3,7 +3,7 @@
  * telemetry disclosure and selectable starters — and nothing left over once
  * the transcript has content.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
@@ -46,6 +46,54 @@ import { UI } from "./theme";
 
 const SIZE = { width: 80, height: 24 } as const;
 const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";
+
+const nativeSetInterval = globalThis.setInterval;
+const nativeClearInterval = globalThis.clearInterval;
+
+afterEach(() => {
+  globalThis.setInterval = nativeSetInterval;
+  globalThis.clearInterval = nativeClearInterval;
+});
+
+/**
+ * 125 is `LANDING_IDLE_REPAINT_INTERVAL_MS` in shell.ts. Hardcoded so a
+ * cadence change fails these tests on purpose rather than tracking a product
+ * export.
+ */
+const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
+
+type IntervalHandle = ReturnType<typeof nativeSetInterval>;
+
+/** Wrap globals; the original handle is returned so `unref` still exists. */
+function wrapLandingIdleTimer(): {
+  armed: IntervalHandle[];
+  cleared: unknown[];
+} {
+  const armed: IntervalHandle[] = [];
+  const cleared: unknown[] = [];
+  globalThis.setInterval = ((
+    handler: Parameters<typeof nativeSetInterval>[0],
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    const handle = nativeSetInterval.call(globalThis, handler, delay, ...args);
+    if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) armed.push(handle);
+    return handle;
+  }) as typeof nativeSetInterval;
+  globalThis.clearInterval = ((handle: Parameters<typeof nativeClearInterval>[0]) => {
+    cleared.push(handle);
+    return nativeClearInterval.call(globalThis, handle);
+  }) as typeof nativeClearInterval;
+  return { armed, cleared };
+}
+
+function soleLandingIdleHandle(armed: readonly IntervalHandle[]): IntervalHandle {
+  const handle = armed[0];
+  if (armed.length !== 1 || handle === undefined) {
+    throw new Error(`expected exactly one 125ms interval, got ${String(armed.length)}`);
+  }
+  return handle;
+}
 
 /** Newly added scroll-box children need a layout pass before they paint. */
 async function settle(h: Harness): Promise<void> {
@@ -306,6 +354,40 @@ describe("landing screen", () => {
       }
     }, SIZE);
   }, 15_000);
+
+  test("appending a transcript row clears the landing idle timer", async () => {
+    const { armed, cleared } = wrapLandingIdleTimer();
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        run: "idle",
+        wireKeys: false,
+        terminal: { columns: 80, rows: 24 },
+      });
+      try {
+        const handle = soleLandingIdleHandle(armed);
+        appendStreamRow(shell, { role: "user", text: "first prompt" });
+        expect(isLanding(shell)).toBe(false);
+        expect(cleared).toContain(handle);
+        await settle(h);
+      } finally {
+        shell.dispose();
+      }
+    }, SIZE);
+  });
+
+  test("disposing the shell with no transcript clears the landing idle timer", async () => {
+    const { armed, cleared } = wrapLandingIdleTimer();
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        run: "idle",
+        wireKeys: false,
+        terminal: { columns: 80, rows: 24 },
+      });
+      const handle = soleLandingIdleHandle(armed);
+      shell.dispose();
+      expect(cleared).toContain(handle);
+    }, SIZE);
+  });
 
   test("a starter key fills the prompt; a typed prompt keeps its digits", async () => {
     await withTestRenderer(async (h) => {
