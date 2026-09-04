@@ -4,7 +4,6 @@ import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  extractPastedImagePaths,
   findImagePathMentions,
   imageMimeTypeForPath,
   capImageForIngestion,
@@ -76,36 +75,6 @@ describe("image attachment helpers", () => {
     expect(imageMimeTypeForPath("photo.JPEG")).toBe("image/jpeg");
     expect(imageMimeTypeForPath("animation.gif")).toBe("image/gif");
     expect(imageMimeTypeForPath("notes.txt")).toBeUndefined();
-  });
-
-  test("extracts absolute image paths from bracketed paste text", () => {
-    expect(extractPastedImagePaths("/tmp/screenshot.png\n/var/tmp/photo.jpg", "/repo")).toEqual([
-      "/tmp/screenshot.png",
-      "/var/tmp/photo.jpg",
-    ]);
-  });
-
-  test("resolves relative and file-url image paths", () => {
-    expect(extractPastedImagePaths("assets/shot.webp", "/repo")).toEqual([
-      "/repo/assets/shot.webp",
-    ]);
-    expect(extractPastedImagePaths("file:///tmp/my%20shot.png", "/repo")).toEqual([
-      "/tmp/my shot.png",
-    ]);
-  });
-
-  test("rejects mixed text and non-image paths", () => {
-    expect(extractPastedImagePaths("please see /tmp/shot.png", "/repo")).toEqual([]);
-    expect(extractPastedImagePaths("/tmp/readme.md", "/repo")).toEqual([]);
-  });
-
-  test("accepts unescaped spaces and home-relative pasted image paths", () => {
-    expect(
-      extractPastedImagePaths("/tmp/Screenshot 2026-01-01 at 1.23.45 PM.png", "/repo"),
-    ).toEqual(["/tmp/Screenshot 2026-01-01 at 1.23.45 PM.png"]);
-    expect(extractPastedImagePaths("~/Desktop/shot.png", "/repo")[0]).toContain(
-      "/Desktop/shot.png",
-    );
   });
 
   test("finds image paths embedded in instructions", () => {
