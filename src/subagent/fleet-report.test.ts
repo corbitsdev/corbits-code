@@ -141,6 +141,58 @@ describe("observeFleet", () => {
     const { updates } = observeFleet(seeded, after, T0 + 1000);
     expect(updates).toEqual(["9 done, 3 failed · nothing running"]);
   });
+
+  test("a cancelled-only dry fleet counts cancelled, not failed", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [lane({ id: "api", status: "cancelled" }), lane({ id: "docs", status: "cancelled" })],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(["0 done, 2 cancelled · nothing running"]);
+  });
+
+  test("a mixed dry fleet names done, failed, and cancelled separately", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" }), lane({ id: "web" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [
+        lane({ id: "api", status: "done", report: "ok" }),
+        lane({ id: "docs", status: "failed", error: "boom" }),
+        lane({ id: "web", status: "cancelled" }),
+      ],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(["1 done, 1 failed, 1 cancelled · nothing running"]);
+  });
+
+  test("a burst of live cancels coalesces as cancelled, not failed", () => {
+    const before = Array.from({ length: 5 }, (_, i) => lane({ id: `l${i}` }));
+    const seeded = observeFleet(createFleetWatch(), before, T0).watch;
+    const after = before.map((l, i) => (i < 4 ? { ...l, status: "cancelled" as const } : l));
+    const { updates } = observeFleet(seeded, after, T0 + 1000);
+    expect(updates).toEqual(["4 cancelled"]);
+  });
+
+  test("a mixed live burst names failed and cancelled separately", () => {
+    const before = Array.from({ length: 5 }, (_, i) => lane({ id: `l${i}` }));
+    const seeded = observeFleet(createFleetWatch(), before, T0).watch;
+    const after = before.map((l, i) => {
+      if (i < 2) return { ...l, status: "failed" as const, error: "boom" };
+      if (i < 4) return { ...l, status: "cancelled" as const };
+      return l;
+    });
+    const { updates } = observeFleet(seeded, after, T0 + 1000);
+    expect(updates).toEqual(["2 failed, 2 cancelled"]);
+  });
 });
 
 describe("fleetDigest", () => {
@@ -160,6 +212,15 @@ describe("fleetDigest", () => {
   test("a fleet with nothing left running says so rather than going blank", () => {
     expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe("nothing running · 1 done");
     expect(fleetDigest([], T0)).toBe("nothing running");
+  });
+
+  test("cancelled lanes are named separately from failed", () => {
+    expect(
+      fleetDigest(
+        [lane({ id: "api", status: "cancelled" }), lane({ id: "cli", status: "failed" })],
+        T0,
+      ),
+    ).toBe("nothing running · 1 failed · 1 cancelled");
   });
 });
 

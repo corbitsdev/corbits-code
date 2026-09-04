@@ -3,7 +3,7 @@
  *
  * Live lanes already paint on the activity strip. Parent prose already narrates
  * phase plans. This module only emits transcript lines for attention the strip
- * cannot keep: a lane failed or went quiet, and the single moment the fleet runs
+ * cannot keep: a lane failed or cancelled, and the single moment the fleet runs
  * dry. Per-lane "done — summary" walls are intentionally never printed — they
  * restate the strip and the parent and turn the transcript into a second
  * status log.
@@ -121,6 +121,7 @@ type Change =
   | { readonly kind: "dispatched"; readonly line: string }
   | { readonly kind: "done"; readonly line: string }
   | { readonly kind: "failed"; readonly line: string }
+  | { readonly kind: "cancelled"; readonly line: string }
   | { readonly kind: "stalled"; readonly line: string };
 
 export interface FleetObservation {
@@ -175,7 +176,7 @@ export function observeFleet(
         });
       } else if (lane.status === "cancelled") {
         changes.push({
-          kind: "failed",
+          kind: "cancelled",
           line: `${lane.description} stopped — ${clip(lane.stopReason ?? "cancelled", OUTCOME_CHARS)}`,
         });
       }
@@ -192,7 +193,7 @@ export function observeFleet(
   const wentDry = running === 0 && previous.running > 0;
 
   // Board owns live lanes. Parent prose owns success narratives. Transcript
-  // only: fail/stall while work is still running, or one dry-fleet tally.
+  // only: fail/cancel/stall while work is still running, or one dry-fleet tally.
   // Never per-lane "done — summary" walls.
   if (wentDry) {
     return {
@@ -201,7 +202,9 @@ export function observeFleet(
     };
   }
 
-  const attention = changes.filter((c) => c.kind === "failed" || c.kind === "stalled");
+  const attention = changes.filter(
+    (c) => c.kind === "failed" || c.kind === "cancelled" || c.kind === "stalled",
+  );
   if (attention.length === 0) {
     return { watch, updates: [] };
   }
@@ -217,22 +220,52 @@ export function observeFleet(
 
 function tally(changes: readonly Change[]): string {
   const count = (kind: Change["kind"]): number => changes.filter((c) => c.kind === kind).length;
-  const parts: string[] = [];
-  const done = count("done");
-  const failed = count("failed");
-  if (done > 0) parts.push(`${done} done`);
-  if (failed > 0) parts.push(`${failed} failed`);
-  // stalled changes are not operator-facing; tally fails/done only
+  // stalled changes are not operator-facing; tally outcomes only
   void count("stalled");
-  return parts.join(", ");
+  return formatOutcomeParts(
+    { done: count("done"), failed: count("failed"), cancelled: count("cancelled") },
+    { includeZeroDone: false },
+  ).join(", ");
+}
+
+interface OutcomeCounts {
+  done: number;
+  failed: number;
+  cancelled: number;
+}
+
+function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
+  let done = 0;
+  let failed = 0;
+  let cancelled = 0;
+  for (const lane of lanes) {
+    switch (lane.status) {
+      case "done":
+        done += 1;
+        break;
+      case "failed":
+        failed += 1;
+        break;
+      case "cancelled":
+        cancelled += 1;
+        break;
+      case "running":
+        break;
+    }
+  }
+  return { done, failed, cancelled };
+}
+
+function formatOutcomeParts(counts: OutcomeCounts, opts: { includeZeroDone: boolean }): string[] {
+  const parts: string[] = [];
+  if (opts.includeZeroDone || counts.done > 0) parts.push(`${counts.done} done`);
+  if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+  if (counts.cancelled > 0) parts.push(`${counts.cancelled} cancelled`);
+  return parts;
 }
 
 function idleSummary(lanes: readonly FleetLane[]): string {
-  const done = lanes.filter((l) => l.status === "done").length;
-  const failed = lanes.filter((l) => l.status === "failed" || l.status === "cancelled").length;
-  const parts = [`${done} done`];
-  if (failed > 0) parts.push(`${failed} failed`);
-  return parts.join(", ");
+  return formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: true }).join(", ");
 }
 
 /**
@@ -246,10 +279,6 @@ export function fleetDigest(
 ): string {
   if (lanes.length === 0) return "nothing running";
   const running = lanes.filter((l) => l.status === "running");
-  const done = lanes.filter((l) => l.status === "done").length;
-  const failed = lanes.filter((l) => l.status === "failed").length;
-  const cancelled = lanes.filter((l) => l.status === "cancelled").length;
-
   const parts: string[] = [];
   if (running.length === 0) {
     parts.push("nothing running");
@@ -265,8 +294,6 @@ export function fleetDigest(
     const extra = running.length - Math.min(running.length, DIGEST_NAMED_LANES);
     parts.push(`${running.length} running (${named}${extra > 0 ? `, +${extra} more` : ""})`);
   }
-  if (done > 0) parts.push(`${done} done`);
-  if (failed > 0) parts.push(`${failed} failed`);
-  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
+  parts.push(...formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: false }));
   return parts.join(" · ");
 }

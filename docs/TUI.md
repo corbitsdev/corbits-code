@@ -239,10 +239,13 @@ rail. Ordinary in-flight tool rows keep their own elapsed clock
 ### Unprompted fleet reports
 
 Parent prose owns success narratives. Transcript fleet notices exist only for
-attention live spawn_agent rows cannot keep: a lane **failed** while other work is
-still running, and **one** dry-fleet line when the last lane finishes
-(`N done · nothing running`). Per-lane `done — summary` walls and live
-`dispatched` re-announcements are never printed.
+attention live spawn_agent rows cannot keep: a lane **failed** or **cancelled**
+while other work is still running, and **one** dry-fleet line when the last
+lane finishes
+(`N done · nothing running`; failed and cancelled counts appear only
+when non-zero, e.g. `N done, M failed, K cancelled · nothing running`).
+Per-lane `done — summary` walls and live `dispatched` re-announcements
+are never printed.
 
 `src/subagent/fleet-report.ts` is pure: it reads the same sub-agent session
 store and the same `agentProgress()` stall definition. Store changes drive it;
