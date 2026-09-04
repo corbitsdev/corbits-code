@@ -35,7 +35,7 @@ The evidence is in how the product fails today: the personas already produce exc
 ## Key Value Propositions
 
 1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
-2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; non-interactive `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `spawn_agent` / `wait_agents` sub-agent surface.)
+2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; non-interactive `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `spawn_agent` / `wait_agents` fleet-agent surface.)
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
 5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.
@@ -151,7 +151,7 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 - **Web search and fetch** — `web_search`/`web_fetch` are always-on built-in core tools, no plugin or API key required. `web_fetch` runs in-process (Bun native `fetch()`) with SSRF guarding, a 5 MB response cap, and HTML-to-markdown conversion; `web_search` calls a keyless hosted MCP provider (Exa by default, Parallel optional). See `docs/ARCHITECTURE.md` for details.
 
-## Multi-agent (sub-agents)
+## Multi-agent (fleet agents)
 
 The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker** (product name remains Corbits Code; when asked its name, answer Skywalker): classify work, DIY tiny/single-file/one-route product edits, dispatch a **closed fleet of 16 directors** for substantial work, track the fleet, and synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are mounted on the primary (CORE / `SKYWALKER_TOOLS`) — path tools are the DIY surface; spawn remains the default for substantial, multi-file, parallel, or specialist work. Shell file-writes stay denied. MCP tools are not re-filtered by a product-write deny list (that list is gone). There is no static per-package write-path declaration (CL-6952 removed it — no shipped director ever set one). A concurrent dispatch landing on the same working directory as another still-running lane is recorded as a `conflict` intervention, not blocked. Operator slash recipes (`/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`) tell Skywalker which directors to spawn for substantial work; tiny/bounded edits may run on the primary.
 
@@ -164,11 +164,11 @@ The primary session is always **orchestrator** (single-agent mode is gone). Its 
 
 There is **no catch-all worker**. `spawn_agent` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critic); bare dispatch and `intent=general` are refused. Named `spawn_agent(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a spawned worker. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) and greybeard (intern/explorer/critic) may spawn; other workers have no fleet tools. Primary omits an allowlist so plugin profiles remain reachable from the main session.
 
-Corbits Code fans work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
+Corbits Code fans work out to short-lived **fleet agents** — workers with their own loop, tools, and checklist — while the primary session stays focused.
 
 - **Agents** are runtime entities (primary session or child).
 - **Tasks** are checklist items owned by one agent via `manage_tasks`.
-- **Sub-agents** are spawned with `spawn_agent` / `wait_agents`.
+- **Fleet agents** are spawned with `spawn_agent` / `wait_agents`. Workers ask the parent with `ask_director`. When `wait_agents` returns status `running` plus a question payload, the parent answers with `send_input`, then `wait_agents` again. Escalate to the human only with `ask_operator`.
 
 Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip and fleet board show who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. There is no turn budget. A tool-less final turn completes only with the four-heading report envelope; without it, one nudge is given and a second tool-less turn without the envelope salvages as `incomplete-report-stop`. A silent worker (no activity for `stallTimeoutMs`, opt-in) gets one continuation nudge, then salvages as `stalled` if a second consecutive check finds no activity. An opt-in `deadlineMs`, or an operator cancel, can also end a run early. Each of these returns a salvage report so a runaway or idle child cannot quietly burn a large token budget or look done after prose alone.
 

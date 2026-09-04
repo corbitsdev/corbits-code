@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Tester leaf (CL-7026).
+ * Tester worker (CL-7026).
  * Runtime verification — run suite/repro and report evidence; never fix product code.
  */
 export const testerPackage: DirectorPackage = {

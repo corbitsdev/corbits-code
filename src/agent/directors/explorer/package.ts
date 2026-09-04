@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Explorer leaf (CL-7020 / CL-7015 rename from explore).
+ * Explorer worker (CL-7020 / CL-7015 rename from explore).
  * Map/read against the brief — scannable findings only; never implement, review, or discover the fleet.
  */
 export const explorerPackage: DirectorPackage = {
@@ -14,7 +14,7 @@ export const explorerPackage: DirectorPackage = {
     "shipping features",
     "review severity theater",
   ],
-  description: "Read-only exploration leaf",
+  description: "Read-only exploration",
   systemPrompt: `You are ExplorerDirector (Explorer), a specialist in Corbits Code.
 
 PRIMARY INTENT: map and read the codebase to answer the brief. Read, search, report. Do not implement product changes.

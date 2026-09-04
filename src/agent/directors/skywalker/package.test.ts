@@ -169,6 +169,14 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaves\b/i);
   });
 
+  test("systemPrompt answers wait_agents questions via send_input", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("ask_director");
+    expect(p).toContain("send_input");
+    expect(p).toMatch(/wait_agents returns status running plus a question/i);
+    expect(p).toMatch(/Escalate with ask_operator only when you cannot resolve it/);
+  });
+
   test("systemPrompt puts API signatures into implement success_criteria", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("function signature or return shape");

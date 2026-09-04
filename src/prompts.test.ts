@@ -288,14 +288,17 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
     date: new Date(2026, 5, 5),
     isGitRepo: false,
   });
-  expect(prompt).toContain("short-lived child agent dispatched by Corbits Code");
+  expect(prompt).toContain("fleet agent — a worker dispatched by Corbits Code");
   expect(prompt).toContain("Reporting back:");
   expect(prompt).toContain("only thing returned to the parent");
+  expect(prompt).toContain("ask_director");
   expect(prompt).toContain("Change files with write_file/edit_file");
   expect(prompt).toContain("remove files with delete_file");
   expect(prompt).toContain("parent session's permission gate");
   expect(prompt).not.toContain("without asking for approval");
   expect(prompt).not.toContain("ask_operator");
+  expect(prompt).not.toContain("you cannot ask the parent mid-run");
+  expect(prompt).not.toContain("You are a sub-agent");
 });
 
 test("when ask_director is in toolNames, the worker prompt mentions ask_director", () => {

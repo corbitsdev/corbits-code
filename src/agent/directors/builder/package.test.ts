@@ -18,7 +18,7 @@ describe("builderPackage", () => {
   test("systemPrompt identity is Builder / BuilderDirector (not job-title language)", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toMatch(/BuilderDirector \(Builder\)/);
-    expect(p).toMatch(/implementer leaf/i);
+    expect(p).toMatch(/implementer worker/i);
     expect(p).not.toMatch(/build director/i);
   });
 

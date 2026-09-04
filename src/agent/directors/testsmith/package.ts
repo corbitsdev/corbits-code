@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Testsmith leaf (CL-7033).
+ * Testsmith worker (CL-7033).
  * Design permanent test strategy and cases in the report — never implement product,
  * never replace Tester as the runtime verifier.
  */

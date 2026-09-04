@@ -106,7 +106,7 @@ milliseconds and converts.
 (`tool_call_count`, `tool_error_count`, `subagent_call_count`). Per-call
 `$ai_span` events are **off by default**. Set `CORBITS_TELEMETRY_AI_SPANS` to
 a truthy value (`1`, `true`, …) to restore per-call spans for debugging.
-Leaf `runSubAgent` workers do not emit `$ai_*`; worker rollups travel on
+`runSubAgent` workers do not emit `$ai_*`; worker rollups travel on
 `subagent_end` instead. Both TUI and exec install the same turn observer, so a
 worker ending during an active parent turn carries that turn's `parent_trace_id`.
 Pre-progress operator aborts settle with `status=cancelled` and

@@ -14,7 +14,7 @@ export const draperPackage: DirectorPackage = {
     "rewriting copy or redesigning",
     "applying product fixes",
   ],
-  description: "Visual/CBS critique leaf (dev-scoped)",
+  description: "Visual/CBS critique (dev-scoped)",
   // Critique only — product write tools not mounted.
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },

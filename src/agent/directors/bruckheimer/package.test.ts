@@ -45,12 +45,12 @@ describe("bruckheimerPackage", () => {
     expect(p).toMatch(/briefs\//);
   });
 
-  test("systemPrompt adapts AskUserQuestion to ask_operator with prose fallback", () => {
+  test("systemPrompt uses ask_director for parent questions", () => {
     const p = bruckheimerPackage.systemPrompt;
-    expect(p).toMatch(/ask_operator/);
+    expect(p).toMatch(/ask_director/);
     expect(p).not.toMatch(/AskUserQuestion/);
-    expect(p).toMatch(/not mounted on this session/i);
-    expect(p).toMatch(/ask the clarifying question in prose/i);
+    expect(p).not.toMatch(/ask_operator/);
+    expect(p).toMatch(/Do not guess past a real fork/i);
   });
 
   test("systemPrompt uses Corbits file tools (not Read/Write/Bash)", () => {

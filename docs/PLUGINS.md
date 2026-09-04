@@ -146,7 +146,7 @@ The kind-specific export is the implementation hook:
 | `command`  | `commandPlugin`                             | slash-command registry                     | slash commands                                              |
 | `workflow` | `workflowPlugin` + optional `commandPlugin` | workflow registry + slash-command registry | named workflow recipes behind an integration command prefix |
 | `tool`     | `toolPlugin` (factory)                      | posix toolset                              | add new agent tools (highest trust)                         |
-| `agent`    | `agentPlugin`                               | sub-agent profiles                         | contribute `spawn_agent`-dispatchable agent profiles        |
+| `agent`    | `agentPlugin`                               | fleet-agent profiles                       | contribute `spawn_agent`-dispatchable agent profiles        |
 
 A module with no valid manifest is ignored (not silently half-loaded).
 

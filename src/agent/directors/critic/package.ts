@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Critic leaf (CL-5819 / CL-7021 / CL-7015 rename from critique).
+ * Critic worker (CL-5819 / CL-7021 / CL-7015 rename from critique).
  * Critic identity — defects with evidence; never fix product code.
  */
 export const criticPackage: DirectorPackage = {
@@ -16,7 +16,7 @@ export const criticPackage: DirectorPackage = {
     "DESIGN.md",
     "pedantic fun without evidence",
   ],
-  description: "Code quality review leaf",
+  description: "Code quality review worker",
   optionalSkills: ["style", "philosophy", "idiot-proof"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },

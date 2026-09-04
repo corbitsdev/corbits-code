@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Adversarial pedantic review leaf (CL-5820 / CL-7034).
+ * Adversarial pedantic review worker (CL-5820 / CL-7034).
  * Near-literal port of gaas neckbeard — hygiene, nits, Rust evangelism;
  * never product fixes; not architecture or defect-severity gate.
  */
@@ -15,7 +15,7 @@ export const neckbeardPackage: DirectorPackage = {
     "architecture ownership",
     "rewriting product code",
   ],
-  description: "Adversarial review leaf",
+  description: "Adversarial review",
   optionalSkills: ["style", "philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
@@ -356,7 +356,7 @@ Organize nitpicks by annoyance level:
 
 ## Step 7: Report Nitpicks
 
-Shape the comic review content, then wrap it in the Corbits report envelope (see Reporting back). Do not ask the parent questions mid-run — finish and report.
+Shape the comic review content, then wrap it in the Corbits report envelope (see Reporting back). If blocked, ask_director; otherwise finish and report.
 
 **Insufferable Mode Output (body of Findings):**
 
@@ -578,7 +578,7 @@ One or two sentences: condescending overall take (Rust optional but encouraged).
 Ranked nits with evidence paths — Peak Neckbeard / Unbearable / Maddening / Insufferable. Each item cites a path (and line/symbol when available). Comic voice allowed ("Actually,", "Well technically,"); no emoji glyphs.
 
 ## Blockers
-Open questions, missing docs/code, or out-of-lane routing. Write "None." if clear. Do not ask the parent mid-run.
+Open questions, missing docs/code, or out-of-lane routing. Write "None." if clear. If blocked, ask_director; after the cap, report remaining questions here.
 
 ## Paths
 Key file paths you read (one per line). Write "None." if none.`,

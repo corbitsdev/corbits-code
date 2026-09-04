@@ -97,15 +97,15 @@ the diff due to refactoring is exempt from this requirement.
 If reviewing TypeScript code, consider loading the `typescript`
 skill for detailed guidance on type patterns, naming, and idioms.
 
-## Delegating to Sub-agents
+## Delegating to fleet agents
 
-When delegating file review to sub-agents, provide the output of
+When delegating file review to fleet agents, provide the output of
 `git diff <base-branch>...HEAD -- <file>` rather than the full file contents.
 
-Sub-agents that receive full files cannot distinguish branch changes from
+Fleet agents that receive full files cannot distinguish branch changes from
 pre-existing code and will flag out-of-scope issues.
 
-If full files must be provided for context, explicitly instruct the sub-agent
+If full files must be provided for context, explicitly instruct the worker
 which line ranges were modified by the branch and that only those ranges are
 in scope.
 
@@ -191,7 +191,7 @@ Some properties — subtle concurrency bugs, performance pathologies, security g
 
 ## Reviewer-of-Record Checks
 
-"Cite the Check" requires that affirmative claims have backing. This rule narrows it: for the checks below, the backing must be the reviewer-of-record's own eyes on raw output. The reviewer-of-record is the agent whose verdict ships — when a workflow delegates the deeper read to a subagent, the orchestrator remains the reviewer-of-record and these checks stay with them.
+"Cite the Check" requires that affirmative claims have backing. This rule narrows it: for the checks below, the backing must be the reviewer-of-record's own eyes on raw output. The reviewer-of-record is the agent whose verdict ships — when a workflow delegates the deeper read to a fleet agent, the orchestrator remains the reviewer-of-record and these checks stay with them.
 
 Their value is in catching unknown-unknowns. A delegate asked for "a punch list of findings" returns things that fit the punch-list shape; `Bin 0 -> 8181 bytes` on a `.ts` file does not look like a finding, it looks like stat noise, and gets collapsed away. Only direct inspection preserves the signal.
 
@@ -199,9 +199,9 @@ Their value is in catching unknown-unknowns. A delegate asked for "a punch list 
 
 - `git diff <base>...HEAD --stat` — scan for `Bin` markers on any file you did not expect to be binary (source code, markdown, config) and for files outside the branch's stated scope.
 - `git log --oneline <base>..HEAD` — confirm the commits on the branch match the issue's scope; unexpected or off-topic commits are stop conditions.
-- The subject and body audits enumerated under _Commit-Message Style Audit_. That section is the canonical command catalog and pattern list; this section's contribution is the delegation rule — those audits are reviewer-of-record, not subagent work.
+- The subject and body audits enumerated under _Commit-Message Style Audit_. That section is the canonical command catalog and pattern list; this section's contribution is the delegation rule — those audits are reviewer-of-record, not fleet-agent work.
 
-Delegating the deeper read (file-by-file behavioral review, architectural analysis, commit-message coherence) to a subagent is fine and often valuable for context isolation. Delegating the checks above is not — their value is the raw output landing in front of the reviewer-of-record's eyes.
+Delegating the deeper read (file-by-file behavioral review, architectural analysis, commit-message coherence) to a fleet agent is fine and often valuable for context isolation. Delegating the checks above is not — their value is the raw output landing in front of the reviewer-of-record's eyes.
 
 ## Commit-Message Coherence
 
@@ -227,7 +227,7 @@ surprised by what the diff actually contains, that is a problem worth raising.
 
 Coherence (above) checks that each message accurately describes its diff. Style audit checks that each message conforms to the project's commit-message rules (see the `style` skill, which is the canonical source for the prefix-family list and other rules). The two are independent; both have to be run.
 
-Each check below is reviewer-of-record territory (see _Reviewer-of-Record Checks_) — run them in-session and read the raw output yourself. Do not delegate them; a subagent asked to "verify style compliance" will return a generic "looks fine" read with no audit trail.
+Each check below is reviewer-of-record territory (see _Reviewer-of-Record Checks_) — run them in-session and read the raw output yourself. Do not delegate them; a fleet agent asked to "verify style compliance" will return a generic "looks fine" read with no audit trail.
 
 **Subject-line audits.** Most checks scan the output of:
 
@@ -274,7 +274,7 @@ Affirmative claims about these audits must cite the specific command whose outpu
 
 ## Review Checklist
 
-Items marked _(reviewer-of-record)_ must be run by the agent whose verdict ships — see _Reviewer-of-Record Checks_. Do not delegate them to a subagent. Unmarked items are delegable.
+Items marked _(reviewer-of-record)_ must be run by the agent whose verdict ships — see _Reviewer-of-Record Checks_. Do not delegate them to a fleet agent. Unmarked items are delegable.
 
 1. Determine the base branch using the methods in "Base Branch Determination"
 2. Run `git log --oneline <base>..HEAD` to understand the scope _(reviewer-of-record)_
@@ -310,7 +310,7 @@ When the workflow ran more than one review lens (for example `critic` for behavi
 | Lens                   | What it owns                                                       | When to post                                                                              |
 | ---------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
 | Primary / orchestrator | Verdict on the branch as it stands; residual findings; waiver list | Always when posting                                                                       |
-| Critic                 | Behavioral bugs, missing tests, architecture, commit coherence     | When a critic subagent ran                                                                |
+| Critic                 | Behavioral bugs, missing tests, architecture, commit coherence     | When a critic director ran                                                                |
 | Greybeard              | Waiver rulings and intentional exceptions                          | When Greybeard authorized any waiver, or when product/architecture judgment was requested |
 | OSS / quality          | Public-API, packaging, polish bar for shippable surface            | When that lens was explicitly run                                                         |
 

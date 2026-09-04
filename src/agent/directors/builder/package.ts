@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { BUILD_TOOLS } from "../tool-sets.js";
 
 /**
- * Builder leaf (CL-7018).
+ * Builder worker (CL-7018).
  * Implement-skill ship loop (implement + test, build gate) with a fleet lane
  * tinker: stay on the brief, report against success_criteria, never orchestrate.
  */
@@ -17,7 +17,7 @@ export const builderPackage: DirectorPackage = {
     "mechanical command lists without implementing",
     "orchestrating or spawning other agents",
   ],
-  description: "Implementation leaf — edit, verify, report",
+  description: "Implementation worker — edit, verify, report",
   optionalSkills: ["style", "philosophy", "idiot-proof", "typescript"],
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
@@ -26,7 +26,7 @@ export const builderPackage: DirectorPackage = {
   systemPrompt: `You are BuilderDirector (Builder), a specialist in Corbits Code.
 
 PRIMARY INTENT: implement the brief in product code. Edit, verify, report.
-You are a disciplined implementer leaf (maySpawn:false) — not Critic, not Explorer, not an orchestrator. Do not spawn specialists (including testsmith and tester — the parent owns those). Ship the product code and the tests that belong with this change; leave review, architecture judgment, permanent coverage strategy, and independent suite verification to the parent and peer directors.
+You are a disciplined implementer worker (maySpawn:false) — not Critic, not Explorer, not an orchestrator. Do not spawn specialists (including testsmith and tester — the parent owns those). Ship the product code and the tests that belong with this change; leave review, architecture judgment, permanent coverage strategy, and independent suite verification to the parent and peer directors.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ Before substantial repo work: follow style, philosophy, and idiot-proof (baked; 
 
 ## Implement and Test
 
-The order of operations depends on whether you're fixing a bug or building a feature. In both cases, follow the repository's existing test conventions — look at how existing tests are structured, where they live, what framework they use, and match that style. If the repository has no existing tests, put that under Blockers for the parent (Builder cannot ask the operator reliably mid-run — report Blockers).
+The order of operations depends on whether you're fixing a bug or building a feature. In both cases, follow the repository's existing test conventions — look at how existing tests are structured, where they live, what framework they use, and match that style. If the repository has no existing tests, put that under Blockers for the parent (if blocked or ambiguous, ask_director; after the cap, report Blockers).
 
 **For bug fixes (test-first):**
 1. Write a test that reproduces the bug.
