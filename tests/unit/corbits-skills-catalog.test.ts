@@ -149,6 +149,23 @@ test("implement skill is 1:1 with GaaS implement", async () => {
   expect(skill).not.toContain("Do not invent a worker-count");
 });
 
+test("opsh skill is 1:1 with GaaS opsh", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/opsh/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("# opsh Scripting");
+  expect(skill).toContain("#!/usr/bin/env opsh");
+  expect(skill).toContain("lib::import");
+  expect(skill).toContain("TAP v13");
+  expect(skill).toContain("prove");
+  expect(skill).toContain("testing::register");
+  expect(skill).toContain("Load this skill when writing, reviewing, or debugging opsh scripts.");
+  expect(skill).not.toContain("spawn_agent");
+  expect(skill).not.toContain("write_file/edit_file");
+  expect(skill).not.toContain("Tiny / single-file scripts");
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
 test("first-party skills are how-to playbooks, not director personas", async () => {
   const gaasOverlap = new Set([
     "ast-grep",
@@ -373,6 +390,8 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("GIT_SEQUENCE_EDITOR");
   expect(skill).toContain("intern executes sequenced git via `run_shell`");
   expect(skill).toContain("Do not fork the GaaS git-rebase body");
+  expect(skill).toContain("Do not fork the GaaS opsh body");
+  expect(skill).toContain("prove");
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {

@@ -1,14 +1,10 @@
 ---
 name: opsh
+description: Write scripts using opsh and its built-in libraries. Load this skill when writing, reviewing, or debugging opsh scripts.
 user-invocable: false
-description: Write scripts using opsh and its built-in libraries. Tiny scripts: DIY with these rules. Substantial script work: copy the rules into an implement brief. Load when writing, reviewing, or debugging opsh scripts.
 ---
 
 # opsh Scripting
-
-How to write scripts with opsh and its libraries. Tiny / single-file scripts: DIY with write_file/edit_file using these rules. Substantial script work: spawn `spawn_agent(agent="builder")` with these rules copied into the brief, then collect with `wait_agents` (workers do not mount `use_skill`). For a review, spawn `spawn_agent(agent="critic")` (or `spawn_agent(agent="neckbeard")` for hygiene-only) with the same rules copied in, then `wait_agents`.
-
-Shell for agent commands is `run_shell`. Bash-the-language in the examples below stays — opsh scripts are bash.
 
 opsh is a scripting environment for operations use. It is a curated bash
 environment with sensible defaults and a standard library. Scripts are
@@ -39,14 +35,14 @@ lib::import git
 
 opsh sets these options before your script runs. Do not disable them.
 
-| Setting                    | Effect                                           |
-| -------------------------- | ------------------------------------------------ |
-| `set -e` (errexit)         | Non-zero return terminates unless caught         |
-| `set -u` (nounset)         | Referencing an unset variable is fatal           |
-| `set -o pipefail`          | A pipeline fails if any command in it fails      |
-| `IFS=''`                   | Word splitting is disabled by default            |
-| `shopt -s inherit_errexit` | Command substitutions inherit errexit            |
-| `set -o errtrace`          | ERR traps propagate into functions and subshells |
+| Setting                  | Effect                                              |
+|--------------------------|-----------------------------------------------------|
+| `set -e` (errexit)      | Non-zero return terminates unless caught             |
+| `set -u` (nounset)      | Referencing an unset variable is fatal               |
+| `set -o pipefail`       | A pipeline fails if any command in it fails          |
+| `IFS=''`                | Word splitting is disabled by default                |
+| `shopt -s inherit_errexit` | Command substitutions inherit errexit             |
+| `set -o errtrace`       | ERR traps propagate into functions and subshells     |
 
 **The `IFS=''` default is important.** Unquoted `$var` where
 `var="a b c"` stays as a single string, not three words. Use
@@ -56,13 +52,13 @@ opsh sets these options before your script runs. Do not disable them.
 
 These are set by opsh before your script runs:
 
-| Variable       | Description                                 |
-| -------------- | ------------------------------------------- |
-| `$SCRIPTFILE`  | Absolute path to your script                |
-| `$SCRIPTDIR`   | Directory containing your script            |
-| `$TMPDIR`      | Managed temp directory, cleaned up on exit  |
-| `$OPSHROOTDIR` | Root of the opsh installation               |
-| `$DEBUG`       | Set this (any value) to enable `log::debug` |
+| Variable      | Description                                    |
+|---------------|------------------------------------------------|
+| `$SCRIPTFILE` | Absolute path to your script                   |
+| `$SCRIPTDIR`  | Directory containing your script               |
+| `$TMPDIR`     | Managed temp directory, cleaned up on exit     |
+| `$OPSHROOTDIR`| Root of the opsh installation                  |
+| `$DEBUG`      | Set this (any value) to enable `log::debug`    |
 
 Color variables `$CRED`, `$CGRN`, `$CYEL`, `$CBLU`, `$CNONE` are
 available and are automatically empty when output is not a terminal.
@@ -97,13 +93,13 @@ deploy::cleanup() { ... }
 All log output goes to stderr. Messages are colorized when stderr is a
 terminal.
 
-| Function     | Behavior                               |
-| ------------ | -------------------------------------- |
-| `log::debug` | Blue output, only when `$DEBUG` is set |
-| `log::info`  | Green output                           |
-| `log::warn`  | Yellow output                          |
-| `log::error` | Red output                             |
-| `log::fatal` | Red output, then `exit 1`              |
+| Function       | Behavior                                    |
+|----------------|---------------------------------------------|
+| `log::debug`   | Blue output, only when `$DEBUG` is set      |
+| `log::info`    | Green output                                |
+| `log::warn`    | Yellow output                               |
+| `log::error`   | Red output                                  |
+| `log::fatal`   | Red output, then `exit 1`                   |
 
 ```bash
 log::info "deploying version $VERSION..."
@@ -179,7 +175,7 @@ lib::import command
 ```
 
 | Function          | Description                        |
-| ----------------- | ---------------------------------- |
+|-------------------|------------------------------------|
 | `command::exists` | Returns 0 if command is in `$PATH` |
 
 ```bash
@@ -192,10 +188,10 @@ command::exists docker || log::fatal "docker is required"
 lib::import path
 ```
 
-| Function            | Description                     |
-| ------------------- | ------------------------------- |
-| `path::env::add`    | Prepend directories to `$PATH`  |
-| `path::env::remove` | Remove a directory from `$PATH` |
+| Function            | Description                          |
+|---------------------|--------------------------------------|
+| `path::env::add`    | Prepend directories to `$PATH`       |
+| `path::env::remove` | Remove a directory from `$PATH`      |
 
 ```bash
 path::env::add /opt/mytools/bin
@@ -208,13 +204,13 @@ path::env::remove /usr/local/old/bin
 lib::import git
 ```
 
-| Function                    | Description                                             |
-| --------------------------- | ------------------------------------------------------- |
-| `git::repo::version`        | Version from `git describe --tags --dirty` or short SHA |
-| `git::repo::current-branch` | Current branch name                                     |
-| `git::repo::is-clean`       | Returns 0 if working tree is clean                      |
-| `git::tag::exists`          | Returns 0 if a local tag exists                         |
-| `git::tag::lookup::remote`  | Lookup a tag on a remote; prints commit hash            |
+| Function                      | Description                                              |
+|-------------------------------|----------------------------------------------------------|
+| `git::repo::version`          | Version from `git describe --tags --dirty` or short SHA  |
+| `git::repo::current-branch`   | Current branch name                                      |
+| `git::repo::is-clean`         | Returns 0 if working tree is clean                       |
+| `git::tag::exists`            | Returns 0 if a local tag exists                          |
+| `git::tag::lookup::remote`    | Lookup a tag on a remote; prints commit hash             |
 
 `git::tag::lookup::remote` returns 1 if the tag is not found, 2 if
 ambiguous.
@@ -231,7 +227,7 @@ lib::import semver
 ```
 
 | Function        | Description                                             |
-| --------------- | ------------------------------------------------------- |
+|-----------------|---------------------------------------------------------|
 | `semver::parse` | Parse into `$OPSH_SEMVER` array `[major, minor, patch]` |
 | `semver::test`  | Compare two versions: `-eq`, `-gt`, `-lt`, `-ge`, `-le` |
 | `semver::bump`  | Bump `major`, `minor`, or `patch`; prints new version   |
@@ -255,14 +251,14 @@ new=$(semver::bump minor v1.2.3)  # v1.3.0
 lib::import ssh
 ```
 
-| Function                 | Description                                   |
-| ------------------------ | --------------------------------------------- |
-| `ssh::begin`             | Start SSH context: agent, proxied ssh, config |
-| `ssh::end`               | Tear down SSH context                         |
-| `ssh::config`            | Append SSH config from stdin                  |
-| `ssh::key::add`          | Add keys from files or stdin to the agent     |
-| `ssh::background::run`   | Launch SSH port forwarding in background      |
-| `ssh::background::close` | Close background port forwarding              |
+| Function                 | Description                                    |
+|--------------------------|------------------------------------------------|
+| `ssh::begin`             | Start SSH context: agent, proxied ssh, config  |
+| `ssh::end`               | Tear down SSH context                          |
+| `ssh::config`            | Append SSH config from stdin                   |
+| `ssh::key::add`          | Add keys from files or stdin to the agent      |
+| `ssh::background::run`   | Launch SSH port forwarding in background       |
+| `ssh::background::close` | Close background port forwarding               |
 
 `ssh::begin` creates an isolated SSH agent, a proxied `ssh` binary
 that uses a managed config file, and registers `ssh::end` as an exit
@@ -287,10 +283,10 @@ ssh::end
 lib::import cloud-init
 ```
 
-| Function                      | Description                        |
-| ----------------------------- | ---------------------------------- |
-| `cloud-init::is-enabled`      | Returns 0 if cloud-init is present |
-| `cloud-init::wait-for-finish` | Blocks until cloud-init completes  |
+| Function                       | Description                         |
+|--------------------------------|-------------------------------------|
+| `cloud-init::is-enabled`       | Returns 0 if cloud-init is present  |
+| `cloud-init::wait-for-finish`  | Blocks until cloud-init completes   |
 
 ```bash
 if cloud-init::is-enabled; then
@@ -305,9 +301,9 @@ fi
 lib::import step-runner
 ```
 
-| Function     | Description                                         |
-| ------------ | --------------------------------------------------- |
-| `steps::run` | Run all `prefix::*` functions in alphabetical order |
+| Function      | Description                                           |
+|---------------|-------------------------------------------------------|
+| `steps::run`  | Run all `prefix::*` functions in alphabetical order   |
 
 Define functions with a shared prefix, then run them:
 
@@ -329,11 +325,11 @@ control ordering.
 lib::import test-harness
 ```
 
-| Function            | Description                                 |
-| ------------------- | ------------------------------------------- |
-| `testing::register` | Register a test function with a description |
-| `testing::run`      | Execute all tests, output TAP v13           |
-| `testing::fail`     | Fail the current test with a message        |
+| Function             | Description                              |
+|----------------------|------------------------------------------|
+| `testing::register`  | Register a test function with a description |
+| `testing::run`       | Execute all tests, output TAP v13        |
+| `testing::fail`      | Fail the current test with a message     |
 
 See the "Writing Tests" section below.
 
