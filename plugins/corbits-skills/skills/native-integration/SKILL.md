@@ -12,6 +12,10 @@ Load alongside `style` and `philosophy` (and any GaaS skill you are following). 
 
 Do not delete Corbits-only skills (`plan`, `git-worktrees`, `idiot-proof`). They are extensions, not GaaS forks.
 
+## Test runner
+
+Corbits tests use `bun:test` (`bun test`, `bun run test`), not GaaS `tap` (`import t from "tap"`). When the typescript skill shows tap examples, map them to bun:test (`import { expect, test } from "bun:test"`). Do not fork the typescript skill body.
+
 ## Tool mapping
 
 When a GaaS skill names a Claude/GaaS tool, use the Corbits equivalent. Do not call the GaaS name.
