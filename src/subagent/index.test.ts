@@ -334,7 +334,8 @@ describe("sub-agent stop helpers", () => {
     const reparsed = formatSubAgentReport(parseSubAgentReport(salvaged));
     const reparsedFields = parseSubAgentReport(reparsed);
     expect(reparsedFields.summary).toContain("cancelled");
-    expect(reparsedFields.blockers).toContain("re-dispatch");
+    expect(reparsedFields.blockers).toContain("wait for the operator");
+    expect(reparsedFields.blockers).not.toContain("parent may re-dispatch");
     expect(reparsedFields.findings).toContain("Reviewed the auth gate");
     expect(reparsedFields.findings).toContain("src/gate.ts");
     expect(reparsedFields.findings).toContain("### Summary");
@@ -352,7 +353,8 @@ describe("sub-agent stop helpers", () => {
     const cancelledParsed = parseSubAgentReport(cancelled);
     expect(cancelledParsed.summary).toContain("cancelled");
     expect(cancelledParsed.findings).toContain("Partial findings");
-    expect(cancelledParsed.blockers).toContain("re-dispatch");
+    expect(cancelledParsed.blockers).toContain("wait for the operator");
+    expect(cancelledParsed.blockers).not.toContain("parent may re-dispatch");
 
     // Nested agent envelope in partial text must not clobber cancel Summary.
     const cancelledNested = [
@@ -388,6 +390,8 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledWithHint).not.toContain("wall-clock deadline");
     expect(cancelledWithHint).toContain("was cancelled before finishing");
     expect(cancelledWithHint).toContain("Findings and Paths");
+    expect(cancelledWithHint).toContain("wait for the operator");
+    expect(cancelledWithHint).not.toContain("re-dispatch only if");
 
     // Paths section carries thrash salvage; empty prose with paths still informs Findings.
     const withPaths = forcedStopReport("cancelled", "", {

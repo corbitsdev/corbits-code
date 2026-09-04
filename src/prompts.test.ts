@@ -116,6 +116,15 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).not.toContain("weaker");
 });
 
+test("primary chat prompt does not invite auto-starting the next worker after unfinished specialists", () => {
+  const prompt = buildChatSystemPrompt();
+  const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
+  expect(guidelines).not.toContain("change the brief rather than repeating it");
+  expect(guidelines).not.toContain("start the next worker");
+  expect(prompt).not.toContain("Then start the next worker");
+  expect(prompt).not.toContain("if the job still needs doing");
+});
+
 test("primary guidelines advise against early-stop from compaction token fear", () => {
   const guidelines = buildGuidelines();
   expect(guidelines).toContain("compacted automatically");

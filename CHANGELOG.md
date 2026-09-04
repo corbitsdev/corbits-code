@@ -28,9 +28,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   through the same queue.
 - Retryable provider 429s freeze new admits via the shared retry remapper.
   `quota_exhausted` does not freeze.
-
-### Changed
-
+- Skywalker and primary orchestration guidance no longer invite auto-starting
+  the next worker after an unfinished specialist.
+- Cancelled salvage asks the parent to synthesize Findings and wait for the
+  operator instead of auto-starting another specialist.
 - Interactive TUI pins OpenTUI 0.5.10 (`@opentui/core`, keymap, solid, and native platform packages in lockstep).
 - `bun run check` now runs the full test suite with the same seed CI uses
   (`--randomize --seed 424242`), so a local green can no longer mask a CI test

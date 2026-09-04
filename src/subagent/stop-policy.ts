@@ -229,7 +229,7 @@ export function forcedStopReport(
   const summary = FORCED_STOP_SUMMARIES[reason];
   const blockers =
     reason === "cancelled"
-      ? "Operator or parent cancelled the worker mid-run; parent may re-dispatch with the partial findings below."
+      ? "Operator or parent cancelled the worker mid-run; synthesize the partial findings below, report Blockers, and wait for the operator."
       : reason === "deadline"
         ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
         : reason === "stalled"
@@ -258,7 +258,7 @@ const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
 
 const CANCELLED_PARENT_HINT =
-  "[Sub-agent was cancelled before finishing. Continue from Findings and Paths rather than redoing completed work; re-dispatch only if remaining work is still needed.]";
+  "[Sub-agent was cancelled before finishing. Synthesize Findings and Paths rather than redoing completed work; wait for the operator instead of auto-starting another specialist.]";
 
 /** Options for parent-hint stacking (session re-dispatch ledger state). */
 export interface SubAgentParentHintOptions {
