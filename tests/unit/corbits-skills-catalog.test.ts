@@ -277,6 +277,18 @@ test("interview skill is 1:1 with GaaS interview", async () => {
   expect(skill).not.toContain("## Acknowledgment");
 });
 
+test("scribe skill is 1:1 with GaaS scribe", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/scribe/SKILL.md")).text();
+  expect(skill).toContain("tools:\n  - question");
+  expect(skill).toContain("Using the Question Tool");
+  expect(skill).toContain("AskUserQuestion");
+  expect(skill).toContain("the `question` tool");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
 test("create-issue is Linear-first without restated MCP tool contracts", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
@@ -409,6 +421,7 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("Do not fork the GaaS opsh body");
   expect(skill).toContain("Do not fork the GaaS pull-request-review body");
   expect(skill).toContain("Do not fork the GaaS refactor body");
+  expect(skill).toContain("Do not fork the GaaS scribe body");
   expect(skill).toContain("prove");
 });
 
