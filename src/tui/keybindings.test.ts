@@ -17,7 +17,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
-import { SHELL_SHORTCUTS } from "./keybindings.js";
+import { helpItems, SHELL_SHORTCUTS } from "./keybindings.js";
 import { createHarness, withTestRenderer, type Harness } from "./harness.js";
 import { mountRunnerHost } from "./runner-host.js";
 import { openCommandSurface } from "./command-surfaces.js";
@@ -817,5 +817,14 @@ describe("help stays reachable as a command", () => {
     } finally {
       harness.destroy();
     }
+  });
+});
+
+describe("helpItems", () => {
+  test("lists every catalog row then Close help", () => {
+    const items = helpItems();
+    expect(items).toHaveLength(SHELL_SHORTCUTS.length + 1);
+    expect(items[0]).toBe(`${SHELL_SHORTCUTS[0]!.keys} — ${SHELL_SHORTCUTS[0]!.description}`);
+    expect(items[items.length - 1]).toBe("Close help");
   });
 });

@@ -92,3 +92,10 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
       "insert a newline instead of sending (Shift+Enter also works on terminals that report the modifier)",
   },
 ] as const;
+
+/** Help rows derived from the shell's own keybinding catalog, so they cannot
+ * drift from what the shell actually implements — there is no host dependency
+ * to omit, so this never takes user-supplied items. */
+export function helpItems(): readonly string[] {
+  return [...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`), "Close help"];
+}

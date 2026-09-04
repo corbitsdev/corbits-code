@@ -16,3 +16,27 @@ export const MAX_RETAINED_STREAM_ROWS = 600;
 export function retentionOverflow(length: number): number {
   return Math.max(0, length - MAX_RETAINED_STREAM_ROWS);
 }
+
+/**
+ * Evict the oldest rows once `log` exceeds the retention cap and return the
+ * new absolute base (the index `log[0]` now represents).
+ *
+ * Every index the bridge holds onto — tool-call rows, the open streaming
+ * row, the retry boundary — is absolute (base + local position), so eviction
+ * only has to bump the base; it never has to rewrite a stored index.
+ */
+export function trimRetainedLog<T>(log: T[], base: number): number {
+  const drop = retentionOverflow(log.length);
+  if (drop <= 0) return base;
+  log.splice(0, drop);
+  return base + drop;
+}
+
+/**
+ * Notice painted above the oldest retained row once the cap has evicted
+ * anything. Unlike the pre-CL-5551 collapse marker it replaces, scrolling
+ * never reveals more — these rows are gone, not merely out of the window.
+ */
+export function evictedRowsNotice(evicted: number): string {
+  return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`;
+}

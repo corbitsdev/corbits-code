@@ -41,8 +41,8 @@ import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { parseAtState, type AtState } from "./components/at-mention/parse.js";
 import {
-  formatAttachmentSummary,
   readClipboardImage,
+  userRowText,
   type ClipboardImageResult,
   type PendingImageAttachment,
 } from "./image-attachments.js";
@@ -79,6 +79,7 @@ import {
   composeRule,
   composeWorkspaceLabel,
   costContextText,
+  meterEquals,
   type CostContextMeter,
   type RulePart,
 } from "./prompt-border.js";
@@ -131,16 +132,17 @@ import {
   visibleSlice,
   type ListViewportState,
 } from "./list-viewport.js";
-import { retentionOverflow } from "./long-log.js";
+import { evictedRowsNotice, trimRetainedLog } from "./long-log.js";
 import {
   filterPaletteCommands,
   formatPaletteRows,
   paletteLabels,
   type PaletteCommand,
 } from "./command-catalog.js";
-import { SHELL_SHORTCUTS } from "./keybindings.js";
+import { helpItems } from "./keybindings.js";
 import { destroySubtree } from "./teardown.js";
 import { filterMentionSuggestions, splitMentionToken } from "./mention-filter.js";
+import { splitAtSettledHeading, withholdIncompleteHeading } from "./markdown-parser.js";
 import { type ObserveSession } from "./residuals.js";
 import {
   buildCopyTargets,
@@ -196,6 +198,8 @@ import {
   decisionContextBudget,
   describeZoneLines,
   DESCRIPTION_ZONE_LINES,
+  overlayChoiceText,
+  overlayKindWord,
   wrapOverlayText,
 } from "./overlay-body.js";
 import {
@@ -1684,11 +1688,6 @@ export function setPromptCostContext(
   paintPromptBorder(shell);
 }
 
-function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.percentLabel === b.percentLabel && a.costLabel === b.costLabel;
-}
-
 /**
  * How the landing divides its rows around the prompt box.
  *
@@ -2243,21 +2242,6 @@ export function appendStreamRow(shell: AppShell, row: StreamRow): void {
 }
 
 /**
- * Evict the oldest rows once `log` exceeds the retention cap and return the
- * new absolute base (the index `log[0]` now represents).
- *
- * Every index the bridge holds onto — tool-call rows, the open streaming
- * row, the retry boundary — is absolute (base + local position), so eviction
- * only has to bump the base; it never has to rewrite a stored index.
- */
-function trimRetainedLog(log: StreamRow[], base: number): number {
-  const drop = retentionOverflow(log.length);
-  if (drop <= 0) return base;
-  log.splice(0, drop);
-  return base + drop;
-}
-
-/**
  * Append a child stream row while observing a subagent.
  * Host-pushed live events (not only fixture seed lines). No-op when not observing.
  * @returns true when the row was applied to the observe view
@@ -2313,15 +2297,6 @@ function labelBefore(shell: AppShell, index: number): string | null {
   const row = shell.streamLog[index];
   if (row === undefined) return null;
   return blockLabel(rowBefore(shell, index), row, transcriptRowLayout(shell));
-}
-
-/**
- * Notice painted above the oldest retained row once the cap has evicted
- * anything. Unlike the pre-CL-5551 collapse marker it replaces, scrolling
- * never reveals more — these rows are gone, not merely out of the window.
- */
-function evictedRowsNotice(evicted: number): string {
-  return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`;
 }
 
 /**
@@ -2837,111 +2812,9 @@ const TRANSCRIPT_TABLE_OPTIONS = {
   columnFitter: "proportional",
 } as const;
 
-/**
- * Markdown source for a row, with a half-arrived heading marker withheld.
- *
- * A trailing `####` with nothing after it yet is not a heading — it is literal
- * text, and that is what the parser makes of it, so the row paints the bare
- * markers for one delta and drops them the moment the title's first character
- * lands. Holding that line back until it has content keeps a line's
- * classification from flipping under text that is already on screen.
- */
 function markdownContent(row: StreamRow): string {
   if (row.streaming !== true) return row.text;
-  return row.text.replace(/(^|\n)#{1,6}[ \t]*$/, "$1");
-}
-
-/**
- * An ATX heading line (`#` through `######`) with a title, not a bare marker.
- * CommonMark allows the marker up to 3 spaces in; a 4th makes it indented code
- * instead, which this line still has to reject.
- */
-const HEADING_LINE_RE = /^ {0,3}#{1,6}[ \t]+\S.*$/;
-
-/**
- * A fenced code block's opening delimiter: three or more backticks or tildes,
- * optionally indented up to three spaces (CommonMark's limit before a fence
- * counts as indented code instead), followed by anything (an info string,
- * e.g. the "bash" in ` ```bash `).
- */
-const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
-
-/**
- * A fenced code block's closing delimiter. Unlike the opener, CommonMark
- * requires the closing line to contain nothing but the fence run and
- * trailing whitespace — "```stillcode" does not close a fence, it is more
- * fence content — so this is deliberately not just `FENCE_OPEN_RE` again.
- */
-const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
-
-/**
- * Lines that are inside a fenced code block, where a leading `#` is a shell
- * comment or similar and never a heading. A closer needs the same character
- * as the opener and a run at least as long — a shorter run, a run of the
- * other character, or a closing-shaped line carrying trailing text is just
- * more fence content, per CommonMark.
- */
-function fencedLineMask(lines: readonly string[]): boolean[] {
-  const inside = new Array<boolean>(lines.length).fill(false);
-  let opener: { char: string; length: number } | null = null;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (opener === null) {
-      const match = lines[i]!.match(FENCE_OPEN_RE);
-      if (match) {
-        inside[i] = true;
-        opener = { char: match[1]![0]!, length: match[1]!.length };
-      }
-      continue;
-    }
-    inside[i] = true;
-    const close = lines[i]!.match(FENCE_CLOSE_RE);
-    if (close && close[1]![0] === opener.char && close[1]!.length >= opener.length) {
-      opener = null;
-    }
-  }
-  return inside;
-}
-
-/**
- * A markdown body split at the last heading that already has content behind
- * it: everything through that heading, and everything after it.
- *
- * The renderer's own incremental parser only reuses a block whose raw text is
- * unchanged; the default block mode merges a heading into the same raw chunk
- * as the paragraph that follows it, so every keystroke of that paragraph
- * changes the merged chunk's raw text and forces the heading's already-settled
- * markup to re-highlight too — visibly flickering while the rest of the
- * message keeps streaming in. Rendering the two halves as separate
- * `MarkdownRenderable`s keeps the heading's renderer untouched once it is no
- * longer the one growing, without changing how paragraphs, lists or tables
- * inside either half are laid out (both halves still use the library's
- * default block mode).
- */
-export interface MarkdownSplit {
-  readonly frozen: string;
-  readonly live: string;
-  /** Blank source lines between the heading and what follows it (0 or 1). */
-  readonly gapRows: number;
-}
-
-export function splitAtSettledHeading(text: string): MarkdownSplit | null {
-  const lines = text.split("\n");
-  const insideFence = fencedLineMask(lines);
-  let boundary = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!insideFence[i] && HEADING_LINE_RE.test(lines[i]!)) boundary = i;
-  }
-  // No heading, or the last one is still the open tail: nothing to freeze.
-  if (boundary === -1 || boundary >= lines.length - 1) return null;
-  const rest = lines.slice(boundary + 1);
-  const firstContent = rest.findIndex((line) => line.trim().length > 0);
-  // Heading closed but nothing has started under it yet.
-  if (firstContent === -1) return null;
-  return {
-    frozen: lines.slice(0, boundary + 1).join("\n"),
-    live: rest.slice(firstContent).join("\n"),
-    gapRows: firstContent > 0 ? 1 : 0,
-  };
+  return withholdIncompleteHeading(row.text);
 }
 
 /**
@@ -3236,13 +3109,6 @@ export function setPendingQueue(shell: AppShell, count: number): void {
 export function setShellRunState(shell: AppShell, run: RunState): void {
   shell.session = setRunState(shell.session, run);
   paintChrome(shell);
-}
-
-/** Transcript echo for a user message, annotated with its attachments. */
-export function userRowText(text: string, attachments: readonly PendingImageAttachment[]): string {
-  const summary = formatAttachmentSummary(attachments);
-  if (summary.length === 0) return text;
-  return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`;
 }
 
 /**
@@ -4661,30 +4527,6 @@ export function acceptOverlaySelection(shell: AppShell): void {
 }
 
 /**
- * Plain-English echo of an accepted choice. A cycled settings field's label
- * carries every option with `‹ ›` around the active one (list-painting detail,
- * not something an operator asked for), so the caller passes the value that
- * actually won structurally via `itemValues` rather than leaving it to be
- * recovered from the rendered label — a marker or spacing change, or a label
- * that legitimately contains `‹`/`›`, would otherwise corrupt the echo
- * silently. A plain list item has no separate value, so it is quoted as-is.
- */
-function overlayChoiceText(
-  label: string,
-  id: string | undefined,
-  value: string | undefined,
-): string {
-  if (value === undefined) return `Chose ${label.trim()}.`;
-  const field = id === undefined ? "setting" : id.replace(/[-_]/g, " ");
-  return `Set ${field} to ${value}.`;
-}
-
-/** Internal overlay kinds read as words in the transcript, not identifiers. */
-function overlayKindWord(kind: PrimaryOverlayKind): string {
-  return kind.replace(/_/g, " ");
-}
-
-/**
  * Dispatch a selected `/` command list item after the popup has closed.
  * Every entry is registry-backed — the host's `onCommand(name)` runs it.
  */
@@ -5159,13 +5001,6 @@ export function openSettingsOverlay(shell: AppShell, opts: OpenResidualListOpts)
     ...(opts.onCycle !== undefined ? { onCycle: opts.onCycle } : {}),
     ...(opts.describe !== undefined ? { describe: opts.describe } : {}),
   });
-}
-
-/** Help rows derived from the shell's own keybinding catalog, so they cannot
- * drift from what the shell actually implements — there is no host dependency
- * to omit, so this never takes user-supplied items. */
-function helpItems(): readonly string[] {
-  return [...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`), "Close help"];
 }
 
 export function openHelpOverlay(shell: AppShell): void {
