@@ -283,6 +283,22 @@ test("linear-issue-workflow references use_skill(git-worktrees)", async () => {
   expect(skill).not.toContain("git worktree add");
 });
 
+test("linear-issue-workflow moves ready-for-review PRs to In Review", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
+  expect(skill).toContain('set the issue state to "In Review"');
+  expect(skill).toMatch(/ready for review/);
+  expect(skill).toContain("Draft or WIP PRs stay **In Progress**");
+  expect(skill).toContain("Draft or WIP PRs stay In Progress");
+  expect(skill).toContain("Do not mark the Linear issue Done on open PR alone");
+  expect(skill).toContain("Do not leave it In Review after merge when work remains");
+});
+
+test("review skill does not own the Linear In Review write", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
+  expect(skill).toContain("`linear-issue-workflow` owns the In Review write");
+  expect(skill).not.toContain("Reviewers do not change Linear state");
+});
+
 test("slash skills do not set user-invocable: false", async () => {
   for (const name of SLASH_SKILLS) {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();

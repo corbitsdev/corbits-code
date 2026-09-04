@@ -179,4 +179,4 @@ This skill produces commits. When the work is tracked in Linear and ends in a pu
 1. **Post a real GitHub PR review** with `gh pr review` after the PR exists — not a one-line self-review issue comment.
 2. **Multi-persona when used:** if critic / greybeard / OSS-quality lenses ran with substance, each posts its own labeled review. Primary owns approve/request-changes; secondary lenses comment only.
 3. **No AI slop in review bodies:** lens · verdict, one present-tense line on what the branch does, `path:line` findings. No filler, journey narration, or "LGTM" alone.
-4. **Linear checkboxes and Done are post-merge + green CI only.** Flip boxes only when `main` actually has the outcome. Never partial-Done on open PR.
+4. **Linear: In Review at ready-for-review PR-open; checkboxes and Done post-merge + green CI only.** The Phase 6–7 handoff in `linear-issue-workflow` must move the issue to In Review when the PR is ready for review. Flip boxes and mark Done only when `main` actually has the outcome. Never Done on open PR.

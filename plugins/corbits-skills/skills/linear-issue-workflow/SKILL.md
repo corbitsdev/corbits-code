@@ -255,9 +255,19 @@ EOF
 
 Then post the PR review(s) with `gh pr review` as drafted above. Paste the PR URL **and** every review URL to the user.
 
+### Set Linear to In Review
+
+When the PR is open and **ready for review** (not a draft or WIP), set the issue state to "In Review" with `mcp__linear__save_issue`. Do not mark Done. Done is Phase 7 only (merge + green CI + every outcome complete).
+
+If Linear MCP is unavailable or `save_issue` fails, report that the issue status could not be updated. Do not pretend the move succeeded. Do not mark Done as a fallback.
+
+Draft or WIP PRs stay **In Progress** until they are ready for review. Then move to In Review.
+
+Phase 6 ends when the PR is open and the review is posted. Ready-for-review PRs must be In Review (or the operator has been told the status update failed). Draft or WIP PRs stay In Progress.
+
 ## Phase 7: After Merge — Linear Closeout and Cleanup
 
-Phase 6 ends when the PR is open and the review is posted. Phase 7 runs **after the PR is merged** and **CI is green** on the merge (or on `main` at the merge commit). Do not mark the Linear issue Done on open PR alone. Do not tick outcome checkboxes on hope.
+Phase 7 runs **after the PR is merged** and **CI is green** on the merge (or on `main` at the merge commit). Do not mark the Linear issue Done on open PR alone. Do not tick outcome checkboxes on hope.
 
 ### 1. Confirm merge
 
@@ -287,7 +297,7 @@ Re-read the issue with `mcp__linear__get_issue`. For every checklist item the me
 
 ### 5. Mark Done only when complete
 
-If **every** outcome checkbox is checked and nothing residual remains, set state to `Done` with `mcp__linear__save_issue`. If anything is still open, leave the issue In Progress (or the team's equivalent) with remaining boxes unchecked — never partial-Done theater.
+If **every** outcome checkbox is checked and nothing residual remains, set state to `Done` with `mcp__linear__save_issue`. If anything is still open, set the issue to In Progress (or the team's equivalent) with remaining boxes unchecked — never partial-Done theater. Do not leave it In Review after merge when work remains.
 
 ### 6. Clean up the worktree
 

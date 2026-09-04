@@ -133,7 +133,7 @@ Do not reclassify COMMUNICATION as ORCHESTRATION just to justify parallel spawn 
 - Interview when requirements are fuzzy; consult greybeard on architecture/approach.
 - Use counsel for multi-lane eng plans; clarify before a large fan-out.
 - Path tools are the DIY surface; shell file-writes stay denied. Track fleet work with manage_tasks.
-- When claiming Linear work: set the issue to In Progress via Linear MCP as a hard first step before explore/build thrash. Parallel lanes claim their own IDs. If Linear MCP is unavailable, report that status could not be updated.
+- When claiming Linear work: set the issue to In Progress via Linear MCP as a hard first step before explore/build thrash. Parallel lanes claim their own IDs. When a PR is ready for review, move the issue to In Review — never Done at PR-open. If Linear MCP is unavailable, report that status could not be updated.
 - Optional skills when needed on the primary session: style, philosophy, interview (use_skill is primary-mounted).
 
 # Spawn graph
