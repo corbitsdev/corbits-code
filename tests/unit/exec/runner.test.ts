@@ -1,4 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test } from "bun:test";
+import type { InferenceSource } from "@intx/types/runtime";
 import type { Config } from "../../../src/config/index.js";
 import {
   disposeExecRuntime,
@@ -9,7 +14,11 @@ import {
   runExec,
 } from "../../../src/exec/runner.js";
 import { BUILD_TOOLS, SKYWALKER_TOOLS } from "../../../src/agent/directors/tool-sets.js";
+import { clearActiveRun, getActiveRun, setActiveRun } from "../../../src/session/active-run.js";
+import { loadState, type RunState } from "../../../src/session/state.js";
+import type { AgentToolset } from "../../../src/agent/tools.js";
 import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
+import { withMockedModuleDuring } from "../../helpers/mock-module.js";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
@@ -101,6 +110,8 @@ describe("selected provider refresh failures", () => {
 
 describe("runExec", () => {
   test("empty prompt exits 2 with stderr message without bootstrapping", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
     const stderrChunks: string[] = [];
     const origWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
@@ -114,8 +125,167 @@ describe("runExec", () => {
       expect(result.status).toBe("failed");
       expect(result.error).toMatch(/missing prompt|empty prompt/i);
       expect(stderrChunks.join("")).toMatch(/missing prompt|empty prompt|Usage: corbits exec/i);
+      expect(getActiveRun()).toBeNull();
     } finally {
       process.stderr.write = origWrite;
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+    }
+  });
+
+  test("bootstrap throw after running write leaves terminal run.json and no active run", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-boot-cwd-"));
+    const home = mkdtempSync(join(tmpdir(), "corbits-exec-boot-home-"));
+    const sessionId = "exec-bootstrap-fail";
+    try {
+      await withMockedModuleDuring(
+        import.meta.resolve("node:os"),
+        (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
+        async () => {
+          await withMockedModuleDuring(
+            import.meta.resolve("../../../src/session/assemble-runtime.js"),
+            (real: typeof import("../../../src/session/assemble-runtime.js")) => ({
+              ...real,
+              assembleInferenceBase: () => Promise.reject(new Error("bootstrap failed")),
+            }),
+            async () => {
+              const { runExec: runExecUnderMock } = await import("../../../src/exec/runner.js");
+              const result = await runExecUnderMock({
+                ...bareConfig("do the thing"),
+                cwd,
+                sessionId,
+              });
+              expect(result.exitCode).toBe(1);
+              expect(result.status).toBe("failed");
+              const persisted = await loadState(cwd, sessionId, home);
+              expect(persisted.kind).toBe("ok");
+              if (persisted.kind !== "ok") return;
+              expect(persisted.state.status).toBe("failed");
+              expect(persisted.state.status).not.toBe("running");
+              expect(persisted.state.finishedAt).toBeGreaterThan(0);
+              expect(persisted.state.task).toBe("do the thing");
+              expect(persisted.state.error).toBe("bootstrap failed");
+              expect(getActiveRun()).toBeNull();
+            },
+          );
+        },
+      );
+    } finally {
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("an in-flight persist(running) overlapping a terminal persist does not resurrect the handle", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-resurrect-cwd-"));
+    const home = mkdtempSync(join(tmpdir(), "corbits-exec-resurrect-home-"));
+    const sessionId = "exec-running-overlap";
+    const held = Promise.withResolvers<undefined>();
+    let runningSaves = 0;
+    let heldRunningSave: Promise<void> | undefined;
+    const dummySource = { id: "test", provider: "test", model: "test" } as InferenceSource;
+    try {
+      await withMockedModuleDuring(
+        import.meta.resolve("node:os"),
+        (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
+        async () => {
+          await withMockedModuleDuring(
+            import.meta.resolve("../../../src/session/state.js"),
+            (real: typeof import("../../../src/session/state.js")) => ({
+              ...real,
+              saveState: (
+                saveCwd: string,
+                saveSessionId: string,
+                snapshot: RunState,
+                saveHome?: string,
+              ) => {
+                if (snapshot.status === "running") {
+                  runningSaves += 1;
+                  if (runningSaves === 1) {
+                    return real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+                  }
+                  const issued = real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+                  heldRunningSave = issued.then(() => held.promise);
+                  return heldRunningSave;
+                }
+                return real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+              },
+            }),
+            async () => {
+              await withMockedModuleDuring(
+                import.meta.resolve("../../../src/agent/tools.js"),
+                (real: typeof import("../../../src/agent/tools.js")) => ({
+                  ...real,
+                  createAgentToolset: async (): Promise<AgentToolset> =>
+                    ({
+                      dispose: () => Promise.resolve(),
+                    }) as AgentToolset,
+                }),
+                async () => {
+                  await withMockedModuleDuring(
+                    import.meta.resolve("../../../src/session/assemble-runtime.js"),
+                    (real: typeof import("../../../src/session/assemble-runtime.js")) => ({
+                      ...real,
+                      resolveLiveSessionSources: () => ({
+                        sources: [dummySource],
+                        defaultSource: dummySource.id,
+                        selected: dummySource,
+                      }),
+                      assembleChatAgent: () => ({
+                        directorHolder: {},
+                        buildAgent: async () => {
+                          throw new Error("buildAgent should not run");
+                        },
+                      }),
+                      assembleSessionLifecycle: async (wiring: {
+                        onTurnBoundarySnapshot: () => void;
+                      }) => {
+                        wiring.onTurnBoundarySnapshot();
+                        throw new Error("overlap-terminal");
+                      },
+                    }),
+                    async () => {
+                      const { runExec: runExecUnderMock } =
+                        await import("../../../src/exec/runner.js");
+                      const result = await runExecUnderMock({
+                        ...bareConfig("do the thing"),
+                        cwd,
+                        sessionId,
+                        director: "builder",
+                        globalSettingsPath: join(home, "settings.json"),
+                        providers: [],
+                      });
+                      expect(result.status).toBe("failed");
+                      expect(heldRunningSave).toBeDefined();
+                      held.resolve(undefined);
+                      await heldRunningSave;
+                      await Promise.resolve();
+                      await Promise.resolve();
+                      expect(getActiveRun()).toBeNull();
+                      const persisted = await loadState(cwd, sessionId, home);
+                      expect(persisted.kind).toBe("ok");
+                      if (persisted.kind !== "ok") return;
+                      expect(persisted.state.status).toBe("failed");
+                      expect(persisted.state.status).not.toBe("running");
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

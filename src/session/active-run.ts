@@ -1,7 +1,8 @@
 // A module-level slot the top-level uncaughtException/unhandledRejection
-// handler (src/index.ts) can reach even though persistRunSnapshot is a
-// closure local to runTUI. Only ever consulted from the crash path: a run
-// that never crashes never has this read.
+// handler (src/index.ts) can reach even though persist is a closure local to
+// the in-flight runner (TUI persistRunSnapshot or exec persist). Only ever
+// consulted from the crash path and from signal handlers: a run that never
+// crashes and is never signaled never has this read.
 //
 // Carries enough of the live run state (task, startedAt, model) that the
 // crash handler can build a full RunState record itself. It must not read
