@@ -142,13 +142,18 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("curl/wget");
   });
 
-  test("systemPrompt requires brief completeness for multi-worker dispatch", () => {
+  test("systemPrompt teaches spawn handoff packet for dispatch", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Brief completeness");
+    expect(p).toContain("Spawn handoff");
     expect(p).toContain("success_criteria");
     expect(p).toContain("do_not");
-    expect(p).toContain("report_focus");
-    expect(p).toContain("multi-worker");
+    expect(p).toContain("Child starts blank");
+    expect(p).toContain("clean-room");
+    expect(p).toContain("no fork");
+    expect(p).toContain("required for implement/review");
+    expect(p).not.toContain("Brief completeness");
+    expect(p).not.toContain("Prefer typed spawn");
+    expect(p.indexOf("Critic stays clean-room")).toBeGreaterThan(p.indexOf("# Verify after ship"));
   });
 
   test("systemPrompt does not use leaf jargon", () => {

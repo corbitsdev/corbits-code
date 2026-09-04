@@ -207,7 +207,7 @@ Three distinct concepts (do not conflate them):
 | **Task**      | A checklist item owned by _one_ agent via `manage_tasks` | Local work plan — not a spawn                                    |
 | **Sub-agent** | A short-lived child agent for one self-contained job     | Spawned with **`spawn_agent`**, collected with **`wait_agents`** |
 
-The **`spawn_agent`** tool starts a sub-agent on a separate inference source (tier/profile resolved from settings) and returns immediately with an `agent_id`; **`wait_agents`** collects reports later. The dispatch brief separates durable `context`, actionable `prompt`, and optional `goals` (checklist seeds for the _child's_ own `manage_tasks` list). The child returns a structured report (`Summary` / `Findings` / `Blockers` / `Paths`) plus a tools-used footer. Parent and child never share a `manage_tasks` list.
+The **`spawn_agent`** tool starts a sub-agent on a separate inference source (tier/profile resolved from settings) and returns immediately with an `agent_id`; **`wait_agents`** collects reports later. The dispatch brief separates durable `context`, actionable `prompt`, and optional `goals` (checklist seeds for the _child's_ own `manage_tasks` list). Implement/review dispatches (and their default directors) fail closed without non-empty `success_criteria`. The child returns a structured report (`Summary` / `Findings` / `Blockers` / `Paths`) plus a tools-used footer. Parent and child never share a `manage_tasks` list.
 
 When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `spawn_agent(agent=...)`. Results include each match's full loaded system prompt / body so the parent can inspect plugin or Claude marketplace agents without `read_file` on paths outside the session cwd (path-escape blocks those roots by design; writes remain blocked). `spawn_agent` and `search_agents` are core tools on the primary session.
 
@@ -269,7 +269,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 | testsmith   | Test design only (what/how to test)                                                     |
 | tester      | Runtime verification; never fix product code                                            |
 
-**Intent → director** (`spawn_agent(intent=…)` when `agent` is omitted)
+**Intent → director** (`spawn_agent(intent=…)` when `agent` is omitted). implement/review (and their default directors) fail closed without non-empty `success_criteria`.
 
 | Intent    | Default director                 |
 | --------- | -------------------------------- |

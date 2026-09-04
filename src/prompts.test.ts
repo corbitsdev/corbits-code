@@ -111,6 +111,9 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("intent");
   expect(guidelines).toContain("spawn_agent");
   expect(guidelines).toContain("wait_agents");
+  expect(guidelines).toContain("required for implement/review");
+  expect(guidelines).toContain("and their default directors");
+  expect(guidelines).not.toContain("weaker");
 });
 
 test("primary guidelines advise against early-stop from compaction token fear", () => {
