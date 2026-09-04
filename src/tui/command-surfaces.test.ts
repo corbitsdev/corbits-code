@@ -10,6 +10,7 @@ import {
   openCommandSurface,
   pluginDescription,
   pluginRowLabel,
+  mcpRowLabel,
   type CommandSurfaceDeps,
   type GrantEntry,
   type McpEntry,
@@ -112,6 +113,10 @@ describe("surface labels", () => {
         origin: "user",
       }),
     ).toBe("exa — enabled");
+  });
+
+  test("mcp label reports disabled without a tool count", () => {
+    expect(mcpRowLabel({ name: "linear", state: "disabled" })).toBe("linear — disabled");
   });
 
   test("plugin label surfaces standing load warnings", () => {
@@ -1595,6 +1600,335 @@ describe("mcp surface", () => {
       closeInsetOverlay(shell);
 
       expect(added).toEqual([]);
+    });
+  });
+
+  test("the mcp title advertises Alt+D and Alt+R, including when add is hidden", async () => {
+    await withWiredShell(async (shell, harness) => {
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: { list: () => entries, openAuthURL: () => {} },
+      });
+      await harness.renderOnce();
+      const withAdd = harness.captureCharFrame();
+      expect(withAdd).toContain("Alt+D");
+      expect(withAdd).toContain("Alt+R");
+      expect(withAdd).toContain("Alt+A");
+
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          mcpServersSource: "local",
+        },
+      });
+      await harness.renderOnce();
+      const local = harness.captureCharFrame();
+      expect(local).toContain("Alt+D");
+      expect(local).toContain("Alt+R");
+      expect(local).not.toContain("Alt+A");
+    });
+  });
+
+  test("Alt+D disables the focused server", async () => {
+    await withShell(async (shell) => {
+      const toggled: { name: string; enabled: boolean }[] = [];
+      const notes: string[] = [];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+      ];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          setEnabled: async (name, enabled) => {
+            toggled.push({ name, enabled });
+            liveEntries = [{ name, state: enabled ? "connecting" : "disabled" }];
+            return {
+              ok: true,
+              message: enabled ? `Enabled ${name}; connecting now.` : `Disabled ${name}.`,
+            };
+          },
+        },
+      });
+      expect(runOverlayAction(shell, altKey("d"))).toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(toggled).toEqual([{ name: "linear", enabled: false }]);
+      expect(notes).toEqual(["Disabled linear."]);
+      expect(shell.overlayItems[0]).toBe("linear — disabled");
+    });
+  });
+
+  test("Enter on a disabled row re-enables it", async () => {
+    await withShell(async (shell) => {
+      const toggled: { name: string; enabled: boolean }[] = [];
+      const notes: string[] = [];
+      let liveEntries: readonly McpEntry[] = [{ name: "linear", state: "disabled" }];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          setEnabled: async (name, enabled) => {
+            toggled.push({ name, enabled });
+            liveEntries = [{ name, state: enabled ? "connecting" : "disabled" }];
+            return {
+              ok: true,
+              message: enabled ? `Enabled ${name}; connecting now.` : `Disabled ${name}.`,
+            };
+          },
+        },
+      });
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(toggled).toEqual([{ name: "linear", enabled: true }]);
+      expect(notes).toEqual(["Enabled linear; connecting now."]);
+      expect(shell.overlayItems[0]).toBe("linear — connecting");
+    });
+  });
+
+  test("enable and disable reopen the overlay focused on the acted-on server", async () => {
+    await withShell(async (shell) => {
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+        { name: "notion", state: "connected", toolCount: 3 },
+      ];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          setEnabled: async (name, enabled) => {
+            liveEntries = liveEntries.map((entry) =>
+              entry.name === name ? { name, state: enabled ? "connecting" : "disabled" } : entry,
+            );
+            return {
+              ok: true,
+              message: enabled ? `Enabled ${name}; connecting now.` : `Disabled ${name}.`,
+            };
+          },
+        },
+      });
+      moveOverlaySelection(shell, 1);
+      expect(runOverlayAction(shell, altKey("d"))).toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
+      expect(shell.overlayItems[1]).toBe("notion — disabled");
+      expect(shell.overlayList?.activeIndex).toBe(1);
+
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
+      expect(shell.overlayItems[1]).toBe("notion — connecting");
+      expect(shell.overlayList?.activeIndex).toBe(1);
+    });
+  });
+
+  test("remove reopens the overlay without focusing the removed name", async () => {
+    await withShell(async (shell) => {
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+        { name: "notion", state: "connected", toolCount: 3 },
+      ];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          removeServer: async (name) => {
+            liveEntries = liveEntries.filter((entry) => entry.name !== name);
+            return { ok: true, message: `Removed ${name}.` };
+          },
+        },
+      });
+      moveOverlaySelection(shell, 1);
+      expect(runOverlayAction(shell, altKey("r"))).toBe(true);
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
+      expect(shell.overlayItems.some((item) => item.startsWith("notion"))).toBe(false);
+      expect(shell.overlayList?.activeIndex).toBe(0);
+    });
+  });
+
+  test("a rejected MCP action still reopens the overlay", async () => {
+    await withShell(async (shell) => {
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => [{ name: "linear", state: "connected", toolCount: 12 }],
+          openAuthURL: () => {},
+          setEnabled: async () => {
+            throw new Error("disk is full");
+          },
+        },
+      });
+      expect(runOverlayAction(shell, altKey("d"))).toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(notes).toEqual(["Disable failed: disk is full"]);
+      expect(shell.overlayKind).toBe("mcp");
+      expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
+    });
+  });
+
+  test("disabled builtin Exa copy does not say Alt+D disables it", async () => {
+    await withWiredShell(async (shell, harness) => {
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => [{ name: "exa", state: "disabled", builtin: true }],
+          openAuthURL: () => {},
+        },
+      });
+      await harness.renderOnce();
+      const frame = harness.captureCharFrame();
+      expect(frame).toContain("Enter re-enables");
+      expect(frame).toContain("cannot be removed");
+      expect(frame).not.toContain("Alt+D disables it");
+    });
+  });
+
+  test("Alt+R confirms before removing a custom server", async () => {
+    await withWiredShell(async (shell, harness) => {
+      const removed: string[] = [];
+      const notes: string[] = [];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connected", toolCount: 12 },
+      ];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => liveEntries,
+          openAuthURL: () => {},
+          removeServer: async (name) => {
+            removed.push(name);
+            liveEntries = [];
+            return { ok: true, message: `Removed ${name}.` };
+          },
+        },
+      });
+      expect(runOverlayAction(shell, altKey("r"))).toBe(true);
+      expect(shell.overlayItems).toEqual(["Remove linear", "Cancel"]);
+      await harness.renderOnce();
+      expect(harness.captureCharFrame()).not.toContain("Alt+D");
+      expect(removed).toEqual([]);
+
+      acceptOverlaySelection(shell);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(removed).toEqual(["linear"]);
+      expect(notes).toEqual(["Removed linear."]);
+      expect(shell.overlayItems[0]).toBe("No MCP servers configured");
+    });
+  });
+
+  test("cancelling MCP remove returns to the list without deleting", async () => {
+    await withShell((shell) => {
+      const removed: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => [{ name: "linear", state: "connected", toolCount: 12 }],
+          openAuthURL: () => {},
+          removeServer: async (name) => {
+            removed.push(name);
+            return { ok: true, message: `Removed ${name}.` };
+          },
+        },
+      });
+      runOverlayAction(shell, altKey("r"));
+      moveOverlaySelection(shell, 1);
+      acceptOverlaySelection(shell);
+
+      expect(removed).toEqual([]);
+      expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
+    });
+  });
+
+  test("Alt+R on built-in Exa notifies and does not open confirm", async () => {
+    await withShell((shell) => {
+      const removed: string[] = [];
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => [{ name: "exa", state: "connected", toolCount: 1, builtin: true }],
+          openAuthURL: () => {},
+          removeServer: async (name) => {
+            removed.push(name);
+            return { ok: true, message: `Removed ${name}.` };
+          },
+        },
+      });
+      expect(runOverlayAction(shell, altKey("r"))).toBe(true);
+      expect(notes[0]).toContain("cannot be removed");
+      expect(removed).toEqual([]);
+      expect(shell.overlayItems[0]).toBe("exa — connected · 1 tool");
+    });
+  });
+
+  test("Alt+R on disabled builtin Exa does not say Alt+D disables it", async () => {
+    await withShell((shell) => {
+      const notes: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: (note) => notes.push(note),
+        mcp: {
+          list: () => [{ name: "exa", state: "disabled", builtin: true }],
+          openAuthURL: () => {},
+        },
+      });
+      expect(runOverlayAction(shell, altKey("r"))).toBe(true);
+      expect(notes[0]).toContain("cannot be removed");
+      expect(notes[0]).not.toContain("Alt+D disables it");
+      expect(shell.overlayItems[0]).toBe("exa — disabled");
+    });
+  });
+
+  test("Alt+D and Alt+R ignore add and close chrome rows", async () => {
+    await withShell((shell) => {
+      const toggled: { name: string; enabled: boolean }[] = [];
+      const removed: string[] = [];
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => [{ name: "linear", state: "connected", toolCount: 1 }],
+          openAuthURL: () => {},
+          setEnabled: async (name, enabled) => {
+            toggled.push({ name, enabled });
+            return { ok: true, message: "should not run" };
+          },
+          removeServer: async (name) => {
+            removed.push(name);
+            return { ok: true, message: "should not run" };
+          },
+        },
+      });
+      moveOverlaySelection(shell, 1);
+      expect(shell.overlayItems[1]).toBe("Add MCP server — Alt+A");
+      expect(runOverlayAction(shell, altKey("d"))).toBe(false);
+      expect(runOverlayAction(shell, altKey("r"))).toBe(false);
+      moveOverlaySelection(shell, 1);
+      expect(shell.overlayItems[2]).toBe("Close mcp");
+      expect(runOverlayAction(shell, altKey("d"))).toBe(false);
+      expect(runOverlayAction(shell, altKey("r"))).toBe(false);
+      expect(toggled).toEqual([]);
+      expect(removed).toEqual([]);
     });
   });
 

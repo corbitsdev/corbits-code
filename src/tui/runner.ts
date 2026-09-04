@@ -17,13 +17,14 @@ import {
   loadRecentTurns,
 } from "../session/optimized-context-store.js";
 import { type } from "arktype";
-import { refreshLiveProviderCatalog, type Config } from "../config/index.js";
+import { refreshLiveProviderCatalog, resolveMcpServers, type Config } from "../config/index.js";
 import {
   globalSettingsPath,
   loadLocalSettings,
   listFavoriteModels,
   listRecentModels,
   loadSettings,
+  localSettingsPath,
   resolveLocalSettingsPath,
   markTelemetryNoticeShown,
   persistSkipPermissionsDefault,
@@ -33,12 +34,14 @@ import {
   markLastChangelogVersion,
   toggleFavoriteModel,
   setDefaultModel,
+  isExaMCPPreset,
   type ModelRef,
   type ResolvedProvider,
   type Settings,
   type LocalSettings,
   type PluginConfig,
   type MCPServerConfig,
+  type MCPServerSettingsEntry,
 } from "../config/settings.js";
 import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
 import { persistConnectedSelection } from "./provider-setup-submit.js";
@@ -49,9 +52,16 @@ import { attachApprovalBudget, createGateRequestApproval } from "./request-appro
 import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
 import {
   createGlobalSettingsWriter,
+  createLocalSettingsWriter,
   persistGlobalHTTPMCPServer,
+  persistLocalMCPServerEnabled,
+  persistLocalMCPServerRemoved,
+  persistMCPServerEnabled,
+  persistMCPServerRemoved,
   validateMCPServerName,
+  type PersistMCPServerListResult,
 } from "../mcp/add-server.js";
+import { createExaMCPServerConfig, EXA_MCP_SERVER_NAME } from "../mcp/exa.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
@@ -195,6 +205,8 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
+import { mergeMcpSurfaceEntries, isBuiltinRow } from "./mcp-list.js";
+import { nextMcpCatalog } from "./mcp-catalog.js";
 import {
   createDeliveryGeneration,
   createLeftoverSend,
@@ -854,6 +866,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   try {
     const emitter = createTUIEventEmitter();
     const globalSettingsWriter = createGlobalSettingsWriter(config.globalSettingsPath);
+    const localSettingsWriter = createLocalSettingsWriter(localSettingsPath(config.cwd));
     const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
       Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [id, v.enabled]),
     );
@@ -1686,6 +1699,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // `connectedMcpServers` (persisted run metadata) this keeps the ones that
     // failed or are still waiting on authorization.
     const mcpStates = new Map<string, MCPServerState>();
+    let configuredMcpEntries: MCPServerSettingsEntry[] = [...config.mcpServerEntries];
     const mcpConnectController = new AbortController();
 
     const writeRunSnapshot = async (
@@ -2428,11 +2442,64 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
     };
 
-    const persistedMCPServer = (name: string): MCPServerConfig | undefined =>
-      (config.mcpServers ?? []).find((server) => server.name === name) ??
-      (config.settings?.mcpServers ?? []).find(
-        (server): server is MCPServerConfig => server.name === name && !("enabled" in server),
+    const persistedMCPServer = (name: string): MCPServerConfig | undefined => {
+      const fromConnect = (config.mcpServers ?? []).find((server) => server.name === name);
+      if (fromConnect !== undefined) return fromConnect;
+      const entry = configuredMcpEntries.find(
+        (server) => server.name === name && !isExaMCPPreset(server),
       );
+      if (entry === undefined) return undefined;
+      const { enabled: _enabled, ...connect } = entry;
+      return connect;
+    };
+
+    const applyMcpCatalog = (result: Extract<PersistMCPServerListResult, { ok: true }>): void => {
+      const next = nextMcpCatalog({
+        source: config.mcpServersSource ?? "none",
+        result,
+        globalServers: config.settings?.mcpServers,
+      });
+      configuredMcpEntries = next.overlayEntries;
+      config = {
+        ...config,
+        ...(next.settings !== undefined ? { settings: next.settings } : {}),
+        mcpServerEntries: next.overlayEntries,
+        mcpServers: next.mcpServers,
+        mcpServersSource: next.mcpServersSource,
+      };
+      toolset.setMcpServersSource(next.mcpServersSource);
+    };
+
+    const applyAddedMcpCatalog = (entries: MCPServerSettingsEntry[], settings: Settings): void => {
+      configuredMcpEntries = entries;
+      const source = config.mcpServersSource ?? "none";
+      const nextSource = source === "none" ? "global" : source;
+      config = {
+        ...config,
+        settings,
+        mcpServerEntries: entries,
+        mcpServers: resolveMcpServers(entries, undefined),
+        mcpServersSource: nextSource,
+      };
+      toolset.setMcpServersSource(nextSource);
+    };
+
+    const mcpTransportForEnable = (name: string): MCPServerConfig | undefined => {
+      const entry = configuredMcpEntries.find((server) => server.name === name);
+      if (entry !== undefined) {
+        if (isExaMCPPreset(entry)) return createExaMCPServerConfig();
+        if (entry.enabled === false) return undefined;
+        const { enabled: _enabled, ...connect } = entry;
+        return connect;
+      }
+      if (name === EXA_MCP_SERVER_NAME) return createExaMCPServerConfig();
+      return undefined;
+    };
+
+    const dropConnectedMcpServer = (name: string): void => {
+      connectedMcpServers = connectedMcpServers.filter((server) => server.name !== name);
+      void persistRunSnapshot("running");
+    };
 
     const host = await mountRunnerHost({
       // An unnamed session shows nothing rather than a placeholder.
@@ -2779,19 +2846,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         },
         mcp: {
           list: () =>
-            [...mcpStates.values()].map((status) => ({
-              name: status.name,
-              state: status.state,
-              ...(status.state === "connected" ? { toolCount: status.tools.length } : {}),
-              ...(status.state === "needs-auth" ? { authURL: status.url } : {}),
-              ...(status.state === "failed" ? { error: status.error } : {}),
-            })),
+            mergeMcpSurfaceEntries(configuredMcpEntries, mcpStates, config.mcpServers ?? []),
           openAuthURL: (url) => openInBrowser(url),
           subscribe: (listener) => {
             emitter.on("mcp.status", listener);
             return () => emitter.off("mcp.status", listener);
           },
-          mcpServersSource: config.mcpServersSource ?? "none",
+          get mcpServersSource() {
+            return config.mcpServersSource ?? "none";
+          },
           addServer: async (name, url) => {
             const result = await persistGlobalHTTPMCPServer(
               globalSettingsWriter,
@@ -2814,14 +2877,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
                         : "Enter an absolute HTTP(S) URL first.";
               return { ok: false, message };
             }
-            config = {
-              ...config,
-              settings: result.settings,
-              mcpServers: [
-                ...(config.mcpServers ?? []).filter((server) => server.name !== result.server.name),
-                result.server,
-              ],
-            };
+            applyAddedMcpCatalog(result.settings.mcpServers ?? [], result.settings);
             connectLateMCPServer(result.server);
             return { ok: true, message: `Added ${result.server.name}; connecting now.` };
           },
@@ -2835,6 +2891,63 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             }
             connectLateMCPServer(server);
             return { ok: true, message: `Retrying ${server.name}; connecting now.` };
+          },
+          setEnabled: async (name, enabled) => {
+            const source = config.mcpServersSource ?? "none";
+            const result =
+              source === "local"
+                ? await persistLocalMCPServerEnabled(localSettingsWriter, name, enabled)
+                : await persistMCPServerEnabled(globalSettingsWriter, name, enabled);
+            if (!result.ok) {
+              const verb = enabled ? "enable" : "disable";
+              const message =
+                result.reason === "skipped"
+                  ? `Could not read settings, so the MCP server was not ${verb}d.`
+                  : `No MCP server named "${name}" to ${verb}.`;
+              return { ok: false, message };
+            }
+            applyMcpCatalog(result);
+            if (!enabled) {
+              await toolset.disconnectMCPServer(name, mcpConnectCallbacks);
+              dropConnectedMcpServer(name);
+              return { ok: true, message: `Disabled ${name}.` };
+            }
+            const server = mcpTransportForEnable(name);
+            if (server !== undefined) connectLateMCPServer(server);
+            return { ok: true, message: `Enabled ${name}; connecting now.` };
+          },
+          removeServer: async (name) => {
+            if (
+              isBuiltinRow(
+                name,
+                configuredMcpEntries.find((entry) => entry.name === name),
+                config.mcpServers ?? [],
+              )
+            ) {
+              return { ok: false, message: "Built-in Exa cannot be removed." };
+            }
+            const source = config.mcpServersSource ?? "none";
+            const result =
+              source === "local"
+                ? await persistLocalMCPServerRemoved(localSettingsWriter, name)
+                : await persistMCPServerRemoved(globalSettingsWriter, name);
+            if (!result.ok) {
+              const message =
+                result.reason === "builtin-exa"
+                  ? "Built-in Exa cannot be removed."
+                  : result.reason === "skipped"
+                    ? "Could not read settings, so the MCP server was not removed."
+                    : `No MCP server named "${name}" to remove.`;
+              return { ok: false, message };
+            }
+            applyMcpCatalog(result);
+            await toolset.disconnectMCPServer(name, mcpConnectCallbacks);
+            mcpStates.delete(name);
+            dropConnectedMcpServer(name);
+            for (const server of config.mcpServers ?? []) {
+              connectLateMCPServer(server);
+            }
+            return { ok: true, message: `Removed ${name}.` };
           },
         },
         hooks: {

@@ -109,7 +109,7 @@ export function registerBuiltInCommands(): void {
   for (const name of ["mcp", "mcps"]) {
     registerCommand({
       name,
-      description: "Show MCP servers and authorize the ones that need it",
+      description: "Show MCP servers — Enter connects, Alt+D disables, Alt+R removes",
       handler: (_args, _ctx) => ({ type: "overlay", overlay: "mcp" }),
     });
   }

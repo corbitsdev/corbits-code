@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
@@ -148,4 +148,40 @@ export async function updateAuthState(
     ),
   );
   return run;
+}
+
+export async function deleteAuthState(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): Promise<void> {
+  const path = authFilePath(identity, home);
+  const previous = updateChains.get(path) ?? Promise.resolve();
+  const run = previous.then(
+    () => unlinkAuthFile(path),
+    () => unlinkAuthFile(path),
+  );
+  updateChains.set(
+    path,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  await run;
+}
+
+async function unlinkAuthFile(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "ENOENT"
+    ) {
+      return;
+    }
+    throw err;
+  }
 }

@@ -10,7 +10,7 @@ import { createOAuthProvider } from "../../src/mcp/oauth-provider.js";
 import { createDynamicToolRunner } from "../../src/tui/dynamic-tool-runner.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { MCPClient } from "../../src/mcp/client.js";
-import type { AgentTool } from "@intx/agent";
+import { DuplicateToolError, type AgentTool } from "@intx/agent";
 
 describe("isLocalSettings with mcpServers", () => {
   test("accepts valid mcpServers array", () => {
@@ -449,5 +449,29 @@ describe("dynamic tool runner", () => {
       new AbortController().signal,
     );
     expect(result.isError).toBe(true);
+  });
+
+  test("removeTools drops a name, is idempotent, and allows re-add", async () => {
+    const runner = createDynamicToolRunner([makeTool("base", "base-result")]);
+    runner.addTools([makeTool("mcp__acme__list", "late-result")]);
+    runner.removeTools(["mcp__acme__list"]);
+
+    const missing = await runner.run(
+      { id: "c1", name: "mcp__acme__list", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(missing.isError).toBe(true);
+    expect(missing.content).toBe("unknown tool: mcp__acme__list");
+    expect(runner.currentDefinitions().map((d) => d.name)).toEqual(["base"]);
+
+    expect(() => runner.removeTools(["mcp__acme__list"])).not.toThrow();
+    expect(() => runner.addTools([makeTool("mcp__acme__list", "again")])).not.toThrow(
+      DuplicateToolError,
+    );
+    const restored = await runner.run(
+      { id: "c2", name: "mcp__acme__list", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(restored.content).toBe("again");
   });
 });

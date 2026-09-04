@@ -146,13 +146,15 @@ export interface HooksSurfaceDeps {
 /** A configured MCP server and its live connection state. */
 export interface McpEntry {
   readonly name: string;
-  readonly state: "connecting" | "connected" | "needs-auth" | "failed";
+  readonly state: "connecting" | "connected" | "needs-auth" | "failed" | "disabled";
   /** Tool count once connected. */
   readonly toolCount?: number;
   /** Authorization URL while `needs-auth`. */
   readonly authURL?: string;
   /** Failure reason while `failed`. */
   readonly error?: string;
+  /** Built-in Exa preset — disable-only; Alt+R must not remove it. */
+  readonly builtin?: boolean;
 }
 
 export interface McpSurfaceDeps {
@@ -163,6 +165,8 @@ export interface McpSurfaceDeps {
   readonly addServer?: (name: string, url: string) => Promise<PluginActionResult>;
   /** Reconnect a failed persisted server without writing a second settings row. */
   readonly retryServer?: (name: string) => Promise<PluginActionResult>;
+  readonly setEnabled?: (name: string, enabled: boolean) => Promise<PluginActionResult>;
+  readonly removeServer?: (name: string) => Promise<PluginActionResult>;
   readonly mcpServersSource?: "local" | "global" | "none";
 }
 
@@ -1060,25 +1064,47 @@ export function mcpRowLabel(entry: McpEntry): string {
       return `${entry.name} — needs auth`;
     case "failed":
       return `${entry.name} — failed`;
+    case "disabled":
+      return `${entry.name} — disabled`;
   }
+}
+
+function mcpHowToImpact(entry: McpEntry): string {
+  if (entry.builtin === true) {
+    return entry.state === "disabled"
+      ? "Enter re-enables. Built-in Exa cannot be removed."
+      : "Built-in Exa cannot be removed; Alt+D disables it.";
+  }
+  return "Alt+D disables this server. Alt+R removes it.";
 }
 
 function mcpDescription(entry: McpEntry): ItemDescription {
   switch (entry.state) {
     case "connecting":
-      return { what: "Connecting — its tools are not dispatchable yet." };
+      return {
+        what: "Connecting — its tools are not dispatchable yet.",
+        impact: mcpHowToImpact(entry),
+      };
     case "connected":
-      return { what: "Connected. Its tools are reachable through tool_search." };
+      return {
+        what: "Connected. Its tools are reachable through tool_search.",
+        impact: mcpHowToImpact(entry),
+      };
     case "needs-auth":
       return {
         what: "Authorization has not completed, so this server contributes no tools.",
-        impact: "Enter opens the authorization page and copies the link.",
+        impact: `Enter opens the authorization page and copies the link. ${mcpHowToImpact(entry)}`,
       };
     case "failed":
       return {
         what: entry.error ?? "Did not connect.",
-        impact: "Enter retries the existing persisted config without adding a second server.",
+        impact: `Enter retries the existing persisted config without adding a second server. ${mcpHowToImpact(entry)}`,
         tone: "consequence",
+      };
+    case "disabled":
+      return {
+        what: "Disabled — its tools are not advertised.",
+        impact: entry.builtin === true ? mcpHowToImpact(entry) : "Enter re-enables this server.",
       };
   }
 }
@@ -1087,23 +1113,35 @@ function canAddMCPServer(mcp: McpSurfaceDeps): boolean {
   return mcp.mcpServersSource !== "local";
 }
 
+function isMcpChromeRow(id: string): boolean {
+  return id === CLOSE_ID || id === ADD_MCP_ID || id === EMPTY_MCP_ID;
+}
+
 function runMcpSurfaceAction(
   shell: AppShell,
   deps: CommandSurfaceDeps,
   action: Promise<PluginActionResult>,
   failPrefix: string,
+  name: string,
+  focusOnSuccess: "name" | "default" = "name",
 ): void {
+  closeInsetOverlay(shell);
   const continuation = captureOverlayContinuation(shell);
+  const reopen = (focus: "name" | "default"): void => {
+    if (focus === "name") openMcpSurface(shell, deps, name);
+    else openMcpSurface(shell, deps);
+  };
   void action
     .then(
       (result) => {
         if (!isOverlayContinuationCurrent(shell, continuation)) return;
         deps.notify(result.message);
-        if (isOverlayContinuationCurrent(shell, continuation)) openMcpSurface(shell, deps);
+        if (isOverlayContinuationCurrent(shell, continuation)) reopen(focusOnSuccess);
       },
       (err: unknown) => {
         if (!isOverlayContinuationCurrent(shell, continuation)) return;
         deps.notify(`${failPrefix}: ${errorText(err)}`);
+        if (isOverlayContinuationCurrent(shell, continuation)) reopen("name");
       },
     )
     .catch(() => {
@@ -1120,6 +1158,37 @@ function mcpSurfaceRows(entries: readonly McpEntry[], canAdd: boolean): Residual
   if (canAdd) rows.push({ id: ADD_MCP_ID, label: "Add MCP server — Alt+A" });
   rows.push({ id: CLOSE_ID, label: "Close mcp" });
   return rows;
+}
+
+function openMcpRemoveConfirm(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  mcp: McpSurfaceDeps,
+  name: string,
+): void {
+  closeInsetOverlay(shell);
+  const rows: ResidualCatalogEntry[] = [
+    { id: "remove", label: `Remove ${name}` },
+    { id: "cancel", label: "Cancel" },
+  ];
+  openListOverlay(shell, {
+    kind: "mcp",
+    title: `remove ${name}`,
+    frameId: "overlay-mcp-remove",
+    echoChoice: false,
+    ...payload(rows),
+    onAccept: (selection) => {
+      const id = selectedId(selection, rows);
+      if (id === "remove") {
+        const removeServer = mcp.removeServer;
+        if (removeServer === undefined) return;
+        runMcpSurfaceAction(shell, deps, removeServer(name), "Remove failed", name, "default");
+        return;
+      }
+      openMcpSurface(shell, deps, name);
+    },
+    onCancel: () => openMcpSurface(shell, deps, name),
+  });
 }
 
 function openAddMcpURLPane(
@@ -1145,7 +1214,7 @@ function openAddMcpURLPane(
           deps.notify("Adding MCP servers is not available in this session.");
           return;
         }
-        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed");
+        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed", name);
       },
     },
     buffer,
@@ -1177,7 +1246,7 @@ function openAddMcpNamePane(
   );
 }
 
-/** Configured MCP servers and their live state; Enter authorizes or retries. */
+/** Configured MCP servers and their live state; Enter authorizes, retries, or re-enables. */
 export function openMcpSurface(
   shell: AppShell,
   deps: CommandSurfaceDeps,
@@ -1204,6 +1273,8 @@ export function openMcpSurface(
     // The flash below reports the outcome; the echo would quote the row's
     // pre-authorization label back at the operator forever.
     echoChoice: false,
+    mcpManageHint: true,
+    mcpAddHint: canAdd,
     ...payload(rows),
     describe: (id) => {
       const target = byName.get(id);
@@ -1221,10 +1292,22 @@ export function openMcpSurface(
       }
       const target = byName.get(id);
       if (target === undefined) return;
+      if (target.state === "disabled") {
+        const setEnabled = mcp.setEnabled;
+        if (setEnabled === undefined) return;
+        runMcpSurfaceAction(
+          shell,
+          deps,
+          setEnabled(target.name, true),
+          "Enable failed",
+          target.name,
+        );
+        return;
+      }
       if (target.state === "failed") {
         const retryServer = mcp.retryServer;
         if (retryServer === undefined) return;
-        runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed");
+        runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed", target.name);
         return;
       }
       const url = target.authURL;
@@ -1238,14 +1321,38 @@ export function openMcpSurface(
         ttlMs: MCP_AUTH_FLASH_MS,
       });
     },
-    onAction: (_id, key) => {
+    onAction: (id, key) => {
       if (key.ctrl || !(key.meta || key.option)) return false;
       const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
-      if (name !== "a") return false;
-      if (!canAdd) return false;
-      unsubscribe();
-      openAddMcpNamePane(shell, deps, mcp);
-      return true;
+      if (name === "a") {
+        if (!canAdd) return false;
+        unsubscribe();
+        openAddMcpNamePane(shell, deps, mcp);
+        return true;
+      }
+      if (isMcpChromeRow(id)) return false;
+      if (name === "d") {
+        const setEnabled = mcp.setEnabled;
+        if (setEnabled === undefined) return false;
+        unsubscribe();
+        runMcpSurfaceAction(shell, deps, setEnabled(id, false), "Disable failed", id);
+        return true;
+      }
+      if (name === "r") {
+        const target = byName.get(id);
+        if (target?.builtin === true) {
+          deps.notify(
+            target.state === "disabled"
+              ? "Built-in Exa cannot be removed."
+              : "Built-in Exa cannot be removed; Alt+D disables it.",
+          );
+          return true;
+        }
+        unsubscribe();
+        openMcpRemoveConfirm(shell, deps, mcp, id);
+        return true;
+      }
+      return false;
     },
   });
   unsubscribe =

@@ -331,12 +331,37 @@ export interface MCPServerConfig {
   url?: string;
 }
 
+export interface MCPServerSettingsTransport extends MCPServerConfig {
+  enabled?: boolean;
+}
+
 export interface ExaMCPPresetConfig {
   name: typeof EXA_MCP_SERVER_NAME;
   enabled: boolean;
 }
 
-export type MCPServerSettingsEntry = MCPServerConfig | ExaMCPPresetConfig;
+export type MCPServerSettingsEntry = MCPServerSettingsTransport | ExaMCPPresetConfig;
+
+export function hasMcpTransport(entry: {
+  name?: unknown;
+  type?: unknown;
+  command?: unknown;
+  url?: unknown;
+  args?: unknown;
+  env?: unknown;
+}): boolean {
+  return (
+    entry.type !== undefined ||
+    entry.command !== undefined ||
+    entry.url !== undefined ||
+    entry.args !== undefined ||
+    entry.env !== undefined
+  );
+}
+
+export function isExaMCPPreset(entry: MCPServerSettingsEntry): entry is ExaMCPPresetConfig {
+  return entry.name === EXA_MCP_SERVER_NAME && !hasMcpTransport(entry);
+}
 
 // Per-repo override. Selection only for provider/model, but may also declare
 // MCP servers to connect at session start.
@@ -566,15 +591,8 @@ function isMCPServerConfigEntry(
 ): value is Omit<MCPServerSettingsEntry, "name"> {
   if (!McpEntrySchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
-  if (s.enabled !== undefined) {
-    return (
-      name === EXA_MCP_SERVER_NAME &&
-      s.type === undefined &&
-      s.command === undefined &&
-      s.args === undefined &&
-      s.env === undefined &&
-      s.url === undefined
-    );
+  if (!hasMcpTransport(s)) {
+    return name === EXA_MCP_SERVER_NAME && typeof s.enabled === "boolean";
   }
   // Exactly one transport must be specified.
   const isHttp = s.type === "http" || (s.type === undefined && typeof s.url === "string");
@@ -589,7 +607,7 @@ function isMCPServerConfigWithKey(value: unknown): value is MCPServerSettingsEnt
 }
 
 function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPServerSettingsEntry {
-  if (entry.enabled !== undefined) {
+  if (!hasMcpTransport(entry) && entry.enabled !== undefined) {
     return { name: EXA_MCP_SERVER_NAME, enabled: entry.enabled as boolean };
   }
   return {
@@ -599,6 +617,7 @@ function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPSer
     ...(entry.url !== undefined ? { url: entry.url as string } : {}),
     ...(entry.args !== undefined ? { args: entry.args as string[] } : {}),
     ...(entry.env !== undefined ? { env: entry.env as Record<string, string> } : {}),
+    ...(entry.enabled !== undefined ? { enabled: entry.enabled as boolean } : {}),
   };
 }
 

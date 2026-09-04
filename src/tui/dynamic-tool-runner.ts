@@ -19,6 +19,7 @@ import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 // waitForApproval) take effect on the next tool call without rebuilding tools.
 export type DynamicToolRunner = AgentToolRunner & {
   addTools(tools: AgentTool[]): void;
+  removeTools(names: string[]): void;
   currentDefinitions(): ToolDefinition[];
 };
 
@@ -38,6 +39,10 @@ export function createDynamicToolRunner(
     for (const tool of tools) byName.set(tool.definition.name, tool);
   };
 
+  const removeTools = (names: string[]): void => {
+    for (const name of names) byName.delete(name);
+  };
+
   addTools(initial);
 
   const currentDefinitions = (): ToolDefinition[] => [...byName.values()].map((t) => t.definition);
@@ -47,6 +52,7 @@ export function createDynamicToolRunner(
       return currentDefinitions();
     },
     addTools,
+    removeTools,
     currentDefinitions,
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
       const found = byName.get(call.name);

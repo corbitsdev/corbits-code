@@ -31,8 +31,8 @@ You may also spell the default explicitly:
 ```
 
 The preset connects to `https://mcp.exa.ai/mcp`. To use a different server under
-the same name, provide an ordinary transport-bearing entry instead of an
-`enabled` marker:
+the same name, provide an ordinary transport-bearing entry instead of the Exa
+no-transport `{ "enabled": true | false }` preset:
 
 ```jsonc
 {
@@ -41,6 +41,10 @@ the same name, provide an ordinary transport-bearing entry instead of an
   },
 }
 ```
+
+Transport-bearing rows may also set `enabled: false` to stay configured without
+connecting. The Exa no-transport `{ "name": "exa", "enabled": ... }` form remains
+the builtin preset.
 
 Anonymous preset use requires no account, API key, OAuth provider, or callback
 server and is rate limited by Exa; a `429` response means the anonymous limit has
@@ -93,6 +97,14 @@ hyphens; the `__` tool-namespace delimiter is reserved. The add is unavailable
 while a local `.corbits/settings.json` `mcpServers` list shadows global MCP
 settings; remove that local list and restart
 before adding globally. A connection failure does not remove the saved server.
+
+**Alt+D** disables the focused server: the flag is persisted and the live
+connection is dropped, so its tools are not advertised this session or the next.
+Enter on a disabled row re-enables it (persists, then connects). **Alt+R** asks
+for confirmation, then deletes the settings row and any `~/.corbits/mcp-auth/…`
+file for that HTTP endpoint. Built-in Exa is disable-only — Alt+R notifies and
+does not open the confirm. While a local `.corbits/settings.json` `mcpServers`
+list is in effect, these actions edit that local file; add remains blocked.
 
 ## Server Kinds
 
