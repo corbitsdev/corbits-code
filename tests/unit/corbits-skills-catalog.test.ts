@@ -239,6 +239,16 @@ test("review skill is a code-review playbook, not a director router", async () =
   expect(skill).not.toContain('task(agent="greybeard")');
 });
 
+test("refactor skill is 1:1 with GaaS refactor", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/refactor/SKILL.md")).text();
+  expect(skill).toContain("ask clarifying questions:");
+  expect(skill).toContain("ask the user about their priorities");
+  expect(skill).toContain("load the `philosophy` skill");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
 test("pull-request-review is 1:1 with GaaS pull-request-review", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/pull-request-review/SKILL.md")).text();
   expect(skill).toContain("git worktree add");
@@ -398,6 +408,7 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("Do not fork the GaaS git-rebase body");
   expect(skill).toContain("Do not fork the GaaS opsh body");
   expect(skill).toContain("Do not fork the GaaS pull-request-review body");
+  expect(skill).toContain("Do not fork the GaaS refactor body");
   expect(skill).toContain("prove");
 });
 

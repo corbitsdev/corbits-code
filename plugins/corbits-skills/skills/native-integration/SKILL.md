@@ -41,6 +41,8 @@ When a GaaS skill names a Claude/GaaS tool, use the Corbits equivalent. Do not c
 
 Slash names that differ from GaaS skill ids: `/review` is GaaS `code-review`; `/create-issue` is GaaS `linear-create`. Keep those Corbits names.
 
+GaaS refactor says "ask clarifying questions" / "ask the user". Corbits extras: `ask_operator` (tool mapping above). Do not fork the GaaS refactor body.
+
 When GaaS implement says you are orchestrated by karen, that is the Corbits primary (Skywalker). Route those disposition decisions through the primary, not a worker.
 
 ## Linear claim-first
