@@ -51,6 +51,8 @@ GaaS scribe uses the `question` tool. Corbits extras: `ask_operator` (tool mappi
 
 When GaaS implement says you are orchestrated by karen, that is the Corbits primary (Skywalker). Route those disposition decisions through the primary, not a worker.
 
+GaaS implement "Initial Planning" / Greybeard-before-code is not `/plan`. Substantial Builder work consumes a counsel / `/plan` plan (files, acceptance criteria, non-goals, risks, ordered steps) and blocks if that plan is missing. Tiny parent-DIY stays plan-optional. `/plan` and counsel author; they do not ship. `/implement` does not steal planning from `/plan`. Do not fork the GaaS implement body.
+
 ## Linear claim-first
 
 When the work tracks a Linear issue and Linear MCP is available: set the issue to In Progress before explore/build thrash. Parallel lanes claim their own IDs. When a PR is ready for review, move the issue to In Review — never Done at PR-open. If Linear MCP is unavailable, report that status could not be updated.
