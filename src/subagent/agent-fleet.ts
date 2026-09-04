@@ -1374,6 +1374,15 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         if (record === undefined) {
           return { agent_id: id, status: "unknown" as const };
         }
+        if (record.status === "awaiting_director") {
+          return {
+            agent_id: id,
+            status: record.status,
+            ...(record.question !== undefined ? { question: record.question } : {}),
+            ...(record.questionId !== undefined ? { question_id: record.questionId } : {}),
+            ...(record.description !== undefined ? { description: record.description } : {}),
+          };
+        }
         if (isLiveWaitStatus(record.status)) {
           return { agent_id: id, status: record.status };
         }
