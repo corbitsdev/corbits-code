@@ -185,17 +185,18 @@ test("first-party skills are how-to playbooks, not director personas", async () 
   }
 });
 
-test("style skill is guidance, not ceremony or tool-contract restatement", async () => {
+test("style skill is 1:1 with GaaS style", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/style/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
-  expect(skill).toContain("Guidance for code and commit quality");
-  expect(skill).toContain("git-rebase");
-  expect(skill).toContain("Do not refuse the task");
-  expect(skill).not.toContain("I have reviewed the style skill");
-  expect(skill).not.toContain("good taste");
-  expect(skill).not.toContain("ask_operator");
-  expect(skill).not.toContain("git rebase -i");
-  expect(skill).not.toContain("## Acknowledgment");
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("## Git Repository Requirement");
+  expect(skill).toContain("refuse to proceed");
+  expect(skill).toContain("git rebase -i");
+  expect(skill).toContain("## Acknowledgment");
+  expect(skill).toContain(
+    "I have reviewed the style skill, and I am ready to proceed in good taste.",
+  );
+  expect(skill).not.toContain("Do not refuse the task");
 });
 
 test("philosophy skill is 1:1 with GaaS philosophy", async () => {
