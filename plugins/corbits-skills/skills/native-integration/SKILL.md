@@ -76,6 +76,8 @@ When the branch under review has an open GitHub pull request, **post the finishe
 
 This step is the delivery of the review, not a second pass of analysis. By the time you post, findings are already decided. Do not reopen the read while drafting the body.
 
+GaaS pull-request-review loads `code-review` and says "ask the user". Corbits extras: `ask_operator` (tool mapping above), `/review` for `code-review` (slash-name mapping above), and GitHub posting (this section). Do not fork the GaaS pull-request-review body.
+
 ### When to post
 
 Post when any of these is true:

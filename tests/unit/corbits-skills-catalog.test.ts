@@ -239,11 +239,17 @@ test("review skill is a code-review playbook, not a director router", async () =
   expect(skill).not.toContain('task(agent="greybeard")');
 });
 
-test("pull-request-review checkouts a worktree then loads the review skill", async () => {
+test("pull-request-review is 1:1 with GaaS pull-request-review", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/pull-request-review/SKILL.md")).text();
   expect(skill).toContain("git worktree add");
-  expect(skill).toContain("review` skill");
-  expect(skill).toContain("Do not implement fixes");
+  expect(skill).toContain("`code-review` skill");
+  expect(skill).toContain("Load Code Review Skill");
+  expect(skill).toContain("ask the user");
+  expect(skill).not.toContain("Do not implement fixes");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain("### Step 9:");
+  expect(skill).not.toContain("Post the Review on GitHub");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
   expect(skill).not.toContain("spawn_agent");
   expect(skill).not.toContain('task(agent="critic")');
 });
@@ -391,6 +397,7 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("intern executes sequenced git via `run_shell`");
   expect(skill).toContain("Do not fork the GaaS git-rebase body");
   expect(skill).toContain("Do not fork the GaaS opsh body");
+  expect(skill).toContain("Do not fork the GaaS pull-request-review body");
   expect(skill).toContain("prove");
 });
 
