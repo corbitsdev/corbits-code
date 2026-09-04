@@ -155,8 +155,10 @@ The notice is a live diagnosis, not a sticky banner: it comes down on the
 same paint as the activity that ends the silence, including when the turn
 settles before the next monitor tick.
 
-An idle session animates nothing at all: the monitor tick stops entirely
-rather than repainting an unchanging frame.
+An idle session's turn chrome animates nothing at all: the monitor tick
+stops entirely rather than repainting an unchanging frame. Pre-session
+motion belongs to the landing's mount lifetime, not the monitor (see the
+idle landing below).
 
 Color is a small, deliberate palette, not decoration
 (`src/tui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
@@ -426,6 +428,20 @@ way the task or agents panel is. An operator composing a long prompt on the
 landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
 known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
+
+While the landing is mounted, a mount-scoped ~8 fps timer
+(`LANDING_IDLE_REPAINT_INTERVAL_MS` in `src/tui/shell.ts`) advances snow
+across a frozen mountain. It is cancelled on the first real transcript
+row (`clearLandingMark`) or on shell dispose, and does not run during a
+session. `still` freezes the mountain's draw/fill/fade timeline only;
+snow still drifts on the idle landing. Reduced-motion, when a setting
+exists, suppresses snow via `reducedMotion` on `renderMark` — not via
+`still`. There is no live TUI setting yet.
+
+The mark is not driven from the renderer's FRAME event: FRAME follows
+dirty rows, not a clock, so that path self-starves under throttle.
+Keeping the monitor ticking on idle would mix turn-chrome cadence into a
+pre-session surface; the monitor idle-stop stays correct for turn chrome.
 
 The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):

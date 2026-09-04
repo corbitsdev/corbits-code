@@ -16,8 +16,8 @@
  * that does suppress snow. Mountain cells always win over flakes.
  *
  * Everything here is pure and clock-injected: `nowMs` is the only time source,
- * so the caller's existing 250 ms status tick drives the animation and tests
- * drive it deterministically. There is no timer in this module.
+ * so tests drive it deterministically. The idle caller is the landing timer;
+ * the turn caller is the monitor. There is no timer in this module.
  */
 
 import { MARK_SMALL, type MarkGrid } from "./mark-shape.js";
