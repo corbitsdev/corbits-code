@@ -27,6 +27,8 @@ const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
 export type PendingImageAttachment = MessageAttachment & {
   id: string;
   path?: string;
+  /** Set only for files Corbits created; never the operator's `path`. */
+  ephemeralPath?: string;
   /** SHA-256 of the source image file's bytes, used to identify identical images. */
   contentHash: string;
 };
