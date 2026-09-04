@@ -77,12 +77,7 @@ export function isResumableLifecycle(
 }
 
 export type WaitJSONStatus =
-  | "running"
-  | "queued"
-  | "done"
-  | "failed"
-  | "interrupted"
-  | "awaiting_director";
+  "running" | "queued" | "done" | "failed" | "interrupted" | "awaiting_director";
 
 /** Wait statuses that must not collect, freeze, or tombstone as a payload. */
 export function isLiveWaitStatus(status: WaitJSONStatus): boolean {
