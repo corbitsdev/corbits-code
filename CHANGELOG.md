@@ -25,7 +25,6 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - Headless `corbits exec` now registers the active run so SIGINT/SIGTERM/SIGHUP finalize `run.json`.
 
-
 ## [0.3.15] - 2026-09-04
 
 ### Added
