@@ -1,5 +1,8 @@
 import type { PluginConfig } from "../config/settings.js";
+import type { PluginOrigin } from "../trust/project-trust.js";
 import type { PluginCredentialField, PluginKind } from "./manifest.js";
+
+export type { PluginOrigin };
 
 export interface PluginDescriptor {
   id: string;
@@ -17,6 +20,12 @@ export interface PluginDescriptor {
   needsTrust?: boolean;
   /** True for a trusted path-origin plugin, whose global grant can be withdrawn. */
   canRevokeTrust?: boolean;
+  /** Discovery origin stamped at load — never inferred from id. */
+  origin: PluginOrigin;
+  /** Absolute path the plugin was discovered at. */
+  pluginPath?: string;
+  /** Provenance label (e.g. "claude"), distinct from origin. */
+  source?: string;
 }
 
 export interface VerifyResult {
@@ -44,4 +53,11 @@ export interface PluginsAdmin {
   addPath: (path: string) => Promise<AddPathResult>;
   // Withdraw the global trust grant for a path-origin plugin and disable it.
   revokeTrust: (id: string) => Promise<VerifyResult>;
+  // Uninstall or disable by stamped origin. Every persist path writes
+  // enabled:false (never deletes settings.plugins[id]) so in-session command
+  // gating holds. Owned disk installs delete the directory; path also drops
+  // unique pluginPaths; bundled stays listed; Claude-unowned never deletes
+  // ~/.claude. Disk/path entries are still removed so the plugin is gone after
+  // restart.
+  remove: (id: string) => Promise<VerifyResult>;
 }

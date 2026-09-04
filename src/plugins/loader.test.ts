@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { dedupePluginModules, type PluginModule } from "./loader.js";
 import { isPluginModuleEnabled } from "./register.js";
+import { disablePluginSettings } from "./uninstall.js";
 
 function repoDefaultEnabled(id: string): PluginModule {
   return {
@@ -79,6 +80,16 @@ describe("isPluginModuleEnabled with dedupe shadowing", () => {
     const user = userInstall("scout");
     const [survivor] = dedupePluginModules([repo, user]);
     expect(isPluginModuleEnabled(survivor!, { scout: { enabled: false } })).toBe(false);
+  });
+
+  test("disablePluginSettings then isPluginModuleEnabled is false for shadowedRepoDefaultEnabled", () => {
+    const repo = repoDefaultEnabled("scout");
+    const user = userInstall("scout");
+    const [survivor] = dedupePluginModules([repo, user]);
+    expect(survivor!.shadowedRepoDefaultEnabled).toBe(true);
+    const plugins = disablePluginSettings({}, "scout");
+    expect(plugins.scout?.enabled).toBe(false);
+    expect(isPluginModuleEnabled(survivor!, plugins)).toBe(false);
   });
 
   test("without dedupe shadowing, a plain user-origin module needs an explicit enable", () => {

@@ -164,6 +164,43 @@ describe("overlay host never shares cells with the prompt border", () => {
   }
 });
 
+describe("plugins title how-to", () => {
+  const expected = " plugins · Esc cancel · Enter toggle · Alt+A add path · Alt+X remove";
+  for (const size of [
+    { width: 80, height: 24 },
+    { width: 100, height: 24 },
+  ] as const) {
+    test(`plugins title at ${size.width}x${size.height} equals how-to line`, async () => {
+      const { interior } = await paintOverlay(
+        (shell) =>
+          openListOverlay(shell, {
+            kind: "plugins",
+            title: "plugins",
+            items: ["exa — enabled", "Close plugins"],
+          }),
+        size,
+      );
+      expect(interior[0]).toBe(expected);
+    });
+  }
+});
+
+describe("web search provider how-to", () => {
+  test("plugin_credentials web chooser does not inherit Alt+X plugins hints", async () => {
+    const { interior } = await paintOverlay(
+      (shell) =>
+        openListOverlay(shell, {
+          kind: "plugin_credentials",
+          title: "web search provider",
+          items: ["automatic", "exa-search", "Back to plugins"],
+        }),
+      { width: 80, height: 24 },
+    );
+    expect(interior[0]).not.toContain("Alt+X");
+    expect(interior[0]).toBe(" web search provider · Esc cancel · Enter choose");
+  });
+});
+
 describe("every overlay kind paints clean rows", () => {
   const openers: readonly [string, (shell: AppShell) => void][] = [
     ["settings", (s) => openSettingsOverlay(s, { items: ["Compaction", "Close settings"] })],

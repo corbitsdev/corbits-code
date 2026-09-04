@@ -45,13 +45,14 @@ plugin is still metadata-only.
   for a directory they registered, not for a snapshot of its bytes — and keeps
   grants stable across plugin updates. Anyone who can write to a trusted path
   can execute code; register paths you control.
-- **Revocable.** Press `r` on a trusted path plugin in `/plugins` to withdraw
-  its grant; the plugin drops to metadata-only and is disabled. Revocation
-  rewrites the store file in place — the file itself always survives.
+- **Revocable.** Alt+X on a path plugin in `/plugins` removes it from the
+  session and drops its unique `pluginPaths` entry (and withdraws its grant);
+  the plugin is gone after restart. Revocation rewrites the store file in
+  place — the file itself always survives.
 - **Deleting the file re-seeds.** A missing (or invalid) `path-plugins.json`
   re-triggers the one-shot migration below, which re-grants every registered
   `pluginPaths` entry. Deleting the file is therefore **not** a revocation
-  mechanism — use `/plugins` → `r`, or remove the entry from `pluginPaths`.
+  mechanism — use `/plugins` → Alt+X, or remove the entry from `pluginPaths`.
 
 Only absolute paths are accepted: non-absolute store entries are dropped at
 load and grant calls reject them, so nothing ever resolves against an
@@ -206,11 +207,19 @@ web `collectWebPlugins` call. One place to read, one place to extend.
 
 ### One UI
 
-`/plugins` lists **every** discovered plugin grouped by kind, and for each:
+`/plugins` lists **every** discovered plugin in a flat list, and for each:
 enable/disable, edit declared credentials (masked), verify (kind-specific:
 web = trial search; others = load/contract check), and the kind-selector toggle
-where relevant (web override). Add-by-path (`a`) already exists. Everything
-persists to global settings immediately.
+where relevant (web override). Add-by-path (Alt+A) and remove (Alt+X) persist
+immediately. Owned user/project installs (and path-origin plugins whose
+directory sits under those roots) confirm before deleting from disk;
+bundled Corbits plugins cannot be uninstalled (Alt+X writes `enabled: false`
+and they stay listed); Claude marketplace installs write `enabled: false`
+and never delete `~/.claude`. Every remove writes `enabled: false` rather
+than dropping `settings.plugins[id]` so in-session command gating holds;
+disk and unique `pluginPaths` entries are still removed so the plugin is
+gone after restart. Everything persists to global settings
+immediately.
 
 ## Implemented capabilities
 

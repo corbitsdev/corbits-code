@@ -1344,6 +1344,14 @@ const PERMISSIONS_HINTS = [
   "Esc · Enter",
 ] as const;
 
+/** /plugins: longest-first how-to, same fallback shape as the model picker. */
+const PLUGINS_HINTS = [
+  "Esc cancel · Enter toggle · Alt+A add path · Alt+X remove",
+  "Esc · Enter · Alt+A add · Alt+X remove",
+  "Esc · Enter · Alt+A · Alt+X",
+  "Esc · Enter",
+] as const;
+
 function overlayHints(shell: AppShell): readonly string[] {
   const answer = overlayAnswerState(shell);
   const hasChoices = shell.overlayItems.length > 0;
@@ -1371,6 +1379,7 @@ function overlayHints(shell: AppShell): readonly string[] {
       }
     }
     if (shell.overlayKind === "permissions") return PERMISSIONS_HINTS;
+    if (shell.overlayKind === "plugins") return PLUGINS_HINTS;
     return DEFAULT_OVERLAY_HINTS;
   }
   if (answer.active) {
