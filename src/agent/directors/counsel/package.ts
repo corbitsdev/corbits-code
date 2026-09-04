@@ -16,7 +16,7 @@ export const counselPackage: DirectorPackage = {
     "becoming Builder or Critic",
   ],
   description: "Counsel — ordered eng plans only; Greybeard reviews",
-  optionalSkills: ["style", "philosophy"],
+  optionalSkills: ["style", "philosophy", "native-integration"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

@@ -21,7 +21,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
     expect(text).toContain('spawn_agent(agent="builder")');
     expect(text).toContain("Model role: implement.");
-    expect(text).toContain("style, philosophy, idiot-proof, typescript");
+    expect(text).toContain("style, philosophy, native-integration, idiot-proof, typescript");
     expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
@@ -30,7 +30,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("Optional skills: none by default");
   });
 
-  test("bakes real style/philosophy/idiot-proof/typescript bodies for builder workers (CL-6803)", () => {
+  test("bakes real style/philosophy/native-integration/idiot-proof/typescript bodies for builder workers (CL-6803)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     const style = stripFrontmatter(
       readFileSync(
@@ -41,6 +41,15 @@ describe("formatDirectorSystemPrompt", () => {
     const philosophy = stripFrontmatter(
       readFileSync(
         join(import.meta.dirname, "../../../plugins/corbits-skills/skills/philosophy/SKILL.md"),
+        "utf8",
+      ),
+    );
+    const nativeIntegration = stripFrontmatter(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/native-integration/SKILL.md",
+        ),
         "utf8",
       ),
     );
@@ -59,6 +68,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("# Baked skill guidance");
     expect(text).toContain(style);
     expect(text).toContain(philosophy);
+    expect(text).toContain(nativeIntegration);
     expect(text).toContain(idiotProof);
     expect(text).toContain(typescript);
   });
@@ -87,7 +97,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).not.toContain("use_skill is not mounted on workers");
     expect(text).not.toMatch(/guidance is baked/i);
     expect(text).toContain("use_skill is primary-mounted");
-    expect(text).toContain("style, philosophy, interview");
+    expect(text).toContain("style, philosophy, native-integration, interview");
   });
 
   test("counsel does not bake interview ask_operator guidance (CL-6803)", () => {
@@ -98,7 +108,11 @@ describe("formatDirectorSystemPrompt", () => {
         "utf8",
       ),
     );
-    expect(DIRECTOR_REGISTRY.counsel.optionalSkills).toEqual(["style", "philosophy"]);
+    expect(DIRECTOR_REGISTRY.counsel.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+    ]);
     expect(text).not.toContain(interview);
     expect(text).not.toContain("### interview");
     // interview recipe centers on ask_operator batches; counsel must not embed it

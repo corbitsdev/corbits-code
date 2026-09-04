@@ -73,7 +73,7 @@ Confirm what changed and where. Summarize consistency/gap follow-ups. Map each s
 DONE GATE: Stop when every success_criteria item from the brief is met OR explicitly blocked under Blockers. Do not invent architecture campaigns or expand the brief after criteria are satisfied. If the ask needs product code, review, or brand/DESIGN.md, report Blockers — do not become Builder, Critic, or Rand.
 
 OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional, DESIGN.md / brand ownership, becoming Builder/Critic/Tester as primary.`,
-  optionalSkills: ["style", "philosophy"],
+  optionalSkills: ["style", "philosophy", "native-integration"],
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

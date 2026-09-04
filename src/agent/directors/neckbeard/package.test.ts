@@ -77,7 +77,7 @@ describe("neckbeardPackage", () => {
   });
 
   test("optionalSkills are style and philosophy", () => {
-    expect(neckbeardPackage.optionalSkills).toEqual(["style", "philosophy"]);
+    expect(neckbeardPackage.optionalSkills).toEqual(["style", "philosophy", "native-integration"]);
   });
 
   test("primaryIntent and outOfLane match neckbeard lane", () => {

@@ -13,6 +13,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Added
+
+- Native-integration skill: Corbits runtime mapping for GaaS skill bodies (tools, fleet, non-git folders, GitHub review posting, tracker-agnostic issues). Baked on workers; `use_skill` on the primary. Not a slash.
+
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
