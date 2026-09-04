@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { resolveResumeSeed } from "./runner.js";
+import { resolveResumeSeed } from "./session-start.js";
 import type { RunState } from "../session/state.js";
 
 function pickedState(overrides: Partial<RunState>): RunState {

@@ -27,6 +27,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Changed
 
+- Collapse the three runtime bootstraps into shared session assembly.
 - Skywalker's prompt no longer states a hard cap of 4 workers. Fan-out width
   follows independent lanes; the runtime queues excess rather than refusing.
 - Wait/list status includes live `queued`. Resume/followup inference is admitted

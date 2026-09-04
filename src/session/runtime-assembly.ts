@@ -1,10 +1,12 @@
 // Shared runtime assembly used by the exec and TUI runners.
 //
-// Only near-verbatim blocks live here. Gate / toolset / director construction
-// bind runner-specific state and stay in each runner.
+// Only near-verbatim blocks live here. The composed entry-point wiring built
+// from them (trust → gate → agent → lifecycle) lives in
+// `./assemble-runtime.ts`, which both runners consume; this module stays the
+// home of the individual blocks.
 
 import { getLogger } from "@intx/log";
-import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
+import type { ConversationTurn, InboundMessage, InferenceSource } from "@intx/types/runtime";
 import type { Compactor } from "@intx/types/runtime";
 
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -159,7 +161,7 @@ function persistBestEffort(
 export function createApprovalPersist(
   cwd: string,
   getActiveProviderModel: () => string,
-  onPersistFailure?: (text: string) => void,
+  onPersistFailure?: ((text: string) => void) | undefined,
 ): (approval: Approval, scope: GrantScope) => void {
   return (approval: Approval, scope: GrantScope) => {
     if (scope === "project")
@@ -182,13 +184,13 @@ export function createApprovalPersist(
 
 export interface DiscoverSessionPluginsArgs {
   cwd: string;
-  pluginPaths?: readonly string[];
-  discoverClaudePlugins?: boolean;
+  pluginPaths?: readonly string[] | undefined;
+  discoverClaudePlugins?: boolean | undefined;
   isProjectPluginTrusted: (pluginPath: string) => boolean;
   isRegisteredPathTrusted: (pluginPath: string) => boolean;
   /** When set, skill/load warnings collect here for one end-of-batch summary. */
-  diagnostics?: PluginLoadDiagnostics;
-  telemetry?: Telemetry;
+  diagnostics?: PluginLoadDiagnostics | undefined;
+  telemetry?: Telemetry | undefined;
 }
 
 /** Discover + dedupe plugins from repo, user, optional Claude, and registered paths. */
@@ -305,7 +307,8 @@ const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 
 export interface SessionPruningCompactorArgs {
   compactionMode: "llm" | "pruning";
-  summarize: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
+  /** Omitted for sourceless leaves — compaction falls back to the deterministic stub. */
+  summarize?: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
   telemetry?: Telemetry;
   /** Fires only when turns were actually folded away — not on no-ops. */
@@ -317,7 +320,9 @@ export function createSessionPruningCompactor(args: SessionPruningCompactorArgs)
   const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
-    ...(args.compactionMode !== "pruning" ? { summarize: args.summarize } : {}),
+    ...(args.compactionMode !== "pruning" && args.summarize !== undefined
+      ? { summarize: args.summarize }
+      : {}),
     ...(args.summaryContext ? { summaryContext: args.summaryContext } : {}),
   });
   const telemetry = args.telemetry ?? NOOP_TELEMETRY;
@@ -342,5 +347,30 @@ export function createSessionPruningCompactor(args: SessionPruningCompactorArgs)
       }
       return result;
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 7. Compaction continuation message
+// ---------------------------------------------------------------------------
+
+/**
+ * Content-less inbound the compaction governor self-delivers after a compact
+ * cycle so the reactor re-enters instead of idling (the reactor emits no
+ * event after compact). Single owner for the TUI, exec, and sub-agent loops —
+ * the three copies were byte-identical, so a new field is a one-site change.
+ */
+export function buildCompactionContinuationMessage(): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `compact-continue-${Date.now()}@local`,
+    },
+    flags: [],
+    content: "",
+    signatureStatus: "missing",
   };
 }

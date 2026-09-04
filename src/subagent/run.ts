@@ -23,23 +23,15 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type {
-  BlobReader,
-  InboundMessage,
-  ToolCall,
-  ToolDefinition,
-  ToolResult,
-} from "@intx/types/runtime";
+import type { BlobReader, ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
 
-import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
   buildBifrostSource,
   buildOpenAISource,
   type ProviderCatalogEntry,
 } from "../config/index.js";
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
-import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import { assembleInferenceBase } from "../session/assemble-runtime.js";
 import { advertiseShellGuardTimeout } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
@@ -68,7 +60,10 @@ import {
 } from "./intervention-log.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 
-import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "../session/compactor.js";
+import {
+  buildCompactionContinuationMessage,
+  createSessionPruningCompactor,
+} from "../session/runtime-assembly.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
@@ -157,22 +152,6 @@ export type {
   SubAgentProvider,
   SubAgentSandboxDeps,
 } from "./types.js";
-
-/** Content-less inbound used after compact so the reactor re-enters (matches TUI/exec). */
-export function buildCompactionContinuationMessage(): InboundMessage {
-  return {
-    ref: { uid: 0, mailbox: "system" },
-    headers: {
-      from: "user@local",
-      to: ["agent@local"],
-      date: new Date().toISOString(),
-      messageId: `compact-continue-${Date.now()}@local`,
-    },
-    flags: [],
-    content: "",
-    signatureStatus: "missing",
-  };
-}
 
 // The source used when no profile tier resolves. Exported for tests: the
 // parent's provider may need a non-default adapter (Bifrost virtual keys,
@@ -440,9 +419,7 @@ async function runSubAgentInner(
   telemetryRollup: SubAgentTelemetryRollup,
   settlementState: { latestModel: string },
 ): Promise<RunSubAgentResult> {
-  await seedPricingMetadataFromCache({
-    cachePath: defaultPricingCachePath(),
-  });
+  const inferenceDeps = await assembleInferenceBase();
 
   const permissionGate = params.permissionGate;
   // Identifies this dispatch to submit_result so a submission survives
@@ -888,7 +865,6 @@ async function runSubAgentInner(
               : {}),
           })
         : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
-    const inferenceDeps = await createInferenceDependencies();
     const subagentSource =
       bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
     agent = await createAgentWithLiveToolDispatch(def, {
@@ -910,9 +886,8 @@ async function runSubAgentInner(
         defaultId: `${ID_PREFIX}/subagent`,
       }),
       compactors: {
-        "pruning-compactor": createPruningCompactor({
-          keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
-          summaryMaxChars: 2500,
+        "pruning-compactor": createSessionPruningCompactor({
+          compactionMode: "llm",
           // A structured model summary keeps sub-agent context useful across a
           // compaction; the deterministic stub remains the fallback on failure.
           ...(subagentSource !== undefined

@@ -15,22 +15,23 @@ export interface RunSinkArgs {
   // knowing anything about telemetry. The TurnContext carries the source the
   // turn actually ran against, so consumers report per-turn provider/model
   // even if the live selection changed mid-run.
-  onTurnComplete?: (ctx: import("./hooks.js").TurnContext) => void;
+  onTurnComplete?: ((ctx: import("./hooks.js").TurnContext) => void) | undefined;
   // Fired at most once per turn, when that turn ends in an error instead of
   // completing. onTurnComplete only ever sees turns that produced a full
   // TurnContext, so a consumer relying on it alone goes silent exactly when a
   // run goes wrong. The turn index is the collector's current count: the
   // in-flight turn is the one that would have been recorded next.
-  onTurnFailed?: (info: { turnIndex: number; error: string }) => void;
+  onTurnFailed?: ((info: { turnIndex: number; error: string }) => void) | undefined;
   // Fired for every inference attempt. The model comes from inference.start,
   // while the turn index is the collector's current in-flight turn count.
-  onTurnStarted?: (info: { turnIndex: number; model: string }) => void;
+  onTurnStarted?: ((info: { turnIndex: number; model: string }) => void) | undefined;
   // inference.usage is the first attempt event carrying the runtime-resolved
   // provider/model pair. It remains authoritative across retry attempts.
-  onTurnSourceObserved?: (info: { turnIndex: number; source: LastCycleSource }) => void;
+  onTurnSourceObserved?:
+    ((info: { turnIndex: number; source: LastCycleSource }) => void) | undefined;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
-  initialTurnCount?: number;
+  initialTurnCount?: number | undefined;
 
   // Fired at every turn boundary so a caller can persist a mid-run run.json
   // snapshot. `inference.done` is the turn boundary every reactor cycle

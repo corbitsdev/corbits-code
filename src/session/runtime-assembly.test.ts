@@ -11,6 +11,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import type { GrantScope } from "../permission/types.js";
 import {
   APPROVAL_PERSIST_FAILURE_NOTICE,
+  buildCompactionContinuationMessage,
   buildSubAgentProvider,
   createApprovalPersist,
   createLiveSubAgentSources,
@@ -406,6 +407,11 @@ describe("createSessionPruningCompactor", () => {
     expect(typeof llm.apply).toBe("function");
   });
 
+  test("builds without a summarize function for sourceless leaves", () => {
+    const compactor = createSessionPruningCompactor({ compactionMode: "llm" });
+    expect(typeof compactor.apply).toBe("function");
+  });
+
   test("forwards summaryContext to summarize in llm mode", async () => {
     const ctx = { workflow: { name: "build", stepIndex: 1, total: 3 } };
     let captured: unknown;
@@ -460,5 +466,18 @@ describe("createSessionPruningCompactor", () => {
     }));
     await noop.apply(few as never, { state: {} as never, trigger: "test" });
     expect(silent).toEqual([]);
+  });
+});
+
+describe("buildCompactionContinuationMessage", () => {
+  test("builds a content-less system inbound that re-enters the reactor", () => {
+    const message = buildCompactionContinuationMessage();
+    expect(message.content).toBe("");
+    expect(message.flags).toEqual([]);
+    expect(message.signatureStatus).toBe("missing");
+    expect(message.ref).toEqual({ uid: 0, mailbox: "system" });
+    expect(message.headers.from).toBe("user@local");
+    expect(message.headers.to).toEqual(["agent@local"]);
+    expect(message.headers.messageId.startsWith("compact-continue-")).toBe(true);
   });
 });

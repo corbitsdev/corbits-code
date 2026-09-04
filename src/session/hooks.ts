@@ -314,11 +314,11 @@ export function createRunSummary(args: {
 
 export function createLifecycleHookManager(args: {
   hooks: LifecycleHook[];
-  onEvent?: (event: LifecycleHookEvent) => void;
-  logError?: (message: string) => void;
+  onEvent?: ((event: LifecycleHookEvent) => void) | undefined;
+  logError?: ((message: string) => void) | undefined;
   // Persisted enable/disable state, keyed by hook id. A hook absent here starts
   // enabled, matching discovery's default before any state was ever saved.
-  initialEnabled?: Record<string, boolean>;
+  initialEnabled?: Record<string, boolean> | undefined;
 }): LifecycleHookManager {
   const onEvent = args.onEvent ?? (() => {});
   const logError = args.logError ?? (() => {});

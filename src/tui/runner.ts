@@ -1,22 +1,10 @@
-import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
-import {
-  defineAgent,
-  defineTool,
-  createDirectorRegistry,
-  defineDirector,
-  AgentContextLockError,
-  type Agent,
-} from "@intx/agent";
-import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { AgentContextLockError, type Agent } from "@intx/agent";
 import { getLogger } from "@intx/log";
-import {
-  createOptimizedContextStore,
-  loadRecentTurns,
-} from "../session/optimized-context-store.js";
-import { type } from "arktype";
+import { loadRecentTurns } from "../session/optimized-context-store.js";
 import { refreshLiveProviderCatalog, resolveMcpServers, type Config } from "../config/index.js";
 import {
   globalSettingsPath,
@@ -63,48 +51,17 @@ import {
 } from "../mcp/add-server.js";
 import { createExaMCPServerConfig, EXA_MCP_SERVER_NAME } from "../mcp/exa.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
-import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
-import type { PluginManifest } from "../plugins/manifest.js";
-import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import type { PluginDescriptor } from "../plugins/admin.js";
 import { cycleReasoningEffort, resolveSessionEffort } from "../provider/reasoning-effort.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import {
-  expandExistingPluginMembers,
-  expandPluginPath,
-  expandSkipDiagnosticsHandler,
-  loadPluginEntry,
-  type PluginOrigin,
-} from "../plugins/loader.js";
-import {
   createPluginLoadDiagnostics,
   emitPluginWarningLog,
-  formatPluginWarningsSummary,
   warningsForPluginEntry,
 } from "../plugins/diagnostics.js";
-import {
-  isPluginTrusted,
-  loadProjectTrust,
-  trustPlugin,
-  type ProjectTrustStore,
-} from "../trust/project-trust.js";
-import {
-  isPathPluginTrusted,
-  migratePathTrustFromPluginPaths,
-  reportPathTrustMigration,
-  revokePathPlugin,
-  trustPathPlugin,
-  trustPathPlugins,
-  type PathTrustStore,
-} from "../trust/path-trust.js";
-import {
-  registerCommandPluginModule,
-  registerCommandPlugins,
-  registerWorkflowPlugins,
-  enablePluginConfig,
-} from "../plugins/register.js";
-import { executePluginRemove } from "../plugins/uninstall.js";
+import { registerCommandPlugins, registerWorkflowPlugins } from "../plugins/register.js";
 import {
   getCommand,
   listCommands,
@@ -114,7 +71,6 @@ import {
 } from "./commands/registry.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
-import { createTurnObserver } from "../telemetry/ai-observability.js";
 import {
   armFeedbackCapture,
   cancelFeedbackCapture,
@@ -134,8 +90,6 @@ import { isPluginEnabledForSurface } from "./plugin-surface.js";
 import { loadStartupChangelogMarkdown, stampVersionAfterStartup } from "../changelog/index.js";
 import { scheduleUpgradeNotice } from "../upgrade/index.js";
 import pkg from "../../package.json" with { type: "json" };
-import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { formatCost } from "../cost/faremeter.js";
 import { billingIdentityFromSource, createSessionCostAccumulator } from "../cost/session-cost.js";
@@ -145,14 +99,8 @@ import {
   type CostSummary,
 } from "../cost/cost-summary.js";
 import { contextTokensFromUsage } from "../provider/context-window.js";
-import {
-  advertisedToolNamesForSessionMode,
-  advertisedTools,
-  createActivatedToolTracker,
-  type ToolAvailability,
-} from "../agent/tool-search.js";
+import { type ToolAvailability } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
-import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { type SessionMode } from "../config/session-mode.js";
 import {
   createFleetWatch,
@@ -164,12 +112,7 @@ import {
   observeFleet,
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
-import type {
-  ContextStore,
-  InferenceSource,
-  ToolDefinition,
-  InboundMessage,
-} from "@intx/types/runtime";
+import type { ContextStore, InferenceSource, InboundMessage } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import {
@@ -182,9 +125,6 @@ import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js"
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
-import { createPermissionGate } from "../permission/gate.js";
-import { createApprovalLog } from "../permission/approval-log.js";
-import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin.js";
 import type { GrantScope } from "../permission/types.js";
 
@@ -194,17 +134,14 @@ import {
   type MCPServerState,
   type OperatorResult,
 } from "../agent/tools.js";
-import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import {
   collectWebPlugins,
   resolveWebProviderFromPlugins,
   webBrand,
 } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
-import { scrubSecrets } from "../web/secret-scrub.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
-import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
 import { mergeMcpSurfaceEntries, isBuiltinRow } from "./mcp-list.js";
 import { nextMcpCatalog } from "./mcp-catalog.js";
@@ -249,14 +186,7 @@ import { listPathSuggestions } from "./components/at-mention/list.js";
 import { imageAttachmentFromPath, type PendingImageAttachment } from "./image-attachments.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import type { OperatorGateEvent } from "./gate-events.js";
-import {
-  createLifecycleHookManager,
-  createRunSummary,
-  discoverLifecycleHooks,
-  hookDirectories,
-  type RunSummary,
-} from "../session/hooks.js";
-import { createRunSink } from "../session/run-sink.js";
+import { createRunSummary, type RunSummary } from "../session/hooks.js";
 import {
   generateSessionId,
   initSessionDir,
@@ -267,32 +197,40 @@ import {
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
 import {
   finalizeRunState,
-  loadState,
   saveState,
   type ConnectedMcpServer,
   type RunState,
 } from "../session/state.js";
-import { setActiveRun, clearActiveRun, type RunStateHandle } from "../session/active-run.js";
 import { setActiveDisposeHost, clearActiveDisposeHost } from "../session/active-host.js";
 import { openInBrowser } from "../auth/oauth/browser.js";
-import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";
 import {
-  buildSessionSourcesFromConfig,
-  createApprovalPersist,
+  assembleChatAgent,
+  assembleSessionGate,
+  assembleSessionLifecycle,
+  createAdvertisedToolset,
+  loadSessionLocalSettings,
+  resolveLiveSessionSources,
+  type LiveSessionSources,
+} from "../session/assemble-runtime.js";
+import {
+  buildCompactionContinuationMessage,
   createLiveSubAgentSources,
   createSessionPruningCompactor,
-  discoverSessionPlugins,
-  loadSeededApprovals,
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
 import { applyLiveModelSwitch } from "../session/live-model-switch.js";
-import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer, type SummaryContext } from "../session/summarizer.js";
-import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
+import { ID_PREFIX, LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 import { deliverAgentMessage } from "./deliver-agent-message.js";
+import { prepareTUISession } from "./session-start.js";
+import {
+  buildPluginDescriptor,
+  createPluginsAdmin,
+  createPluginsAdminState,
+} from "./plugins-admin-backend.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -365,29 +303,6 @@ export function agentRebuildFailure(err: unknown): Error {
       : new Error(String(err));
 }
 
-export interface ResumeSeed {
-  turnsUsed: number;
-  mcpServers: ConnectedMcpServer[];
-}
-
-const FRESH_RESUME_SEED: ResumeSeed = { turnsUsed: 0, mcpServers: [] };
-
-/**
- * Fold a resumed session's run.json into a concrete seed once, at the
- * resume boundary, so every downstream reader (the run sink, the
- * connected-servers list, the immediate post-resume saveState) trusts a
- * fully-populated value instead of each repeating its own `?? 0` / `?? []`
- * default. A fresh (non-resumed) run gets the same shape via
- * FRESH_RESUME_SEED, so callers never branch on "was this a resume."
- */
-export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
-  if (pickedState === null) return FRESH_RESUME_SEED;
-  return {
-    turnsUsed: pickedState.turnsUsed,
-    mcpServers: pickedState.mcpServers ?? [],
-  };
-}
-
 /**
  * Why a run.json snapshot is being written. Only "run-end" ends the run
  * itself and so clears the active-run handle that the crash handler in
@@ -426,21 +341,6 @@ export async function loadLocalSettingsWriteBase(
   } catch {
     return null;
   }
-}
-
-export function buildCompactionContinuationMessage(): InboundMessage {
-  return {
-    ref: { uid: 0, mailbox: "system" },
-    headers: {
-      from: "user@local",
-      to: ["agent@local"],
-      date: new Date().toISOString(),
-      messageId: `compact-continue-${Date.now()}@local`,
-    },
-    flags: [],
-    content: "",
-    signatureStatus: "missing",
-  };
 }
 
 /**
@@ -665,43 +565,21 @@ export function tuiSendFailureMessage(
 }
 
 export async function runTUI(initialConfig: Config): Promise<number> {
-  let config = initialConfig;
-  const inferenceDeps = await createInferenceDependencies();
+  const start = await prepareTUISession(initialConfig, liveTelemetry);
+  if (start === null) return 0;
+  let config = start.config;
+  const { inferenceDeps, trust: sessionTrust, pluginLoadDiag } = start;
 
-  // Auto-discover plugins from the repo's plugins/ directory and user plugin
-  // dirs, plus any explicit paths registered through the /plugins UI.
-  // Project origins without a project-trust entry, and path origins without a
-  // global path-trust entry, load metadata-only (no import).
-  // Claude Code marketplace installs are opt-in via settings.discoverClaudePlugins.
-  let projectTrust: ProjectTrustStore = await loadProjectTrust(config.cwd);
-  // Declared before the migration call below so a skipped marketplace member
-  // (bad pluginPaths entry) collects into the same summary as discovery,
-  // rather than defaulting to stderr — `onSkip` on expandExistingPluginMembers
-  // is required precisely so this can't be forgotten at a call site.
-  const pluginLoadDiag = createPluginLoadDiagnostics();
-  // One-shot: seed global path trust from pluginPaths only when the store file
-  // does not exist yet (legacy per-cwd grants). Later boots load the store as-is.
-  let pathTrust: PathTrustStore = await migratePathTrustFromPluginPaths(
-    config.settings?.pluginPaths ?? [],
-    (p) => expandExistingPluginMembers(p, config.cwd, expandSkipDiagnosticsHandler(pluginLoadDiag)),
-    undefined,
-    { onMigrated: reportPathTrustMigration },
-  );
-  const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
-  const isRegisteredPathTrusted = (pluginPath: string) =>
-    isPathPluginTrusted(pathTrust, pluginPath);
-  const pluginModules = await discoverSessionPlugins({
+  const { pluginModules } = sessionTrust;
+  // /plugins UI backend state: discovered modules plus live, persisted config
+  // (enabled flag, credentials, web override, extra paths). Trust grants swap
+  // metadata-only stubs for full loads without restarting the process.
+  const pluginState = createPluginsAdminState({
     cwd: config.cwd,
-    ...(config.settings?.pluginPaths !== undefined
-      ? { pluginPaths: config.settings.pluginPaths }
-      : {}),
-    ...(config.settings?.discoverClaudePlugins !== undefined
-      ? { discoverClaudePlugins: config.settings.discoverClaudePlugins }
-      : {}),
-    isProjectPluginTrusted,
-    isRegisteredPathTrusted,
-    diagnostics: pluginLoadDiag,
-    telemetry: liveTelemetry,
+    settings: config.settings,
+    modules: pluginModules,
+    pathTrust: sessionTrust.pathTrust,
+    projectTrust: sessionTrust.projectTrust,
   });
   emitPluginWarningLog(pluginLoadDiag);
   // Fire-and-forget startup diagnostics (this + tool-plugin / profile resolution
@@ -727,142 +605,27 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   }
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
-  let livePluginModules = pluginModules;
-  const executablePlugins = () => livePluginModules.filter((m) => m.metadataOnly !== true);
-  let livePluginConfig: Record<string, PluginConfig> = { ...(config.settings?.plugins ?? {}) };
-  setUpCommandRegistry(config.settings, executablePlugins(), () => livePluginConfig);
-  // loadConfig already bootstrapped pricing metadata; re-read cache here so a
-  // TUI-only entry (tests) still picks up the tool-home cache path.
-  await seedPricingMetadataFromCache({
-    cachePath: defaultPricingCachePath(),
-  });
-  let sessionId = config.sessionId;
-  let resumeSkipInitialTask = config.skipInitialTask === true;
-  let startedAt = Date.now();
-  let runTaskTitle = config.task;
+  const executablePlugins = () => pluginState.modules.filter((m) => m.metadataOnly !== true);
+  setUpCommandRegistry(config.settings, executablePlugins(), () => pluginState.pluginConfig);
+  let sessionId = start.sessionId;
+  const resumeSkipInitialTask = start.resumeSkipInitialTask;
+  let startedAt = start.startedAt;
+  let runTaskTitle = start.runTaskTitle;
   // Resolved once at the resume boundary so turnsUsed/mcpServers reads
   // downstream never repeat their own omission-handling default.
-  let resumeSeed: ResumeSeed = FRESH_RESUME_SEED;
+  const resumeSeed = start.resumeSeed;
 
-  if (config.resumePicker) {
-    const picked = await pickSession(config.cwd);
-    if (picked === null) return 0;
-    sessionId = picked.sessionId;
-    resumeSkipInitialTask = true;
-    const loaded = await loadState(config.cwd, sessionId);
-    const pickedState = loaded.kind === "ok" ? loaded.state : null;
-    resumeSeed = resolveResumeSeed(pickedState);
-    if (pickedState !== null) {
-      startedAt = pickedState.startedAt;
-      runTaskTitle = pickedState.task;
-    } else {
-      runTaskTitle = picked.task.length > 0 ? picked.task : runTaskTitle;
-    }
-    config =
-      pickedState !== null
-        ? { ...config, sessionId, task: pickedState.task }
-        : { ...config, sessionId, task: runTaskTitle };
-  }
-
-  let workdir = sessionContextDir(config.cwd, sessionId);
-  await initSessionDir(config.cwd, sessionId);
-
-  // A session can still crash during the setup below, before the reactor ever
-  // starts (buildAgent, plugin discovery, MCP wiring, etc. all run first). Write
-  // a minimal readable record now so a session that dies before its first turn
-  // still carries model identity instead of leaving `.agent-state/<id>/` with no
-  // run.json at all.
-  await saveState(config.cwd, sessionId, {
-    status: "running",
-    turnsUsed: resumeSeed.turnsUsed,
-    task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
-    startedAt,
-    model: `${config.providerName}:${config.model}`,
-    mcpServers: resumeSeed.mcpServers,
-  });
-
-  // Registered the moment a run starts so the top-level uncaughtException /
-  // unhandledRejection handler in index.ts (which cannot see any local state
-  // in this function) can finalize run.json for crashes that escape without
-  // ever reaching this function's own try/catch — e.g. a throw inside a
-  // fire-and-forget `void` call. Cleared wherever `finalized` below flips
-  // true, since those paths already write a terminal run.json themselves.
-  const activeRunHandle: RunStateHandle = {
-    sessionId,
+  let workdir = start.workdir;
+  const activeRunHandle = start.activeRunHandle;
+  const crashGuard = start.crashGuard;
+  crashGuard.bindLiveSession(() => ({
     cwd: config.cwd,
-    task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+    sessionId,
     startedAt,
-    model: `${config.providerName}:${config.model}`,
-  };
-  setActiveRun(activeRunHandle);
-
-  // Crash guard: if anything from setup onward throws all the way out of
-  // runTUI instead of reaching the normal finalize block, this still closes
-  // out run.json so status and finishedAt never disagree. Declared before the
-  // try so every fallible step after the minimal write above is covered.
-  // `finalized` is set by the normal finalize path so this never double-writes
-  // on a clean exit. It also gates persistRunSnapshot (below) from *issuing*
-  // a straggler write at all once the run is closed — a different job from
-  // saveState's per-session write ordering in state.ts. That ordering only
-  // decides which already-issued write lands last; it has no way to know a
-  // "running" snapshot fired after finalize is stale and should never be
-  // written in the first place. Without this flag such a snapshot would
-  // still queue behind the terminal write and legitimately "win" the
-  // ordering, resurrecting a closed run.json. Two different constraints
-  // (don't issue a stale write vs. order the writes you do issue), each
-  // owned by its own layer — not a duplicate check.
-  let finalized = false;
-  // Bound after the cycle recorder exists (it needs the session workdir); the
-  // crash guard is declared first so it covers every fallible step below.
-  let flushPartialOnCrash: () => Promise<void> = async () => {};
-  // Bound once the host is mounted. Without this the crash path leaves the
-  // renderer alive, so the alternate screen, mouse reporting and raw mode are
-  // never disabled and the operator's terminal is left wedged.
-  let disposeHost: () => void = () => {};
-  const finalizeOnCrash = async (err: unknown): Promise<void> => {
-    if (finalized) return;
-    finalized = true;
-    // Clear the active-run handle up front, before the awaits below. This
-    // handler isn't the only reader of the handle: index.ts installs its own
-    // uncaughtException/unhandledRejection listeners that call getActiveRun()
-    // directly and, if it's still set, write a competing "crashed" record via
-    // saveCrashState. finalizeRunState (state.ts) also clears the handle
-    // before its own saveState await, but only once it's called below — an
-    // escaped throw during the flushPartialOnCrash await just above would
-    // still reach that listener with the handle live, so it's cleared here
-    // too to close that earlier window.
-    clearActiveRun();
-    clearActiveDisposeHost();
-    await flushPartialOnCrash().catch((flushErr: unknown) => {
-      // Best-effort only — still attempt saveState below. Log so a flush
-      // failure is not invisible when diagnosing a crash exit.
-      const flushMessage = flushErr instanceof Error ? flushErr.message : String(flushErr);
-      tuiLogger.warn("crash finalize: partial flush failed: {error}", { error: flushMessage });
-      process.stderr.write(
-        `${COMMAND_NAME}: crash finalize partial flush failed: ${flushMessage}\n`,
-      );
-    });
-    const message = err instanceof Error ? err.message : String(err);
-    await finalizeRunState(config.cwd, sessionId, {
-      status: "failed",
-      turnsUsed: 0,
-      task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
-      startedAt,
-      finishedAt: Date.now(),
-      error: message,
-      model: `${config.providerName}:${config.model}`,
-      mcpServers: [],
-    }).catch((saveErr: unknown) => {
-      const saveMessage = saveErr instanceof Error ? saveErr.message : String(saveErr);
-      tuiLogger.warn("crash finalize: saveState failed for session {sessionId}: {error}", {
-        sessionId,
-        error: saveMessage,
-      });
-      process.stderr.write(
-        `${COMMAND_NAME}: crash finalize saveState failed for ${sessionId}: ${saveMessage}\n`,
-      );
-    });
-  };
+    runTaskTitle,
+    providerName: config.providerName,
+    model: config.model,
+  }));
 
   try {
     const emitter = createTUIEventEmitter();
@@ -871,10 +634,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
       Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [id, v.enabled]),
     );
-    const hookManager = createLifecycleHookManager({
-      hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
-      onEvent: (event) => emitter.emit("hook", event),
-      initialEnabled: initialHookEnabled,
+    const { hookManager, runSink, cycleRecorder } = await assembleSessionLifecycle({
+      cwd: config.cwd,
+      emitter,
+      getTelemetry,
+      getSessionId: () => sessionId,
+      getSource: () => liveSource,
+      initialTurnCount: resumeSeed.turnsUsed,
+      // persistRunSnapshot is defined below but not invoked until the stream
+      // starts consuming events, well after this closure captures it.
+      onTurnBoundarySnapshot: () => {
+        void persistRunSnapshot("running");
+      },
+      hookEnabled: initialHookEnabled,
+      onHookEvent: (event) => emitter.emit("hook", event),
+      resolveContextDir: () => workdir,
     });
     // Cheap static check, not a real parser: a shell hook always receives the
     // lifecycle name as $1, so it can react to either; a TypeScript hook's
@@ -949,24 +723,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const approvalTimeout = (): { timeoutMs: number; timeoutMessage: string } | undefined =>
       undefined;
 
-    const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
-    const permissionGate = createPermissionGate({
-      approvals: seededApprovals,
-      telemetry: liveTelemetry,
+    const { gate: permissionGate } = await assembleSessionGate({
       cwd: config.cwd,
-      rootsProvider: createWorktreeRootsProvider(config.cwd),
+      sessionId,
       providerName: config.providerName,
       model: config.model,
+      telemetry: liveTelemetry,
       requestApproval: createGateRequestApproval({
         emitGate: (event) => emitter.emit("permission.gate", event),
         approvalTimeout,
       }),
-      persist: createApprovalPersist(
-        config.cwd,
-        () => `${config.providerName}:${config.model}`,
-        (text) => approvalPersistNotice.notify?.(text),
-      ),
-      approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
+      getActiveProviderModel: () => `${config.providerName}:${config.model}`,
+      onPersistNotice: (text) => approvalPersistNotice.notify?.(text),
       interactive: true,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
@@ -988,19 +756,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       admission: getProcessAdmissionQueue(),
     });
 
-    const webPluginCandidates = collectWebPlugins(executablePlugins());
+    pluginState.webCandidates = collectWebPlugins(executablePlugins());
     // Tool plugins are wired in only when enabled AND consented.
-    const toolPluginCandidates = collectToolPlugins(executablePlugins());
+    pluginState.toolCandidates = collectToolPlugins(executablePlugins());
     // Web and tool plugin resolution are independent, so resolve them concurrently.
     const toolPluginDiag = createPluginLoadDiagnostics();
     const [activeWeb, extraToolPlugins] = await Promise.all([
       resolveWebProviderFromPlugins({
-        candidates: webPluginCandidates,
+        candidates: pluginState.webCandidates,
         pluginConfig: config.settings?.plugins ?? {},
         webOverride: config.settings?.web,
       }),
       resolveToolPlugins({
-        candidates: toolPluginCandidates,
+        candidates: pluginState.toolCandidates,
         pluginConfig: config.settings?.plugins ?? {},
         diagnostics: toolPluginDiag,
       }),
@@ -1009,42 +777,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     emitPluginWarningLog(toolPluginDiag);
     standingPluginWarnings.push(...toolPluginDiag.warnings);
 
-    // /plugins UI backend: discovered plugin descriptors plus live, persisted
-    // config (enabled flag, credentials, web override, extra paths) written to the
-    // global settings file. Verify runs a real trial search through the web
-    // candidate. The descriptor/candidate lists are mutable so plugins added by
-    // path mid-session appear without a restart.
-    const toDescriptor = (mod: {
-      manifest?: PluginManifest;
-      metadataOnly?: boolean;
-      origin?: PluginOrigin;
-      pluginPath?: string;
-      source?: string;
-    }): PluginDescriptor | undefined =>
-      mod.manifest === undefined || mod.origin === undefined
-        ? undefined
-        : {
-            id: mod.manifest.id,
-            name: mod.manifest.name,
-            origin: mod.origin,
-            ...(mod.manifest.kind !== undefined ? { kind: mod.manifest.kind } : {}),
-            ...(mod.manifest.description !== undefined
-              ? { description: mod.manifest.description }
-              : {}),
-            credentials: mod.manifest.credentials ?? [],
-            ...(mod.metadataOnly === true ? { needsTrust: true } : {}),
-            ...(mod.origin === "path" && mod.metadataOnly !== true ? { canRevokeTrust: true } : {}),
-            ...(mod.pluginPath !== undefined ? { pluginPath: mod.pluginPath } : {}),
-            ...(mod.source !== undefined ? { source: mod.source } : {}),
-          };
-    const pluginDescriptors: PluginDescriptor[] = livePluginModules
-      .map((m) => toDescriptor(m))
+    // Descriptors mirror the mutable module list so plugins added by path
+    // mid-session appear without a restart.
+    pluginState.descriptors = pluginState.modules
+      .map((m) => buildPluginDescriptor(m))
       .filter((d): d is PluginDescriptor => d !== undefined);
     // Attach agent profiles to their descriptors so the /plugins UI can show
     // which sub-agents a plugin contributes.
-    for (const mod of livePluginModules) {
+    for (const mod of pluginState.modules) {
       if (mod.manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
-      const desc = pluginDescriptors.find((d) => d.id === mod.manifest!.id);
+      const desc = pluginState.descriptors.find((d) => d.id === mod.manifest!.id);
       if (desc === undefined) continue;
       const agents = Array.isArray(mod.agentPlugin.agents) ? mod.agentPlugin.agents : [];
       desc.agentProfiles = agents
@@ -1056,288 +798,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(typeof a["description"] === "string" ? { description: a["description"] } : {}),
         }));
     }
-    let liveWebOverride: string | undefined = config.settings?.web;
-    const livePluginPaths: string[] = [...(config.settings?.pluginPaths ?? [])];
-    const persistPluginSettings = async (): Promise<void> => {
-      // Absent file → fresh base; unreadable/invalid → skip write so we never
-      // clobber a corrupt settings file by rewriting from a minimal shell.
-      const result = await globalSettingsWriter.mutate((base) => {
-        const next: Settings = { ...base, plugins: livePluginConfig };
-        if (livePluginPaths.length > 0) next.pluginPaths = livePluginPaths;
-        else delete next.pluginPaths;
-        if (liveWebOverride !== undefined) next.web = liveWebOverride;
-        else delete next.web;
-        return next;
-      });
-      if (result === "skipped") {
-        tuiLogger.warn("Skipping plugin settings write: unreadable global settings at {path}", {
-          path: config.globalSettingsPath,
-        });
-      }
-    };
-    const pluginsAdmin: PluginsAdmin = {
-      list: () => pluginDescriptors,
-      getConfig: () => livePluginConfig,
-      getWebOverride: () => liveWebOverride,
-      saveConfig: async (id, cfg) => {
-        livePluginConfig = { ...livePluginConfig, [id]: cfg };
-        // Warnings from the trust-grant load below are collected, not logged:
-        // like `addPath`, the caller has a result channel back to the operator
-        // (the command surface's `deps.notify`), so fold them into the returned
-        // message instead of a log line nobody watches.
-        let trustGrantMessage: string | undefined;
-        // Enabling a project/path plugin records trust and full-loads code.
-        if (cfg.enabled === true) {
-          const stub = livePluginModules.find((m) => m.manifest?.id === id);
-          // Trust routing must use the origin stamped at discovery — a fallback
-          // here could turn one store's gate into the other's grant.
-          if (
-            stub?.metadataOnly === true &&
-            stub.pluginPath !== undefined &&
-            stub.origin !== undefined
-          ) {
-            if (stub.origin === "path") {
-              pathTrust = await trustPathPlugin(stub.pluginPath);
-            } else {
-              projectTrust = await trustPlugin(config.cwd, stub.pluginPath);
-            }
-            const trustDiag = createPluginLoadDiagnostics();
-            const full = await loadPluginEntry(stub.pluginPath, {
-              cwd: config.cwd,
-              origin: stub.origin,
-              diagnostics: trustDiag,
-            });
-            trustGrantMessage = formatPluginWarningsSummary(trustDiag.warnings);
-            notePluginWarnings(trustDiag.warnings);
-            if (full !== null) {
-              livePluginModules = livePluginModules.map((m) => (m.manifest?.id === id ? full : m));
-              const di = pluginDescriptors.findIndex((d) => d.id === id);
-              const fullDesc = toDescriptor(full);
-              if (di >= 0 && fullDesc !== undefined) pluginDescriptors.splice(di, 1, fullDesc);
-              // Refresh web/tool candidate lists from the newly loaded module.
-              for (const cand of collectWebPlugins([full])) {
-                const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
-                if (ci >= 0) webPluginCandidates.splice(ci, 1, cand);
-                else webPluginCandidates.push(cand);
-              }
-              for (const cand of collectToolPlugins([full])) {
-                const ci = toolPluginCandidates.findIndex((c) => c.id === cand.id);
-                if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
-                else toolPluginCandidates.push(cand);
-              }
-              registerCommandPluginModule(full, () => livePluginConfig);
-            }
-          }
-        }
-        await persistPluginSettings();
-        return trustGrantMessage === undefined ? undefined : { message: trustGrantMessage };
-      },
-      setWebOverride: async (id) => {
-        liveWebOverride = id;
-        await persistPluginSettings();
-      },
-      verify: async (id, credentials) => {
-        // Agent plugins verify by checking they contribute valid profiles.
-        const agentMod = livePluginModules.find(
-          (m) => m.manifest?.id === id && m.manifest?.kind === "agent",
-        );
-        if (agentMod !== undefined) {
-          const verifyDiag = createPluginLoadDiagnostics();
-          const profiles = await resolveAgentPluginProfiles(
-            [agentMod],
-            { [id]: { enabled: true } },
-            { diagnostics: verifyDiag },
-          );
-          if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
-          // Fold warnings into the message (same pattern as `addPath`) instead of
-          // logging them: "loaded — N profiles" must not read identically whether
-          // or not a profile's skill ref actually resolved.
-          const warnings = formatPluginWarningsSummary(verifyDiag.warnings);
-          notePluginWarnings(verifyDiag.warnings);
-          const base = `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`;
-          return { ok: true, message: warnings === undefined ? base : `${base} (${warnings})` };
-        }
-        // Tool plugins verify by loading (the factory must construct without
-        // error and yield at least one tool).
-        const toolCand = toolPluginCandidates.find((c) => c.id === id);
-        if (toolCand !== undefined) {
-          try {
-            const plugin = await toolCand.factory(credentials);
-            const count = plugin.tools?.length ?? 0;
-            return { ok: true, message: `loaded — ${count} tool${count === 1 ? "" : "s"}` };
-          } catch (err) {
-            return {
-              ok: false,
-              message: scrubSecrets(err instanceof Error ? err.message : String(err)),
-            };
-          }
-        }
-        const candidate = webPluginCandidates.find((c) => c.id === id);
-        if (candidate === undefined)
-          return { ok: false, message: "Nothing to verify for this plugin" };
-        try {
-          const provider = await candidate.factory(credentials);
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 15_000);
-          try {
-            const results = await provider.search("corbits connectivity test", controller.signal);
-            return { ok: true, message: `connected — ${results.length} results` };
-          } finally {
-            clearTimeout(timer);
-          }
-        } catch (err) {
-          return {
-            ok: false,
-            message: scrubSecrets(err instanceof Error ? err.message : String(err)),
-          };
-        }
-      },
-      addPath: async (rawPath) => {
-        const path = rawPath.trim();
-        if (path.length === 0) return { ok: false, message: "Enter a path" };
-        const abs = isAbsolute(path) ? path : resolvePath(config.cwd, path);
-        // Explicit add-by-path is user consent to load that absolute path.
-        const addDiag = createPluginLoadDiagnostics();
-        const mod = await loadPluginEntry(abs, {
-          cwd: config.cwd,
-          origin: "path",
-          diagnostics: addDiag,
-        });
-        // Collected, not emitted: `emitPluginWarningSummary` writes to stderr, and
-        // a raw write lands mid-frame and corrupts the rendered transcript. The
-        // warnings are folded into the result message below instead.
-        if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
-        if (mod.manifest === undefined) {
-          return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
-        }
-        const descriptor = toDescriptor(mod);
-        if (descriptor === undefined) return { ok: false, message: "Invalid plugin manifest" };
-        // Persist global path trust only once it resolves to a real plugin, so a
-        // bogus path never leaves a dangling entry. Expand marketplaces so each
-        // member is trusted (exact-path match on reload). `onSkip` collects into
-        // `addDiag` instead of a raw stderr write — same reasoning as
-        // `loadPluginEntry` above.
-        const members = await expandPluginPath(abs, {
-          onSkip: expandSkipDiagnosticsHandler(addDiag),
-        });
-        pathTrust = await trustPathPlugins(members.length > 0 ? members : [abs]);
-        // Replace any existing descriptor/candidate with the same id so re-adding
-        // refreshes rather than duplicates.
-        const existingIdx = pluginDescriptors.findIndex((d) => d.id === descriptor.id);
-        if (existingIdx >= 0) pluginDescriptors.splice(existingIdx, 1, descriptor);
-        else pluginDescriptors.push(descriptor);
-        const existingModIdx = livePluginModules.findIndex((m) => m.manifest?.id === descriptor.id);
-        if (existingModIdx >= 0) livePluginModules[existingModIdx] = mod;
-        else livePluginModules.push(mod);
-        for (const cand of collectWebPlugins([mod])) {
-          const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
-          if (ci >= 0) webPluginCandidates.splice(ci, 1, cand);
-          else webPluginCandidates.push(cand);
-        }
-        for (const cand of collectToolPlugins([mod])) {
-          const ci = toolPluginCandidates.findIndex((c) => c.id === cand.id);
-          if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
-          else toolPluginCandidates.push(cand);
-        }
-        // Path-add is consent to use the plugin, so persist activation and make
-        // its commands available from the registry without requiring a restart.
-        livePluginConfig = enablePluginConfig(livePluginConfig, descriptor.id);
-        registerCommandPluginModule(mod, () => livePluginConfig);
-        // Persist the resolved absolute path so it reloads regardless of the cwd
-        // the next session starts from.
-        if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
-        await persistPluginSettings();
-        const warnings = formatPluginWarningsSummary(addDiag.warnings);
-        notePluginWarnings(addDiag.warnings);
-        return {
-          ok: true,
-          message:
-            warnings === undefined
-              ? `Added ${descriptor.name}`
-              : `Added ${descriptor.name} (${warnings})`,
-          id: descriptor.id,
-        };
-      },
-      revokeTrust: async (id) => {
-        const mod = livePluginModules.find((m) => m.manifest?.id === id);
-        if (mod === undefined || mod.origin !== "path" || mod.pluginPath === undefined) {
-          return { ok: false, message: "Only path-added plugins carry revocable global trust" };
-        }
-        pathTrust = await revokePathPlugin(mod.pluginPath);
-        // Drop back to the metadata-only stub and disable: the module stays
-        // registered in pluginPaths, but its code no longer loads. Anything
-        // already imported this session unloads on the next launch.
-        const stub = {
-          ...(mod.dir !== undefined ? { dir: mod.dir } : {}),
-          ...(mod.manifest !== undefined ? { manifest: mod.manifest } : {}),
-          origin: mod.origin,
-          pluginPath: mod.pluginPath,
-          metadataOnly: true,
-        };
-        livePluginModules = livePluginModules.map((m) => (m.manifest?.id === id ? stub : m));
-        const di = pluginDescriptors.findIndex((d) => d.id === id);
-        const stubDesc = toDescriptor(stub);
-        if (di >= 0 && stubDesc !== undefined) pluginDescriptors.splice(di, 1, stubDesc);
-        const wi = webPluginCandidates.findIndex((c) => c.id === id);
-        if (wi >= 0) webPluginCandidates.splice(wi, 1);
-        const ti = toolPluginCandidates.findIndex((c) => c.id === id);
-        if (ti >= 0) toolPluginCandidates.splice(ti, 1);
-        livePluginConfig = {
-          ...livePluginConfig,
-          [id]: { ...(livePluginConfig[id] ?? {}), enabled: false },
-        };
-        await persistPluginSettings();
-        return { ok: true, message: "Trust revoked — code stays unloaded from next launch" };
-      },
-      remove: async (id) => {
-        if (id.length === 0) return { ok: false, message: "Unknown plugin" };
-        const desc = pluginDescriptors.find((d) => d.id === id);
-        const mod = livePluginModules.find((m) => m.manifest?.id === id);
-        if (desc === undefined) return { ok: false, message: "Unknown plugin" };
-        const origin = desc.origin;
-        const pluginPath = desc.pluginPath ?? mod?.pluginPath;
-        const hadTools = mod?.createToolPlugin !== undefined;
-
-        const spliceLive = (): void => {
-          const di = pluginDescriptors.findIndex((d) => d.id === id);
-          if (di >= 0) pluginDescriptors.splice(di, 1);
-          livePluginModules = livePluginModules.filter((m) => m.manifest?.id !== id);
-          const wi = webPluginCandidates.findIndex((c) => c.id === id);
-          if (wi >= 0) webPluginCandidates.splice(wi, 1);
-          const ti = toolPluginCandidates.findIndex((c) => c.id === id);
-          if (ti >= 0) toolPluginCandidates.splice(ti, 1);
-        };
-
-        const result = await executePluginRemove({
-          id,
-          name: desc.name,
-          origin,
-          ...(pluginPath !== undefined ? { pluginPath } : {}),
-          hadTools,
-          home: homedir(),
-          cwd: config.cwd,
-          plugins: livePluginConfig,
-          pluginPaths: livePluginPaths,
-          ...(liveWebOverride !== undefined ? { webOverride: liveWebOverride } : {}),
-          otherLivePluginPaths: livePluginModules.flatMap((m) =>
-            m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
-          ),
-          expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
-          revokePathPlugin: async (path) => {
-            pathTrust = await revokePathPlugin(path);
-          },
-        });
-        if (!result.ok) return result;
-        if (result.spliceLive) spliceLive();
-        livePluginConfig = result.plugins;
-        livePluginPaths.length = 0;
-        livePluginPaths.push(...result.pluginPaths);
-        liveWebOverride = result.webOverride;
-        await persistPluginSettings();
-        return { ok: true, message: result.message };
-      },
-    };
-
+    const pluginsAdmin = createPluginsAdmin({
+      state: pluginState,
+      globalSettingsPath: config.globalSettingsPath,
+      globalSettingsWriter,
+      noteWarnings: notePluginWarnings,
+    });
     const profilesDir = join(config.cwd, ".agents", "agents");
     const profileDiag = createPluginLoadDiagnostics();
     const pluginAgentProfiles = await resolveAgentPluginProfiles(
@@ -1352,7 +818,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Skill directories from enabled plugins, in addition to project-local
     // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
-    const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), livePluginConfig);
+    const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginState.pluginConfig);
 
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     // Mutable so Settings → waitForApproval takes effect on the next tool call
@@ -1363,18 +829,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // CL-5814: orchestrator is the only product path — no first-run mode picker.
     const liveSessionMode: SessionMode = "orchestrator";
     // Local settings still supply shell env; sessionMode is ignored if present.
-    const localSettingsForEnvPath = resolveLocalSettingsPath(config.cwd, config.globalSettingsPath);
-    const localSettingsForEnv =
-      localSettingsForEnvPath === null
-        ? null
-        : await loadLocalSettings(localSettingsForEnvPath).catch(() => null);
+    const localSettingsForEnv = await loadSessionLocalSettings({
+      cwd: config.cwd,
+      globalSettingsPath: config.globalSettingsPath,
+    });
     const toolAvailability: ToolAvailability = {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
     };
-    const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(
-      liveSessionMode,
-      toolAvailability,
-    );
     // The workflow controller is built below, after the toolset; the holder lets
     // submit_output's handler complete the live workflow without a
     // construction-order cycle.
@@ -1423,7 +884,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       toolAvailability,
       ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
       mcpServersSource: config.mcpServersSource ?? "none",
-      projectTrust,
+      projectTrust: pluginState.projectTrust,
       requestMcpTrust: async (server) => {
         // TOFU via operator gate: Trust this local MCP server?
         const result = await new Promise<OperatorResult>((resolve) => {
@@ -1490,23 +951,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
     workflowControllerHolder.instance = workflowController;
 
-    // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
-    // dispatch but advertises only the fixed built-in prefix plus whatever the
-    // session has activated so far (via tool_search matches, promoted below).
-    // The prefix's membership and order never change, so it alone keeps the
-    // provider cache prefix stable; activated names append once, in first-
-    // activation order, and then hold steady until the next discovery. Strict
-    // providers (grok Responses, codex-responses, OpenAI-style) refuse to call a
-    // tool that was never declared on the wire, so an MCP tool must be promoted
-    // here before the model can actually invoke it — merely being dispatchable in
-    // the runner is not enough on those providers.
-    const activatedToolNames = createActivatedToolTracker();
-    // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
-    const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-      normalizeToolDefinitionsForProvider(
-        advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix),
-        { providerName: config.providerName, model: config.model },
-      );
+    // Dynamic tool discovery: only the fixed built-in prefix plus activated
+    // tools reach the wire, so the provider cache prefix holds steady; MCP
+    // tools must be promoted here before the model can invoke them.
+    const { activated: activatedToolNames, computeAdvertised } = createAdvertisedToolset({
+      sessionMode: liveSessionMode,
+      toolAvailability,
+      getProvider: () => config,
+    });
 
     const initialCodexProfile = codexProfileFromProviderName(config.providerName);
     const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
@@ -1547,67 +999,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     };
 
-    const chatDirectorDef = defineDirector({
-      id: `${ID_PREFIX}/chat`,
-      configSchema: type({}),
-      factory: (_config, _env, agentCtx) => {
-        const d = createChatDirector(
-          agentCtx.systemPrompt,
-          computeAdvertised([...agentCtx.toolDefinitions]),
-          {
-            onActivateTools: (names) => promoteTools(names),
-            inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
-            totalTimeoutMs: config.totalTimeoutMs,
-            onTasksChange: (tasks) => emitter.emit("tasks", tasks),
-            requestContinuation: () => {
-              enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
-            },
-            provider: { providerName: config.providerName, model: config.model },
-            // Live id so mid-session `/model` updates xAI bare-429 remapping
-            // without rebuilding the agent (aligned with transcript stamp).
-            getProviderId: () => config.providerName,
-          },
-        );
-        directorHolder.instance = d;
-        return d;
-      },
-    });
-
-    const toolsFactory = defineTool({
-      id: `${ID_PREFIX}/tui-tools`,
-      factory: () => toolset.dynamicRunner,
-    });
-
-    const def = defineAgent({
-      id: `${ID_PREFIX}/tui-agent`,
-      systemPrompt,
-      tools: [toolsFactory],
-      capabilities: [],
-      director: chatDirectorDef.build({}),
-      inference: {
-        sources: [{ provider: config.providerName, model: config.model }],
-      },
-    });
-
     // The agent freezes its tool-dispatch map at construction, so MCP servers that
     // connect after startup are not callable until the agent is rebuilt. buildAgent
     // re-runs tool resolution against the (now-populated) dynamic runner and resumes
     // conversation from the same git-backed store, so a reload is transparent.
-    const buildSessionSources = (): { sources: InferenceSource[]; defaultSource: string } =>
-      buildSessionSourcesFromConfig(config, sessionId);
+    const buildSessionSources = (): LiveSessionSources =>
+      resolveLiveSessionSources(config, sessionId);
 
     const initialBundle = buildSessionSources();
     let liveSources = initialBundle.sources;
     let liveDefaultSource = initialBundle.defaultSource;
-    const selectedSource = liveSources[0];
-    if (selectedSource === undefined) {
-      throw new Error("Selected inference source was not assembled");
-    }
-
     // The source the next inference will use, tracked live so the compaction
     // summarizer always summarizes with the current model (model switches and
     // Codex token refreshes update it below).
-    let liveSource: InferenceSource = selectedSource;
+    let liveSource: InferenceSource = initialBundle.selected;
 
     // Compaction summarizer: produces a structured, workflow-aware handoff via a
     // one-shot call on the live model, falling back to the deterministic summary
@@ -1634,62 +1039,47 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // without requiring an agent rebuild on every settings change.
     let liveCompactionMode = config.settings?.compactionMode ?? "llm";
 
-    const buildAgent = async (): Promise<Agent> => {
-      const storage = await createOptimizedContextStore(workdir);
-      currentStorage = storage;
-      const sources = liveSources.length > 0 ? liveSources : [liveSource];
-      const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
-      return createAgentWithLiveToolDispatch(def, {
-        sources,
-        defaultSource,
-        storage,
-        workdir,
-        // contextTransforms ride deps: the published @intx/agent forwards deps
-        // into reactor assembly verbatim, and the vendored assembly picks the
-        // transforms up from there.
-        deps: {
-          ...inferenceDeps,
-          contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
-        },
-        audit: noopAuditStore(),
-        authorize: permissiveAuthorize(),
-        directors: createDirectorRegistry({
-          factories: [chatDirectorDef.factory],
-          defaultId: `${ID_PREFIX}/chat`,
+    const chatAgent = assembleChatAgent({
+      toolsId: `${ID_PREFIX}/tui-tools`,
+      agentId: `${ID_PREFIX}/tui-agent`,
+      systemPrompt,
+      getDynamicRunner: () => toolset.dynamicRunner,
+      computeAdvertised,
+      activateTools: (names) => activatedToolNames.activate(names),
+      inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+      totalTimeoutMs: config.totalTimeoutMs,
+      onTasksChange: (tasks) => emitter.emit("tasks", tasks),
+      requestContinuation: () => {
+        enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
+      },
+      getProvider: () => config,
+      // Live id so mid-session `/model` updates xAI bare-429 remapping
+      // without rebuilding the agent (aligned with transcript stamp).
+      getProviderId: () => config.providerName,
+      directorHolder,
+      onToolsPromoted: () => {
+        pendingReload = true;
+        reloadIfIdle();
+      },
+      getWorkdir: () => workdir,
+      inferenceDeps,
+      getSources: () => (liveSources.length > 0 ? liveSources : [liveSource]),
+      getDefaultSource: () => (liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id),
+      getCompactor: () =>
+        createSessionPruningCompactor({
+          compactionMode: liveCompactionMode,
+          summarize: compactionSummarize,
+          summaryContext,
+          telemetry: liveTelemetry,
+          // Main-session folds only — exec runner and subagents stay silent.
+          onFolded: (info) => emitter.emit("compaction", info),
         }),
-        compactors: {
-          "pruning-compactor": createSessionPruningCompactor({
-            compactionMode: liveCompactionMode,
-            summarize: compactionSummarize,
-            summaryContext,
-            telemetry: liveTelemetry,
-            // Main-session folds only — exec runner and subagents stay silent.
-            onFolded: (info) => emitter.emit("compaction", info),
-          }),
-        },
-      });
-    };
-
-    const turnObserver = createTurnObserver({
-      telemetry: getTelemetry,
-      getSessionId: () => sessionId,
-      getSource: () => liveSource,
-    });
-
-    const runSink = createRunSink({
-      emitter,
-      hookManager,
-      initialTurnCount: resumeSeed.turnsUsed,
-      onTurnStarted: turnObserver.onTurnStarted,
-      onTurnSourceObserved: turnObserver.onTurnSourceObserved,
-      onTurnComplete: turnObserver.onTurnComplete,
-      onTurnFailed: turnObserver.onTurnFailed,
-      // persistRunSnapshot is defined below but not invoked until the stream
-      // starts consuming events, well after this closure captures it.
-      onTurnBoundarySnapshot: () => {
-        void persistRunSnapshot("running");
+      onBuilt: (agent, storage) => {
+        currentAgent = agent;
+        currentStorage = storage;
       },
     });
+    const buildAgent = chatAgent.buildAgent;
 
     const sessionCost = createSessionCostAccumulator({
       pricingCache: getActivePricingCache,
@@ -1747,16 +1137,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       extra?: Pick<RunState, "finishedAt" | "error">,
       kind: Exclude<SnapshotKind, "run-end"> = "progress",
     ): Promise<void> => {
-      if (finalized) return;
+      if (crashGuard.isFinalized()) return;
       await writeRunSnapshot(status, extra, kind);
     };
 
-    // Cycles persist to the context store only on inference.done; the recorder
-    // keeps the in-flight cycle's text so an errored or interrupted turn leaves
-    // its partial output in partial.jsonl instead of vanishing.
-    const cycleRecorder = createCycleTextRecorder(() => workdir);
+    // Cycles persist to the context store only on inference.done; the assembled
+    // recorder keeps the in-flight cycle's text so an errored or interrupted
+    // turn leaves its partial output in partial.jsonl instead of vanishing.
     const providerFailureAttempts = createProviderFailureAttemptTracker();
-    flushPartialOnCrash = () => cycleRecorder.dispose("crashed").then(() => undefined);
+    crashGuard.setPartialFlush(() => cycleRecorder.dispose("crashed").then(() => undefined));
     const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
       let eventForSink = event;
       if (event.type === "message.received") {
@@ -2801,7 +2190,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           list: () => {
             const cfg = pluginsAdmin.getConfig();
             return pluginsAdmin.list().map((p) => {
-              const mod = livePluginModules.find((m) => m.manifest?.id === p.id);
+              const mod = pluginState.modules.find((m) => m.manifest?.id === p.id);
               const attributed = warningsForPluginEntry(standingPluginWarnings, {
                 id: p.id,
                 ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
@@ -2843,7 +2232,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           verify: (id, credentials) => pluginsAdmin.verify(id, credentials),
           addPath: (path) => pluginsAdmin.addPath(path),
           remove: (id) => pluginsAdmin.remove(id),
-          webProviders: () => webPluginCandidates.map((c) => ({ id: c.id, name: c.name })),
+          webProviders: () => pluginState.webCandidates.map((c) => ({ id: c.id, name: c.name })),
           currentWebProvider: () => pluginsAdmin.getWebOverride(),
           setWebProvider: (id) => pluginsAdmin.setWebOverride(id),
           loadWarnings: () => standingPluginWarnings,
@@ -3025,10 +2414,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
       closeAgent: () => currentAgent.close(),
     });
-    disposeHost = () => {
+    crashGuard.setDisposeHost(() => {
       void shutdownRuntime();
-    };
-    setActiveDisposeHost(disposeHost);
+    });
+    setActiveDisposeHost(() => crashGuard.invokeDisposeHost());
 
     // Harness inference.error events omit providerId; stamp the live catalog id
     // onto the stream map so transcript copy can identify known-xAI short 429s.
@@ -3220,7 +2609,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // RunState's terminal statuses — no fallback to "running" here, otherwise a
     // finished run (finishedAt set) can be left reading as still in progress.
     const persistedStatus: RunState["status"] = summaryStatus;
-    finalized = true;
+    crashGuard.markFinalized();
     // The run itself is over here, so this write clears the active-run handle
     // (via finalizeRunState in state.ts) in the same call, rather than pairing
     // the on-disk write with a separate in-memory statement at this call site.
@@ -3290,13 +2679,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // short-circuits once the clean path has marked the run finalized, and a
     // throw after that point still has to give the terminal back.
     try {
-      disposeHost();
+      crashGuard.invokeDisposeHost();
     } catch (disposeErr: unknown) {
       tuiLogger.warn("crash finalize: host dispose failed: {error}", {
         error: disposeErr instanceof Error ? disposeErr.message : String(disposeErr),
       });
     }
-    await finalizeOnCrash(err);
+    await crashGuard.finalizeOnCrash(err);
     throw err;
   }
 }

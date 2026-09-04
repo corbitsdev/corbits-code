@@ -2,43 +2,20 @@ import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output, stderr } from "node:process";
 import { join } from "node:path";
-import {
-  defineAgent,
-  defineTool,
-  createDirectorRegistry,
-  defineDirector,
-  type Agent,
-} from "@intx/agent";
-import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { type Agent } from "@intx/agent";
 import { getLogger } from "@intx/log";
-import { createOptimizedContextStore } from "../session/optimized-context-store.js";
-import { type } from "arktype";
 import { type Config } from "../config/index.js";
-import {
-  loadLocalSettings,
-  resolveLocalSettingsPath,
-  shellTimeoutFromSettings,
-  toolWatchdogFromSettings,
-} from "../config/settings.js";
+import { shellTimeoutFromSettings, toolWatchdogFromSettings } from "../config/settings.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId } from "../agent/directors/types.js";
-import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
-import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
-import {
-  advertisedToolNamesForSessionMode,
-  advertisedTools,
-  createActivatedToolTracker,
-  type ToolAvailability,
-} from "../agent/tool-search.js";
+import { type ToolAvailability } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
-import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import {
   createSubAgentSessionStore,
@@ -46,23 +23,12 @@ import {
   type SubAgentSessionStore,
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
-import type {
-  ContextStore,
-  InferenceSource,
-  ToolDefinition,
-  InboundMessage,
-} from "@intx/types/runtime";
+import type { ContextStore, InferenceSource, InboundMessage } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
-import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
-import { createPermissionGate } from "../permission/gate.js";
-import { createApprovalLog } from "../permission/approval-log.js";
-import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
-import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
-import { createTurnObserver } from "../telemetry/ai-observability.js";
 import {
   CREDENTIAL_FAILURE_USER_MESSAGE,
   isResolvedProviderFailureError,
@@ -70,19 +36,8 @@ import {
 } from "../inference-error-message.js";
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
-import {
-  expandExistingPluginMembers,
-  formatExpandSkip,
-  type ExpandPluginPathSkip,
-} from "../plugins/loader.js";
-import { isPluginTrusted, loadProjectTrust } from "../trust/project-trust.js";
-import {
-  isPathPluginTrusted,
-  migratePathTrustFromPluginPaths,
-  reportPathTrustMigration,
-} from "../trust/path-trust.js";
+import { formatExpandSkip, type ExpandPluginPathSkip } from "../plugins/loader.js";
 import { consumeStream } from "../session/stream-consumer.js";
-import { createCycleTextRecorder } from "../session/stream-journal.js";
 import {
   generateSessionId,
   initSessionDir,
@@ -90,25 +45,26 @@ import {
   sessionDir,
 } from "../session/index.js";
 import { saveState, type ConnectedMcpServer } from "../session/state.js";
-import { createRunSink, resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
+import { resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
+import { createRunSummary } from "../session/hooks.js";
 import {
-  createLifecycleHookManager,
-  createRunSummary,
-  discoverLifecycleHooks,
-  hookDirectories,
-} from "../session/hooks.js";
-import {
-  buildSessionSourcesFromConfig,
+  buildCompactionContinuationMessage,
   buildSubAgentProvider,
-  createApprovalPersist,
   createSessionPruningCompactor,
-  discoverSessionPlugins,
-  loadSeededApprovals,
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
-import { createPluginLoadDiagnostics, emitPluginWarningSummary } from "../plugins/diagnostics.js";
-import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
+import {
+  assembleChatAgent,
+  assembleInferenceBase,
+  assembleSessionGate,
+  assembleSessionLifecycle,
+  assembleSessionTrust,
+  createAdvertisedToolset,
+  loadSessionLocalSettings,
+  resolveLiveSessionSources,
+} from "../session/assemble-runtime.js";
+import { emitPluginWarningSummary } from "../plugins/diagnostics.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -238,22 +194,6 @@ export function resolveExecDirectorOverlay(director: DirectorId | undefined): Ex
   };
 }
 
-/** Content-less inbound used after compact so the reactor re-enters (matches TUI). */
-export function buildCompactionContinuationMessage(): InboundMessage {
-  return {
-    ref: { uid: 0, mailbox: "system" },
-    headers: {
-      from: "user@local",
-      to: ["agent@local"],
-      date: new Date().toISOString(),
-      messageId: `compact-continue-${Date.now()}@local`,
-    },
-    flags: [],
-    content: "",
-    signatureStatus: "missing",
-  };
-}
-
 /**
  * Build the inbound message for exec's one genuine operator input: the
  * initial task supplied on the command line. Carries
@@ -303,8 +243,8 @@ export interface ExecResult {
  * Product non-TUI agent path (`corbits exec "prompt"`).
  *
  * Shares the same ChatDirector, toolset, permission gate, session mode, and
- * sub-agent surface as the TUI — without Ink. Bootstrap is intentionally a
- * forked copy of the TUI path (not a shared factory yet); see
+ * sub-agent surface as the TUI — without Ink. Bootstrap consumes the shared
+ * session assembly in src/session/assemble-runtime.ts; see
  * docs/ARCHITECTURE.md "Exec Runner" for the intentional deltas.
  *
  * Operator/permission prompts use stdin when a TTY is available; otherwise
@@ -375,48 +315,28 @@ export async function runExec(config: Config): Promise<ExecResult> {
   await persist("running");
 
   try {
-    const inferenceDeps = await createInferenceDependencies();
-    await seedPricingMetadataFromCache({ cachePath: defaultPricingCachePath() }).catch(
-      (err: unknown) => {
-        // Pricing seed is optional for exec; continue without rates rather than fail the run.
-        logger.debug("seedPricingMetadataFromCache failed: {error}", {
-          error: formatCaughtError(err),
-        });
-      },
-    );
+    // Pricing seed is optional for exec; continue without rates rather than fail the run.
+    const inferenceDeps = await assembleInferenceBase((err: unknown) => {
+      logger.debug("seedPricingMetadataFromCache failed: {error}", {
+        error: formatCaughtError(err),
+      });
+    });
 
-    const projectTrust = await loadProjectTrust(config.cwd);
-    const isProjectPluginTrusted = (pluginPath: string) =>
-      isPluginTrusted(projectTrust, pluginPath);
     // One-shot migration only when the path-trust file does not exist yet.
     // Headless exec has no frame to corrupt, so a skipped marketplace member
     // writes straight to stderr here — an explicit choice at this call site,
     // not `expandPluginPath` falling back to it on its own.
-    const pathTrust = await migratePathTrustFromPluginPaths(
-      config.settings?.pluginPaths ?? [],
-      (p) =>
-        expandExistingPluginMembers(p, config.cwd, (skip: ExpandPluginPathSkip) => {
-          process.stderr.write(`plugins: ${formatExpandSkip(skip)}\n`);
-        }),
-      undefined,
-      { onMigrated: reportPathTrustMigration },
-    );
-    const isRegisteredPathTrusted = (pluginPath: string) =>
-      isPathPluginTrusted(pathTrust, pluginPath);
-    const pluginLoadDiag = createPluginLoadDiagnostics();
-    const pluginModules = await discoverSessionPlugins({
+    const sessionTrust = await assembleSessionTrust({
       cwd: config.cwd,
-      ...(config.settings?.pluginPaths !== undefined
-        ? { pluginPaths: config.settings.pluginPaths }
-        : {}),
-      ...(config.settings?.discoverClaudePlugins !== undefined
-        ? { discoverClaudePlugins: config.settings.discoverClaudePlugins }
-        : {}),
-      isProjectPluginTrusted,
-      isRegisteredPathTrusted,
-      diagnostics: pluginLoadDiag,
+      pluginPaths: config.settings?.pluginPaths,
+      discoverClaudePlugins: config.settings?.discoverClaudePlugins,
+      onExpandSkip: (skip: ExpandPluginPathSkip) => {
+        process.stderr.write(`plugins: ${formatExpandSkip(skip)}\n`);
+      },
       telemetry: liveTelemetry,
     });
+    const { projectTrust, pluginModules } = sessionTrust;
+    const pluginLoadDiag = sessionTrust.diagnostics;
     emitPluginWarningSummary(pluginLoadDiag, (line) => logger.warn(line));
     // Metadata-only (untrusted) modules stay out of executable plugins.
     const executablePlugins = () => pluginModules.filter((m) => m.metadataOnly !== true);
@@ -434,23 +354,17 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const liveAgentProfiles = await loadAgentProfiles(profilesDir);
 
     // loadLocalSettings maps ENOENT → null; a throw is real I/O or schema failure.
-    const localSettingsForModePath = resolveLocalSettingsPath(
-      config.cwd,
-      config.globalSettingsPath,
-    );
-    const localSettingsForMode =
-      localSettingsForModePath === null
-        ? null
-        : await loadLocalSettings(localSettingsForModePath).catch((err: unknown) => {
-            logger.warn("Failed to load local settings: {error}", {
-              error: formatCaughtError(err),
-            });
-            return null;
-          });
+    const localSettingsForMode = await loadSessionLocalSettings({
+      cwd: config.cwd,
+      globalSettingsPath: config.globalSettingsPath,
+      onError: (err: unknown) => {
+        logger.warn("Failed to load local settings: {error}", {
+          error: formatCaughtError(err),
+        });
+      },
+    });
     const sessionMode: SessionMode =
       resolveSessionMode(config.settings, localSettingsForMode) ?? "orchestrator";
-
-    const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
 
     const interactive = input.isTTY === true && output.isTTY === true;
 
@@ -460,23 +374,18 @@ export async function runExec(config: Config): Promise<ExecResult> {
       );
     }
 
-    const permissionGate = createPermissionGate({
-      approvals: seededApprovals,
-      telemetry: liveTelemetry,
+    const { gate: permissionGate } = await assembleSessionGate({
       cwd: config.cwd,
-      rootsProvider: createWorktreeRootsProvider(config.cwd),
+      sessionId,
       providerName: config.providerName,
       model: config.model,
+      telemetry: liveTelemetry,
       requestApproval: (request: PermissionRequest): Promise<ApprovalOutcome> =>
         promptPermission(request, interactive),
-      persist: createApprovalPersist(
-        config.cwd,
-        () => `${config.providerName}:${config.model}`,
-        (text) => {
-          stderr.write(`${text}\n`);
-        },
-      ),
-      approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
+      getActiveProviderModel: () => `${config.providerName}:${config.model}`,
+      onPersistNotice: (text) => {
+        stderr.write(`${text}\n`);
+      },
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
@@ -570,79 +479,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
         })
       ).systemPrompt;
 
-    const advertisedBuiltInPrefix =
-      overlay.advertisedAllow ?? advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
-    const activatedToolNames = createActivatedToolTracker();
-    // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
-    const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-      normalizeToolDefinitionsForProvider(
-        advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix),
-        { providerName: config.providerName, model: config.model },
-      );
-
-    const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
-
-    const chatDirectorDef = defineDirector({
-      id: `${ID_PREFIX}/chat`,
-      configSchema: type({}),
-      factory: (_cfg, _env, agentCtx) => {
-        const d = createChatDirector(
-          agentCtx.systemPrompt,
-          computeAdvertised([...agentCtx.toolDefinitions]),
-          {
-            onActivateTools: (names) => {
-              if (!activatedToolNames.activate(names)) return;
-              directorHolder.instance?.updateToolDefinitions(
-                computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
-              );
-            },
-            inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
-            totalTimeoutMs: config.totalTimeoutMs,
-            // Exec mode has no live task panel or task stdout output today (unlike
-            // the TUI's chrome zone) — debug logging is the closest match to how
-            // this mode already surfaces other in-session state changes.
-            onTasksChange: (tasks) => {
-              logger.debug("tasks updated: {tasks}", {
-                tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
-              });
-            },
-            requestContinuation: () => {
-              // Compaction governor self-delivers after compact so the loop re-enters.
-              currentAgent?.deliver(buildCompactionContinuationMessage());
-            },
-            provider: { providerName: config.providerName, model: config.model },
-          },
-        );
-        directorHolder.instance = d;
-        return d;
-      },
-    });
-
-    const toolsFactory = defineTool({
-      id: `${ID_PREFIX}/exec-tools`,
-      factory: () => agentToolset.dynamicRunner,
-    });
-
-    const def = defineAgent({
-      id: `${ID_PREFIX}/exec-agent`,
-      systemPrompt,
-      tools: [toolsFactory],
-      capabilities: [],
-      director: chatDirectorDef.build({}),
-      inference: {
-        sources: [{ provider: config.providerName, model: config.model }],
-      },
-    });
-
     const initialCodexProfile = codexProfileFromProviderName(config.providerName);
     const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
-    const initialBundle = buildSessionSourcesFromConfig(config, sessionId);
+    const initialBundle = resolveLiveSessionSources(config, sessionId);
     const liveSources = initialBundle.sources;
     const liveDefaultSource = initialBundle.defaultSource;
-    const selectedSource = liveSources[0];
-    if (selectedSource === undefined) {
-      throw new Error("Selected inference source was not assembled");
-    }
+    const selectedSource = initialBundle.selected;
     let liveSource: InferenceSource = selectedSource;
 
     // Refresh pinned Codex instructions before first inference, same as the
@@ -685,59 +527,72 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
     const liveCompactionMode = config.settings?.compactionMode ?? "llm";
 
-    const buildAgent = async (): Promise<Agent> => {
-      const storage = await createOptimizedContextStore(workdir);
-      currentStorage = storage;
-      const sources = liveSources.length > 0 ? liveSources : [liveSource];
-      const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
-      // Prefer liveSource credentials on the active id when OAuth was refreshed.
-      const withLiveCreds = sources.map((s) =>
-        s.id === liveSource.id ? { ...s, apiKey: liveSource.apiKey } : s,
-      );
-      return createAgentWithLiveToolDispatch(def, {
-        sources: withLiveCreds,
-        defaultSource,
-        storage,
-        workdir,
-        // contextTransforms ride deps: the published @intx/agent forwards
-        // deps into reactor assembly verbatim, and the vendored assembly
-        // picks the transforms up from there.
-        deps: {
-          ...inferenceDeps,
-          contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
-        },
-        audit: noopAuditStore(),
-        authorize: permissiveAuthorize(),
-        directors: createDirectorRegistry({
-          factories: [chatDirectorDef.factory],
-          defaultId: `${ID_PREFIX}/chat`,
+    const { activated: activatedToolNames, computeAdvertised } = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability,
+      getProvider: () => config,
+      builtInPrefix: overlay.advertisedAllow,
+    });
+
+    const { directorHolder, buildAgent } = assembleChatAgent({
+      toolsId: `${ID_PREFIX}/exec-tools`,
+      agentId: `${ID_PREFIX}/exec-agent`,
+      systemPrompt,
+      getDynamicRunner: () => agentToolset.dynamicRunner,
+      computeAdvertised,
+      activateTools: (names) => activatedToolNames.activate(names),
+      inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+      totalTimeoutMs: config.totalTimeoutMs,
+      // Exec mode has no live task panel or task stdout output today (unlike
+      // the TUI's chrome zone) — debug logging is the closest match to how
+      // this mode already surfaces other in-session state changes.
+      onTasksChange: (tasks) => {
+        logger.debug("tasks updated: {tasks}", {
+          tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+        });
+      },
+      requestContinuation: () => {
+        // Compaction governor self-delivers after compact so the loop re-enters.
+        currentAgent?.deliver(buildCompactionContinuationMessage());
+      },
+      getProvider: () => config,
+      getWorkdir: () => workdir,
+      inferenceDeps,
+      getSources: () => {
+        const sources = liveSources.length > 0 ? liveSources : [liveSource];
+        // Prefer liveSource credentials on the active id when OAuth was refreshed.
+        return sources.map((s) =>
+          s.id === liveSource.id ? { ...s, apiKey: liveSource.apiKey } : s,
+        );
+      },
+      getDefaultSource: () => (liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id),
+      getCompactor: () =>
+        createSessionPruningCompactor({
+          compactionMode: liveCompactionMode,
+          summarize: summarizeForCompaction,
+          telemetry: liveTelemetry,
         }),
-        compactors: {
-          "pruning-compactor": createSessionPruningCompactor({
-            compactionMode: liveCompactionMode,
-            summarize: summarizeForCompaction,
-            telemetry: liveTelemetry,
-          }),
-        },
-      });
-    };
+      onBuilt: (agent, storage) => {
+        currentAgent = agent;
+        currentStorage = storage;
+      },
+    });
 
     const emitter = new EventEmitter();
-    const hookManager = createLifecycleHookManager({
-      hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
-    });
-    const turnObserver = createTurnObserver({
-      telemetry: () => liveTelemetry,
+    const {
+      hookManager,
+      runSink: liveSink,
+      cycleRecorder,
+    } = await assembleSessionLifecycle({
+      cwd: config.cwd,
+      emitter,
+      getTelemetry: () => liveTelemetry,
       getSessionId: () => sessionId,
       getSource: () => liveSource,
-    });
-    const liveSink = createRunSink({
-      emitter,
-      hookManager,
-      ...turnObserver,
       onTurnBoundarySnapshot: () => {
         void persist("running");
       },
+      resolveContextDir: () => workdir,
     });
     runSink = liveSink;
 
@@ -772,7 +627,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // Cycles persist to the context store only on inference.done; the recorder
     // keeps the in-flight cycle's text so an errored or aborted turn leaves
     // its partial output in partial.jsonl instead of vanishing.
-    const cycleRecorder = createCycleTextRecorder(() => workdir);
     const sink = (event: ReactorEmittedEvent): void => {
       if (event.type === "inference.start" || event.type === "inference.done") {
         providerFailureObserved = false;
