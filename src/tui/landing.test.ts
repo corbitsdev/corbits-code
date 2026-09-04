@@ -57,6 +57,7 @@ const nativeClearInterval = globalThis.clearInterval;
  */
 const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 const SNOW_SAMPLE_CLOCKS_MS = [0, 1500, 3000, 4500, 6000, 7500] as const;
+const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
 
 type IdleTimerHandle = { unref?: () => void };
 
@@ -66,7 +67,7 @@ function wrapLandingIdleTimer(): {
 } {
   const armed: IdleTimerHandle[] = [];
   const cleared: IdleTimerHandle[] = [];
-  // Do not arm a real interval: these tests assert arm/clear, not ticks.
+  // Do not arm a real interval. Callers inject clocks or only inspect handles.
   globalThis.setInterval = ((
     handler: Parameters<typeof nativeSetInterval>[0],
     delay?: number,
@@ -286,7 +287,6 @@ describe("landing screen", () => {
       try {
         await settle(h);
         const still = markRows(h).join("\n");
-        const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
 
         // Idle re-entry holds the mountain's filled frame however far the
         // clock moves — but the snow drifting over it is not still, since the
@@ -348,8 +348,6 @@ describe("landing screen", () => {
         }
 
         expect(after).not.toBe(before);
-
-        const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
         expect(stripSnow(after)).toBe(stripSnow(before));
       } finally {
         shell.dispose();
@@ -373,7 +371,6 @@ describe("landing screen", () => {
         });
         try {
           await settle(h);
-          const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
           let snowingAt: number | undefined;
           let snowing = "";
           for (const nowMs of SNOW_SAMPLE_CLOCKS_MS) {
@@ -394,6 +391,28 @@ describe("landing screen", () => {
           const quiet = markRows(h).join("\n");
           expect(quiet.includes(SNOW_CHAR)).toBe(false);
           expect(stripSnow(quiet)).toBe(stripSnow(snowing));
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("a deferred system notice does not clear the landing idle timer", async () => {
+      const { armed, cleared } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const handle = soleLandingIdleHandle(armed);
+          surfaceSystemNotice(
+            shell,
+            "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail",
+          );
+          expect(isLanding(shell)).toBe(true);
+          expect(cleared).not.toContain(handle);
         } finally {
           shell.dispose();
         }
