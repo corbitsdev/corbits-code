@@ -604,7 +604,8 @@ so an in-flight lookup cannot reopen it. A lookup that finishes after the
 cursor has left that token does not open. Dismiss clears mention accept state
 and bumps generation.
 Directory picks re-open one level down so the operator can drill into a path
-without retyping it.
+without retyping it. The popup only splices a path into the prompt; submit
+inlines `@file` contents and summarizes `@dir` via `ingestOperatorPrompt`.
 
 A readline-style kill ring backs Ctrl+K/U/W (kill) and Ctrl+Y/Alt+Y
 (yank/yank-pop) on top of the textarea's native delete bindings, which
