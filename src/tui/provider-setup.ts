@@ -39,6 +39,10 @@ import {
   ollamaDiscoveryFailureLine,
   type OllamaDiscoveryState,
 } from "../provider/ollama.js";
+import {
+  prefetchGoModels as prefetchGoModelsRequest,
+  selectableGoModelIds,
+} from "../provider/opencode-go-models.js";
 import { codexProviderName } from "../config/codex-providers.js";
 import { xaiProviderName } from "../config/xai-providers.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
@@ -307,13 +311,14 @@ const CUSTOM_CHOICE: ProviderChoice = {
 function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
   if (def.auth !== "api-key" && def.auth !== "keyless") return null;
   if (def.baseURL === undefined || def.models === undefined) return null;
-  const defaultModel = def.defaultModel ?? def.models[0];
+  const models = def.opencodeGo === true ? selectableGoModelIds() : def.models;
+  const defaultModel = def.defaultModel ?? models[0];
   if (defaultModel === undefined) return null;
   return {
     id: def.id,
     label: def.label,
     baseURL: def.baseURL,
-    models: def.models,
+    models,
     defaultModel,
     hint: def.authHint ?? "",
     anthropic: def.anthropic === true,
@@ -731,6 +736,8 @@ export interface ProviderSetupConfig {
   readonly loginTimeoutMs?: number;
   /** Ollama discovery override for deterministic setup tests. */
   readonly discoverOllamaModels?: typeof discoverOllamaModelsRequest;
+  /** Go catalog prefetch override so setup tests stay off the network. */
+  readonly prefetchGoModels?: typeof prefetchGoModelsRequest;
   /**
    * Skip the provider pick-list and start directly on that provider's first
    * form step (account name for multi-instance kinds, or the custom name
@@ -836,6 +843,9 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   let ollamaDiscovery: "idle" | "loading" | OllamaDiscoveryState = "idle";
   let ollamaDiscoveryAttempt = 0;
   let ollamaDiscoveryAbort: AbortController | null = null;
+
+  const prefetchGoModels = config.prefetchGoModels ?? prefetchGoModelsRequest;
+  let goPrefetchAttempt = 0;
 
   if (config.initialProviderId !== undefined) {
     const preselected = choices.find((c) => c.id === config.initialProviderId);
@@ -1355,10 +1365,15 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     ollamaDiscoveryAbort = null;
   };
 
+  const abandonGoPrefetch = (): void => {
+    goPrefetchAttempt += 1;
+  };
+
   const teardown = (): void => {
     stopRamp();
     abandonLogin();
     abandonOllamaDiscovery();
+    abandonGoPrefetch();
     renderer.keyInput.off("keypress", onKey);
     input.off(InputRenderableEvents.ENTER, onEnter);
     input.off(InputRenderableEvents.INPUT, onInput);
@@ -1558,6 +1573,42 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     );
   };
 
+  const isGoModelListStep = (): boolean =>
+    currentStep() === "model" &&
+    choice !== null &&
+    choice.opencodeGo &&
+    !choice.custom &&
+    !typedModel;
+
+  const beginGoPrefetch = (): void => {
+    if (!isGoModelListStep()) return;
+    abandonGoPrefetch();
+    const attempt = goPrefetchAttempt;
+    void prefetchGoModels()
+      .then((ids) => {
+        if (settled || attempt !== goPrefetchAttempt || !isGoModelListStep() || choice === null) {
+          return;
+        }
+        const listed = choice.models;
+        const same = ids.length === listed.length && ids.every((id, i) => id === listed[i]);
+        if (same) return;
+        const focusedId = listRows[list.activeIndex]?.id;
+        choice = { ...choice, models: [...ids] };
+        listRows = modelChoiceRows(choice);
+        const found =
+          focusedId === undefined ? -1 : listRows.findIndex((row) => row.id === focusedId);
+        list = createListViewport({
+          count: listRows.length,
+          height: listHeight(),
+          activeIndex: found >= 0 ? found : 0,
+        });
+        paint();
+      })
+      .catch(() => {
+        // Seed list is already on screen; a failed prefetch must not surface.
+      });
+  };
+
   const submit = (skipValidation: boolean): void => {
     submitting = true;
     submitPhase = "testing";
@@ -1645,6 +1696,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       height: listHeight(),
       activeIndex: active,
     });
+    beginGoPrefetch();
   };
 
   const enterProviderList = (): void => {
@@ -1781,6 +1833,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       abandonOllamaDiscovery();
       ollamaDiscovery = "idle";
     }
+    if (isGoModelListStep()) abandonGoPrefetch();
     stepIndex -= 1;
     clearError();
     if (currentStep() === "provider") enterProviderList();

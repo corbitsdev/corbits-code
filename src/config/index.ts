@@ -39,6 +39,7 @@ import {
 } from "../provider/grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
+import { selectableGoModelIds } from "../provider/opencode-go-models.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,
@@ -964,7 +965,9 @@ function mergeOAuthCatalog(
     ),
     ...codexProfilesToCatalogEntries(codexProfiles),
     ...xaiProfilesToCatalogEntries(xaiProfiles),
-  ];
+  ].map((entry) =>
+    isOpenCodeGoProvider(entry) ? { ...entry, models: [...selectableGoModelIds()] } : entry,
+  );
 }
 
 /** Rescans home-level Codex/xAI credential stores and rebuilds the live provider catalog. */
