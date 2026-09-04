@@ -11,6 +11,12 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Changed
+
+- Interactive TUI pins OpenTUI 0.5.10 (`@opentui/core`, keymap, solid, and native platform packages in lockstep).
+
 ## [0.3.14] - 2026-09-03
 
 ### Changed

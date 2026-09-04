@@ -1,5 +1,5 @@
 /** OpenTUI platform kit — not wired to the CLI entry yet. */
-export const PLATFORM_VERSION = "0.5.1" as const;
+export const PLATFORM_VERSION = "0.5.10" as const;
 
 export * from "./geometry/index";
 export * from "./focus/index";
