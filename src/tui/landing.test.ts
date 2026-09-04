@@ -553,7 +553,9 @@ describe("landing screen", () => {
       try {
         await settle(h);
         const frame = h.captureCharFrame();
-        for (const gone of ["BUSY", "IDLE", "FOLLOW", "queue", "lines", "focus"]) {
+        // Assert the badge token, not "queue": this worktree path contains
+        // "queued" and would false-fail a cwd substring check.
+        for (const gone of ["BUSY", "IDLE", "FOLLOW", "follow-up", "lines", "focus"]) {
           expect(frame).not.toContain(gone);
         }
         // The old header blue and status green are gone as fills.

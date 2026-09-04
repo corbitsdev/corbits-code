@@ -972,6 +972,39 @@ describe("mcp surface", () => {
     });
   });
 
+  test("does not subscribe until the MCP overlay actually takes the host", async () => {
+    await withShell(async (shell) => {
+      openListOverlay(shell, {
+        kind: "permissions",
+        items: ["Deny"],
+        onCancel: () => undefined,
+        isGate: true,
+      });
+      const listeners = new Set<() => void>();
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: {
+          list: () => entries,
+          openAuthURL: () => {},
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+      });
+      expect(shell.overlayKind).toBe("permissions");
+      expect(listeners.size).toBe(0);
+
+      closeInsetOverlay(shell);
+      await Promise.resolve();
+      expect(shell.overlayKind).toBe("mcp");
+      expect(listeners.size).toBe(1);
+
+      closeInsetOverlay(shell);
+      expect(listeners.size).toBe(0);
+    });
+  });
+
   test("disposing an open MCP surface releases its status subscription exactly once", async () => {
     await withShell((shell) => {
       const listeners = new Set<() => void>();

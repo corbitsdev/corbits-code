@@ -1974,6 +1974,8 @@ interface PriorOverlaySnapshot {
   readonly answer: OverlayAnswerState | null;
   readonly titleText: string;
   readonly onCancel: (() => void) | null;
+  readonly onDispose: (() => void) | null;
+  readonly isGate: boolean;
   readonly addProviderHint: boolean;
   readonly setDefaultHint: boolean;
   readonly mcpManageHint: boolean;
@@ -1994,7 +1996,7 @@ interface ShellInternals {
   overlayRawBodyText: string;
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null;
-  /** Advances whenever a new overlay takes ownership of the shared host. */
+  /** Advances on a new overlay taking the host, and when the host empties. */
   overlayGeneration: number;
   /** Optional stable ids aligned with overlayItems for the open primary. */
   overlayItemIds: readonly string[];
@@ -2039,8 +2041,36 @@ interface ShellInternals {
    * pending promise the way palette/mentions/copy overlays correctly do.
    */
   overlayOnCancel: (() => void) | null;
-  /** Fired once the shell has no overlay open, so queued gates can re-open. */
+  /**
+   * Per-open cleanup for a replaced or dismissed overlay (MCP unsubscribe).
+   * closeReplaceableOverlay still runs this; it skips overlayOnCancel so
+   * Esc-only navigation (add-provider back to models) does not fire.
+   */
+  overlayOnDispose: (() => void) | null;
+  /** True while the open primary is a decision gate that must not be replaced. */
+  overlayIsGate: boolean;
+  /** Fired once the overlay host is idle, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>;
+  /**
+   * Command-surface open while a live overlay still holds the host. One slot;
+   * a newer command replaces an older one. Flushed only after that overlay
+   * has actually closed and the host is idle — never from idle-notify, which
+   * would let wireGates drain a queued gate onto the same host.
+   */
+  deferredCommandOverlay: OpenListOverlayOpts | null;
+  /** True while a microtask to flush deferredCommandOverlay is queued. */
+  deferredFlushScheduled: boolean;
+  /**
+   * Host-owned holds that outlive overlayList being null (async /settings
+   * list(), etc.). While > 0, idle-notify must not fire so a queued gate
+   * cannot drain into the gap before the surface paints.
+   */
+  overlayHostReservations: number;
+  /**
+   * Advanced when Esc aborts in-flight reservations so a stale `release()`
+   * cannot decrement a newer hold.
+   */
+  overlayReservationEpoch: number;
   /**
    * Registry-backed `/` command catalog (static or lazy), host-injected. Empty
    * when unset.
@@ -3567,6 +3597,22 @@ export interface OpenListOverlayOpts {
    */
   readonly onCancel?: () => void;
   /**
+   * Per-open cleanup for replace and dismiss. closeReplaceableOverlay
+   * invokes this and skips `onCancel`, which is Esc/dismiss only.
+   */
+  readonly onDispose?: () => void;
+  /**
+   * True when this open is a permission/operator decision gate. Command
+   * surfaces call `closeReplaceableOverlay` to free the host; that no-ops
+   * while this is set so a live gate is not torn down.
+   */
+  readonly isGate?: boolean;
+  /**
+   * Invoked only after this open actually takes the host (including a
+   * deferred flush). Busy no-ops and deferred stashes do not run it.
+   */
+  readonly onOpened?: () => void;
+  /**
    * Description-zone source. Called with the focused item's id on every move
    * (falling back to its label when no `itemIds` were supplied). Returning
    * null renders the zone blank, not collapsed — the fixed two-line zone is
@@ -3630,20 +3676,37 @@ export interface OpenListOverlayOpts {
    * shadow global MCP (add is hidden and Alt+A is a dead chord).
    */
   readonly mcpAddHint?: boolean;
+  /**
+   * When the host is already showing a non-palette overlay, stash this open
+   * in the one deferred slot and print a system line. Off by default: a
+   * busy open is a silent no-op (demo, mentions, same-kind re-open of
+   * surfaces that do not call `closeReplaceableOverlay` first).
+   */
+  readonly deferIfBusy?: boolean;
 }
 
 /**
  * Open an inset list overlay on the shared host (permissions / operator / picker / palette).
  * Measures body + list into geometry — no guessed absolute paint.
+ *
+ * Single host: a non-palette open while anything is showing is a silent no-op
+ * unless `deferIfBusy` is set, in which case it waits in one deferred slot
+ * with a system line. Callers that replace a non-gate list close it first.
+ * Palette may stack over a prior primary.
  */
 export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): void {
   const kind = opts?.kind ?? "demo";
   const isPalette = kind === "palette";
 
-  // Single host: non-palette open is a no-op while anything is open.
-  // Palette may stack over a prior primary (snapshot paint; focus stacks).
+  // Single host: non-palette open is a silent no-op while anything is open,
+  // unless the caller opted into the one deferred command-surface slot.
+  // Command surfaces that should replace a non-gate list call
+  // closeReplaceableOverlay first. Palette may stack over a prior primary.
   if (shell.overlayList) {
-    if (!isPalette) return;
+    if (!isPalette) {
+      if (opts?.deferIfBusy === true) deferBusyCommandOpen(shell, opts);
+      return;
+    }
     if (shell.overlayKind !== "palette") {
       const bag = internals.get(shell);
       if (bag) {
@@ -3666,6 +3729,8 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
           answer: bag.overlayAnswer,
           titleText: bag.overlayTitleText,
           onCancel: bag.overlayOnCancel,
+          onDispose: bag.overlayOnDispose,
+          isGate: bag.overlayIsGate,
           addProviderHint: bag.overlayAddProviderHint,
           setDefaultHint: bag.overlaySetDefaultHint,
           mcpManageHint: bag.overlayMcpManageHint,
@@ -3702,6 +3767,8 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
       bag.overlayOnAction = opts?.onAction ?? null;
       bag.overlayOnPaste = opts?.onPaste ?? null;
       bag.overlayOnCancel = opts?.onCancel ?? null;
+      bag.overlayOnDispose = opts?.onDispose ?? null;
+      bag.overlayIsGate = opts?.isGate === true;
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
       bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
       bag.overlayMcpManageHint = opts?.mcpManageHint ?? false;
@@ -3728,6 +3795,8 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
       bag.overlayOnAction = opts?.onAction ?? null;
       bag.overlayOnPaste = opts?.onPaste ?? null;
       bag.overlayOnCancel = opts?.onCancel ?? null;
+      bag.overlayOnDispose = opts?.onDispose ?? null;
+      bag.overlayIsGate = opts?.isGate === true;
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
       bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
       bag.overlayMcpManageHint = opts?.mcpManageHint ?? false;
@@ -3784,6 +3853,7 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
   relayoutOverlayHost(shell, listItems);
   applyFocus(shell);
   paintOverlayList(shell);
+  opts?.onOpened?.();
 }
 
 /** Open inset permission/palette stub; focus stack owns keys; Esc closes. */
@@ -3857,7 +3927,8 @@ interface PaletteFilterState {
 /**
  * Live type-to-filter state for a non-palette list overlay (model picker).
  * Holds the full unfiltered row set so each keystroke can re-narrow in place
- * without reopening the overlay (openListOverlay no-ops when one is already up).
+ * without reopening the overlay (a busy open is a silent no-op unless
+ * `deferIfBusy` is set).
  */
 interface ListFilterState {
   query: string;
@@ -3948,8 +4019,8 @@ export function isAddProviderShortcutKey(key: KeyEvent): boolean {
 /**
  * Keys a type-to-filter list overlay claims while open, so the `>` row
  * narrows as you type. Mirrors the palette filter, but updates the open
- * list in place via setOverlayItems (openListOverlay is a no-op when a
- * non-palette overlay is already up).
+ * list in place via setOverlayItems (a busy openListOverlay is a silent
+ * no-op unless `deferIfBusy` is set).
  */
 export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   const bag = internals.get(shell);
@@ -4143,6 +4214,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   // path. A palette stacked over another overlay restores that prior frame
   // instead, so its callback must remain untouched.
   const onCancel = !prior ? (bag?.overlayOnCancel ?? null) : null;
+  const onDispose = !prior ? (bag?.overlayOnDispose ?? null) : null;
 
   shell.overlayList = null;
   shell.overlayKind = null;
@@ -4168,6 +4240,8 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayMcpAddHint = false;
     bag.overlayAnswer = null;
     bag.overlayOnCancel = null;
+    bag.overlayOnDispose = null;
+    bag.overlayIsGate = false;
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -4197,6 +4271,8 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayAnswer = prior.answer;
     bag.overlayTitleText = prior.titleText;
     bag.overlayOnCancel = prior.onCancel;
+    bag.overlayOnDispose = prior.onDispose;
+    bag.overlayIsGate = prior.isGate;
     bag.overlayAddProviderHint = prior.addProviderHint;
     bag.overlaySetDefaultHint = prior.setDefaultHint;
     bag.overlayMcpManageHint = prior.mcpManageHint;
@@ -4232,14 +4308,35 @@ export function closeInsetOverlay(shell: AppShell): void {
 
   relayout(shell, { overlayMode: "closed" });
   applyFocus(shell);
-  notifyOverlayClosed(shell);
-  onCancel?.();
+  if (bag) bag.overlayGeneration += 1;
+  if (isOverlayHostIdle(shell)) notifyOverlayClosed(shell);
+  try {
+    onDispose?.();
+    onCancel?.();
+  } finally {
+    scheduleDeferredCommandFlush(shell);
+  }
 }
 
 /**
- * Subscribe to "the shell now has no overlay open". The single overlay host
- * drops any open request that arrives while it is busy, so callers that must
- * not lose one (gate wiring) queue on this instead.
+ * Close the current overlay only when dismissing it does not settle a
+ * decision gate (`isGate`). Command surfaces that need a fresh host
+ * (settings cycle, plugins, mcp) call this instead of `closeInsetOverlay`
+ * so a live gate is left in place and `openListOverlay` can defer.
+ * Overlays that bind `onDispose` for cleanup (mcp unsubscribe) still
+ * run that hook; `onCancel` is Esc/dismiss only and is skipped here.
+ */
+export function closeReplaceableOverlay(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (bag?.overlayIsGate === true) return;
+  if (bag) bag.overlayOnCancel = null;
+  closeInsetOverlay(shell);
+}
+
+/**
+ * Subscribe to "the overlay host is idle". Idle means no live list, no
+ * deferred command surface, and no host reservations. Callers that must not
+ * lose an open (gate wiring) queue on this instead of racing a busy host.
  */
 export function onOverlayClosed(shell: AppShell, listener: () => void): () => void {
   const bag = internals.get(shell);
@@ -4250,11 +4347,113 @@ export function onOverlayClosed(shell: AppShell, listener: () => void): () => vo
   };
 }
 
+/**
+ * True when the shared overlay host can accept a new primary open: the shell
+ * is live, no list is showing, no deferred command is waiting, and nothing
+ * holds a reservation.
+ */
+export function isOverlayHostIdle(shell: AppShell): boolean {
+  if (shell.disposed) return false;
+  const bag = internals.get(shell);
+  return (
+    shell.overlayList === null &&
+    (bag?.deferredCommandOverlay ?? null) === null &&
+    (bag?.overlayHostReservations ?? 0) === 0
+  );
+}
+
 function notifyOverlayClosed(shell: AppShell): void {
+  if (!isOverlayHostIdle(shell)) return;
   const bag = internals.get(shell);
   if (!bag) return;
   // Copied: a listener may re-open an overlay and unsubscribe mid-iteration.
   for (const listener of [...bag.overlayClosedListeners]) listener();
+}
+
+/**
+ * Hold the overlay host idle-notify while an async command surface is still
+ * claiming it (permissions.list() before settings/permissions paint). Release
+ * clears the hold, flushes a deferred surface if one is waiting, and notifies
+ * if the host is actually idle.
+ */
+export function reserveOverlayHost(shell: AppShell): () => void {
+  const bag = internals.get(shell);
+  if (!bag) return () => undefined;
+  bag.overlayHostReservations += 1;
+  const epoch = bag.overlayReservationEpoch;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const current = internals.get(shell);
+    if (!current || current.overlayReservationEpoch !== epoch) return;
+    if (current.overlayHostReservations > 0) current.overlayHostReservations -= 1;
+    scheduleDeferredCommandFlush(shell);
+    notifyOverlayClosed(shell);
+  };
+}
+
+/** Drop in-flight host holds. Stale `release()` callbacks become no-ops. */
+function abortOverlayHostReservations(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag || bag.overlayHostReservations === 0) return;
+  bag.overlayReservationEpoch += 1;
+  bag.overlayHostReservations = 0;
+  bag.overlayGeneration += 1;
+  scheduleDeferredCommandFlush(shell);
+}
+
+/** One deferred command-surface slot while the host is busy. */
+function deferBusyCommandOpen(shell: AppShell, opts: OpenListOverlayOpts): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  bag.deferredCommandOverlay = opts.kind === undefined ? { ...opts, kind: "demo" } : opts;
+  const kind = overlayKindWord(opts.kind ?? "demo");
+  appendStreamRow(shell, {
+    role: "system",
+    text: `${kind} will open when the current list closes.`,
+  });
+  scheduleDeferredCommandFlush(shell);
+}
+
+function scheduleDeferredCommandFlush(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag || bag.deferredCommandOverlay === null || bag.deferredFlushScheduled) return;
+  bag.deferredFlushScheduled = true;
+  queueMicrotask(() => {
+    bag.deferredFlushScheduled = false;
+    if (shell.disposed) {
+      bag.deferredCommandOverlay = null;
+      return;
+    }
+    flushDeferredCommandOverlay(shell);
+  });
+}
+
+function flushDeferredCommandOverlay(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  // Live list still occupies the host — keep the slot.
+  if (shell.overlayList !== null) return;
+  const opts = bag.deferredCommandOverlay;
+  if (opts === null) {
+    notifyOverlayClosed(shell);
+    return;
+  }
+  bag.deferredCommandOverlay = null;
+  // Reservations/disposed still occupy the host; restore the slot.
+  if (!isOverlayHostIdle(shell)) {
+    bag.deferredCommandOverlay = opts;
+    return;
+  }
+  openListOverlay(shell, opts);
+}
+
+function dropDeferredCommandOverlay(shell: AppShell): void {
+  const bag = internals.get(shell);
+  if (!bag) return;
+  bag.deferredCommandOverlay = null;
+  bag.deferredFlushScheduled = false;
 }
 
 /**
@@ -4333,7 +4532,7 @@ export interface OverlayContinuationToken {
   readonly generation: number;
 }
 
-/** Capture ownership of the currently idle overlay host for an async continuation. */
+/** Capture overlay generation for an async continuation. Stale after a newer open, a full close, or Esc abort. */
 export function captureOverlayContinuation(shell: AppShell): OverlayContinuationToken {
   return { generation: internals.get(shell)?.overlayGeneration ?? -1 };
 }
@@ -4343,11 +4542,15 @@ export function isOverlayContinuationCurrent(
   shell: AppShell,
   token: OverlayContinuationToken,
 ): boolean {
-  return (
-    !shell.disposed &&
-    shell.overlayList === null &&
-    internals.get(shell)?.overlayGeneration === token.generation
-  );
+  return isOverlayGenerationCurrent(shell, token) && shell.overlayList === null;
+}
+
+/** True while the shell is live and generation has not advanced. */
+export function isOverlayGenerationCurrent(
+  shell: AppShell,
+  token: OverlayContinuationToken,
+): boolean {
+  return !shell.disposed && internals.get(shell)?.overlayGeneration === token.generation;
 }
 
 /**
@@ -4504,8 +4707,13 @@ export function acceptOverlaySelection(shell: AppShell): void {
       closeInsetOverlay(shell);
       return;
     }
+    const release = reserveOverlayHost(shell);
     closeInsetOverlay(shell);
-    dispatchPaletteSelection(shell, cmd);
+    try {
+      dispatchPaletteSelection(shell, cmd);
+    } finally {
+      release();
+    }
     return;
   }
 
@@ -4542,8 +4750,13 @@ export function acceptOverlaySelection(shell: AppShell): void {
   // Accept is not operator dismiss: keep mention accept state for onAccept
   // after this close (closeInsetOverlay would otherwise bump the generation).
   if (kind === "mentions") mentionPopups.delete(shell);
+  const release = reserveOverlayHost(shell);
   closeInsetOverlay(shell);
-  dispatchOverlayAccept(shell, selection, perOpen);
+  try {
+    dispatchOverlayAccept(shell, selection, perOpen);
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -5053,6 +5266,7 @@ export function openSettingsOverlay(shell: AppShell, opts: OpenResidualListOpts)
     items: opts.items,
     activeIndex: opts.activeIndex ?? 0,
     frameId: "overlay-settings",
+    deferIfBusy: true,
     ...(opts.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts.itemValues !== undefined ? { itemValues: opts.itemValues } : {}),
     ...(opts.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
@@ -5069,13 +5283,20 @@ function helpItems(): readonly string[] {
 }
 
 export function openHelpOverlay(shell: AppShell): void {
-  openListOverlay(shell, {
-    kind: "help",
-    title: "help · keymap",
-    items: helpItems(),
-    activeIndex: 0,
-    frameId: "overlay-help",
-  });
+  const release = reserveOverlayHost(shell);
+  try {
+    closeReplaceableOverlay(shell);
+    openListOverlay(shell, {
+      kind: "help",
+      title: "help · keymap",
+      items: helpItems(),
+      activeIndex: 0,
+      frameId: "overlay-help",
+      deferIfBusy: true,
+    });
+  } finally {
+    release();
+  }
 }
 
 export function openMentionsOverlay(shell: AppShell, opts: OpenResidualListOpts): void {
@@ -5329,19 +5550,19 @@ export function openSlashCommands(shell: AppShell): boolean {
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening released the overlay host between the two calls (closeSlashPopup
-  // routes through closeInsetOverlay, which fires notifyOverlayClosed) — long
-  // enough for a queued permission/operator gate to drain onto it. Refreshing
-  // the open palette in place never releases the host, so a queued gate has
-  // nothing to drain into. priorOverlay stacking is untouched here (it is only
-  // ever written by openListOverlay's stack-on-open path), so a palette
-  // stacked over a prior overlay keeps that snapshot across the refresh.
+  // routes through closeInsetOverlay, which idle-notifies) — long enough for a
+  // queued permission/operator gate to drain onto it. Refreshing the open
+  // palette in place never releases the host, so a queued gate has nothing to
+  // drain into. priorOverlay stacking is untouched here (it is only ever
+  // written by openListOverlay's stack-on-open path), so a palette stacked
+  // over a prior overlay keeps that snapshot across the refresh.
   //
   // A typo that zeroes the matches must not fall through to closeSlashPopup
-  // while the popup is already open — that closes through the same
-  // notifyOverlayClosed path and drains a queued gate mid-filter. Instead
-  // this refreshes in place to a "(no matches)" row, same as the general
-  // palette does, and holds the host until a real dismiss (deleting the `/`,
-  // Esc, accept) or a backspace that restores matches.
+  // while the popup is already open — that closes through the same idle-notify
+  // path and drains a queued gate mid-filter. Instead this refreshes in place
+  // to a "(no matches)" row, same as the general palette does, and holds the
+  // host until a real dismiss (deleting the `/`, Esc, accept) or a backspace
+  // that restores matches.
   if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
     refreshSlashPopupInPlace(shell, matches);
     return true;
@@ -5419,13 +5640,21 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   }
 
   if ((key.name === "return" || key.name === "enter") && !key.ctrl && !key.meta && !key.option) {
-    closeSlashPopup(shell);
-    // Zero matches: nothing to dispatch. Preserve the typed text instead of
-    // wiping it — pre-refresh this state was unreachable (popup closed on
-    // zero matches, so Enter fell through to normal prompt handling).
-    if (!active) return true;
+    // Genuine dismiss (zero matches) still notifies immediately so a queued
+    // gate can drain. Accept-with-match keeps the host until dispatch settles.
+    if (!active) {
+      closeSlashPopup(shell);
+      return true;
+    }
     setPromptText(shell, "");
-    dispatchPaletteSelection(shell, active);
+    slashPopups.delete(shell);
+    const release = reserveOverlayHost(shell);
+    closeInsetOverlay(shell);
+    try {
+      dispatchPaletteSelection(shell, active);
+    } finally {
+      release();
+    }
     return true;
   }
 
@@ -5791,7 +6020,15 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       }
       if (shell.overlayList) {
         key.preventDefault();
+        abortOverlayHostReservations(shell);
         closeInsetOverlay(shell);
+        return;
+      }
+      if (internals.get(shell)?.overlayHostReservations) {
+        abortOverlayHostReservations(shell);
+        key.preventDefault();
+        // Next tick so the same Esc cannot also dismiss a gate this abort drains.
+        queueMicrotask(() => notifyOverlayClosed(shell));
         return;
       }
       if (shell.observe) {
@@ -6337,10 +6574,12 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     disposed: false,
     dispose: () => {
       if (disposed) return;
+      dropDeferredCommandOverlay(shell);
       // Unwind a stacked palette first, then let the primary overlay's owner
       // release subscriptions or settle awaited cancellation exactly once.
       let overlayGuard = 4;
       while (shell.overlayList !== null && overlayGuard-- > 0) closeInsetOverlay(shell);
+      abortOverlayHostReservations(shell);
       disposed = true;
       shell.disposed = true;
       if (wireKeys) {
@@ -6393,7 +6632,13 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayAnswer: null,
     overlayTitleText: "",
     overlayOnCancel: null,
+    overlayOnDispose: null,
+    overlayIsGate: false,
     overlayClosedListeners: new Set(),
+    deferredCommandOverlay: null,
+    deferredFlushScheduled: false,
+    overlayHostReservations: 0,
+    overlayReservationEpoch: 0,
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,
     listFilter: null,

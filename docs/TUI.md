@@ -259,10 +259,21 @@ for `/status` or an operator question mid-run.
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider
-accounting (`src/tui/geometry/resolve.ts`,
-`src/tui/shell.ts:openListOverlay`). Opening a second surface either
-replaces the one that was open or stacks over it; either way Escape always
-walks back along a single path to the prompt.
+picker, help) occupies the shell's **single overlay host**
+(`src/tui/geometry/resolve.ts`,
+`src/tui/shell.ts:openListOverlay`). A second command surface replaces a
+non-gate list on that host, or waits with a system line while a live
+gate holds it. Palette may stack over a primary; Escape always walks
+back along a single path to the prompt.
+
+Accepting a `/` command or palette row keeps that host until dispatch
+settles: the list closes without advertising idle, the command runs, and
+the host advertises idle only when no list, deferred slot, or reservation
+remains. A command surface (`/help`, `/model`) requested while a live
+gate still holds the host does not steal it and does not silently no-op
+— it waits until that gate closes, with a system line so the wait is
+visible. A gate that was only queued (never shown) stays queued while
+the command surface is up; its display timeout does not run.
 
 An open overlay reserves a real minimum for its own border, title, and at
 least one content row before anything else — including the transcript floor
@@ -346,11 +357,18 @@ showing (`repaintPalette`).
 
 `/` at an empty prompt opens the command list, narrowed by name prefix as
 more is typed (`cmd.id` in `openSlashCommands`); Tab completes the name so
-arguments can be typed, Enter runs it. The query lives in the prompt — list
-chrome is in How selectors should work above. When the prefix matches
-nothing, the overlay closes and the prompt is left as typed: `/` then `z`
-with no `z…` command vanishes the list and leaves `/z`. Slash never paints
-a `(no matches)` row. Every entry is backed by the live command registry
+arguments can be typed, Enter runs it. Enter on a matching command keeps
+the overlay host until dispatch settles, so a queued permission gate cannot
+open in the gap between closing the list and opening `/help` or `/model`.
+If the command list is stacked over a live permission or operator prompt,
+that prompt stays; the command surface waits until it closes, and a system
+line says so rather than dropping the selection. Tab, Escape, and Enter
+with no matches are genuine dismisses and still release the host. The query
+lives in the prompt — list chrome is in How selectors should work above.
+When the prefix matches nothing, the list stays open and paints a
+`(no matches)` row (CL-6699: a close-and-reopen refresh would drain a
+queued gate); Enter then dismisses and leaves the prompt as typed (`/z`).
+Every entry is backed by the live command registry
 (`src/tui/command-catalog.ts:commandItemsFromRegistry`) — there is no
 separate palette overlay and no shell-owned action outside the registry. The
 overlay this reuses is still internally called `"palette"` (`shell.ts`'s

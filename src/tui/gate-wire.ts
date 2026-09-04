@@ -10,7 +10,13 @@ import { formatCommandForApproval } from "./command-display.js";
 import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
 import type { AppShell, OverlaySelection } from "./shell.js";
-import { appendStreamRow, closeInsetOverlay, onOverlayClosed, setOverlayBody } from "./shell.js";
+import {
+  appendStreamRow,
+  closeInsetOverlay,
+  isOverlayHostIdle,
+  onOverlayClosed,
+  setOverlayBody,
+} from "./shell.js";
 import { EXPAND_KEY } from "./stream.js";
 import type { OperatorGateEvent, PermissionGateEvent } from "./gate-events.js";
 import {
@@ -261,7 +267,7 @@ export function wireGates(
   }
 
   function openOrQueue(open: () => void): void {
-    if (shell.overlayList !== null) {
+    if (!isOverlayHostIdle(shell)) {
       pending.push(open);
       return;
     }
@@ -365,6 +371,7 @@ export function wireGates(
             }),
           );
         },
+        isGate: true,
       });
     };
 
@@ -476,6 +483,7 @@ export function wireGates(
           operatorTeardowns.delete(teardown);
           resolve(operatorCancelResult());
         },
+        isGate: true,
       });
     };
 
