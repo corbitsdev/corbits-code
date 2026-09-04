@@ -49,6 +49,7 @@ import {
   setPaletteCatalog,
   setPaletteOnCommand,
   setMcpNeedsAuth,
+  setOwnedOverlayItems,
   setStatusFlash,
   surfaceSystemNotice,
   type AppShell,
@@ -628,6 +629,13 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   ): void => {
     currentModels = models;
     currentDescribeModel = describeModel;
+    const items = annotateCurrent(currentModels, config.activeModelId?.());
+    setOwnedOverlayItems(
+      shell,
+      "model_picker",
+      items.map((m) => m.label),
+      items.map((m) => m.id),
+    );
   };
 
   config.eventEmitter.on("event", onEvent);

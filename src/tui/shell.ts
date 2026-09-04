@@ -4569,15 +4569,35 @@ export function setOwnedOverlayItems(
   if (!bag) return false;
 
   if (shell.overlayKind === kind && shell.overlayList !== null) {
+    const previousCount = shell.overlayItems.length;
     const activeId = bag.overlayItemIds[shell.overlayList.activeIndex];
-    setOverlayItems(shell, items, itemIds);
-    const activeIndex = activeId === undefined ? -1 : itemIds.indexOf(activeId);
+    const filter = bag.listFilter;
+    if (filter) {
+      bag.listFilter = {
+        query: filter.query,
+        allItems: [...items],
+        allItemIds: [...itemIds],
+        allItemValues: filter.allItemValues,
+      };
+      repaintListFilter(shell);
+    } else {
+      setOverlayItems(shell, items, itemIds);
+    }
+    const displayedCount = shell.overlayItems.length;
+    const activeIndex = activeId === undefined ? -1 : bag.overlayItemIds.indexOf(activeId);
     if (activeIndex >= 0 && shell.overlayList.activeIndex !== activeIndex) {
       shell.overlayList = createListViewport({
-        count: items.length,
+        count: displayedCount,
         height: shell.overlayList.height,
         activeIndex,
       });
+      paintOverlayList(shell);
+    }
+    if (displayedCount !== previousCount) {
+      if (shell.overlayList !== null) {
+        shell.overlayList = setListHeight(shell.overlayList, Math.max(1, displayedCount));
+      }
+      relayoutOverlayHost(shell, displayedCount);
       paintOverlayList(shell);
     }
     return true;
