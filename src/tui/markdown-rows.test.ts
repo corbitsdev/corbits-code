@@ -73,15 +73,20 @@ describe("markdown transcript rows", () => {
 
       const frame = await settle(
         h,
-        // Require formatted heading and bold: "docs" plus absence of "## Title"
-        // can match a frame where the heading has not painted yet (same class as
-        // the ### heading flake below).
+        // Require formatted heading, bold, fence, and link: "docs" plus
+        // absence of "## Title" can match a frame where the heading has not
+        // painted yet, and formatted heading+bold can land while fence/link
+        // syntax is still literal (same class as the ### heading flake below).
         (f) =>
           f.includes("Title") &&
           f.includes("bolded") &&
           f.includes("docs") &&
+          f.includes("alpha") &&
+          f.includes("const x = 1") &&
           !f.includes("## Title") &&
-          !f.includes("**bolded**"),
+          !f.includes("**bolded**") &&
+          !f.includes("```") &&
+          !f.includes("](https://example.com/docs)"),
       );
       expect(frame).toContain("Title");
       expect(frame).not.toContain("## Title");
