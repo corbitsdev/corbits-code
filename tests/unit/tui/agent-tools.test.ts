@@ -137,7 +137,8 @@ await withMockedModule(import.meta.resolve("../../../src/agent/director.js"), ()
   createChatDirector: mock(() => ({})),
 }));
 
-const { createAgentToolset } = await import("../../../src/agent/tools.js");
+const { createAgentToolset, ASK_OPERATOR_OPTION_MAX_CHARS, ASK_OPERATOR_QUESTION_MAX_CHARS } =
+  await import("../../../src/agent/tools.js");
 
 const fakePermissionGate: PermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
@@ -306,6 +307,66 @@ test("operator tool returns error when no options are provided", async () => {
   expect(await callOperator(toolset, { question: "Empty?", options: [] })).toMatch(
     /requires at least one option/,
   );
+});
+
+test("operator tool rejects over-long option labels without truncating", async () => {
+  let gated = false;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => {
+      gated = true;
+      return { kind: "option", index: 0 };
+    },
+  });
+
+  const long = "x".repeat(ASK_OPERATOR_OPTION_MAX_CHARS + 1);
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: ["short", long],
+  });
+
+  expect(gated).toBe(false);
+  expect(result).toMatch(/Error: ask_operator option 2/);
+  expect(result).toMatch(/transcript/);
+  expect(result).toMatch(/short option labels/);
+  expect(result).not.toContain("...");
+  expect(result).not.toContain("…");
+});
+
+test("operator tool accepts option labels at the character cap", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  const atCap = "y".repeat(ASK_OPERATOR_OPTION_MAX_CHARS);
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: [atCap],
+  });
+  expect(result).toBe(atCap);
+});
+
+test("operator tool rejects an over-long question", async () => {
+  let gated = false;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => {
+      gated = true;
+      return { kind: "option", index: 0 };
+    },
+  });
+
+  const result = await callOperator(toolset, {
+    question: "q".repeat(ASK_OPERATOR_QUESTION_MAX_CHARS + 1),
+    options: ["A"],
+  });
+  expect(gated).toBe(false);
+  expect(result).toMatch(/Error: ask_operator question/);
+  expect(result).toMatch(/transcript/);
 });
 
 test("operator tool returns error for out-of-range index", async () => {

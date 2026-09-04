@@ -304,46 +304,49 @@ describe("wireGates", () => {
   });
 
   test("permission.gate paints the collapsed body and expands it on toggle", async () => {
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 100, rows: 40 },
-        run: "idle",
-      });
-      const emitter = new EventEmitter();
-      const request: PermissionRequest = {
-        tool: "run_shell",
-        action: "Run shell command",
-        subject: "echo start && cat > notes.txt <<EOF\nalpha\nbeta\nEOF",
-        scopes: [],
-      };
-      try {
-        const dispose = wireGates(emitter, shell);
-        emitter.emit("permission.gate", { request, resolve: () => {} });
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 40 },
+          run: "idle",
+        });
+        const emitter = new EventEmitter();
+        const request: PermissionRequest = {
+          tool: "run_shell",
+          action: "Run shell command",
+          subject: "echo start && cat > notes.txt <<EOF\nalpha\nbeta\nEOF",
+          scopes: [],
+        };
+        try {
+          const dispose = wireGates(emitter, shell);
+          emitter.emit("permission.gate", { request, resolve: () => {} });
 
-        const collapsed = shell.overlayBodyLines.join("\n");
-        expect(collapsed).toContain("1) echo start");
-        expect(collapsed).toContain("<heredoc, 2 lines>");
-        expect(collapsed).not.toContain("alpha");
+          const collapsed = shell.overlayBodyLines.join("\n");
+          expect(collapsed).toContain("1) echo start");
+          expect(collapsed).toContain("<heredoc, 2 lines>");
+          expect(collapsed).not.toContain("alpha");
 
-        expect(toggleOverlayExpand(shell)).toBe(true);
-        const expanded = shell.overlayBodyLines.join("\n");
-        expect(expanded).toContain("<heredoc, 2 lines>");
-        expect(expanded).toContain("alpha");
-        expect(expanded).toContain("beta");
+          expect(toggleOverlayExpand(shell)).toBe(true);
+          const expanded = shell.overlayBodyLines.join("\n");
+          expect(expanded).toContain("<heredoc, 2 lines>");
+          expect(expanded).toContain("alpha");
+          expect(expanded).toContain("beta");
 
-        // Full text also lands in the scrollable transcript, which no
-        // overlay height cap can clip.
-        const streamed = shell.streamLog.map((r) => r.text).join("\n");
-        expect(streamed).toContain("alpha");
+          // Full text also lands in the scrollable transcript, which no
+          // overlay height cap can clip.
+          const streamed = shell.streamLog.map((r) => r.text).join("\n");
+          expect(streamed).toContain("alpha");
 
-        expect(toggleOverlayExpand(shell)).toBe(true);
-        expect(shell.overlayBodyLines.join("\n")).not.toContain("alpha");
+          expect(toggleOverlayExpand(shell)).toBe(true);
+          expect(shell.overlayBodyLines.join("\n")).not.toContain("alpha");
 
-        dispose();
-      } finally {
-        shell.dispose();
-      }
-    });
+          dispose();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 100, height: 40 },
+    );
   });
 
   test("operator.gate opens overlay and resolves selection through onAccept", async () => {
@@ -1294,9 +1297,9 @@ describe("permission overlay height", () => {
     const tall = await hostRowsFor(60, 1);
     expect(short).toBe(tall);
 
-    // Two extra choices cost exactly two extra rows: the choices are
-    // single-spaced, so the list is one row per item.
-    expect(await hostRowsFor(60, 3)).toBe(tall + 2);
+    // Two extra choices cost exactly four extra rows: each choice occupies
+    // two rows (wrap padding), so the list is a simple multiple of item count.
+    expect(await hostRowsFor(60, 3)).toBe(tall + 4);
   });
 
   test("caps rather than growing, and the list scrolls inside the cap", async () => {

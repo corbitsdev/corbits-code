@@ -187,7 +187,7 @@ import { middleEllipsis } from "./command-display.js";
 import {
   composeDecisionBody,
   decisionChoiceRows,
-  DECISION_CHOICE_ROWS,
+  decisionChoiceRowCount,
   wrapOverlayText,
   wrapWords,
 } from "./overlay-body.js";
@@ -1239,7 +1239,7 @@ function overlayHostRows(shell: AppShell, bodyLineCount: number, listRows: numbe
  * elsewhere (transcript floor) rather than starve the overlay itself.
  */
 function overlayMinHostRows(shell: AppShell, bodyLineCount: number, hasItems: boolean): number {
-  const perItem = overlayRowsPerItem(shell.overlayKind);
+  const perItem = overlayRowsPerItem(shell);
   return overlayChromeRows(shell, bodyLineCount) + (hasItems ? perItem : 0);
 }
 
@@ -1266,9 +1266,10 @@ function isDecisionOverlay(kind: PrimaryOverlayKind | null): boolean {
   return kind === "permissions" || kind === "operator";
 }
 
-/** Display rows one list item occupies for the open overlay kind. */
-function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
-  return isDecisionOverlay(kind) ? DECISION_CHOICE_ROWS : 1;
+/** Display rows one list item occupies for the open overlay. */
+function overlayRowsPerItem(shell: AppShell): number {
+  if (!isDecisionOverlay(shell.overlayKind)) return 1;
+  return decisionChoiceRowCount(shell.overlayItems, overlayRowWidth(shell));
 }
 
 /**
@@ -1279,7 +1280,7 @@ function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
  * whatever size it first opened at.
  */
 function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
-  const perItem = overlayRowsPerItem(shell.overlayKind);
+  const perItem = overlayRowsPerItem(shell);
   const hostRows = overlayHostRows(shell, shell.overlayBodyLines.length, itemCount * perItem);
   const minHostRows = overlayMinHostRows(shell, shell.overlayBodyLines.length, itemCount > 0);
   relayout(shell, {
@@ -1536,6 +1537,7 @@ function paintOverlayList(shell: AppShell): void {
 
   const decision = isDecisionOverlay(shell.overlayKind);
   const width = overlayRowWidth(shell);
+  const perItem = overlayRowsPerItem(shell);
   const slice = visibleSlice(list);
   for (let i = slice.start; i < slice.end; i++) {
     const label = shell.overlayItems[i] ?? `item ${i}`;
@@ -1544,7 +1546,7 @@ function paintOverlayList(shell: AppShell): void {
       addOverlayRow(shell, ` ${active ? ">" : " "} ${label}`, active ? UI.text : UI.textDim);
       continue;
     }
-    for (const row of decisionChoiceRows(label, active, width)) {
+    for (const row of decisionChoiceRows(label, active, width, perItem)) {
       addOverlayRow(shell, ` ${row.text}`, row.fg);
     }
   }
@@ -1863,7 +1865,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     const bodyH = Math.max(1, hostH - chrome);
     // The viewport counts items, not rows; a decision overlay spends several
     // rows per item, so the row budget has to be divided back down.
-    const perItem = overlayRowsPerItem(shell.overlayKind);
+    const perItem = overlayRowsPerItem(shell);
     shell.overlayList = setListHeight(shell.overlayList, Math.max(1, Math.floor(bodyH / perItem)));
     paintOverlayList(shell);
   }
@@ -3515,7 +3517,7 @@ function decisionContextBudget(
   const fracCap = Math.floor(terminalHeight * OVERLAY_MAX_FRACTION);
   const maxOverlayRows = Math.min(terminalHeight - PROMPT_BASE_ROWS, fracCap);
   const baseline =
-    maxOverlayRows - DECISION_CHOICE_ROWS - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
+    maxOverlayRows - overlayRowsPerItem(shell) - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
   return Math.max(0, Math.min(DECISION_CONTEXT_ROWS, baseline));
 }
 
@@ -4284,8 +4286,8 @@ export function closeInsetOverlay(shell: AppShell): void {
         scrollOwner: "overlay",
       });
     }
-    const listH = prior.list.height;
-    const hostRows = overlayHostRows(shell, prior.bodyLines.length, listH);
+    const listRows = prior.list.count * overlayRowsPerItem(shell);
+    const hostRows = overlayHostRows(shell, prior.bodyLines.length, listRows);
     const minHostRows = overlayMinHostRows(shell, prior.bodyLines.length, prior.list.count > 0);
     relayout(shell, {
       overlayMode: "inset",
@@ -4513,7 +4515,7 @@ export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): voi
   const hostRows = overlayHostRows(
     shell,
     shell.overlayBodyLines.length,
-    Math.max(1, shell.overlayItems.length) * overlayRowsPerItem(shell.overlayKind),
+    Math.max(1, shell.overlayItems.length) * overlayRowsPerItem(shell),
   );
   const minHostRows = overlayMinHostRows(
     shell,

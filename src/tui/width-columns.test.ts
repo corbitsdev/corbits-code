@@ -100,9 +100,12 @@ describe("the decision body", () => {
     for (const row of body) expect(stringWidth(row.text)).toBeLessThanOrEqual(36);
   });
 
-  test("a choice label is ellipsized by columns, not code units", () => {
-    const [row] = decisionChoiceRows(`Allow ${CJK} always`, true, 20);
-    expect(stringWidth(row?.text ?? "")).toBeLessThanOrEqual(20);
+  test("a choice label wraps by columns, not code units", () => {
+    const rows = decisionChoiceRows(`Allow ${CJK} always`, true, 20);
+    for (const row of rows) expect(stringWidth(row.text)).toBeLessThanOrEqual(20);
+    const joined = rows.map((r) => r.text).join("");
+    expect(joined).not.toContain("...");
+    expect(joined).not.toContain("…");
   });
 
   test("a label that fits in columns is not truncated", () => {

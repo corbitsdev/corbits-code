@@ -13,7 +13,6 @@
  * a boundary — rather than sliced blind at the column.
  */
 
-import { middleEllipsis } from "./command-display.js";
 import { prefixIndexForWidth, stringWidth } from "./view/height.js";
 import { UI } from "./theme.js";
 
@@ -24,10 +23,12 @@ export const DECISION_DITHER = "░▒▓";
 export const DECISION_ACTIVE_MARK = "█";
 
 /**
- * Display rows every choice occupies, wrapped or not. One: the choices are a
- * single list, and a blank row between them reads as unrelated statements.
+ * Display rows every choice occupies at least, wrapped or not. Short labels
+ * pad to this so the list still breathes; a wrap taller than this raises
+ * every choice to the same height so list index arithmetic stays a simple
+ * multiple.
  */
-export const DECISION_CHOICE_ROWS = 1;
+export const DECISION_CHOICE_ROWS = 2;
 
 /** Narrowest line this module will shape text into. */
 const MIN_WRAP_WIDTH = 4;
@@ -208,22 +209,52 @@ export function composeDecisionBody(
 }
 
 /**
- * Shape one choice into its single row: the label, marked when active, and
- * ellipsized in the middle when it will not fit. Fixed height keeps the list
- * viewport's index arithmetic a simple multiple.
+ * Wrap one choice label at the inner width (box minus the marker/indent).
+ * Continuation hanging indent is applied by `decisionChoiceRows`, not here.
+ */
+function choiceWrapLines(label: string, width: number): string[] {
+  const inner = Math.max(1, width - stringWidth(CHOICE_INDENT));
+  return wrapWords(label, inner);
+}
+
+/**
+ * Shared row count for every choice at `width`: at least
+ * `DECISION_CHOICE_ROWS`, raised to the tallest wrap so nothing is clipped.
+ */
+export function decisionChoiceRowCount(labels: readonly string[], width: number): number {
+  let rows = DECISION_CHOICE_ROWS;
+  for (const label of labels) {
+    rows = Math.max(rows, choiceWrapLines(label, width).length);
+  }
+  return rows;
+}
+
+/**
+ * Shape one choice into a fixed-height block: the label, marked when active,
+ * wrapped on word boundaries with a hanging indent. `rowCount` pads shorter
+ * wraps with empty dim rows so every choice occupies the same height.
  */
 export function decisionChoiceRows(
   label: string,
   active: boolean,
   width: number,
+  rowCount?: number,
 ): OverlayBodyRow[] {
   const fg = active ? UI.text : UI.textDim;
-  const inner = Math.max(1, width - stringWidth(CHOICE_INDENT));
-  const text = stringWidth(label) > inner ? middleEllipsis(label, inner) : label;
-  return [
-    {
-      text: `${active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT}${text}`,
+  const prefix = active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT;
+  const parts = choiceWrapLines(label, width);
+  const height = Math.max(DECISION_CHOICE_ROWS, parts.length, rowCount ?? 0);
+  const rows: OverlayBodyRow[] = [];
+  for (let i = 0; i < height; i++) {
+    const part = parts[i];
+    if (part === undefined) {
+      rows.push({ text: "", fg: UI.textDim });
+      continue;
+    }
+    rows.push({
+      text: i === 0 ? `${prefix}${part}` : `${CONTINUATION}${part}`,
       fg,
-    },
-  ];
+    });
+  }
+  return rows;
 }

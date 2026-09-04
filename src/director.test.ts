@@ -77,6 +77,9 @@ describe("ask_operator definition", () => {
     expect(schema.properties).not.toHaveProperty("command");
     expect(askOperatorDefinition.description).not.toMatch(/pre-authoriz/i);
     expect(askOperatorDefinition.description).not.toMatch(/`command`/);
+    expect(askOperatorDefinition.description).toMatch(/at most 48 characters/);
+    const options = schema.properties?.options as { items?: { maxLength?: number } };
+    expect(options.items?.maxLength).toBe(48);
   });
 });
 
