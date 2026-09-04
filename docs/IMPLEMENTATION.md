@@ -19,9 +19,9 @@ CLI binary: `corbits` (`./dist/index.js`). Version lives in `package.json` only.
 | `@intx/tools-posix`    | workspace       | `createPosixTools`, `ToolPlugin` middleware — sandboxed shell/file tools                         |
 | `@intx/types`          | workspace       | Runtime types (`ReactorDirector`, `ReactorState`, `ToolDefinition`, `ToolCall`, `ToolResult`, …) |
 | `@intx/storage-isogit` | workspace       | Git-backed context persistence                                                                   |
-| `@opentui/core`        | 0.5.1           | Terminal UI renderer                                                                             |
-| `@opentui/keymap`      | 0.5.1           | OpenTUI keybinding support                                                                       |
-| `@opentui/solid`       | 0.5.1           | Solid bindings for OpenTUI                                                                       |
+| `@opentui/core`        | 0.5.10          | Terminal UI renderer                                                                             |
+| `@opentui/keymap`      | 0.5.10          | OpenTUI keybinding support                                                                       |
+| `@opentui/solid`       | 0.5.10          | Solid bindings for OpenTUI                                                                       |
 | `solid-js`             | 1.9.14          | Reactive primitives used by the OpenTUI bindings                                                 |
 | `arktype`              | catalog ^2.1.29 | Runtime validation                                                                               |
 
