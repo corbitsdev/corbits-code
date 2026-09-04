@@ -223,6 +223,12 @@ Fixes #123
 
 Omit magic words. Do not invent issue IDs.
 
+### At PR-open (SHOULD)
+
+When the PR is ready for review (not a draft or WIP), move the linked Linear
+issue to In Review. Never mark Done on PR-open. Done is after merge, when every
+outcome is complete.
+
 ### After merge (SHOULD for agents running the full workflow)
 
 1. Confirm the PR is merged and CI is green on the merge commit.
@@ -230,6 +236,8 @@ Omit magic words. Do not invent issue IDs.
 3. Tick only description checkboxes that `main` actually completed.
 4. Mark the Linear issue Done only when every outcome is truly done — never on
    "PR opened" alone.
+5. If leftover work remains, set the issue to In Progress. Do not leave it In
+   Review after merge.
 
 ## Contributor License Agreement
 

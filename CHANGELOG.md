@@ -50,6 +50,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   ambiguous. `wait_agents` returns `awaiting_director` with the question;
   soft `send_input` answers it. The operator is not in that loop unless the
   director escalates. Leaves still cannot call `ask_operator`.
+- Agents and contributor docs move Linear issues to In Review when a PR is ready
+  for review.
 
 ### TUI
 

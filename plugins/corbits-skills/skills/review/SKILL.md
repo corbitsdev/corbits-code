@@ -393,4 +393,4 @@ No findings.
 
 ### After posting
 
-Paste the review URL(s) back to the user. If `--request-changes`, do not mark the Linear issue Done or tell the user the PR is merge-ready.
+Paste the review URL(s) back to the user. Do not mark the Linear issue Done. `--request-changes` is not merge-ready. While the PR is open and ready for review, the issue stays In Review — including after `--request-changes`. Do not ping-pong it back to In Progress. `linear-issue-workflow` owns the In Review write; this skill does not set Linear state.

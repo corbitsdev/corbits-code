@@ -219,4 +219,15 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("ship → verify → fix → re-verify");
     expect(p).toContain("Cap re-fix rounds");
   });
+
+  test("systemPrompt Linear three-state: In Review at PR-open, never Done at PR-open", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("In Progress");
+    expect(p).toContain("In Review");
+    expect(p).toMatch(/ready for review/);
+    expect(p).toContain("never Done at PR-open");
+    expect(p).not.toContain("mcp__linear__save_issue");
+    expect(p).not.toContain("gh pr create");
+    expect(p).not.toContain("gh pr review");
+  });
 });
