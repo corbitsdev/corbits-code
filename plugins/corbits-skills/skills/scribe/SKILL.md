@@ -93,7 +93,6 @@ ask_operator({
 
 Each call returns the selected label (or the operator's custom text).
 
-
 ## Execution Steps
 
 ### Step 0: Document Discovery and Reading
