@@ -96,6 +96,15 @@ describe("isGoModelOnZenPath", () => {
     ).toBe(false);
   });
 
+  test("false for a live-only Go id on Zen (protocol map, not picker membership)", () => {
+    expect(
+      isGoModelOnZenPath("muse-spark-1.2-contributor", {
+        name: "zen",
+        baseURL: "https://opencode.ai/zen/v1",
+      }),
+    ).toBe(false);
+  });
+
   test("false for non-Go models on Zen", () => {
     expect(
       isGoModelOnZenPath("claude-sonnet-4-5", {

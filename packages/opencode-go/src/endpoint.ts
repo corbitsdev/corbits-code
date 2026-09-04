@@ -13,8 +13,9 @@ export interface GoEndpoint {
 }
 
 /**
- * Resolve how a Go model should be called. Unknown models default to
- * chat-completions so a live catalog refresh can still route something.
+ * Resolve how a Go model should be called. The local protocol map wins.
+ * Live ids without a map entry default to chat-completions — no prefix
+ * heuristics, no multi-protocol probe.
  */
 export function resolveGoEndpoint(modelId: string): GoEndpoint {
   const protocol = protocolForGoModel(modelId) ?? "chat-completions";
