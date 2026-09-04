@@ -20,23 +20,26 @@ Corbits tests use `bun:test` (`bun test`, `bun run test`), not GaaS `tap` (`impo
 
 When a GaaS skill names a Claude/GaaS tool, use the Corbits equivalent. Do not call the GaaS name.
 
-| GaaS / Claude         | Corbits                                            |
-| --------------------- | -------------------------------------------------- |
-| TaskCreate            | `manage_tasks`                                     |
-| TaskUpdate            | `manage_tasks`                                     |
-| AskUserQuestion       | `ask_operator` (primary) / `ask_director` (worker) |
-| `Task` / `@greybeard` | `spawn_agent(agent="greybeard")`                   |
-| `@critic`             | `spawn_agent(agent="critic")`                      |
-| `@intern`             | `spawn_agent(agent="intern")`                      |
-| `@explorer`           | `spawn_agent(agent="explorer")`                    |
-| Read / Write / Edit   | `read_file` / `write_file` / `edit_file`           |
-| Glob / Grep           | `search_files` / `grep`                            |
-| Bash                  | `run_shell`                                        |
-| WebFetch / WebSearch  | `web_fetch` / `web_search`                         |
+| GaaS / Claude           | Corbits                                            |
+| ----------------------- | -------------------------------------------------- |
+| TaskCreate              | `manage_tasks`                                     |
+| TaskUpdate              | `manage_tasks`                                     |
+| TaskList                | `manage_tasks`                                     |
+| AskUserQuestion         | `ask_operator` (primary) / `ask_director` (worker) |
+| `Task` / `@greybeard`   | `spawn_agent(agent="greybeard")`                   |
+| `@critic` / `@critique` | `spawn_agent(agent="critic")`                      |
+| `@intern`               | `spawn_agent(agent="intern")`                      |
+| `@explorer`             | `spawn_agent(agent="explorer")`                    |
+| Read / Write / Edit     | `read_file` / `write_file` / `edit_file`           |
+| Glob / Grep             | `search_files` / `grep`                            |
+| Bash                    | `run_shell`                                        |
+| WebFetch / WebSearch    | `web_fetch` / `web_search`                         |
 
 `intent="general"` is not a Corbits spawn. Use a closed director id.
 
 Slash names that differ from GaaS skill ids: `/review` is GaaS `code-review`; `/create-issue` is GaaS `linear-create`. Keep those Corbits names.
+
+When GaaS implement says you are orchestrated by karen, that is the Corbits primary (Skywalker). Route those disposition decisions through the primary, not a worker.
 
 ## Linear claim-first
 
