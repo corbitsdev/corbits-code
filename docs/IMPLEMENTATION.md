@@ -246,7 +246,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   On expiry the call returns a normal tool-error result ("MCP tool `<name>` timed out after `<n>`s — the server may be wedged; retry or continue without it") that the model can react to; the turn itself is never aborted. `tools.maxTimeoutMs`, if set, still caps `mcp.timeoutMs`.
 
-  Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
+  Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap consumes the same session assembly as the TUI (intentional deltas documented under Architecture → Exec Runner).
 
 - Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 

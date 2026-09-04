@@ -256,11 +256,11 @@ export interface PermissionGateOptions {
   // authorization layer did not already deny.
   skipPermissions: boolean;
   // Auto-approve non-destructive permissions (repeat writes, safe shell commands).
-  auto?: boolean;
+  auto?: boolean | undefined;
   // The active inference provider name and model. A `provider-model` grant only
   // auto-allows future calls when these still match the grant's providerModel.
-  providerName?: string;
-  model?: string;
+  providerName?: string | undefined;
+  model?: string | undefined;
   // The workspace root. Used to confine auto-allowed shell reads to the project;
   // a command whose path arguments resolve outside it is never auto-allowed.
   // Defaults to the process cwd (the workspace) when omitted.
@@ -286,11 +286,12 @@ export interface PermissionGateOptions {
   // grant. The gate supplies it because only the gate holds the path
   // restriction anchored to the session cwd; a caller resolving a sub-agent
   // request's own cwd would clear restrictions the gate still enforces.
-  onGrant?: (approval: Approval, covers: (request: PermissionRequest) => boolean) => void;
+  onGrant?:
+    ((approval: Approval, covers: (request: PermissionRequest) => boolean) => void) | undefined;
   // Records that a prompt was shown and how it was answered. Injected rather
   // than read from the process-wide handle so a gate built without one is
   // silent by construction.
-  telemetry?: Telemetry;
+  telemetry?: Telemetry | undefined;
   // Ask/settle event log (see approval-log.ts): one record per consequential
   // decision, auto or interactive. Defaults to a no-op so nothing depends on
   // logging being wired.

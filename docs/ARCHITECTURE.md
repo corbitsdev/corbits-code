@@ -94,7 +94,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 ### Exec Runner (`src/exec/runner.ts`)
 
 - Product non-TUI agent path that **shares** the TUI stack (session mode, ChatDirector, toolset, permission gate, MCP, plugins, hooks, run-sink) without the OpenTUI shell
-- Bootstrap is intentionally a **forked copy** of the TUI path (not a shared factory yet). Intentional deltas vs TUI:
+- Bootstrap consumes the shared session assembly (`src/session/assemble-runtime.ts`, layered over `src/session/runtime-assembly.ts`) instead of hand-wiring a second copy. Intentional deltas vs TUI:
   - No workflow controller (`isWorkflowActive` is always false)
   - Non-interactive permission gate by default; optional stdin for `ask_operator`
 - Entry: `corbits exec "prompt"` (alias `corbits run`); `loadConfig` sets `command: "exec"`
