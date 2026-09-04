@@ -387,7 +387,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         closeInsetOverlay(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("help");
-        expect(resolved).not.toBeUndefined();
+        expect(resolved).toEqual({ allow: false });
       } finally {
         dispose();
       }
@@ -428,7 +428,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         acceptOverlaySelection(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("help");
-        expect(liveResolved).not.toBeUndefined();
+        expect(liveResolved).toEqual({ allow: false });
         expect(queuedResolved).toBeUndefined();
 
         await Bun.sleep(20);
@@ -588,7 +588,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           closeInsetOverlay(shell);
           await Promise.resolve();
           expect(shell.overlayKind).toBe("settings");
-          expect(resolved).not.toBeUndefined();
+          expect(resolved).toEqual({ allow: false });
         } finally {
           dispose();
         }
@@ -649,7 +649,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           closeInsetOverlay(shell);
           await Promise.resolve();
           expect(shell.overlayKind).toBe("mcp");
-          expect(resolved).not.toBeUndefined();
+          expect(resolved).toEqual({ allow: false });
         } finally {
           dispose();
         }
@@ -1061,7 +1061,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
         closeInsetOverlay(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("add_provider");
-        expect(resolved).not.toBeUndefined();
+        expect(resolved).toEqual({ allow: false });
       } finally {
         dispose();
       }
@@ -1080,6 +1080,51 @@ describe("overlay host occupancy and opt-in deferral", () => {
       expect(isOverlayHostIdle(shell)).toBe(true);
 
       release();
+      expect(isOverlayHostIdle(shell)).toBe(true);
+    });
+  });
+
+  test("Esc during a reservation drains a queued gate without denying it", async () => {
+    await withShell(async ({ shell, press, render }) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      try {
+        reserveOverlayHost(shell);
+        let resolved: unknown;
+        emitPermissionGate(emitter, (outcome) => {
+          resolved = outcome;
+        });
+        expect(shell.overlayKind).not.toBe("permissions");
+        expect(resolved).toBeUndefined();
+
+        press("Escape");
+        await render();
+        await Bun.sleep(60);
+        expect(shell.overlayKind).toBe("permissions");
+        expect(resolved).toBeUndefined();
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test("stale reservation release does not drop a later hold", async () => {
+    await withShell(async ({ shell, press, render }) => {
+      const first = reserveOverlayHost(shell);
+      expect(isOverlayHostIdle(shell)).toBe(false);
+
+      press("Escape");
+      await render();
+      await Bun.sleep(60);
+      expect(isOverlayHostIdle(shell)).toBe(true);
+
+      const second = reserveOverlayHost(shell);
+      expect(isOverlayHostIdle(shell)).toBe(false);
+
+      first();
+      expect(isOverlayHostIdle(shell)).toBe(false);
+
+      second();
       expect(isOverlayHostIdle(shell)).toBe(true);
     });
   });
