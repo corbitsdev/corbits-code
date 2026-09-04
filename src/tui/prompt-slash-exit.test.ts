@@ -278,6 +278,10 @@ describe("Ctrl+C exit", () => {
 
   test("idle Ctrl+C with prompt text also drops pending attachments", async () => {
     await withShell(async ({ shell }) => {
+      let exits = 0;
+      setShellExitHandler(shell, () => {
+        exits += 1;
+      });
       addPendingAttachment(shell, pendingImage("clip"));
       shell.prompt.value = "look at this";
       expect(noticeText(shell)).toContain("1 image");
@@ -287,6 +291,10 @@ describe("Ctrl+C exit", () => {
       expect(shell.prompt.value).toBe("");
       expect(shell.pendingAttachments).toHaveLength(0);
       expect(noticeText(shell)).not.toContain("1 image");
+      expect(shell.statusFlash).toBe("press ctrl+c again to exit");
+
+      handleCtrlC(shell, 1);
+      expect(exits).toBe(1);
     });
   });
 
@@ -334,6 +342,39 @@ describe("Ctrl+C exit", () => {
       try {
         addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
         addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
+
+        clearPendingAttachments(shell);
+
+        expect(shell.pendingAttachments).toHaveLength(0);
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("clearPendingAttachments swallows a missing ephemeralPath", async () => {
+    await withShell(async ({ shell }) => {
+      const missing = join(tmpdir(), "ctrlc-attach-missing.png");
+      addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: missing }));
+      expect(() => clearPendingAttachments(shell)).not.toThrow();
+      expect(shell.pendingAttachments).toHaveLength(0);
+    });
+  });
+
+  test("clearPendingAttachments unlinks ephemeralPath on an attachment that also has path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-both-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        addPendingAttachment(
+          shell,
+          pendingImage("both", { ephemeralPath: ephemeral, path: operator }),
+        );
 
         clearPendingAttachments(shell);
 

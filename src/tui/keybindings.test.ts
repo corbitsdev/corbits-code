@@ -24,6 +24,7 @@ import { openCommandSurface } from "./command-surfaces.js";
 import { focusOwner } from "./focus/focus-state.js";
 import { setChromeZones } from "./shell.js";
 import {
+  addPendingAttachment,
   appendStreamRow,
   applyShellInterrupt,
   createAppShell,
@@ -517,6 +518,16 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       shell.session = { ...shell.session, items: [] };
       truncateStreamRows(shell, rowsBefore);
       setShellRunState(shell, "idle");
+
+      addPendingAttachment(shell, {
+        id: "clip",
+        name: "clip.png",
+        contentType: "image/png",
+        data: new Uint8Array([1]),
+        contentHash: "hash-clip",
+      });
+      press(h, chords[0]);
+      expect(shell.pendingAttachments).toHaveLength(0);
     },
   },
 
