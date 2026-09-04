@@ -39,6 +39,8 @@ When a GaaS skill names a Claude/GaaS tool, use the Corbits equivalent. Do not c
 
 `intent="general"` is not a Corbits spawn. Use a closed director id.
 
+GaaS ast-grep invokes `sg` as a CLI. Corbits extras: run `sg` via `run_shell`. Do not fork the GaaS ast-grep body.
+
 Slash names that differ from GaaS skill ids: `/review` is GaaS `code-review`; `/create-issue` is GaaS `linear-create`. Keep those Corbits names.
 
 GaaS refactor says "ask clarifying questions" / "ask the user". Corbits extras: `ask_operator` (tool mapping above). Do not fork the GaaS refactor body.

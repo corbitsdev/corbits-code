@@ -289,6 +289,20 @@ test("scribe skill is 1:1 with GaaS scribe", async () => {
   expect(skill).not.toContain("## Acknowledgment");
 });
 
+test("ast-grep skill is 1:1 with GaaS ast-grep", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/ast-grep/SKILL.md")).text();
+  expect(skill).toContain("CLI: `sg`");
+  expect(skill).toContain("|---|---|");
+  expect(skill).toContain("sg run");
+  expect(skill).toContain("sg scan --inline-rules");
+  expect(skill).toContain("## Acknowledgment");
+  expect(skill).toContain("I have reviewed the ast-grep skill.");
+  expect(skill).not.toContain("run_shell");
+  expect(skill).not.toContain("Invoke `sg` via `run_shell`");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+});
+
 test("create-issue is Linear-first without restated MCP tool contracts", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
@@ -422,6 +436,8 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("Do not fork the GaaS pull-request-review body");
   expect(skill).toContain("Do not fork the GaaS refactor body");
   expect(skill).toContain("Do not fork the GaaS scribe body");
+  expect(skill).toContain("Do not fork the GaaS ast-grep body");
+  expect(skill).toContain("run `sg` via `run_shell`");
   expect(skill).toContain("prove");
 });
 

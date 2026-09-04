@@ -5,7 +5,7 @@ description: Bulk code refactoring using AST patterns instead of manual read-edi
 
 # ast-grep
 
-Use `ast-grep` (CLI: `sg`) for structural code search and rewriting. Invoke `sg` via `run_shell`. It matches and transforms code using Abstract Syntax Tree patterns rather than text, so it understands code structure and handles formatting, whitespace, and nesting correctly.
+Use `ast-grep` (CLI: `sg`) for structural code search and rewriting. It matches and transforms code using Abstract Syntax Tree patterns rather than text, so it understands code structure and handles formatting, whitespace, and nesting correctly.
 
 If you can describe the change as "rename X to Y" or "change all A-shaped code to B-shaped code," use ast-grep — even if you already know some of the locations. Knowing where the definitions are does not mean you know where all the access sites are.
 
@@ -36,12 +36,12 @@ Patterns are code snippets in the target language with metavariable placeholders
 
 ### Metavariables
 
-| Syntax    | Meaning                                                |
-| --------- | ------------------------------------------------------ |
-| `$NAME`   | Matches exactly one AST node, captured as `NAME`       |
-| `$_`      | Matches one node, not captured                         |
+| Syntax | Meaning |
+|---|---|
+| `$NAME` | Matches exactly one AST node, captured as `NAME` |
+| `$_` | Matches one node, not captured |
 | `$$$NAME` | Matches zero or more sibling nodes, captured as `NAME` |
-| `$$$`     | Matches zero or more siblings, not captured            |
+| `$$$` | Matches zero or more siblings, not captured |
 
 **Same-name constraint:** Two occurrences of the same metavariable in one pattern must match identical text. `foo($X, $X)` matches `foo(a, a)` but not `foo(a, b)`.
 
@@ -79,24 +79,22 @@ The `-U` (`--update-all`) flag applies changes to files without prompting. Witho
 
 ### Key flags
 
-| Flag                   | Purpose                                                                                                                                      |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-p, --pattern`        | AST pattern to match                                                                                                                         |
-| `-r, --rewrite`        | Replacement template using captured metavariables                                                                                            |
-| `-l, --lang`           | Target language                                                                                                                              |
-| `-U, --update-all`     | Apply rewrites in place                                                                                                                      |
-| `--globs`              | Filter files by glob (prefix `!` to exclude)                                                                                                 |
-| `--json`               | Structured JSON output                                                                                                                       |
+| Flag | Purpose |
+|---|---|
+| `-p, --pattern` | AST pattern to match |
+| `-r, --rewrite` | Replacement template using captured metavariables |
+| `-l, --lang` | Target language |
+| `-U, --update-all` | Apply rewrites in place |
+| `--globs` | Filter files by glob (prefix `!` to exclude) |
+| `--json` | Structured JSON output |
 | `--debug-query=<mode>` | Show AST structure; modes: `pattern` (pattern parse tree), `ast` (named nodes), `cst` (full tree), `sexp` (S-expression). Requires `--lang`. |
 
 ### Common inline recipes
 
 **Rename a function call site:**
-
 ```bash
 sg run -p 'oldName($$$ARGS)' -r 'newName($$$ARGS)' -l js -U src/
 ```
-
 This pattern only matches `identifier` nodes in call-expression position. It will not catch the name where it appears as a type annotation (`type_identifier`), an interface or object field (`property_identifier`), a destructured binding (`shorthand_property_identifier_pattern`), or an object literal shorthand (`shorthand_property_identifier`). For a name that appears in more than one syntactic position, use the multi-kind rename recipe below.
 
 **Rename an identifier across all syntactic positions (TypeScript):**
@@ -126,35 +124,29 @@ fix: NewName
 This is the default approach for renaming a type, class, interface, or any identifier that may surface in more than just call-site position. The inline `sg run -p` form is the shortcut for call-site-only renames.
 
 **Change an import source:**
-
 ```bash
 sg run -p 'import $$$ITEMS from "old-package"' -r 'import $$$ITEMS from "new-package"' -l ts -U src/
 ```
-
 Use `$$$ITEMS` (not `$ITEMS`) because `import type` inserts an extra `type` node as a sibling before the import clause. `$ITEMS` expects exactly one node in that position and fails when two are present.
 
 The symmetric export form does not work inline. `sg run -p 'export $$$ITEMS from "old-package"' -r '...'` fails with "Multiple AST nodes are detected" — the re-export does not parse as a single AST node. For re-export source rewrites, use a YAML rule keyed on `kind: export_statement` with a `has` constraint on the source string, or fall back to manual edits when the file count is small.
 
 **Add an argument to a call:**
-
 ```bash
 sg run -p 'client.get($URL)' -r 'client.get($URL, { timeout: 5000 })' -l ts -U src/
 ```
 
 **Wrap a call with an additional outer call:**
-
 ```bash
 sg run -p 'fetchData($$$ARGS)' -r 'withRetry(() => fetchData($$$ARGS))' -l ts -U src/
 ```
 
 **Unwrap a wrapper (Rust):**
-
 ```bash
 sg run -p '$EXPR.unwrap()' -r '$EXPR?' -l rust -U src/
 ```
 
 **Remove a function call, keep the argument:**
-
 ```bash
 sg run -p 'deprecated($VALUE)' -r '$VALUE' -l js -U src/
 ```
@@ -174,7 +166,6 @@ fix: logger.info($$$ARGS)
 ```
 
 Run a single rule file:
-
 ```bash
 sg scan --rule my-rule.yaml src/
 sg scan --rule my-rule.yaml -U src/
@@ -183,7 +174,6 @@ sg scan --rule my-rule.yaml -U src/
 ### Inline YAML rules
 
 For quick one-offs that need rule features but not a file:
-
 ```bash
 sg scan --inline-rules '
 id: example
@@ -227,12 +217,12 @@ rule:
 
 Available relational rules:
 
-| Rule       | Meaning                                     |
-| ---------- | ------------------------------------------- |
-| `inside`   | Node is a descendant of a matching ancestor |
-| `has`      | Node has a descendant matching this         |
-| `follows`  | Node is preceded by a matching sibling      |
-| `precedes` | Node is followed by a matching sibling      |
+| Rule | Meaning |
+|---|---|
+| `inside` | Node is a descendant of a matching ancestor |
+| `has` | Node has a descendant matching this |
+| `follows` | Node is preceded by a matching sibling |
+| `precedes` | Node is followed by a matching sibling |
 
 All accept `stopBy` with three valid forms: `neighbor` (only check adjacent — the default when omitted), `end` (traverse all the way to the root), or a rule object (e.g., `stopBy: { kind: function_declaration }` to stop at a specific node type).
 
@@ -261,11 +251,11 @@ rule:
         pattern: logger.$_($$$)
 ```
 
-| Combinator | Meaning                        |
-| ---------- | ------------------------------ |
-| `all`      | All sub-rules must match (AND) |
-| `any`      | Any sub-rule must match (OR)   |
-| `not`      | Sub-rule must not match (NOT)  |
+| Combinator | Meaning |
+|---|---|
+| `all` | All sub-rules must match (AND) |
+| `any` | Any sub-rule must match (OR) |
+| `not` | Sub-rule must not match (NOT) |
 
 ### Disambiguating same-named identifiers
 
@@ -323,29 +313,26 @@ fix: $CAMEL_NAME($$$ARGS)
 
 Available transforms:
 
-| Transform   | Purpose                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------- |
-| `convert`   | Change case (`upperCase`, `lowerCase`, `camelCase`, `snakeCase`, `pascalCase`, `kebabCase`) |
-| `substring` | Extract a substring by char index                                                           |
-| `replace`   | String find-and-replace within a metavar                                                    |
-| `rewrite`   | Apply sub-rewriters to a metavar (for nested transformations)                               |
+| Transform | Purpose |
+|---|---|
+| `convert` | Change case (`upperCase`, `lowerCase`, `camelCase`, `snakeCase`, `pascalCase`, `kebabCase`) |
+| `substring` | Extract a substring by char index |
+| `replace` | String find-and-replace within a metavar |
+| `rewrite` | Apply sub-rewriters to a metavar (for nested transformations) |
 
 ## Debugging Non-Matching Patterns
 
 When a pattern does not match what you expect:
 
 1. **Inspect your pattern's AST.** Use `--debug-query=pattern` to see how ast-grep parses your pattern:
-
    ```bash
    sg run --pattern 'your_pattern($X)' --lang js --debug-query=pattern
    ```
 
 2. **Inspect the source code's AST.** Use the target code itself as the pattern to see its tree structure:
-
    ```bash
    sg run --pattern 'myFunc(arg1, arg2)' --lang js --debug-query=ast
    ```
-
    This shows you the node kinds in the source, which tells you what your real pattern needs to match against. Compare the AST of your pattern (step 1) with the AST of the source to find the mismatch.
 
 3. **Common causes of non-matches:**
@@ -387,7 +374,7 @@ These steps are mandatory, not advisory. Skipping them is the single most common
 ### After applying rewrites
 
 5. **Format.** ast-grep rewrites can collapse multi-line formatting to single lines. Run the project's formatter (prettier, rustfmt, gofmt, etc.) after applying rewrites.
-6. **Check for stragglers.** Use `grep` for the old name across all file types — including comments, strings, docs, and test fixtures. ast-grep only matches code structure; occurrences in prose, JSDoc, string literals, and non-code files will be missed.
+6. **Check for stragglers.** Grep for the old name across all file types — including comments, strings, docs, and test fixtures. ast-grep only matches code structure; occurrences in prose, JSDoc, string literals, and non-code files will be missed.
 7. **Run the type checker.** ast-grep matches on syntax, not semantics — it cannot guarantee that every reference to a name has been caught across every syntactic context, and it cannot see scope. In typed languages, run the type checker before the test suite. It is the safety net that surfaces both kinds of miss: occurrences of the old name that the pattern did not anticipate (e.g., type annotations missed by a call-site-only rename), and scope collisions where the new name shadows an existing binding. Without a type checker, these gaps are silent and only show up at runtime.
 8. **Run the full build.** Run the project's build and test suite to catch anything ast-grep's structural matching could not anticipate.
 
@@ -404,14 +391,14 @@ ast-grep handles code; prose requires separate attention. Skipping this pass lea
 
 ### Choosing inline vs YAML
 
-| Situation                                                                            | Use                                                                                                                  |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Call-site-only rename or argument change                                             | `sg run -p ... -r ...`                                                                                               |
+| Situation | Use |
+|---|---|
+| Call-site-only rename or argument change | `sg run -p ... -r ...` |
 | Renaming an identifier that may appear in type annotations, fields, or destructuring | YAML rule with `any:` over the relevant node kinds (see "Rename an identifier across all syntactic positions" above) |
-| Need to exclude certain matches                                                      | YAML rule with `not` or `constraints`                                                                                |
-| Need positional context (inside a function, after an import)                         | YAML rule with `inside`/`follows`/`precedes`                                                                         |
-| Need case conversion or string manipulation in the replacement                       | YAML rule with `transform`                                                                                           |
-| Applying multiple related transformations                                            | Multiple `sg run` commands in sequence, or multiple YAML rules                                                       |
+| Need to exclude certain matches | YAML rule with `not` or `constraints` |
+| Need positional context (inside a function, after an import) | YAML rule with `inside`/`follows`/`precedes` |
+| Need case conversion or string manipulation in the replacement | YAML rule with `transform` |
+| Applying multiple related transformations | Multiple `sg run` commands in sequence, or multiple YAML rules |
 
 ### Combining with manual edits
 
@@ -422,3 +409,7 @@ ast-grep handles the bulk structural transformation. Use manual edits for:
 - One-off fixups after a bulk rewrite (e.g., adjusting a special case that the pattern caught incorrectly)
 
 The ideal workflow for a large refactor: ast-grep for the mechanical bulk, manual edits for the exceptions, build verification to confirm everything holds together.
+
+## Acknowledgment
+
+After reviewing this skill, state: "I have reviewed the ast-grep skill."
