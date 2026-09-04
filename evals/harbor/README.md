@@ -30,8 +30,7 @@ not read API keys from the environment.
 3. **git** inside the task image (adapter also installs it via Harbor system
    packages). Corbits storage requires git — there is no git-less fallback.
 4. **Provider API key** for the model under test.
-5. **Provider `base_url`** (required — see below). The adapter fail-closes if
-   none is resolved; it does not invent a default.
+5. **Provider `base_url`** — stock Harbor `-m xai/…` infers `https://api.x.ai/v1`. Override only when the catalog default is wrong. The adapter fail-closes if nothing resolves.
 
 ## Secrets / credentials
 
@@ -49,20 +48,23 @@ temp settings file only:
 
 `providers.<provider>.baseURL` is always written. Resolve it via one of:
 
-| Source                  | Notes                                           |
-| ----------------------- | ----------------------------------------------- |
-| `base_url=` agent kwarg | Preferred for one-off runs                      |
-| `CORBITS_BASE_URL`      | Adapter env                                     |
-| Harbor model connection | `model_connection.configured_base_url` when set |
+| Source                     | Notes                                                                 |
+| -------------------------- | --------------------------------------------------------------------- |
+| `base_url=` agent kwarg    | Preferred for one-off runs                                            |
+| Harbor configured URL      | `model_connection.configured_base_url` (`CORBITS_BASE_URL` / `XAI_BASE_URL` / …) |
+| Harbor inferred catalog    | `model_connection.base_url` — e.g. xAI → `https://api.x.ai/v1` when an API key is present |
+| `CORBITS_BASE_URL`         | Adapter env (also feeds Harbor configured URL)                        |
 
-If none are set, the adapter raises before writing settings.
+Stock `harbor run -m xai/grok-4.5` with `XAI_API_KEY` therefore does **not** need an explicit `base_url`. The adapter still fail-closes if nothing resolves.
+
+Do **not** point Harbor cells at the grok-cli OAuth proxy (`https://cli-chat-proxy.grok.com/v1`). That URL only accepts OAuth tokens from `~/.corbits/xai-auth.json`, which Harbor containers do not have. Profile-qualified product cells (`xai/<profile>`, `codex/<profile>`) are OAuth; use an API-key provider name (`xai`, `openai`, …) inside Harbor.
 
 Example values:
 
 | Cell                          | Example `base_url`                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------ |
-| xAI API key                   | `https://api.x.ai/v1`                                                                |
-| Product OAuth / grok-cli path | `https://cli-chat-proxy.grok.com/v1` (`XAI_BASE_URL` in `src/auth/xai/constants.ts`) |
+| xAI API key                   | `https://api.x.ai/v1` (Harbor infers this)                                           |
+| Product OAuth / grok-cli path | Not usable in Harbor containers                                                      |
 | OpenAI-compatible             | e.g. `https://api.openai.com/v1` or your cell's gateway                              |
 
 Optional: `shell_timeout_ms=` → `shell.timeoutMs` in settings.
@@ -95,14 +97,13 @@ From the repo root (so `evals.harbor.agent` is importable):
 # Unit tests (no Harbor package required; pytest may be absent)
 PYTHONPATH=. python3 -m unittest evals.harbor.tests.test_argv -v
 
-# Dry-run trivial task (needs Harbor CLI + Linux binary + API key + base URL)
+# Dry-run trivial task (needs Harbor CLI + Linux binary + API key)
 export CORBITS_API_KEY=…   # or XAI_API_KEY=…
-export CORBITS_BASE_URL=https://api.x.ai/v1
 harbor run \
   -p evals/harbor/tasks/trivial \
   -a evals.harbor.agent:Corbits \
   -m xai/grok-4.5 \
-  --ae corbits_binary_path=/absolute/path/to/linux/corbits
+  --ak corbits_binary_path=/absolute/path/to/linux/corbits
 ```
 
 Equivalent kwargs via Harbor job config:
@@ -119,11 +120,11 @@ agents:
       # or: corbits_tarball_url: https://…/corbits-linux.tar.gz
 ```
 
-## Known gaps (CL-6924)
+## Known gaps
 
-- Full Harbor dry-run + Terminal-Bench smoke are **not** claimed by this change.
-  They need Harbor CLI, a Linux ELF binary, Docker, and provider credentials on
-  a machine that can run the harness end-to-end — tracked as **CL-6924**.
+- Trivial Harbor dry-run has been run locally (`hello.txt`, verifier reward 1.0)
+  with OpenCode Go `mimo-v2.5`. Cost-capped Terminal-Bench smoke is the parent
+  ticket **CL-6922** (the old CL-6924 slice ticket was canceled).
 - This adapter does not parse Corbits trajectories into Harbor ATIF; exit
   metadata is limited to `context.metadata["exit_code"]` plus tee'd stdout in
   `/logs/agent/corbits.txt`.

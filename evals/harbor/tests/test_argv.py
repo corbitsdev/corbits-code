@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from evals.harbor.argv import api_key_env_names, build_exec_argv, build_settings
+from evals.harbor.argv import (
+    api_key_env_names,
+    build_exec_argv,
+    build_settings,
+    resolve_base_url,
+)
 
 
 class BuildSettingsTests(unittest.TestCase):
@@ -111,6 +116,62 @@ class ApiKeyEnvNamesTests(unittest.TestCase):
         names = api_key_env_names("xai")
         self.assertNotIn("OPENAI_API_KEY", names)
         self.assertNotIn("ANTHROPIC_API_KEY", names)
+
+
+class ResolveBaseURLTests(unittest.TestCase):
+    def test_override_wins(self) -> None:
+        self.assertEqual(
+            resolve_base_url(
+                override="https://override.example/v1",
+                configured="https://configured.example/v1",
+                env_url="https://env.example/v1",
+                inferred="https://api.x.ai/v1",
+            ),
+            "https://override.example/v1",
+        )
+
+    def test_inferred_catalog_default_when_unconfigured(self) -> None:
+        self.assertEqual(
+            resolve_base_url(
+                override=None,
+                configured=None,
+                env_url=None,
+                inferred="https://api.x.ai/v1",
+            ),
+            "https://api.x.ai/v1",
+        )
+
+    def test_configured_beats_inferred(self) -> None:
+        self.assertEqual(
+            resolve_base_url(
+                override=None,
+                configured="https://cli-chat-proxy.grok.com/v1",
+                env_url=None,
+                inferred="https://api.x.ai/v1",
+            ),
+            "https://cli-chat-proxy.grok.com/v1",
+        )
+
+    def test_empty_sources_are_skipped(self) -> None:
+        self.assertEqual(
+            resolve_base_url(
+                override="",
+                configured=None,
+                env_url="https://from-env.example/v1",
+                inferred="https://api.x.ai/v1",
+            ),
+            "https://from-env.example/v1",
+        )
+
+    def test_raises_when_nothing_resolves(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            resolve_base_url(
+                override=None,
+                configured=None,
+                env_url=None,
+                inferred=None,
+            )
+        self.assertIn("base URL", str(ctx.exception))
 
 
 if __name__ == "__main__":
