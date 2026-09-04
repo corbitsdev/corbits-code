@@ -34,7 +34,7 @@ import {
 } from "./components/prompt-action-bar-label.js";
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
-import { parseAtState } from "./components/at-mention/parse.js";
+import { parseAtState, type AtState } from "./components/at-mention/parse.js";
 import {
   formatAttachmentSummary,
   readClipboardImage,
@@ -4076,6 +4076,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   if (!shell.overlayList) return;
   // Esc (or any other dismiss) must also drop the `/` and `@` popups' key claim.
   slashPopups.delete(shell);
+  if (mentionPopups.has(shell)) clearMentionAccept(shell);
   mentionPopups.delete(shell);
 
   const wasPalette = shell.overlayKind === "palette";
@@ -4420,7 +4421,8 @@ export function pageOverlaySelection(shell: AppShell, dir: -1 | 1): void {
   paintOverlayList(shell);
 }
 
-/** Accept active overlay item → callback + system line + close (palette dispatches action). */
+/** Accept active overlay item → callback + system line + close (palette dispatches action).
+ * Mention Enter that is not live (stale generation or cursor off that `@`) dismisses. */
 export function acceptOverlaySelection(shell: AppShell): void {
   if (!shell.overlayList) return;
 
@@ -4451,6 +4453,12 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return;
   }
 
+  if (kind === "mentions" && mentionPopups.has(shell) && liveMentionAccept(shell) === null) {
+    // Stale generation or cursor off the @token: operator dismiss, not accept.
+    closeInsetOverlay(shell);
+    return;
+  }
+
   const id = bag?.overlayItemIds[idx];
   // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
   if (id === "") return;
@@ -4475,6 +4483,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
       meta: overlayKindWord(kind),
     });
   }
+  // Accept is not operator dismiss: keep mention accept state for onAccept
+  // after this close (closeInsetOverlay would otherwise bump the generation).
+  if (kind === "mentions") mentionPopups.delete(shell);
   closeInsetOverlay(shell);
   dispatchOverlayAccept(shell, selection, perOpen);
 }
@@ -5040,11 +5051,21 @@ const MOTION_KEYS: ReadonlySet<string> = new Set([
 const defaultMentionSource: MentionSuggestionSource = (prefix) =>
   listPathSuggestions(prefix, process.cwd());
 
+interface MentionAcceptState {
+  readonly suggestions: readonly string[];
+  readonly generation: number;
+  readonly atStart: number;
+}
+
 /**
  * Open path suggestions for the @token under the cursor and splice the
  * accepted entry back into the prompt. Directory picks re-open one level
  * down so the operator can drill in without typing the path.
- * Returns false when the cursor is not inside an @token or nothing matched.
+ * Returns false when the cursor is not inside an @token, nothing matched,
+ * a newer lookup superseded this one, or the overlay host was taken.
+ *
+ * Accept requires a current generation and a live `@` token under the cursor.
+ * A lookup that finishes after the cursor has left this token does not open.
  */
 export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean> {
   const at = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
@@ -5058,7 +5079,6 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   const generation = (mentionGenerations.get(shell) ?? 0) + 1;
   mentionGenerations.set(shell, generation);
 
-  const cursor = shell.prompt.cursorOffset;
   const source = shellMentionSource.get(shell) ?? defaultMentionSource;
   const token = splitMentionToken(at.prefix);
   let suggestions = filterMentionSuggestions(await source(token.dir), token.fragment);
@@ -5081,10 +5101,24 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
     return false;
   }
 
-  // The onAccept closure reads through this ref rather than closing over
-  // `suggestions`/`at`/`cursor` directly, so a same-session refresh can
-  // update what accept splices without re-binding the callback.
-  mentionAcceptState.set(shell, { suggestions, atStart: at.atStart, cursor });
+  // The operator may have left this token while the lookup was in flight.
+  // Do not open, and do not arm accept, unless the cursor is still on this @
+  // (same atStart). A different live @token is not this lookup.
+  const liveAt = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
+  if (liveAt === null || liveAt.atStart !== at.atStart) {
+    closeMentionPopup(shell);
+    return false;
+  }
+
+  // The onAccept closure reads mentionAcceptState rather than closing over
+  // `suggestions` directly, so a same-session refresh can update what accept
+  // splices without re-binding the callback. atStart is the @ this lookup
+  // started on; the splice end is the live cursor.
+  const acceptState: MentionAcceptState = {
+    suggestions,
+    generation,
+    atStart: at.atStart,
+  };
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening the overlay released the host between the two calls — long
@@ -5093,6 +5127,7 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   // Refreshing the open list in place never releases the host, so a queued
   // gate has nothing to drain into.
   if (isMentionPopupOpen(shell)) {
+    mentionAcceptState.set(shell, acceptState);
     setOverlayItems(shell, [...suggestions]);
     return true;
   }
@@ -5101,33 +5136,45 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   openMentionsOverlay(shell, {
     items: [...suggestions],
     onAccept: (selection) => {
-      const state = mentionAcceptState.get(shell);
-      const completion = state?.suggestions[selection.index];
-      if (completion === undefined || state === undefined) return;
+      const ready = liveMentionAccept(shell);
+      if (ready === null) return;
+      const completion = ready.state.suggestions[selection.index];
+      if (completion === undefined) return;
       const spliced = spliceMentionCompletion(
         shell.prompt.value,
-        state.atStart,
-        state.cursor,
+        ready.live.atStart,
+        shell.prompt.cursorOffset,
         completion,
       );
-      shell.prompt.value = spliced.value;
-      shell.prompt.cursorOffset = spliced.cursor;
-      shell.sentHistory = sentHistoryOnEdit(shell.sentHistory);
+      editPromptAt(shell, spliced.value, spliced.cursor);
       if (completion.endsWith("/")) void openAtMentionSuggestions(shell);
     },
   });
+  if (shell.overlayKind !== "mentions") return false;
+  mentionAcceptState.set(shell, acceptState);
   mentionPopups.add(shell);
   return true;
 }
 
 const mentionPopups = new WeakSet<AppShell>();
 const mentionGenerations = new WeakMap<AppShell, number>();
-interface MentionAcceptState {
-  readonly suggestions: readonly string[];
-  readonly atStart: number;
-  readonly cursor: number;
-}
 const mentionAcceptState = new WeakMap<AppShell, MentionAcceptState>();
+
+/** Drop accept state and invalidate in-flight lookups on operator dismiss. */
+function clearMentionAccept(shell: AppShell): void {
+  mentionAcceptState.delete(shell);
+  mentionGenerations.set(shell, (mentionGenerations.get(shell) ?? 0) + 1);
+}
+
+/** Live accept snapshot, or null when there is no state, generation is stale, or the cursor left this @. */
+function liveMentionAccept(shell: AppShell): { state: MentionAcceptState; live: AtState } | null {
+  const state = mentionAcceptState.get(shell);
+  if (state === undefined) return null;
+  if (mentionGenerations.get(shell) !== state.generation) return null;
+  const live = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
+  if (live === null || live.atStart !== state.atStart) return null;
+  return { state, live };
+}
 
 /** True while the `@` path popup owns typed characters. */
 export function isMentionPopupOpen(shell: AppShell): boolean {
@@ -5136,6 +5183,7 @@ export function isMentionPopupOpen(shell: AppShell): boolean {
 
 export function closeMentionPopup(shell: AppShell): void {
   if (!mentionPopups.has(shell)) return;
+  clearMentionAccept(shell);
   mentionPopups.delete(shell);
   if (shell.overlayList) closeInsetOverlay(shell);
 }
