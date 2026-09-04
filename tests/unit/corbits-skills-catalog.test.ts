@@ -158,11 +158,28 @@ test("implement skill is a per-commit workflow without a false 4-cap", async () 
 });
 
 test("first-party skills are how-to playbooks, not director personas", async () => {
+  const gaasOverlap = new Set([
+    "ast-grep",
+    "create-issue",
+    "git-rebase",
+    "implement",
+    "interview",
+    "linear-issue-workflow",
+    "opsh",
+    "philosophy",
+    "pull-request-review",
+    "refactor",
+    "review",
+    "scribe",
+    "style",
+    "typescript",
+  ]);
   for (const name of SKILL_DIRS) {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
     expect(skill).not.toContain("You are Skywalker");
     expect(skill).not.toMatch(/You are \w+Director/);
     expect(skill).not.toContain("Host is Corbits");
+    if (gaasOverlap.has(name)) continue;
     expect(skill).not.toContain("## Acknowledgment");
     expect(skill).not.toMatch(/I have reviewed the .+ skill/);
   }
@@ -181,16 +198,17 @@ test("style skill is guidance, not ceremony or tool-contract restatement", async
   expect(skill).not.toContain("## Acknowledgment");
 });
 
-test("philosophy skill is guidance without fake enforcement", async () => {
+test("philosophy skill is 1:1 with GaaS philosophy", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/philosophy/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
-  expect(skill).toContain("Constraint ownership");
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("## Guiding Principles");
+  expect(skill).toContain("## Constraint Ownership");
   expect(skill).toContain("exactly one");
-  expect(skill).toContain("guidance for choices");
-  expect(skill).toContain("Backwards compatibility");
+  expect(skill).toContain("## Backwards Compatibility");
   expect(skill).toContain("Pragmatic over idealistic");
-  expect(skill).not.toContain("## Acknowledgment");
-  expect(skill).not.toContain("I have reviewed the philosophy skill");
+  expect(skill).toContain("## Acknowledgment");
+  expect(skill).toContain("I have reviewed the philosophy skill");
   expect(skill).not.toContain("write_file");
   expect(skill).not.toContain("run_shell");
   expect(skill).not.toContain("use_skill(");
