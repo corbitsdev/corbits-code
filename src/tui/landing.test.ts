@@ -821,10 +821,10 @@ describe("landing screen", () => {
   });
 
   test("a flushed startup notice never carries a plumbing gutter label", async () => {
-    // The transcript must never label a row "command": a system row's text
-    // already says what it is, and the meta column is the operator's, not the
-    // wiring's. (MCP notices still use the notice strip; plugin skill-miss
-    // summaries do not.)
+    // Flushed startup notices still deny the plumbing labels `command` and
+    // `overlay` on this path. The product-wide lock is gutter-labels.test.ts.
+    // (MCP notices still use the notice strip; plugin skill-miss summaries
+    // do not.)
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },

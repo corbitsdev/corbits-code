@@ -313,7 +313,9 @@ outcome. Grey `permission` / `operator` recap cards restated the same ask
 after it was already decided. Expanding a collapsed payload while the
 overlay is open still writes the full payload into the scrollable
 transcript, because that text would otherwise be unreachable before
-approval.
+approval. That dump carries no gutter label; transcript gutter labels
+are a closed operator-facing set (`src/tui/gutter-labels.test.ts` is
+the lock).
 
 The decision surfaces (permission approval, operator question) are the one
 framed content in the shell, and they are shaped rather than merely listed

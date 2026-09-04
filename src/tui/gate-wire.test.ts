@@ -30,6 +30,7 @@ import {
   permissionChoicesFromRequest,
   wireGates,
 } from "./gate-wire.js";
+import { streamRowGutter } from "./stream.js";
 
 const baseRequest = (overrides: Partial<PermissionRequest> = {}): PermissionRequest => ({
   tool: "run_shell",
@@ -336,6 +337,13 @@ describe("wireGates", () => {
           // overlay height cap can clip.
           const streamed = shell.streamLog.map((r) => r.text).join("\n");
           expect(streamed).toContain("alpha");
+
+          const dumped = shell.streamLog.filter((r) => r.text.includes("alpha"));
+          expect(dumped.length).toBeGreaterThan(0);
+          for (const row of dumped) {
+            expect(row.meta).toBeUndefined();
+            expect(streamRowGutter(row, { width: 80, multiAgent: false }).content).toBe("");
+          }
 
           expect(toggleOverlayExpand(shell)).toBe(true);
           expect(shell.overlayBodyLines.join("\n")).not.toContain("alpha");
