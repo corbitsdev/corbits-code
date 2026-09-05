@@ -358,6 +358,7 @@ Positional arguments after flags are joined into the optional initial task deliv
 
 - OpenAI-compatible chat completions, streamed via `@intx/inference`
 - JSON-schema tool definitions for director-layer tools (`ask_operator`, `present`, `submit_output`) and agent tools (`manage_tasks`, `tool_search`, `use_skill`, `search_agents`, …)
+- Codex Responses (`codex-responses-adapter.ts` `buildRequest`): ChatGPT Codex is Responses-only. It requires `store: false` (`store: true` → 400) and rejects `previous_response_id`. Multi-turn continuity is full `input` replay; encrypted reasoning captured via `include: ["reasoning.encrypted_content"]` is resent as a `reasoning` item. `prompt_cache_key` (session id) is the cache-routing signal. `parallel_tool_calls` is sent `false` (serial at this surface); the reactor already fans out a multi-call batch concurrently. `max_output_tokens` is omitted (backend rejects it).
 
 ### State Persistence
 
