@@ -224,10 +224,6 @@ export function setEffortCycleHandler(shell: AppShell, onCycle: () => void): voi
   effortCycleHandlers.set(shell, onCycle);
 }
 
-export function clearEffortCycleHandler(shell: AppShell): void {
-  effortCycleHandlers.delete(shell);
-}
-
 /** Optional Wave-4 bridge hooks (runtime-bridge attaches exclusively). */
 export interface ShellBridgeHooks {
   onSubmit: (
@@ -3456,11 +3452,6 @@ export function clearShellInterruptFlash(shell: AppShell): void {
 
 const OVERLAY_FRAME_ID = "inset-demo";
 
-/** Wrap body text for the overlay host (shared with overlays.ts). */
-export function wrapShellOverlayBody(text: string, width: number, maxLines = 8): readonly string[] {
-  return wrapOverlayText(text, Math.max(8, Math.floor(width)), maxLines);
-}
-
 /**
  * Context rows a decision overlay's body may occupy on a terminal with room
  * to spare. The shaped body charges its header and its two rows of air on
@@ -5130,14 +5121,6 @@ export function toggleMouseCapture(shell: AppShell): boolean | null {
     { ttlMs: RUNTIME_FLASH_MS },
   );
   return next;
-}
-
-/**
- * Keyboard copy path (Alt+C): open the copy overlay (Ink parity).
- * `activeIndex` is ignored — selection lives in the overlay list.
- */
-export function copyActiveMessage(shell: AppShell, _activeIndex?: number): boolean {
-  return enterCopyMode(shell);
 }
 
 /**
