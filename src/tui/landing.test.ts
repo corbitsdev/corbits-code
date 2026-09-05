@@ -59,7 +59,9 @@ const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 const SNOW_SAMPLE_CLOCKS_MS = [0, 1500, 3000, 4500, 6000, 7500] as const;
 const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
 
-type IdleTimerHandle = { unref?: () => void };
+interface IdleTimerHandle {
+  unref?: () => void;
+}
 
 function wrapLandingIdleTimer(): {
   armed: IdleTimerHandle[];
