@@ -5,6 +5,7 @@ scratch/
 node_modules/
 CHANGELOG.md
 plugins/corbits-skills/skills/opsh/SKILL.md
+plugins/corbits-skills/skills/refactor/SKILL.md
 
 tmp/
 .claude/

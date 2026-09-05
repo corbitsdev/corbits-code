@@ -22,7 +22,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
 - Restore the opsh skill 1:1 with GaaS. Tool/shell mapping stays on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the pull-request-review skill 1:1 with GaaS. ask_operator, /review mapping, and GitHub posting stay on native-integration. Slash /pull-request-review remains.
-- Ignore GaaS opsh SKILL.md in prettier so table alignment stays 1:1.
+- Restore the refactor skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /refactor remains.
+- Ignore GaaS opsh and refactor SKILL.md in prettier so table/list alignment stays 1:1.
 - Restore the git-rebase skill body 1:1 with GaaS. Intern execution recipe stays on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the linear-issue-workflow skill body 1:1 with GaaS. Claim-first, In Review, and git-worktrees extras stay on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the interview skill body 1:1 with GaaS (AskUserQuestion). Operator-ask mapping stays on native-integration. Slash /interview remains.
