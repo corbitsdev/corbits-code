@@ -669,6 +669,80 @@ describe("CL-5731: task list panel", () => {
   });
 });
 
+describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
+  test("task and agent rows re-fit on width change without a chrome push, and keep identity on height-only resize", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const taskTitle = "refit-task-token unique-task-phrase-that-must-not-survive-a-narrow";
+          const agentLabel = "refit-agent-token unique-agent-phrase-that-must-not-survive-a-narrow";
+          const agentTail = " · 0:42 · grep";
+          const uniqueTaskPhrase = "unique-task-phrase-that-must-not-survive-a-narrow";
+          const uniqueAgentPhrase = "unique-agent-phrase-that-must-not-survive-a-narrow";
+
+          setChromeZones(shell, {
+            task: [{ label: taskTitle, status: "todo" }],
+            agents: [{ label: agentLabel, tail: agentTail, stalled: false }],
+          });
+          // CL-5847: hidden by default — opt in once during setup.
+          toggleTasksPanel(shell);
+
+          await h.renderOnce();
+          const wideFrame = h.captureCharFrame();
+          expect(wideFrame).toContain("refit-task-token");
+          expect(wideFrame).toContain(uniqueTaskPhrase);
+          expect(wideFrame).toContain("refit-agent-token");
+          expect(wideFrame).toContain(uniqueAgentPhrase);
+          const taskBoxChild = shell.taskBox.getChildren()[0];
+          const agentsBoxChild = shell.agentsBox.getChildren()[0];
+          expect(taskBoxChild).toBeDefined();
+          expect(agentsBoxChild).toBeDefined();
+
+          h.resize(40, 24);
+          await h.renderOnce();
+          const narrowFrame = h.captureCharFrame();
+          const lines = narrowFrame.split("\n");
+          const taskLine = lines.find(
+            (line) => line.includes("[ ]") || line.includes("refit-task-token"),
+          );
+          const agentLine = lines.find((line) => line.includes("· 0:42 · grep"));
+          expect(taskLine).toBeDefined();
+          expect(agentLine).toBeDefined();
+          const maxPainted = shell.layout.sideMargin + shell.layout.contentWidth;
+          expect(stringWidth(taskLine!.trimEnd())).toBeLessThanOrEqual(maxPainted);
+          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(maxPainted);
+          expect(taskLine).toContain("[ ]");
+          expect(agentLine).toContain("· 0:42 · grep");
+          expect(narrowFrame).not.toContain(uniqueTaskPhrase);
+          expect(narrowFrame).not.toContain(uniqueAgentPhrase);
+          expect(taskLine).toContain("…");
+          expect(agentLine).toContain("…");
+
+          h.resize(100, 24);
+          await h.renderOnce();
+          const restored = h.captureCharFrame();
+          expect(restored).toContain(uniqueTaskPhrase);
+          expect(restored).toContain(uniqueAgentPhrase);
+
+          const taskBoxChildAfterRestore = shell.taskBox.getChildren()[0];
+          const agentsBoxChildAfterRestore = shell.agentsBox.getChildren()[0];
+          h.resize(100, 32);
+          await h.renderOnce();
+          expect(shell.taskBox.getChildren()[0]).toBe(taskBoxChildAfterRestore);
+          expect(shell.agentsBox.getChildren()[0]).toBe(agentsBoxChildAfterRestore);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 100, height: 24 },
+    );
+  }, 20_000);
+});
+
 describe("Wave 6: keyboard copy path", () => {
   test("enterCopyMode freezes targets and defaults to last", async () => {
     await withTestRenderer(
