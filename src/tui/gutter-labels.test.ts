@@ -7,14 +7,9 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness.js";
 import {
-  makePermissionItems,
-  openModelPickerOverlay,
-  openOperatorOverlay,
-  openPermissionsOverlay,
-} from "./overlays.js";
-import {
   acceptOverlaySelection,
   createAppShell,
+  openListOverlay,
   overlayKindWord,
   type AppShell,
   type PrimaryOverlayKind,
@@ -53,10 +48,15 @@ const STORED_META_LITERALS = [
 
 const FORBIDDEN = ["permission", "command", "overlay"];
 
+/** Palette and copy accept on a different path; they never echo overlayKindWord. */
+const NON_ECHO_OVERLAY_KINDS = new Set<PrimaryOverlayKind>(["palette", "copy"]);
+
 const LAYOUT: RowLayout = { width: 80, multiAgent: false };
 
 const IMMEDIATE_META = /meta:\s*["']([^"']+)["']/g;
 const TERNARY_META = /meta:\s*[^,\n]+\?\s*["']([^"']+)["']\s*:\s*["']([^"']+)["']/g;
+const META_LINE = /\bmeta:\s*([^\n]+)/g;
+const SKIP_RHS = /^(true|false|string|boolean|number|unknown|null)\b/;
 
 function sortedSet(values: Iterable<string>): string[] {
   return [...new Set(values)].sort();
@@ -64,6 +64,31 @@ function sortedSet(values: Iterable<string>): string[] {
 
 function isOverlayKind(value: string): value is PrimaryOverlayKind {
   return Object.hasOwn(OVERLAY_KIND_GUTTER, value);
+}
+
+function overlayKindCases(): { kind: PrimaryOverlayKind; word: string }[] {
+  const cases: { kind: PrimaryOverlayKind; word: string }[] = [];
+  for (const key of Object.keys(OVERLAY_KIND_GUTTER)) {
+    if (!isOverlayKind(key)) continue;
+    cases.push({ kind: key, word: OVERLAY_KIND_GUTTER[key] });
+  }
+  return cases;
+}
+
+function normalizeRhs(raw: string): string {
+  return raw
+    .replace(/\/\/.*$/, "")
+    .replace(/,?\s*$/, "")
+    .trim();
+}
+
+function isRecognisedMetaRhs(rhs: string): boolean {
+  if (SKIP_RHS.test(rhs)) return true;
+  if (rhs.startsWith("row.meta") || rhs === "input.name") return true;
+  if (rhs.startsWith("overlayKindWord(")) return true;
+  if (rhs.startsWith('"') || rhs.startsWith("'")) return true;
+  if (rhs.includes("?") && /["']/.test(rhs)) return true;
+  return false;
 }
 
 async function assertEchoRecap(open: (shell: AppShell) => void, word: string): Promise<void> {
@@ -95,6 +120,7 @@ describe("transcript gutter labels", () => {
     const tuiDir = import.meta.dirname;
     const files = await Array.fromAsync(new Bun.Glob("**/*.ts").scan(tuiDir));
     const captured = new Set<string>();
+    const unrecognized: string[] = [];
     for (const relative of files) {
       if (
         relative.endsWith(".test.ts") ||
@@ -112,17 +138,20 @@ describe("transcript gutter labels", () => {
         if (match[1]) captured.add(match[1]);
         if (match[2]) captured.add(match[2]);
       }
+      for (const match of source.matchAll(META_LINE)) {
+        const rhs = normalizeRhs(match[1] ?? "");
+        if (rhs.length === 0 || isRecognisedMetaRhs(rhs)) continue;
+        unrecognized.push(`${relative}: ${rhs}`);
+      }
     }
 
+    expect(unrecognized).toEqual([]);
     expect(FORBIDDEN.filter((token) => captured.has(token))).toEqual([]);
     const painted = new Set<string>([...CHROME_LITERALS, ...Object.values(OVERLAY_KIND_GUTTER)]);
     expect(FORBIDDEN.filter((token) => painted.has(token))).toEqual([]);
 
-    for (const key of Object.keys(OVERLAY_KIND_GUTTER)) {
-      if (!isOverlayKind(key)) {
-        throw new Error(`unexpected overlay kind key: ${key}`);
-      }
-      expect(overlayKindWord(key)).toBe(OVERLAY_KIND_GUTTER[key]);
+    for (const { kind, word } of overlayKindCases()) {
+      expect(overlayKindWord(kind)).toBe(word);
     }
 
     expect(sortedSet(captured)).toEqual(sortedSet([...CHROME_LITERALS, ...STORED_META_LITERALS]));
@@ -141,23 +170,10 @@ describe("transcript gutter labels", () => {
     );
   });
 
-  test.each([
-    {
-      name: "permissions",
-      open: (shell: AppShell) => openPermissionsOverlay(shell, { items: makePermissionItems(3) }),
-      word: OVERLAY_KIND_GUTTER.permissions,
+  test.each(overlayKindCases().filter(({ kind }) => !NON_ECHO_OVERLAY_KINDS.has(kind)))(
+    "a default-echo $kind recap paints the overlay word",
+    async ({ kind, word }) => {
+      await assertEchoRecap((shell) => openListOverlay(shell, { kind, items: ["one"] }), word);
     },
-    {
-      name: "operator",
-      open: (shell: AppShell) => openOperatorOverlay(shell, { choices: ["A", "B"] }),
-      word: OVERLAY_KIND_GUTTER.operator,
-    },
-    {
-      name: "model_picker",
-      open: (shell: AppShell) => openModelPickerOverlay(shell, { items: ["claude-sonnet-4"] }),
-      word: OVERLAY_KIND_GUTTER.model_picker,
-    },
-  ])("a default-echo $name recap paints the overlay word", async ({ open, word }) => {
-    await assertEchoRecap(open, word);
-  });
+  );
 });
