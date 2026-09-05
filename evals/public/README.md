@@ -56,8 +56,9 @@ real public issue?**
 | -------------------------------- | --------------------------------------------------------- |
 | Corbits@Grok patch on instance X | Yes (this smoke)                                          |
 | % resolved on SWE-bench Lite     | Only after official Docker eval on a frozen instance list |
-| vs Claude Code on TB2            | Harbor adapter (not this script)                          |
+| vs Claude Code on TB2            | Harbor adapter: `evals/harbor/`                           |
 
 ## Related
 
 - Product gates: `evals/capability/`
+- Harbor adapter: `evals/harbor/`
