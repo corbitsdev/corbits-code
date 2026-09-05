@@ -7,6 +7,7 @@ CHANGELOG.md
 plugins/corbits-skills/skills/opsh/SKILL.md
 plugins/corbits-skills/skills/refactor/SKILL.md
 plugins/corbits-skills/skills/scribe/SKILL.md
+plugins/corbits-skills/skills/ast-grep/SKILL.md
 
 tmp/
 .claude/
