@@ -57,6 +57,7 @@ export const CODEX_AUTHORIZE_EXTRA_PARAMS: Record<string, string> = {
 // default so the picker is never empty.
 export const CODEX_DEFAULT_MODELS = [
   "gpt-5.5",
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

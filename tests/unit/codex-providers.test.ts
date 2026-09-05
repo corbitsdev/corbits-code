@@ -24,6 +24,7 @@ describe("CODEX_DEFAULT_MODELS", () => {
     expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-sol");
     expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-terra");
     expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-luna");
+    expect(CODEX_DEFAULT_MODELS).toContain("gpt-6-astra");
     expect(CODEX_DEFAULT_MODELS[0]).toBe("gpt-5.5");
   });
 });

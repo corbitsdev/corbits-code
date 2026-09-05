@@ -40,9 +40,14 @@ const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "hig
 const GROK_46_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
 
+// GPT-6 Astra accepts low through max on both the OpenAI API and Codex surfaces.
+// Not ultra (gpt-5.6 Codex-only), not minimal, not none.
+const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh", "max"];
+
 function isKnownOpenAIReasoningModel(model: string): boolean {
   return (
     model.startsWith("gpt-5") ||
+    model.startsWith("gpt-6") ||
     model.startsWith("o1") ||
     model.startsWith("o3") ||
     model.startsWith("o4")
@@ -74,6 +79,9 @@ export function supportedEfforts(
 ): ReasoningEffort[] {
   if (reasoningCapable === false) {
     return [];
+  }
+  if (model === "gpt-6-astra") {
+    return [...GPT6_ASTRA_EFFORTS];
   }
   if (isCodex) {
     return MAX_EFFORT_CODEX_MODELS.includes(model)
@@ -143,7 +151,7 @@ export function cycleReasoningEffort(
  * advances from when the operator has not picked a level.
  *
  * Family table: grok* → high; Codex → medium; gpt-5.1 chat (`none` on the
- * ladder, not Codex) → none; gpt-5/o1/o3/o4 → medium. Unknown models with a
+ * ladder, not Codex) → none; gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models with a
  * conservative rung set stay undefined so we do not invent a family default.
  */
 export function defaultEffortForModel(model: string, isCodex = false): ReasoningEffort | undefined {

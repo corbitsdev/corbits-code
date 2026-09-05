@@ -72,6 +72,17 @@ describe("supportedEfforts", () => {
     ]);
   });
 
+  test("gpt-6-astra takes low through max on both API and Codex paths", () => {
+    expect(supportedEfforts("gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(supportedEfforts("gpt-6-astra", undefined, true)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
   test("gpt-5.6 family additionally takes max and ultra on the codex backend", () => {
     expect(supportedEfforts("gpt-5.6-sol", undefined, true)).toEqual([
       "low",
@@ -407,6 +418,7 @@ describe("defaultEffortForModel", () => {
     expect(defaultEffortForModel("o1")).toBe("medium");
     expect(defaultEffortForModel("o3-mini")).toBe("medium");
     expect(defaultEffortForModel("o4-mini")).toBe("medium");
+    expect(defaultEffortForModel("gpt-6-astra")).toBe("medium");
   });
 
   test("gpt-5.1 chat defaults to none when none is on the ladder", () => {
