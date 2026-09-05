@@ -44,7 +44,8 @@ import {
   sessionContextDir,
   sessionDir,
 } from "../session/index.js";
-import { saveState, type ConnectedMcpServer } from "../session/state.js";
+import { setActiveRun } from "../session/active-run.js";
+import { finalizeRunState, saveState, type ConnectedMcpServer } from "../session/state.js";
 import { resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
 import { createRunSummary } from "../session/hooks.js";
 import {
@@ -292,7 +293,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   ): Promise<void> => {
     if (finalized && status === "running") return;
     if (status !== "running") finalized = true;
-    await saveState(config.cwd, sessionId, {
+    const snapshot = {
       status,
       turnsUsed: runSink?.getTurnCount() ?? turnsUsed,
       task,
@@ -301,7 +302,22 @@ export async function runExec(config: Config): Promise<ExecResult> {
       mcpServers: connectedMcp,
       ...(status !== "running" ? { finishedAt: Date.now() } : {}),
       ...(extra?.error !== undefined ? { error: extra.error } : {}),
-    }).catch((err: unknown) => {
+    };
+    const write =
+      status === "running"
+        ? saveState(config.cwd, sessionId, snapshot).then(() => {
+            if (!finalized) {
+              setActiveRun({
+                sessionId,
+                cwd: config.cwd,
+                task,
+                startedAt,
+                model: `${config.providerName}:${config.model}`,
+              });
+            }
+          })
+        : finalizeRunState(config.cwd, sessionId, snapshot);
+    await write.catch((err: unknown) => {
       // Persistence failure must not fail the run, but dropping it silently
       // hides disk/permission problems that leave run.json stale.
       logger.warn("saveState failed for session {sessionId} status={status}: {error}", {

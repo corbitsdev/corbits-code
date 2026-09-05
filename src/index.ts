@@ -164,7 +164,8 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
 
 // A crash reaching here escaped without ever hitting runTUI's own try/catch
 // (e.g. a throw inside a fire-and-forget `void` call), so run.json was never
-// closed out. getActiveRun surfaces the in-flight session set by runTUI, with
+// closed out. getActiveRun surfaces the in-flight session set by the in-flight
+// runner (TUI or exec), with
 // enough (task, startedAt, model) carried on the handle itself that no read
 // of run.json is needed — a readFile here would be exactly the kind of
 // unbounded crash-path I/O primeCrashReporting (src/crash/report.ts) exists
@@ -251,8 +252,9 @@ const SIGNAL_EXIT_NUMBER: Record<"SIGINT" | "SIGTERM" | "SIGHUP", number> = {
 // exists for the signal actually reaching the process: external
 // orchestration (kill, systemd, docker stop), or a terminal that never
 // entered raw mode at all (exec mode has no TUI host and no raw stdin, so
-// its Ctrl+C is a real SIGINT today with no listener at all — Bun's default
-// disposition kills it immediately without a chance to close out run.json).
+// its Ctrl+C is a real SIGINT today). Listeners are already installed at
+// process entry; they finalize the registered handle, and no-op only when
+// none is registered.
 //
 // Terminal restore is done directly here, the same way handleFatal does it,
 // rather than left to OpenTUI's own same-signal listener (registered later,
