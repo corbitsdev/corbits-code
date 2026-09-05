@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { OPENCODE_GO_MODEL_IDS } from "../../packages/opencode-go/src/index.js";
 import {
   discoverGoModels,
+  MAX_GO_CATALOG_BYTES,
+  MAX_GO_CATALOG_MODELS,
   prefetchGoModels,
   resetGoModelDiscoveryForTests,
   selectableGoModelIds,
@@ -21,6 +23,26 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   resetGoModelDiscoveryForTests();
 });
+
+function oversizedCatalogResponse(byteLength: number): Response {
+  const chunk = new Uint8Array(64 * 1024).fill(0x61);
+  let remaining = byteLength;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (remaining <= 0) {
+        controller.close();
+        return;
+      }
+      const n = Math.min(remaining, chunk.byteLength);
+      controller.enqueue(n === chunk.byteLength ? chunk : chunk.subarray(0, n));
+      remaining -= n;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 describe("discoverGoModels", () => {
   test("GETs the public models URL without auth and does not write the snapshot", async () => {
@@ -72,6 +94,47 @@ describe("discoverGoModels", () => {
       message: "connection refused",
     });
   });
+
+  test("rejects an oversized catalog body without treating it as models", async () => {
+    globalThis.fetch = (async () =>
+      oversizedCatalogResponse(MAX_GO_CATALOG_BYTES + 1)) as unknown as typeof fetch;
+
+    const state = await discoverGoModels();
+    expect(state.status).toBe("malformed");
+    if (state.status !== "malformed") throw new Error("expected malformed");
+    expect(state.message).toContain(String(MAX_GO_CATALOG_BYTES));
+    expect(selectableGoModelIds()).toEqual(OPENCODE_GO_MODEL_IDS);
+  });
+
+  test("rejects a declared Content-Length over the byte cap without reading the body as models", async () => {
+    globalThis.fetch = (async () =>
+      new Response('{"data":[{"id":"grok-4.5"}]}', {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(MAX_GO_CATALOG_BYTES + 1),
+        },
+      })) as unknown as typeof fetch;
+
+    const state = await discoverGoModels();
+    expect(state.status).toBe("malformed");
+    if (state.status !== "malformed") throw new Error("expected malformed");
+    expect(state.message).toContain(String(MAX_GO_CATALOG_BYTES));
+    expect(state).not.toEqual({ status: "models", models: ["grok-4.5"] });
+  });
+
+  test("rejects a parsed catalog over the model-count cap instead of taking a prefix", async () => {
+    const data = Array.from({ length: MAX_GO_CATALOG_MODELS + 1 }, (_, i) => ({
+      id: `go-model-${String(i)}`,
+    }));
+    globalThis.fetch = (async () => Response.json({ data })) as unknown as typeof fetch;
+
+    const state = await discoverGoModels();
+    expect(state.status).toBe("malformed");
+    if (state.status !== "malformed") throw new Error("expected malformed");
+    expect(state.message).toContain(String(MAX_GO_CATALOG_MODELS));
+    expect(selectableGoModelIds()).toEqual(OPENCODE_GO_MODEL_IDS);
+  });
 });
 
 describe("prefetchGoModels", () => {
@@ -113,6 +176,15 @@ describe("prefetchGoModels", () => {
     const ids = await prefetchGoModels();
     expect(ids).toEqual(OPENCODE_GO_MODEL_IDS);
     expect(ids.length).toBeGreaterThan(0);
+    expect(selectableGoModelIds()).toEqual(OPENCODE_GO_MODEL_IDS);
+  });
+
+  test("oversized live catalog does not replace the seed with a truncated prefix", async () => {
+    globalThis.fetch = (async () =>
+      oversizedCatalogResponse(MAX_GO_CATALOG_BYTES + 1)) as unknown as typeof fetch;
+
+    const ids = await prefetchGoModels();
+    expect(ids).toEqual(OPENCODE_GO_MODEL_IDS);
     expect(selectableGoModelIds()).toEqual(OPENCODE_GO_MODEL_IDS);
   });
 
