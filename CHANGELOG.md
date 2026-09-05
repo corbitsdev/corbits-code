@@ -20,6 +20,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
+- Align /create-issue phases and # Background / # Outcome format with GaaS linear-create. Slash stays /create-issue. Tracker selection stays (Linear MCP first, else GitHub/GitLab/MEMORY.md).
 - Restore the /review skill body 1:1 with GaaS code-review. Slash stays /review. GitHub posting, Linear In Review, ask_operator, and findings-only stay on native-integration.
 - Restore the scribe skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /scribe remains.
 - Restore the ast-grep skill 1:1 with GaaS. run_shell mapping stays on native-integration. Slash /ast-grep remains.

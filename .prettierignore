@@ -9,6 +9,7 @@ plugins/corbits-skills/skills/refactor/SKILL.md
 plugins/corbits-skills/skills/scribe/SKILL.md
 plugins/corbits-skills/skills/ast-grep/SKILL.md
 plugins/corbits-skills/skills/review/SKILL.md
+plugins/corbits-skills/skills/create-issue/SKILL.md
 
 tmp/
 .claude/
