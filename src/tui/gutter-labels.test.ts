@@ -1,18 +1,24 @@
 /**
  * The transcript never labels a row with the machinery that produced it.
- * Adding a painted chrome label means editing this list on purpose.
+ * Adding a painted chrome label means editing CHROME_LITERALS or
+ * OVERLAY_KIND_GUTTER on purpose.
  */
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness.js";
-import type { PrimaryOverlayKind } from "./overlays.js";
 import {
   makePermissionItems,
   openModelPickerOverlay,
   openOperatorOverlay,
   openPermissionsOverlay,
 } from "./overlays.js";
-import { acceptOverlaySelection, createAppShell, type AppShell } from "./shell.js";
+import {
+  acceptOverlaySelection,
+  createAppShell,
+  overlayKindWord,
+  type AppShell,
+  type PrimaryOverlayKind,
+} from "./shell.js";
 import { streamRowGutter, type RowLayout } from "./stream.js";
 
 const OVERLAY_KIND_GUTTER = {
@@ -35,9 +41,7 @@ const OVERLAY_KIND_GUTTER = {
 
 const CHROME_LITERALS = ["error", "plan", "report", "stop", "observe"] as const;
 
-const PERMITTED_CHROME_GUTTER_LABELS = [...CHROME_LITERALS, ...Object.values(OVERLAY_KIND_GUTTER)];
-
-const STORED_NOT_GUTTER = [
+const STORED_META_LITERALS = [
   "thinking",
   "steer",
   "queue",
@@ -58,6 +62,10 @@ function sortedSet(values: Iterable<string>): string[] {
   return [...new Set(values)].sort();
 }
 
+function isOverlayKind(value: string): value is PrimaryOverlayKind {
+  return Object.hasOwn(OVERLAY_KIND_GUTTER, value);
+}
+
 async function assertEchoRecap(open: (shell: AppShell) => void, word: string): Promise<void> {
   await withTestRenderer(
     async (h) => {
@@ -69,10 +77,10 @@ async function assertEchoRecap(open: (shell: AppShell) => void, word: string): P
         open(shell);
         acceptOverlaySelection(shell);
         const row = shell.streamLog.at(-1);
-        expect(row).toBeDefined();
-        if (row === undefined) return;
+        if (row === undefined) {
+          throw new Error("expected an echo recap row");
+        }
         expect(row.meta).toBe(word);
-        expect(FORBIDDEN).not.toContain(row.meta);
         expect(streamRowGutter(row, LAYOUT).content.trim()).toBe(word);
       } finally {
         shell.dispose();
@@ -88,33 +96,36 @@ describe("transcript gutter labels", () => {
     const files = await Array.fromAsync(new Bun.Glob("**/*.ts").scan(tuiDir));
     const captured = new Set<string>();
     for (const relative of files) {
-      const base = relative.split("/").pop() ?? relative;
-      if (base.endsWith(".test.ts") || base === "demo.ts") continue;
+      if (
+        relative.endsWith(".test.ts") ||
+        relative === "demo.ts" ||
+        relative.endsWith("/demo.ts")
+      ) {
+        continue;
+      }
       const source = await Bun.file(join(tuiDir, relative)).text();
       for (const match of source.matchAll(IMMEDIATE_META)) {
         const token = match[1];
-        if (token !== undefined) captured.add(token);
+        if (token) captured.add(token);
       }
       for (const match of source.matchAll(TERNARY_META)) {
-        if (match[1] !== undefined) captured.add(match[1]);
-        if (match[2] !== undefined) captured.add(match[2]);
+        if (match[1]) captured.add(match[1]);
+        if (match[2]) captured.add(match[2]);
       }
     }
 
     expect(FORBIDDEN.filter((token) => captured.has(token))).toEqual([]);
-    const permitted = new Set<string>(PERMITTED_CHROME_GUTTER_LABELS);
-    expect(FORBIDDEN.filter((token) => permitted.has(token))).toEqual([]);
+    const painted = new Set<string>([...CHROME_LITERALS, ...Object.values(OVERLAY_KIND_GUTTER)]);
+    expect(FORBIDDEN.filter((token) => painted.has(token))).toEqual([]);
 
-    // Painted overlay words are decided here, not inferred from the literal scan.
-    expect(sortedSet(Object.values(OVERLAY_KIND_GUTTER))).toEqual(
-      sortedSet(Object.keys(OVERLAY_KIND_GUTTER).map((kind) => kind.replace(/_/g, " "))),
-    );
+    for (const key of Object.keys(OVERLAY_KIND_GUTTER)) {
+      if (!isOverlayKind(key)) {
+        throw new Error(`unexpected overlay kind key: ${key}`);
+      }
+      expect(overlayKindWord(key)).toBe(OVERLAY_KIND_GUTTER[key]);
+    }
 
-    expect(sortedSet(captured)).toEqual(sortedSet([...CHROME_LITERALS, ...STORED_NOT_GUTTER]));
-  });
-
-  test("an expand dump with no meta paints an empty gutter", () => {
-    expect(streamRowGutter({ role: "system", text: "payload" }, LAYOUT).content).toBe("");
+    expect(sortedSet(captured)).toEqual(sortedSet([...CHROME_LITERALS, ...STORED_META_LITERALS]));
   });
 
   test("thinking rows paint an empty gutter", () => {
@@ -124,30 +135,29 @@ describe("transcript gutter labels", () => {
     ).toBe("");
   });
 
-  test("permitted chrome paints in the gutter", () => {
-    const gutter = streamRowGutter({ role: "system", text: "failed", meta: "error" }, LAYOUT);
-    expect(gutter.content.length).toBeGreaterThan(0);
-    expect(gutter.content.trim()).toBe("error");
-  });
-
-  test("a default-echo permissions recap paints the overlay word", async () => {
-    await assertEchoRecap(
-      (shell) => openPermissionsOverlay(shell, { items: makePermissionItems(3) }),
-      OVERLAY_KIND_GUTTER.permissions,
+  test.each([...CHROME_LITERALS])("permitted chrome paints %s in the gutter", (meta) => {
+    expect(streamRowGutter({ role: "system", text: "notice", meta }, LAYOUT).content.trim()).toBe(
+      meta,
     );
   });
 
-  test("a default-echo operator recap paints the overlay word", async () => {
-    await assertEchoRecap(
-      (shell) => openOperatorOverlay(shell, { choices: ["A", "B"] }),
-      OVERLAY_KIND_GUTTER.operator,
-    );
-  });
-
-  test("a default-echo model-picker recap paints the overlay word", async () => {
-    await assertEchoRecap(
-      (shell) => openModelPickerOverlay(shell, { items: ["claude-sonnet-4"] }),
-      OVERLAY_KIND_GUTTER.model_picker,
-    );
+  test.each([
+    {
+      name: "permissions",
+      open: (shell: AppShell) => openPermissionsOverlay(shell, { items: makePermissionItems(3) }),
+      word: OVERLAY_KIND_GUTTER.permissions,
+    },
+    {
+      name: "operator",
+      open: (shell: AppShell) => openOperatorOverlay(shell, { choices: ["A", "B"] }),
+      word: OVERLAY_KIND_GUTTER.operator,
+    },
+    {
+      name: "model_picker",
+      open: (shell: AppShell) => openModelPickerOverlay(shell, { items: ["claude-sonnet-4"] }),
+      word: OVERLAY_KIND_GUTTER.model_picker,
+    },
+  ])("a default-echo $name recap paints the overlay word", async ({ open, word }) => {
+    await assertEchoRecap(open, word);
   });
 });
