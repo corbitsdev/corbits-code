@@ -6,11 +6,11 @@
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness.js";
+import { overlayKindWord } from "./overlay-body.js";
 import {
   acceptOverlaySelection,
   createAppShell,
   openListOverlay,
-  overlayKindWord,
   type AppShell,
   type PrimaryOverlayKind,
 } from "./shell.js";
