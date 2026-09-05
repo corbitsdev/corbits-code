@@ -330,7 +330,6 @@ export function wireGates(
       appendStreamRow(shell, {
         role: "system",
         text: permissionBodyFromRequest(ev.request, { expanded: true }),
-        meta: "permission",
       });
     };
 
