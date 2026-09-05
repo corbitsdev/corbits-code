@@ -42,23 +42,6 @@ export function imageMimeTypeForPath(path: string): string | undefined {
   return IMAGE_MIME_BY_EXT[ext];
 }
 
-export function extractPastedImagePaths(text: string, cwd: string): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return [];
-  const lines = trimmed
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const candidates = lines.length > 1 ? lines : [trimmed];
-  const out: string[] = [];
-  for (const candidate of candidates) {
-    const abs = normalizeImagePathCandidate(candidate, cwd);
-    if (abs === undefined) return [];
-    out.push(abs);
-  }
-  return out;
-}
-
 export interface ImagePathMention {
   raw: string;
   path: string;

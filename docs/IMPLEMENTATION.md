@@ -192,9 +192,29 @@ Idle-with-fleet is shipped: after a non-blocking `spawn_agent` dispatch the pare
 
 `src/tui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
-### @file Mention Resolution
+### Send-path ingest
 
-`@-mention` resolution and image paste are not wired on the OpenTUI send path.
+Submit, leftover send, and live steer all run `ingestOperatorPrompt`
+(`src/tui/prompt-attachments.ts`) before the inbound user message is sent.
+That ingest:
+
+1. Turns inline image-path mentions (`/path/to/shot.png`, `file://…`) into
+   attachments via `ingestPathMentions` → `findImagePathMentions` /
+   `imageAttachmentFromPath` (`src/tui/image-attachments.ts`).
+2. Expands `@file` mentions to file contents and `@dir` mentions to a
+   directory summary via `resolveAtMentions` (`src/tui/mention-resolution.ts`),
+   gated by sensitive-path and size caps.
+3. Merges any pending clipboard attachments already sitting on the prompt.
+
+The `@` mention popup (`openAtMentionSuggestions` in `shell.ts`) only splices
+a path into the prompt (`spliceMentionCompletion`). Attachments land at send
+time, not at accept time.
+
+Ctrl+V / Ctrl+P and `/paste-image` call `attachClipboardImage` (`shell.ts`) →
+`readClipboardImage` (`image-attachments.ts`), which reads a macOS clipboard
+PNG via osascript `«class PNGf»`. Cmd+V is terminal bracketed paste and stays
+text. Linux and Windows bitmap clipboard paste is a separate product gap; do
+not treat bracketed-paste path text as a paste-time image gesture.
 
 ## Configuration
 

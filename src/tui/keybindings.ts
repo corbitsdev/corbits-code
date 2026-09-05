@@ -70,7 +70,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Alt+Y", description: "replace the text just yanked with the next-older kill" },
   {
     keys: "Ctrl+V / Ctrl+P",
-    description: "attach an image from the clipboard to the next message",
+    description: "attach a PNG from the macOS clipboard to the next message",
   },
   {
     keys: "@",

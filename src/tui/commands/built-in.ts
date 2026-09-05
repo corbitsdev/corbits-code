@@ -102,7 +102,7 @@ export function registerBuiltInCommands(): void {
 
   registerCommand({
     name: "paste-image",
-    description: "Attach the current clipboard image to the next message",
+    description: "Attach a PNG from the macOS clipboard to the next message",
     handler: (_args, _ctx) => ({ type: "paste-image" }),
   });
 

@@ -587,6 +587,13 @@ sent messages. Once a real `paste` event has fired even once, the fallback
 heuristic is permanently skipped for the rest of the session
 (`shell.ts`, the `sawBracketedPaste` guard).
 
+Ctrl+V and Ctrl+P attach a PNG from the macOS clipboard
+(`attachClipboardImage` in `shell.ts` → `readClipboardImage` in
+`image-attachments.ts`).
+Cmd+V stays text (bracketed paste above). Clipboard image attach is
+macOS-only; Linux/Windows bitmap clipboard paste is not supported.
+`/paste-image` is the same attach path.
+
 @-mention path completion opens a popup keyed off the `@token` under the
 cursor (`openAtMentionSuggestions`, `src/tui/shell.ts`); every keystroke re-queries,
 and a generation counter discards a slower, stale query's results if a newer
@@ -597,7 +604,8 @@ so an in-flight lookup cannot reopen it. A lookup that finishes after the
 cursor has left that token does not open. Dismiss clears mention accept state
 and bumps generation.
 Directory picks re-open one level down so the operator can drill into a path
-without retyping it.
+without retyping it. The popup only splices a path into the prompt; submit
+inlines `@file` contents and summarizes `@dir` via `ingestOperatorPrompt`.
 
 A readline-style kill ring backs Ctrl+K/U/W (kill) and Ctrl+Y/Alt+Y
 (yank/yank-pop) on top of the textarea's native delete bindings, which

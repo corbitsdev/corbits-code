@@ -403,7 +403,7 @@ OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been del
 - **Runner host** (`runner-host.ts`) — Runner-facing mount: catalog assembly from live config, chrome pushes on session change, subagent observe resolution, and session teardown (quitting is Ctrl+C twice, owned by the shell).
 - **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) uses `runListModal` (`src/tui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui/command-surfaces.ts`).
 - **Auto mode** — Toggled by CLI flags only (`--auto` / `--no-auto`); there is currently no in-session key bound to it.
-- `@file` mention resolution and image paste are not wired on the OpenTUI send path.
+- **Send-path ingest** — Submit, leftover send, and live steer run `ingestOperatorPrompt` (`src/tui/prompt-attachments.ts`): inline image-path mentions become attachments (`findImagePathMentions` / `imageAttachmentFromPath`); `@file` contents are inlined and `@dir` mentions become a directory summary (`resolveAtMentions` in `mention-resolution.ts`). The mention popup splices paths into the prompt (`spliceMentionCompletion`); it does not send. Ctrl+V / Ctrl+P (and `/paste-image`) attach a macOS clipboard PNG (`attachClipboardImage` in `shell.ts` → `readClipboardImage`); Cmd+V stays text (bracketed paste). Linux/Windows bitmap clipboard paste is not supported.
 
 Known keybindings: `Ctrl+C` interrupts the in-flight run, and quits on a second press inside a two-second window.
 
