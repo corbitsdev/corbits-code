@@ -11,6 +11,7 @@ import {
   appendStreamRow,
   applyLandingSuggestion,
   createAppShell,
+  LANDING_IDLE_REPAINT_INTERVAL_MS,
   noticeText,
   paintChrome,
   setChromeZones,
@@ -50,18 +51,16 @@ const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";
 const nativeSetInterval = globalThis.setInterval;
 const nativeClearInterval = globalThis.clearInterval;
 
-/**
- * 125 is `LANDING_IDLE_REPAINT_INTERVAL_MS` in shell.ts. Hardcoded so a
- * cadence change fails these tests on purpose rather than tracking a product
- * export.
- */
-const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
 
 interface IdleTimerHandle {
   unref?: () => void;
 }
 
+/**
+ * Intercepts the product idle interval so a cadence change cannot hide a
+ * still-armed timer from the reduced-motion assertion.
+ */
 function wrapLandingIdleTimer(): {
   armed: IdleTimerHandle[];
   cleared: IdleTimerHandle[];

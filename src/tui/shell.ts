@@ -2812,7 +2812,7 @@ function clearLandingMark(shell: AppShell): void {
  * The snow only needs to advance about half a row per second, so 8fps is
  * comfortably enough to read as motion.
  */
-const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
+export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 
 /**
  * Repaint the landing mark for `nowMs`. `animating` runs the mountain's
