@@ -16,6 +16,8 @@ Do not delete Corbits-only skills (`plan`, `git-worktrees`, `idiot-proof`). They
 
 Corbits tests use `bun:test` (`bun test`, `bun run test`), not GaaS `tap` (`import t from "tap"`). When the typescript skill shows tap examples, map them to bun:test (`import { expect, test } from "bun:test"`). Do not fork the typescript skill body.
 
+GaaS opsh scripts are bash (`#!/usr/bin/env opsh`, `lib::import`) and use TAP via `prove` (`test-harness`). That harness is not Corbits `bun:test`. Write scripts with `write_file`/`edit_file`; agent commands use `run_shell`. Do not fork the GaaS opsh body.
+
 ## Tool mapping
 
 When a GaaS skill names a Claude/GaaS tool, use the Corbits equivalent. Do not call the GaaS name.
