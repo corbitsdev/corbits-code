@@ -89,7 +89,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     auth: "api-key",
     // Coding Plan OpenAI-compatible endpoint (not the general paas/v4 API).
     baseURL: "https://api.z.ai/api/coding/paas/v4",
-    models: ["glm-5.2", "glm-5.1", "glm-4.7"],
+    models: ["glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-5.1", "glm-4.7"],
     defaultModel: "glm-5.2",
     authHint: "Paste your Z.AI Coding Plan API key from https://z.ai",
   },
