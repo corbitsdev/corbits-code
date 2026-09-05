@@ -515,6 +515,11 @@ export interface AppShellOptions {
    */
   readonly telemetryNotice?: string;
   /**
+   * Suppress landing snow and mountain motion. The idle timer is not
+   * armed, and `paintLanding` holds a still mountain with no flakes.
+   */
+  readonly reducedMotion?: boolean;
+  /**
    * Clipboard port for Alt+C and drag-select auto-copy. Defaults to an
    * in-memory recorder so tests and demos never shell out; the product host
    * injects the system clipboard.
@@ -1781,7 +1786,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     // A new zone can seat a different tier, and a tier is a different grid, so
     // the mark is redrawn rather than left showing the previous size's frame.
     fitLandingMark(landing.above, resolveMarkGrid(split.above, layout.contentWidth));
-    paintLandingMark(landing.above, bag.landingNowMs, !bag.landingAnimating);
+    paintLandingMark(landing.above, bag.landingNowMs, !bag.landingAnimating, bag.reducedMotion);
     landing.below.height = Math.max(0, split.below);
     landing.below.visible = split.below > 0;
   }
@@ -2080,10 +2085,16 @@ interface ShellInternals {
   /** Clock of the last painted mark frame, so a resize can redraw in place. */
   landingNowMs: number;
   /**
-   * Cancels the mount-scoped idle repaint timer (see `armLandingIdleTimer`
-   * in `createAppShell`), or null while none is armed. Cleared by whichever
-   * teardown happens first — the landing going away (`clearLandingMark`) or
-   * the whole shell disposing (`dispose`) — so it can never outlive either.
+   * Mount-time reduced-motion flag. When true, the idle snow timer is
+   * never armed and every landing paint holds a still mountain with no
+   * flakes. Set once at `createAppShell`; not a per-paint argument.
+   */
+  reducedMotion: boolean;
+  /**
+   * Cancels the mount-scoped idle repaint timer armed in `createAppShell`,
+   * or null while none is armed. Cleared by whichever teardown happens
+   * first — the landing going away (`clearLandingMark`) or the whole shell
+   * disposing (`dispose`) — so it can never outlive either.
    */
   landingIdleTimerCancel: (() => void) | null;
   /** Chrome content (empty array = zone off). */
@@ -2743,11 +2754,11 @@ function clearLandingMark(shell: AppShell): void {
 }
 
 /**
- * Cadence of the mount-scoped idle repaint timer (see `armLandingIdleTimer`
- * in `createAppShell`). The snow only needs to advance about half a row per
- * second, so ~8fps is comfortably enough to read as motion.
+ * Cadence of the mount-scoped idle repaint timer armed in `createAppShell`.
+ * The snow only needs to advance about half a row per second, so 8fps is
+ * comfortably enough to read as motion.
  */
-const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
+export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
 
 /**
  * Repaint the landing mark for `nowMs`. `animating` runs the mountain's
@@ -2757,22 +2768,21 @@ const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
  * Always repaints while the landing is up, even when `animating` is false:
  * the landing is idle by definition (no turn processing), and snow still
  * needs to drift across a frozen mountain. Driven by the mount-scoped timer
- * armed in `createAppShell` (see `armLandingIdleTimer`) rather than a render
- * event, so the repaint cadence is independent of however often the renderer
- * happens to paint.
+ * armed in `createAppShell` rather than a render event, so the repaint
+ * cadence is independent of however often the renderer happens to paint.
+ *
+ * Reduced motion is a mount-time flag on the shell, not a per-paint
+ * argument: it freezes the mountain and drops snow even when a caller
+ * asks for `animating`.
  */
-export function paintLanding(
-  shell: AppShell,
-  nowMs: number,
-  animating: boolean,
-  reducedMotion = false,
-): void {
+export function paintLanding(shell: AppShell, nowMs: number, animating: boolean): void {
   const bag = internals.get(shell);
   const landing = bag?.landing;
   if (bag === undefined || landing === null || landing === undefined) return;
-  bag.landingAnimating = animating;
+  const motion = bag.reducedMotion ? false : animating;
+  bag.landingAnimating = motion;
   bag.landingNowMs = nowMs;
-  paintLandingMark(landing.above, nowMs, !animating, reducedMotion);
+  paintLandingMark(landing.above, nowMs, !motion, bag.reducedMotion);
 }
 
 /** True while the landing composition is still mounted. */
@@ -5514,6 +5524,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   const paletteCatalogOpt = options?.paletteCatalog ?? null;
   const onCommandOpt = options?.onCommand;
   const onObserveRequestOpt = options?.onObserveRequest;
+  const reducedMotion = options?.reducedMotion === true;
 
   const terminal = terminalOf(renderer, options?.terminal);
   const layout = resolveGeometry({
@@ -5630,7 +5641,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   });
   transcript.add(transcriptSpacer);
 
-  const landingAbove = createLandingAbove(ctx);
+  const landingAbove = createLandingAbove(ctx, reducedMotion);
   const landingBelowState = landingBelowContent({
     rows: splitLandingRows(layout.heights.transcript).below,
     columns: layout.contentWidth,
@@ -6417,6 +6428,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
+    reducedMotion,
     landingIdleTimerCancel: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
     // CL-5847: the manage_tasks checklist panel is hidden by default. The
@@ -6430,7 +6442,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   // turn monitor is deliberately quiet (idle, no session yet). A plain timer
   // armed at mount is that source: it does not depend on the renderer
   // scheduling further frames, so it cannot stall the way riding the
-  // renderer's own FRAME event did (see CL-5737 history in the PR).
+  // renderer's FRAME event does: FRAME follows dirty rows, not a clock.
   //
   // Only repaints while idle (`landingAnimating` false): while a turn is
   // processing, `paintPhaseAt` in runtime-bridge.ts drives the mountain's
@@ -6446,22 +6458,27 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   // the renderer directly (`withTestRenderer`'s cleanup) without ever
   // calling `shell.dispose()`. Without this check the timer would keep
   // firing against renderables the harness already tore down.
-  const landingIdleHandle = setInterval(() => {
-    if (renderer.isDestroyed) {
-      clearInterval(landingIdleHandle);
-      return;
-    }
-    const bag = internals.get(shell);
-    if (bag?.landing == null || bag.landingAnimating) return;
-    paintLanding(shell, Date.now(), false);
-  }, LANDING_IDLE_REPAINT_INTERVAL_MS);
-  landingIdleHandle.unref?.();
-  {
-    const bag = internals.get(shell);
-    if (bag !== undefined) {
-      bag.landingIdleTimerCancel = () => clearInterval(landingIdleHandle);
-    } else {
-      clearInterval(landingIdleHandle);
+  //
+  // Reduced motion never starts the timer: there is no snow to advance
+  // and the mountain stays on its filled frame.
+  if (!reducedMotion) {
+    const landingIdleHandle = setInterval(() => {
+      if (renderer.isDestroyed) {
+        clearInterval(landingIdleHandle);
+        return;
+      }
+      const bag = internals.get(shell);
+      if (bag?.landing == null || bag.landingAnimating) return;
+      paintLanding(shell, Date.now(), false);
+    }, LANDING_IDLE_REPAINT_INTERVAL_MS);
+    landingIdleHandle.unref?.();
+    {
+      const bag = internals.get(shell);
+      if (bag !== undefined) {
+        bag.landingIdleTimerCancel = () => clearInterval(landingIdleHandle);
+      } else {
+        clearInterval(landingIdleHandle);
+      }
     }
   }
   transcriptSpacers.set(shell, transcriptSpacer);

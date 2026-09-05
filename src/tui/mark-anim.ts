@@ -16,8 +16,7 @@
  * that does suppress snow. Mountain cells always win over flakes.
  *
  * Everything here is pure and clock-injected: `nowMs` is the only time source,
- * so the caller's existing 250 ms status tick drives the animation and tests
- * drive it deterministically. There is no timer in this module.
+ * so tests drive it deterministically. There is no timer in this module.
  */
 
 import { MARK_SMALL, type MarkGrid } from "./mark-shape.js";
@@ -51,7 +50,8 @@ export interface MarkFrame {
 /**
  * The looping timeline: draw in (0-38%), hold (38-48%), fill bottom-up
  * (48-76%), hold full (76-90%), fade out (90-100%), then repeat. `still`
- * (reduced motion, or an idle session) is a static, fully-filled mark.
+ * freezes that timeline on a fully-filled mark (idle landing). Reduced
+ * motion is a separate snow gate.
  */
 export function markFrame(seconds: number, still: boolean): MarkFrame {
   if (still) return { drawProg: 1, fillProg: 1, alpha: 1 };
@@ -97,17 +97,12 @@ export interface MarkCell {
 export interface MarkInput {
   readonly nowMs: number;
   /**
-   * Hold the mountain's draw/fill/fade timeline on its fully-filled frame:
-   * idle session, or reduced motion. Snow is not gated by this — see
-   * `snowOn` in `renderMark`.
+   * Hold the mountain's draw/fill/fade timeline on its fully-filled frame
+   * (idle landing). Snow is not gated by this — see `reducedMotion`.
    */
   readonly still: boolean;
   /**
-   * Reduced-motion hook: suppresses snow regardless of `still`. Nothing
-   * wires a live setting into this yet, but the parameter exists so a
-   * future reduced-motion setting has a real path to gate motion, rather
-   * than overloading `still` (which only ever freezes the mountain's
-   * draw/fill/fade timeline). Defaults to off.
+   * Suppresses snow regardless of `still`. Defaults to off.
    */
   readonly reducedMotion?: boolean;
   /** Which baked rasterization to composite. Defaults to the compact grid. */

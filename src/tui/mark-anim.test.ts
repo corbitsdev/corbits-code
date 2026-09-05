@@ -15,6 +15,8 @@ const MOUNTAIN_CHARS = "▁▂▃▄▅▆▇█";
 
 const isMountain = (char: string): boolean => MOUNTAIN_CHARS.includes(char);
 const isSnow = (char: string): boolean => char === SNOW_CHAR;
+const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
+const SNOW_SAMPLE_CLOCKS_MS = [0, 1500, 3000, 4500, 6000, 7500] as const;
 
 describe("smooth", () => {
   test("clamps outside [0, 1] and eases inside it", () => {
@@ -111,7 +113,6 @@ describe("renderMark", () => {
   test("still holds the mountain fixed while the clock advances", () => {
     // Snow moves with the clock even in still mode (the idle landing screen),
     // so isolate the mountain by stripping snow before comparing.
-    const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
     const a = stripSnow(markText(renderMark({ nowMs: 0, still: true })));
     const b = stripSnow(markText(renderMark({ nowMs: 987_654, still: true })));
     expect(b).toBe(a);
@@ -119,8 +120,7 @@ describe("renderMark", () => {
   });
 
   test("snow keeps drifting in still mode while the mountain stays frozen", () => {
-    const times = [0, 1500, 3000, 4500, 6000, 7500];
-    const snowSets = times.map((nowMs) => {
+    const snowSets = SNOW_SAMPLE_CLOCKS_MS.map((nowMs) => {
       const grid = renderMark({ nowMs, still: true, grid: MARK_LARGE });
       const snow: string[] = [];
       grid.forEach((row, y) => {
@@ -133,6 +133,43 @@ describe("renderMark", () => {
     const withSnow = snowSets.filter((s) => s.length > 0);
     expect(withSnow.length).toBeGreaterThan(1);
     expect(new Set(withSnow).size).toBeGreaterThan(1);
+  });
+
+  test("reducedMotion drops snow at a clock that otherwise snows, without reshaping the mountain", () => {
+    const nowMs = SNOW_SAMPLE_CLOCKS_MS.find((t) =>
+      renderMark({ nowMs: t, still: true, reducedMotion: false, grid: MARK_LARGE })
+        .flat()
+        .some((cell) => isSnow(cell.char)),
+    );
+    if (nowMs === undefined) {
+      throw new Error("expected a still-mode clock that draws snow");
+    }
+
+    const snowing = renderMark({ nowMs, still: true, reducedMotion: false, grid: MARK_LARGE });
+    const quiet = renderMark({ nowMs, still: true, reducedMotion: true, grid: MARK_LARGE });
+    expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
+    expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
+    expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
+  });
+
+  test("reducedMotion drops snow at a hold-full clock without reshaping the mountain", () => {
+    const holdFullClocks = [0.76, 0.8, 0.85, 0.89].map(
+      (phase) => phase * MARK_PERIOD_SECONDS * 1000,
+    );
+    const nowMs = holdFullClocks.find((t) =>
+      renderMark({ nowMs: t, still: false, reducedMotion: false, grid: MARK_LARGE })
+        .flat()
+        .some((cell) => isSnow(cell.char)),
+    );
+    if (nowMs === undefined) {
+      throw new Error("expected a hold-full clock that draws snow");
+    }
+
+    const snowing = renderMark({ nowMs, still: false, reducedMotion: false, grid: MARK_LARGE });
+    const quiet = renderMark({ nowMs, still: false, reducedMotion: true, grid: MARK_LARGE });
+    expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
+    expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
+    expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
   });
 
   test("the animated frame advances with the injected clock", () => {
@@ -176,8 +213,7 @@ describe("renderMark", () => {
 
   test("snow drifts over time without overwriting the silhouette", () => {
     // Sample across several seconds so flakes advance even at a slow fall rate.
-    const times = [0, 1500, 3000, 4500, 6000, 7500];
-    const snowSets = times.map((nowMs) => {
+    const snowSets = SNOW_SAMPLE_CLOCKS_MS.map((nowMs) => {
       const grid = renderMark({ nowMs, still: false, grid: MARK_LARGE });
       const snow: string[] = [];
       grid.forEach((row, y) => {

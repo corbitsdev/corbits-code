@@ -3,7 +3,7 @@
  * telemetry disclosure and selectable starters — and nothing left over once
  * the transcript has content.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
@@ -11,6 +11,7 @@ import {
   appendStreamRow,
   applyLandingSuggestion,
   createAppShell,
+  LANDING_IDLE_REPAINT_INTERVAL_MS,
   noticeText,
   paintChrome,
   setChromeZones,
@@ -46,6 +47,56 @@ import { UI } from "./theme";
 
 const SIZE = { width: 80, height: 24 } as const;
 const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";
+
+const nativeSetInterval = globalThis.setInterval;
+const nativeClearInterval = globalThis.clearInterval;
+
+const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
+
+interface IdleTimerHandle {
+  unref?: () => void;
+}
+
+/**
+ * Intercepts the product idle interval so a cadence change cannot hide a
+ * still-armed timer from the reduced-motion assertion.
+ */
+function wrapLandingIdleTimer(): {
+  armed: IdleTimerHandle[];
+  cleared: IdleTimerHandle[];
+} {
+  const armed: IdleTimerHandle[] = [];
+  const cleared: IdleTimerHandle[] = [];
+  // Do not arm a real interval. Callers inject clocks or only inspect handles.
+  globalThis.setInterval = ((
+    handler: Parameters<typeof nativeSetInterval>[0],
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) {
+      const handle: IdleTimerHandle = {};
+      armed.push(handle);
+      return handle;
+    }
+    return nativeSetInterval.call(globalThis, handler, delay, ...args);
+  }) as typeof nativeSetInterval;
+  globalThis.clearInterval = ((handle: Parameters<typeof nativeClearInterval>[0]) => {
+    cleared.push(handle as IdleTimerHandle);
+    if (armed.includes(handle as IdleTimerHandle)) return;
+    return nativeClearInterval.call(globalThis, handle);
+  }) as typeof nativeClearInterval;
+  return { armed, cleared };
+}
+
+function soleLandingIdleHandle(armed: readonly IdleTimerHandle[]): IdleTimerHandle {
+  const handle = armed[0];
+  if (armed.length !== 1 || handle === undefined) {
+    throw new Error(
+      `expected exactly one ${LANDING_IDLE_REPAINT_INTERVAL_MS}ms interval, got ${armed.length}`,
+    );
+  }
+  return handle;
+}
 
 /** Newly added scroll-box children need a layout pass before they paint. */
 async function settle(h: Harness): Promise<void> {
@@ -236,7 +287,6 @@ describe("landing screen", () => {
       try {
         await settle(h);
         const still = markRows(h).join("\n");
-        const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
 
         // Idle re-entry holds the mountain's filled frame however far the
         // clock moves — but the snow drifting over it is not still, since the
@@ -298,14 +348,109 @@ describe("landing screen", () => {
         }
 
         expect(after).not.toBe(before);
-
-        const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
         expect(stripSnow(after)).toBe(stripSnow(before));
       } finally {
         shell.dispose();
       }
     }, SIZE);
   }, 15_000);
+
+  describe("landing idle timer", () => {
+    afterEach(() => {
+      globalThis.setInterval = nativeSetInterval;
+      globalThis.clearInterval = nativeClearInterval;
+    });
+
+    test("reduced-motion mount never arms the idle timer and never draws snow", async () => {
+      const { armed } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+          reducedMotion: true,
+        });
+        try {
+          expect(armed).toHaveLength(0);
+          await settle(h);
+          const first = markRows(h).join("\n");
+          expect(first.includes(SNOW_CHAR)).toBe(false);
+          expect(first.length).toBeGreaterThan(0);
+
+          const frames = new Set<string>([first]);
+          for (const nowMs of [0, 500, 1_100, 1_900, 2_600, 3_400]) {
+            paintLanding(shell, nowMs, true);
+            await settle(h);
+            const frame = markRows(h).join("\n");
+            expect(frame.includes(SNOW_CHAR)).toBe(false);
+            frames.add(frame);
+          }
+          expect(frames.size).toBe(1);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("a deferred system notice does not clear the landing idle timer", async () => {
+      const { armed, cleared } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const handle = soleLandingIdleHandle(armed);
+          surfaceSystemNotice(
+            shell,
+            "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail",
+          );
+          expect(isLanding(shell)).toBe(true);
+          expect(cleared).not.toContain(handle);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("appending a transcript row clears the landing idle timer", async () => {
+      const { armed, cleared } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const handle = soleLandingIdleHandle(armed);
+          appendStreamRow(shell, { role: "user", text: "first prompt" });
+          expect(isLanding(shell)).toBe(false);
+          expect(cleared).toContain(handle);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("disposing the shell with no transcript clears the landing idle timer", async () => {
+      const { armed, cleared } = wrapLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const handle = soleLandingIdleHandle(armed);
+          shell.dispose();
+          expect(cleared).toContain(handle);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+  });
 
   test("a starter key fills the prompt; a typed prompt keeps its digits", async () => {
     await withTestRenderer(async (h) => {

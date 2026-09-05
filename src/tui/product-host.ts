@@ -177,6 +177,11 @@ export interface ProductHostConfig {
   /** First-run telemetry disclosure, shown on the landing screen. */
   readonly telemetryNotice?: string;
   /**
+   * Suppress landing snow and mountain motion. Forwarded to the shell at
+   * mount; the idle timer is never armed.
+   */
+  readonly reducedMotion?: boolean;
+  /**
    * Take DEC mouse reporting. Default true: wheel/trackpad scroll only
    * reaches OpenTUI when the terminal is told to report it, otherwise the
    * terminal's own alternate-scroll mode resends it as arrow keys. With
@@ -312,6 +317,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     ...(config.onCommand !== undefined ? { onCommand: config.onCommand } : {}),
     ...(config.onObserveRequest !== undefined ? { onObserveRequest: config.onObserveRequest } : {}),
     ...(config.telemetryNotice !== undefined ? { telemetryNotice: config.telemetryNotice } : {}),
+    ...(config.reducedMotion === true ? { reducedMotion: true } : {}),
   });
 
   // Announced on the notice strip (or transcript once the session has content)

@@ -155,8 +155,10 @@ The notice is a live diagnosis, not a sticky banner: it comes down on the
 same paint as the activity that ends the silence, including when the turn
 settles before the next monitor tick.
 
-An idle session animates nothing at all: the monitor tick stops entirely
-rather than repainting an unchanging frame.
+An idle session's turn chrome animates nothing at all: the monitor tick
+stops entirely rather than repainting an unchanging frame. Pre-session
+motion belongs to the landing's mount lifetime, not the monitor (see the
+idle landing below).
 
 Color is a small, deliberate palette, not decoration
 (`src/tui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
@@ -426,6 +428,21 @@ way the task or agents panel is. An operator composing a long prompt on the
 landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
 known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
+
+While the landing is mounted, a mount-scoped 125ms timer advances snow
+across a frozen mountain. It is cancelled on the first real transcript
+row or on shell dispose. Deferred system notices do not count. While
+the landing is still up, the callback no-ops if a turn is already
+driving the mark. `still` freezes the mountain's draw/fill/fade
+timeline only; snow still drifts. Reduced motion
+(`AppShellOptions.reducedMotion`, forwarded from `ProductHostConfig`)
+never starts that timer and paints a still mountain with no snow, even
+when a caller asks `paintLanding` to animate.
+
+That timer is the pre-session frame source. The renderer FRAME event
+follows dirty rows, not a clock, and starves under throttle. The turn
+monitor stays idle-stopped: mixing its cadence into the landing would
+couple a pre-session surface to session activity.
 
 The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):
