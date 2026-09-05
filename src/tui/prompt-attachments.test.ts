@@ -72,12 +72,9 @@ describe("ingestPathMentions", () => {
       }
       return { ok: true, attachment: { ...attachment("unique.png"), path } };
     };
-    const result = await ingestPathMentions(
-      "see ./unique.png and ./dup.png",
-      "/repo",
-      load,
-      [pending],
-    );
+    const result = await ingestPathMentions("see ./unique.png and ./dup.png", "/repo", load, [
+      pending,
+    ]);
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0]?.name).toBe("unique.png");
     expect(result.text).toBe(
