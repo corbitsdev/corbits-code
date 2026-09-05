@@ -106,6 +106,11 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     expect(firstClassProviderById("anthropic")?.anthropic).toBe(true);
   });
 
+  test("Anthropic and Zen catalogs include Claude Fable 5.1", () => {
+    expect(firstClassProviderById("anthropic")?.models).toContain("claude-fable-5-1");
+    expect(firstClassProviderById("zen")?.models).toContain("claude-fable-5-1");
+  });
+
   test("firstClassPathAsProvider seeds OpenAI API path", () => {
     const openai = firstClassProviderById("openai");
     if (openai === undefined) throw new Error("openai missing");

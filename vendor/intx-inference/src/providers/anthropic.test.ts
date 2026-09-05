@@ -817,6 +817,47 @@ describe("Anthropic adapter — responseFormat boundary", () => {
   });
 });
 
+describe("Anthropic adapter — adaptive thinking request shape", () => {
+  const ThinkingBody = type({
+    thinking: {
+      type: "string",
+      "budget_tokens?": "number",
+    },
+    "output_config?": { effort: "string" },
+  });
+
+  function parseThinkingBody(body: string) {
+    const parsed = ThinkingBody(JSON.parse(body));
+    if (parsed instanceof type.errors) {
+      throw new Error(`unexpected request body shape: ${parsed.summary}`);
+    }
+    return parsed;
+  }
+
+  test("claude-fable-5-1 with thinking.enabled uses type adaptive and output_config.effort", () => {
+    const req = createAnthropicAdapter(TEST_SOURCE).buildRequest(
+      [],
+      "claude-fable-5-1",
+      { thinking: { enabled: true } },
+    );
+    const body = parseThinkingBody(req.body);
+    expect(body.thinking).toEqual({ type: "adaptive" });
+    expect(body.output_config?.effort).toBeDefined();
+  });
+
+  test("a non-adaptive model with thinking.enabled uses type enabled and budget_tokens", () => {
+    const req = createAnthropicAdapter(TEST_SOURCE).buildRequest(
+      [],
+      "claude-haiku-4-5",
+      { thinking: { enabled: true } },
+    );
+    const body = parseThinkingBody(req.body);
+    expect(body.thinking.type).toBe("enabled");
+    expect(body.thinking.budget_tokens).toBeDefined();
+    expect(body.output_config).toBeUndefined();
+  });
+});
+
 describe("Anthropic adapter — tool-name codec round-trip", () => {
   const PREFIXED = "@intx/tools-posix/sidecar-bundle:run_shell";
   const ToolsBody = type({ tools: type({ name: "string" }).array() });

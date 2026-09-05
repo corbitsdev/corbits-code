@@ -64,6 +64,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     models: [
       "gpt-5.4",
       "gpt-5.4-mini",
+      "claude-fable-5-1",
       "claude-sonnet-4-5",
       "claude-opus-4-5",
       "gemini-3-flash",
@@ -89,7 +90,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     label: "Anthropic",
     auth: "api-key",
     baseURL: "https://api.anthropic.com",
-    models: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+    models: ["claude-fable-5-1", "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
     defaultModel: "claude-sonnet-4-5",
     authHint: "Paste your Anthropic API key (sk-ant-...)",
     anthropic: true,

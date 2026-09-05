@@ -11,6 +11,12 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Added
+
+- Operators can select Anthropic Claude Fable 5.1 (`claude-fable-5-1`) from Connect and `/model`. Adaptive thinking matches Claude Fable 5.
+
 ## [0.3.16] - 2026-09-05
 
 ### Added
