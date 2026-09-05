@@ -11,12 +11,13 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.3.16] - 2026-09-05
 
 ### Added
 
 - Native-integration skill: Corbits runtime mapping for GaaS skill bodies (tools, fleet, non-git folders, GitHub review posting, tracker-agnostic issues). Baked on workers; `use_skill` on the primary. Not a slash.
 - Skills listing is names only. The primary looks up descriptions with the advertised `skill_search` catalog tool (resident — not via `tool_search`), then loads a body with `use_skill`.
+- OpenCode Go lists models from the live `/zen/go/v1/models` catalog (packaged seed on fetch failure).
 
 ### Changed
 
@@ -29,7 +30,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Restore the opsh skill 1:1 with GaaS. Tool/shell mapping stays on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the pull-request-review skill 1:1 with GaaS. ask_operator, /review mapping, and GitHub posting stay on native-integration. Slash /pull-request-review remains.
 - Restore the refactor skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /refactor remains.
-- Ignore GaaS opsh, refactor, scribe, ast-grep, and review SKILL.md in prettier so GaaS emphasis/table alignment stays 1:1.
+- Ignore GaaS opsh, refactor, scribe, ast-grep, review, and create-issue SKILL.md in prettier so GaaS emphasis/table alignment stays 1:1.
 - Restore the git-rebase skill body 1:1 with GaaS. Intern execution recipe stays on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the linear-issue-workflow skill body 1:1 with GaaS. Claim-first, In Review, and git-worktrees extras stay on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the interview skill body 1:1 with GaaS (AskUserQuestion). Operator-ask mapping stays on native-integration. Slash /interview remains.
@@ -37,6 +38,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Restore the typescript skill body 1:1 with GaaS. bun:test vs tap mapping lives on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the philosophy skill body 1:1 with GaaS (including the review acknowledgment). `user-invocable: false` stays so it remains use_skill-only.
 - Restore the style skill body 1:1 with GaaS (including the git-repo requirement and review acknowledgment). Non-git-folder policy stays on native-integration. `user-invocable: false` stays so it remains use_skill-only.
+- Codex Responses tracks `parallel_tool_calls` continuity and serial tool calls.
 
 ### Fixed
 
@@ -45,6 +47,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### TUI
 
 - First idle Ctrl+C clears pending image attachments along with prompt text. Clearing attachments only does not arm the quit window. Corbits-owned ephemeral files are unlinked; operator path-mention files stay on disk. Dispose and a second (armed) Ctrl+C also unlink leftover clipboard files.
+- Stop labelling transcript rows with the permission subsystem.
+- Chrome zone rows re-fit their text on terminal resize.
+- Clock idle landing snow from the landing's own timer; honor reduced motion.
+- Dedupe path-mention images by content hash next to pending clipboard images.
 
 ## [0.3.15] - 2026-09-04
 
