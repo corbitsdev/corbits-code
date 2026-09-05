@@ -18,8 +18,7 @@ Before doing anything else, load the `philosophy` skill. The principles in that 
 
 The user has specified a directory to analyze: `$ARGUMENTS`
 
-If the directory is broad, `ask_operator` before exploring:
-
+If the directory is broad, ask clarifying questions:
 - Is there a specific concern or area they want to focus on?
 - What prompted the desire to refactor?
 - Are there known pain points?
@@ -27,7 +26,6 @@ If the directory is broad, `ask_operator` before exploring:
 ### Step 2: Examine the Code
 
 Explore the specified directory to understand:
-
 - What the code does (purpose and behavior)
 - Key components and their responsibilities
 - How data flows through the system
@@ -57,7 +55,7 @@ Document structure:
 
 After documenting the current state:
 
-1. Present your observations and `ask_operator` about priorities
+1. Present your observations and ask the user about their priorities
 2. Propose specific improvements with rationale grounded in philosophy principles (pragmatic, simple over easy, etc.)
 3. Let the user accept, reject, or modify proposals
 4. Ask follow-up questions to refine the approach
@@ -81,7 +79,6 @@ A single markdown file in the user's current working directory containing both t
 ## Guiding Principles
 
 From the philosophy skill:
-
 - **Pragmatic over idealistic** - Don't propose changes for theoretical purity
 - **Simple is usually harder than easy** - Favor designs that are genuinely simple, not just quick
 - **Do no harm** - Consider risks to stability and correctness

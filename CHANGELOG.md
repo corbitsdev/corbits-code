@@ -21,6 +21,20 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
+- Require a counsel / /plan plan before substantial Builder work. Skywalker feature chain is explorer then plan then implement then critic. Tiny parent-DIY stays plan-optional. /implement does not steal planning from /plan.
+- Align /create-issue phases and # Background / # Outcome format with GaaS linear-create. Slash stays /create-issue. Tracker selection stays (Linear MCP first, else GitHub/GitLab/MEMORY.md).
+- Restore the /review skill body 1:1 with GaaS code-review. Slash stays /review. GitHub posting, Linear In Review, ask_operator, and findings-only stay on native-integration.
+- Restore the scribe skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /scribe remains.
+- Restore the ast-grep skill 1:1 with GaaS. run_shell mapping stays on native-integration. Slash /ast-grep remains.
+- Restore the opsh skill 1:1 with GaaS. Tool/shell mapping stays on native-integration. user-invocable: false stays so it remains use_skill-only.
+- Restore the pull-request-review skill 1:1 with GaaS. ask_operator, /review mapping, and GitHub posting stay on native-integration. Slash /pull-request-review remains.
+- Restore the refactor skill 1:1 with GaaS. ask_operator mapping stays on native-integration. Slash /refactor remains.
+- Ignore GaaS opsh, refactor, scribe, ast-grep, and review SKILL.md in prettier so GaaS emphasis/table alignment stays 1:1.
+- Restore the git-rebase skill body 1:1 with GaaS. Intern execution recipe stays on native-integration. user-invocable: false stays so it remains use_skill-only.
+- Restore the linear-issue-workflow skill body 1:1 with GaaS. Claim-first, In Review, and git-worktrees extras stay on native-integration. user-invocable: false stays so it remains use_skill-only.
+- Restore the interview skill body 1:1 with GaaS (AskUserQuestion). Operator-ask mapping stays on native-integration. Slash /interview remains.
+- Restore the implement skill body 1:1 with GaaS (TaskCreate, @greybeard, Acknowledgment). Tool-name mapping stays on native-integration. Slash /implement remains.
+- Restore the typescript skill body 1:1 with GaaS. bun:test vs tap mapping lives on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the philosophy skill body 1:1 with GaaS (including the review acknowledgment). `user-invocable: false` stays so it remains use_skill-only.
 - Restore the style skill body 1:1 with GaaS (including the git-repo requirement and review acknowledgment). Non-git-folder policy stays on native-integration. `user-invocable: false` stays so it remains use_skill-only.
 
