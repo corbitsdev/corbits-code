@@ -23,6 +23,10 @@ describe("contextWindowFor", () => {
     expect(contextWindowFor("gpt-5-codex")).toBe(400_000);
   });
 
+  test("returns the gpt-6 family window for Astra", () => {
+    expect(contextWindowFor("gpt-6-astra")).toBe(1_000_000);
+  });
+
   test("falls back to a conservative window for unknown models", () => {
     expect(contextWindowFor("some-unknown-model")).toBe(128_000);
   });

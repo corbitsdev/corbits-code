@@ -54,6 +54,17 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     expect(api?.models).toContain(api?.defaultModel);
   });
 
+  test("OpenAI API and Zen catalogs include gpt-6-astra without changing defaults", () => {
+    const openai = firstClassProviderById("openai");
+    const api = openai?.paths?.find((p) => p.id === "api");
+    expect(api?.models).toContain("gpt-6-astra");
+    expect(api?.defaultModel).toBe("gpt-5.4");
+
+    const zen = firstClassProviderById("zen");
+    expect(zen?.models).toContain("gpt-6-astra");
+    expect(zen?.defaultModel).toBe("claude-sonnet-4-5");
+  });
+
   test("xAI is OAuth; Go/Zen/Z.AI/Anthropic/Google are API key", () => {
     expect(firstClassProviderById("xai")?.auth).toBe("oauth");
     expect(firstClassProviderById("xai")?.oauth).toBe("xai");

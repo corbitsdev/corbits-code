@@ -29,6 +29,7 @@ export function setModelContextWindows(windows: Record<string, number> | undefin
 
 function heuristicWindow(model: string): number {
   const m = model.toLowerCase();
+  if (m.includes("gpt-6")) return 1_000_000;
   if (m.includes("gpt-5") || m.includes("codex")) return 400_000;
   if (m.includes("claude")) return 200_000;
   if (m.includes("gemini")) return 1_000_000;

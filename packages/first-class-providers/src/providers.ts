@@ -7,7 +7,14 @@ import {
 } from "../../opencode-go/src/index.js";
 import type { FirstClassProviderDef } from "./types.js";
 
-const OPENAI_API_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-4.1", "o3", "o4-mini"] as const;
+const OPENAI_API_MODELS = [
+  "gpt-6-astra",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-4.1",
+  "o3",
+  "o4-mini",
+] as const;
 const OPENAI_API_DEFAULT = "gpt-5.4";
 
 /**
@@ -62,6 +69,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     auth: "api-key",
     baseURL: "https://opencode.ai/zen/v1",
     models: [
+      "gpt-6-astra",
       "gpt-5.4",
       "gpt-5.4-mini",
       "claude-fable-5-1",
