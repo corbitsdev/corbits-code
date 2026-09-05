@@ -5422,6 +5422,9 @@ export function handleCtrlC(shell: AppShell, now = Date.now(), options?: FlashOp
     ctrlCArmedAt.delete(shell);
     const onExit = shellExitHandlers.get(shell);
     if (onExit !== undefined) {
+      // Host teardown usually disposes; unlink here too so a stub/delayed
+      // onExit cannot leave Corbits-created clipboard files behind.
+      clearPendingAttachments(shell);
       onExit();
       return;
     }
@@ -6325,6 +6328,8 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       abortOverlayHostReservations(shell);
       disposed = true;
       shell.disposed = true;
+      // Quit paths that skip idle Ctrl+C still drop Corbits-created files.
+      clearPendingAttachments(shell);
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey);
         renderer.keyInput.off("paste", onPaste);

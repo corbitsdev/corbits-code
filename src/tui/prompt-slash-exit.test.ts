@@ -386,6 +386,57 @@ describe("Ctrl+C exit", () => {
       }
     });
   });
+
+  test("dispose unlinks ephemeralPath and leaves the operator path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-dispose-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
+
+        shell.dispose();
+
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("busy double-Ctrl+C quit unlinks ephemeralPath and leaves the operator path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-quit-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        setShellRunState(shell, "busy");
+        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
+        setShellExitHandler(shell, () => {
+          shell.dispose();
+        });
+
+        handleCtrlC(shell, 0);
+        expect(shell.pendingAttachments).toHaveLength(2);
+        expect(existsSync(ephemeral)).toBe(true);
+        expect(existsSync(operator)).toBe(true);
+
+        handleCtrlC(shell, 1);
+
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
 });
 
 function pendingImage(id: string, extra?: Partial<PendingImageAttachment>): PendingImageAttachment {
