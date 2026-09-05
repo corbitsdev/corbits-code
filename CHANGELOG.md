@@ -20,6 +20,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
+- Restore the linear-issue-workflow skill body 1:1 with GaaS. Claim-first, In Review, and git-worktrees extras stay on native-integration. user-invocable: false stays so it remains use_skill-only.
 - Restore the interview skill body 1:1 with GaaS (AskUserQuestion). Operator-ask mapping stays on native-integration. Slash /interview remains.
 - Restore the implement skill body 1:1 with GaaS (TaskCreate, @greybeard, Acknowledgment). Tool-name mapping stays on native-integration. Slash /implement remains.
 - Restore the typescript skill body 1:1 with GaaS. bun:test vs tap mapping lives on native-integration. user-invocable: false stays so it remains use_skill-only.

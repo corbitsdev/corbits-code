@@ -45,6 +45,10 @@ When GaaS implement says you are orchestrated by karen, that is the Corbits prim
 
 When the work tracks a Linear issue and Linear MCP is available: set the issue to In Progress before explore/build thrash. Parallel lanes claim their own IDs. When a PR is ready for review, move the issue to In Review — never Done at PR-open. If Linear MCP is unavailable, report that status could not be updated.
 
+When a PR is open and ready for review (not a draft or WIP), set the issue state to "In Review". Draft or WIP PRs stay **In Progress** until they are ready for review. Then move to In Review. Draft or WIP PRs stay In Progress. Do not mark the Linear issue Done on open PR alone. Do not leave it In Review after merge when work remains.
+
+GaaS linear-issue-workflow inlines `git worktree add` and marks In Progress after the plan. Corbits extras: claim-first (this section) and `use_skill("git-worktrees")` for worktree recipes; In Review on ready-for-review PRs (this section). `code-review` maps to Corbits `/review` (slash-name mapping above). Do not fork the GaaS linear-issue-workflow body.
+
 `linear-issue-workflow` owns the full Linear ship loop. This mapping does not replace it.
 
 ## Non-git folders
