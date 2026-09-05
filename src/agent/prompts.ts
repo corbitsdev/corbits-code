@@ -50,7 +50,8 @@ export function buildChatRole(_sessionMode: SessionMode = "orchestrator"): strin
 // blocks, what loads on demand, and the harness-specific tools. Everything a
 // frontier model already knows about being a coding agent is deliberately omitted.
 // `dynamicTools` controls the tool-loading fact: the main chat agent starts with
-// only core tools and loads the rest via tool_search, whereas a sub-agent is
+// core tools plus the advertised catalog (including skill_search) and loads MCP
+// and other unadvertised tools via tool_search, whereas a sub-agent is
 // handed its full toolset upfront and has no tool_search — telling it otherwise
 // wastes turns on a tool that does not exist.
 export function buildHarnessFacts(
@@ -89,7 +90,7 @@ export function buildHarnessFacts(
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools
       ? [
-          "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
+          "- Core tools plus the advertised catalog (including skill_search) are resident. Use tool_search to load extra capabilities from plugins or integrations when needed.",
           "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
           "- The user may send follow-up messages while workers run; they are queued. Enter delivers at the next parent tool.boundary; Alt+Enter on session-idle. A long parent tool holds that boundary. Update your plan, spawn or adjust workers, and keep the operator informed.",
         ]
@@ -132,7 +133,7 @@ export function buildGuidelines(
     ...(subAgent
       ? []
       : [
-          "- tool_search before assuming a plugin or MCP tool exists; use_skill before work covered by a listed skill.",
+          "- tool_search before assuming a plugin or MCP tool exists; skill_search when choosing among listed skills, use_skill to load a body.",
         ]),
     "",
     subAgent ? "Proceed vs pause:" : "Ask vs proceed:",
@@ -154,7 +155,9 @@ export function buildGuidelines(
     "",
     "Scope and conventions:",
     "- Touch only code required for the task; no drive-by refactors, formatting sweeps, or unrelated fixes.",
-    "- Follow AGENTS.md and /docs for architecture; load the style and philosophy skills when starting repo work.",
+    subAgent
+      ? "- Follow AGENTS.md and /docs for architecture."
+      : "- Follow AGENTS.md and /docs for architecture; use_skill style and philosophy when starting repo work.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
     "- Before finishing implementation work, run the repository-defined typecheck command, relevant tests, and every defined full verification command; these checks are mandatory.",
     "- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration).",
@@ -245,6 +248,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
   use_skill: "load a listed skill's full instructions before doing work it covers",
+  skill_search:
+    "look up skill descriptions by capability (catalog — call directly, do not tool_search for this)",
 };
 
 export function buildAvailableTools(tools: readonly string[] = CORE_TOOL_NAMES): string {
@@ -316,12 +321,12 @@ function baseSection(baseOverride: string | undefined, sessionMode: SessionMode)
   ]);
 }
 
-// Lazy skill listing: only names + descriptions, so the model knows what exists
-// without paying for full instructions until it loads one with use_skill.
+// Name-only skill listing: the model sees what exists without paying for
+// descriptions or bodies. Details come from skill_search; bodies from use_skill.
 export function buildSkillsSection(skills: readonly SkillSummary[]): string {
   return [
-    "Skills (call use_skill with the name to load the full instructions before doing work it covers):",
-    ...skills.map((s) => `- ${s.name}: ${s.description}`),
+    "Skills (names only — call skill_search for details, then use_skill to load a body):",
+    skills.map((s) => s.name).join(", "),
   ].join("\n");
 }
 

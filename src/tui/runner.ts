@@ -937,6 +937,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         : {}),
       sessionMode: liveSessionMode,
       toolAvailability,
+      skills: toolset.skills,
     });
 
     const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};

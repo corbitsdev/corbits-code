@@ -16,6 +16,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Added
 
 - Native-integration skill: Corbits runtime mapping for GaaS skill bodies (tools, fleet, non-git folders, GitHub review posting, tracker-agnostic issues). Baked on workers; `use_skill` on the primary. Not a slash.
+- Skills listing is names only. The primary looks up descriptions with the advertised `skill_search` catalog tool (resident — not via `tool_search`), then loads a body with `use_skill`.
 
 ### Changed
 

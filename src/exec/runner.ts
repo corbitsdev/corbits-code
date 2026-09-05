@@ -492,6 +492,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
             : {}),
           sessionMode,
           toolAvailability,
+          skills: agentToolset.skills,
         })
       ).systemPrompt;
 

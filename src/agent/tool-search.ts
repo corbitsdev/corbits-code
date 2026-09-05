@@ -105,6 +105,7 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "list_dir",
   "web_fetch",
   "web_search",
+  "skill_search",
 ];
 
 // The maximal set of built-in tools — every gate open — in a deterministic

@@ -45,6 +45,7 @@ import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
+import { discoverSkills, type SkillSummary } from "../extensions/skills.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import type { WorkflowCompleteResult } from "../workflows/types.js";
@@ -71,6 +72,7 @@ import { createListDirTool } from "../util/list-dir.js";
 import { createExaMCPWebFetchTool, createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-search.js";
 import { createUseSkillTool } from "./use-skill.js";
+import { createSkillSearchTool } from "./skill-search.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
@@ -127,6 +129,10 @@ export interface AgentToolsetArgs {
   // Skill directories (from enabled plugins) the use_skill tool resolves bodies
   // from, in addition to the project-local and bundled defaults.
   skillDirs?: string[];
+  // Session-start skill snapshot. When omitted, createAgentToolset discovers
+  // once via discoverSkills. Passed through to skill_search so the handler
+  // never rediscovers.
+  skills?: readonly SkillSummary[];
   // Shell command timeout default/cap, resolved from settings. When omitted the
   // shell-guard plugin arms no default timeout (per-call timeout or settings
   // shell.timeoutMs required to bound a command).
@@ -244,6 +250,8 @@ export interface AgentToolset {
   // Wire the callback the `tool_search` tool invokes to make matched tools
   // advertised. Set by the runner once the director + reload loop exist.
   setToolPromoter: (promote: (names: string[]) => void) => void;
+  // Session-start skill snapshot shared with the prompt listing.
+  skills: SkillSummary[];
   dispose: () => Promise<void>;
 }
 
@@ -271,6 +279,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
   const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
+  const skills =
+    args.skills !== undefined ? [...args.skills] : await discoverSkills(cwd, skillDirs);
   let builtinExaEnabled = mcpServers.some(isBuiltinExaMCPServer);
   let resolveBuiltinExaConnection: ((result: MCPConnectResult) => void) | undefined;
   let builtinExaConnection: Promise<MCPConnectResult> | undefined = builtinExaEnabled
@@ -434,6 +444,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       allowOutside: () => permissionGate.getSkipPermissions(),
     }),
     createUseSkillTool(cwd, skillDirs, args.telemetry),
+    createSkillSearchTool({ skills }),
     builtinExaEnabled
       ? createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection })
       : createWebFetchTool(),
@@ -965,6 +976,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     setToolPromoter: (promote) => {
       promoter.promote = promote;
     },
+    skills,
     dispose,
   };
 }
