@@ -182,7 +182,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 - `present` — Renders structured UI from a JSON view spec instead of pasting tables into chat.
 - `submit_output` — Completes a workflow step when `step` is set. The step id is compared atomically against the current step (`complete()`); already-complete ids (behind the cursor) and not-current ids (future or unknown) are acknowledged without advancing. Always advertised so activating a workflow does not grow the tools array.
 
-Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, **`spawn_agent`** / **`wait_agents`** (spawn and collect fleet agents), and **`search_agents`** when fleet-agent profiles are available — see Fleet agents below.
+Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, `skill_search` (catalog; callable without `tool_search`), **`spawn_agent`** / **`wait_agents`** (spawn and collect fleet agents), and **`search_agents`** when fleet-agent profiles are available — see Fleet agents below.
 
 ### Workflows (`src/workflows/`)
 
@@ -195,7 +195,7 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and compare-and-advances the runtime when a `submit_output` tagged `{ step }` completes. Already-complete and not-current ids are acknowledged without moving the cursor. Shared by both directors. Fresh and resumed runs share one listener path.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
-Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled workflow/command plugins** at startup; command surfaces on those plugins (e.g. a workflow plugin's command prefix such as `/mywf scope`). Slash commands may also be authored as data-only markdown (`commands/*.md`, no `index.ts`); see PLUGINS.md. The model never suggests or auto-starts workflows from ordinary chat. Skills (bundled `corbits-skills`, enabled plugins, or `.agents/skills/`) load on demand via `use_skill` or as `/<skill-name>` slash commands when `user-invocable` is not `false` (see Skills below). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
+Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled workflow/command plugins** at startup; command surfaces on those plugins (e.g. a workflow plugin's command prefix such as `/mywf scope`). Slash commands may also be authored as data-only markdown (`commands/*.md`, no `index.ts`); see PLUGINS.md. The model never suggests or auto-starts workflows from ordinary chat. Skills (bundled `corbits-skills`, enabled plugins, or `.agents/skills/`) load on demand via `skill_search` then `use_skill`, or as `/<skill-name>` slash commands when `user-invocable` is not `false` (see Skills below). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
 
 ### Fleet agents (`src/subagent/`, `src/agent/agent-search.ts`)
 

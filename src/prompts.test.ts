@@ -72,6 +72,14 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).not.toContain("Tool results already render richly");
 });
 
+test("harness facts name skill_search as a resident catalog tool", () => {
+  const facts = buildHarnessFacts();
+  expect(facts).toMatch(/advertised catalog \(including skill_search\) are resident/);
+  expect(facts).not.toContain("Only the core tools below are loaded");
+  // skill_search is catalog-advertised and excluded from tool_search results.
+  expect(facts).not.toMatch(/only the core tools[\s\S]*tool_search/i);
+});
+
 test("leaf harness facts advertise product write tools", () => {
   const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
   expect(facts).toContain("write_file/edit_file");
@@ -98,9 +106,13 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(guidelines).toContain("grep or search_files");
   expect(guidelines).toContain("ask_operator only when permission blocks you");
   expect(guidelines).toContain("skill_search when choosing");
+  expect(guidelines).toContain("use_skill style and philosophy when starting repo work");
   expect(guidelines).toContain("DIY tiny/single-file/one-route");
   expect(guidelines).toContain("never shell-write (echo/heredoc/sed/rm)");
   expect(guidelines).not.toContain("not mounted on Skywalker");
+  expect(buildGuidelines({ subAgent: true })).not.toContain(
+    "use_skill style and philosophy when starting repo work",
+  );
 });
 
 test("orchestrator guidelines teach the typed task spawn contract", () => {

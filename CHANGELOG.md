@@ -16,11 +16,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Added
 
 - Native-integration skill: Corbits runtime mapping for GaaS skill bodies (tools, fleet, non-git folders, GitHub review posting, tracker-agnostic issues). Baked on workers; `use_skill` on the primary. Not a slash.
+- Skills listing is names only. The primary looks up descriptions with the advertised `skill_search` catalog tool (resident — not via `tool_search`), then loads a body with `use_skill`.
 
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
 - Restore the philosophy skill body 1:1 with GaaS (including the review acknowledgment). `user-invocable: false` stays so it remains use_skill-only.
+- Restore the style skill body 1:1 with GaaS (including the git-repo requirement and review acknowledgment). Non-git-folder policy stays on native-integration. `user-invocable: false` stays so it remains use_skill-only.
 
 ### Fixed
 

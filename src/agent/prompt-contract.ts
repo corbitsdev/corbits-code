@@ -14,6 +14,8 @@ export const CHAT_PROMPT_QUALITY_MARKERS = [
   "short question and short option labels only",
   "Touch only code required for the task",
   "skill_search when choosing",
+  "use_skill style and philosophy when starting repo work",
+  "advertised catalog (including skill_search) are resident",
   "grep or search_files",
   "never shell-write (echo/heredoc/sed/rm)",
   "ask_director",
