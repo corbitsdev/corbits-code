@@ -323,7 +323,7 @@ shape.
   `resolveSkillBody`), so the model does not auto-suggest background libraries.
   First-party recipes that are not operator slashes remain listed for
   `use_skill` when they only set `user-invocable: false` (`dispatch`,
-  `git-rebase`, `linear-issue-workflow`, `style`, `philosophy`, `typescript`,
+  `git-rebase`, `linear-issue-workflow`, `style`, `philosophy`, `native-integration`, `typescript`,
   `opsh`). Background libs such as `git-worktrees` set both flags. Bake-only
   bodies such as `idiot-proof` also set both flags (baked into builder and
   critic; not a slash and not listed for `use_skill`). The slash

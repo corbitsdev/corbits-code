@@ -16,7 +16,7 @@ export const neckbeardPackage: DirectorPackage = {
     "rewriting product code",
   ],
   description: "Adversarial review",
-  optionalSkills: ["style", "philosophy"],
+  optionalSkills: ["style", "philosophy", "native-integration"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

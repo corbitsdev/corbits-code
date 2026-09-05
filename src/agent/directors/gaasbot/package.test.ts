@@ -79,8 +79,8 @@ describe("gaasbotPackage", () => {
     expect(gaasbotPackage.modelRole).toBe("plan");
   });
 
-  test("optionalSkills is philosophy only", () => {
-    expect(gaasbotPackage.optionalSkills).toEqual(["philosophy"]);
+  test("optionalSkills is philosophy and native-integration", () => {
+    expect(gaasbotPackage.optionalSkills).toEqual(["philosophy", "native-integration"]);
   });
 
   test("primaryIntent and outOfLane match risk counsel lane", () => {

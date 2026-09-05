@@ -4,7 +4,7 @@
 
 ## Before You Start
 
-Load the `style` and `philosophy` skills. Confirm working-tree status (`git status`) and run `git log --oneline -5`. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` before writing code.
+Load the `style`, `philosophy`, and `native-integration` skills. Confirm working-tree status (`git status`) and run `git log --oneline -5`. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` before writing code.
 
 New contributors: configure git hooks and verify the environment before the first commit.
 

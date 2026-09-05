@@ -16,7 +16,7 @@ export const gaasbotPackage: DirectorPackage = {
     "applying product fixes",
   ],
   description: "Risk counsel — strategic ship/sequencing advice, not a gate",
-  optionalSkills: ["philosophy"],
+  optionalSkills: ["philosophy", "native-integration"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

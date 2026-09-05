@@ -13,6 +13,7 @@ const SKILL_DIRS = [
   "ast-grep",
   "style",
   "philosophy",
+  "native-integration",
   "typescript",
   "interview",
   "git-rebase",
@@ -34,6 +35,7 @@ const USE_SKILL_ONLY = [
   "linear-issue-workflow",
   "style",
   "philosophy",
+  "native-integration",
   "typescript",
   "opsh",
 ] as const;
@@ -90,8 +92,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 17 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(17);
+test("corbits-skills catalog lists 18 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(18);
   const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
@@ -306,14 +308,37 @@ test("slash skills do not set user-invocable: false", async () => {
   }
 });
 
-test("corbits-skills plugin files contain no banned tokens", async () => {
+test("corbits-skills plugin files contain no banned tokens outside native-integration", async () => {
+  const nativeRoot = join(pluginRoot, "skills", "native-integration");
   const files = await listFilesRecursive(pluginRoot);
   for (const file of files) {
+    if (file.startsWith(nativeRoot)) continue;
     const text = await Bun.file(file).text();
     for (const token of BANNED_TOKENS) {
       expect(text).not.toContain(token);
     }
   }
+});
+
+test("native-integration maps GaaS tool names and parks Corbits extras", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/native-integration/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("TaskCreate");
+  expect(skill).toContain("@greybeard");
+  expect(skill).toContain('intent="general"');
+  expect(skill).toContain("manage_tasks");
+  expect(skill).toContain('spawn_agent(agent="greybeard")');
+  expect(skill).toContain("ask_operator");
+  expect(skill).toContain("ask_director");
+  expect(skill).toContain("folder without `.git`");
+  expect(skill).toContain("gh pr review");
+  expect(skill).toContain("Preferred issue tracker");
+  expect(skill).toContain("/review");
+  expect(skill).toContain("/create-issue");
+  expect(skill).toContain("plan");
+  expect(skill).toContain("git-worktrees");
+  expect(skill).toContain("idiot-proof");
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {

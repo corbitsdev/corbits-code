@@ -84,7 +84,11 @@ describe("shakespearePackage", () => {
   });
 
   test("optionalSkills are style and philosophy", () => {
-    expect(shakespearePackage.optionalSkills).toEqual(["style", "philosophy"]);
+    expect(shakespearePackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+    ]);
   });
 
   test("primaryIntent is docs maintain", () => {

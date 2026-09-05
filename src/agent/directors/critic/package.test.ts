@@ -95,8 +95,13 @@ describe("criticPackage", () => {
     expect(criticPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills order is style, philosophy, idiot-proof", () => {
-    expect(criticPackage.optionalSkills).toEqual(["style", "philosophy", "idiot-proof"]);
+  test("optionalSkills order is style, philosophy, native-integration, idiot-proof", () => {
+    expect(criticPackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+      "idiot-proof",
+    ]);
   });
 
   test("primaryIntent and outOfLane match critic lane", () => {

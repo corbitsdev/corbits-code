@@ -79,7 +79,7 @@ describe("counselPackage", () => {
   });
 
   test("optionalSkills order", () => {
-    expect(counselPackage.optionalSkills).toEqual(["style", "philosophy"]);
+    expect(counselPackage.optionalSkills).toEqual(["style", "philosophy", "native-integration"]);
   });
 
   test("does not advertise interview skill workers cannot use", () => {

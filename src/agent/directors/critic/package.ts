@@ -17,7 +17,7 @@ export const criticPackage: DirectorPackage = {
     "pedantic fun without evidence",
   ],
   description: "Code quality review worker",
-  optionalSkills: ["style", "philosophy", "idiot-proof"],
+  optionalSkills: ["style", "philosophy", "native-integration", "idiot-proof"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
@@ -50,7 +50,7 @@ API contract check (blocking when brief specifies signatures):
 - Prefer reading tests/callers; a tiny sync call that would hang on a Promise is evidence.
 - Rank these as blocking, not style nits.
 
-Before substantial review work: follow style, philosophy, and idiot-proof (baked; use_skill is not mounted). Read the code under review.
+Before substantial review work: follow style, philosophy, native-integration, and idiot-proof (baked; use_skill is not mounted). Read the code under review.
 
 OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to builder)

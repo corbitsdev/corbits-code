@@ -58,7 +58,12 @@ describe("skywalkerPackage", () => {
   });
 
   test("optionalSkills order", () => {
-    expect(skywalkerPackage.optionalSkills).toEqual(["style", "philosophy", "interview"]);
+    expect(skywalkerPackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+      "interview",
+    ]);
   });
 
   test("primaryIntent and outOfLane", () => {

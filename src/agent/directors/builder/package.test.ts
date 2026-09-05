@@ -53,7 +53,7 @@ describe("builderPackage", () => {
   test("systemPrompt requires style, philosophy, and idiot-proof prerequisites", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toContain("Prerequisites");
-    expect(p).toMatch(/style, philosophy, and idiot-proof/i);
+    expect(p).toMatch(/style, philosophy, native-integration, and idiot-proof/i);
     expect(p).toMatch(/use_skill is not mounted/i);
   });
 
@@ -102,10 +102,11 @@ describe("builderPackage", () => {
     expect(builderPackage.modelRole).toBe("implement");
   });
 
-  test("optionalSkills order is style, philosophy, idiot-proof, typescript", () => {
+  test("optionalSkills order is style, philosophy, native-integration, idiot-proof, typescript", () => {
     expect(builderPackage.optionalSkills).toEqual([
       "style",
       "philosophy",
+      "native-integration",
       "idiot-proof",
       "typescript",
     ]);

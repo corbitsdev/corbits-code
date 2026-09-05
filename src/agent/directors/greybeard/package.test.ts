@@ -113,7 +113,7 @@ describe("greybeardPackage", () => {
   });
 
   test("optionalSkills order", () => {
-    expect(greybeardPackage.optionalSkills).toEqual(["style", "philosophy"]);
+    expect(greybeardPackage.optionalSkills).toEqual(["style", "philosophy", "native-integration"]);
   });
 
   test("primaryIntent and outOfLane match greybeard lane", () => {
