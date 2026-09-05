@@ -27,8 +27,6 @@ const SKILL_DIRS = [
   "idiot-proof",
 ] as const;
 
-const SPAWN_RECIPE_SKILLS = ["implement"] as const;
-
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
   "git-rebase",
@@ -109,13 +107,6 @@ test("corbits-skills catalog lists 18 skills with name and description", async (
   }
 });
 
-test("spawn-recipe skills contain spawn_agent(agent=", async () => {
-  for (const name of SPAWN_RECIPE_SKILLS) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
-    expect(skill).toContain("spawn_agent(agent=");
-  }
-});
-
 test("idiot-proof is a bake-only less-is-more bar", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/idiot-proof/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
@@ -127,34 +118,52 @@ test("idiot-proof is a bake-only less-is-more bar", async () => {
   expect(skill).toContain("Do not fix");
 });
 
-test("typescript skill guides TS quality without fake enforcement", async () => {
+test("typescript skill is 1:1 with GaaS typescript", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/typescript/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("## Quick Reference");
+  expect(skill).toContain("### Don't");
   expect(skill).toContain("import type");
   expect(skill).toContain("arktype");
   expect(skill).toContain("unknown");
   expect(skill).toContain("create*");
-  expect(skill).toContain("bun:test");
-  expect(skill).toContain("Guidance for TypeScript output quality");
-  expect(skill).toContain("When project conventions disagree");
-  expect(skill).not.toContain('import t from "tap"');
-  expect(skill).not.toContain("new Cache");
-  expect(skill).not.toMatch(/^## Quick Reference$/m);
-  expect(skill).not.toMatch(/^### Don't$/m);
+  expect(skill).toContain('import t from "tap"');
+  expect(skill).not.toContain("Guidance for TypeScript output quality");
+  expect(skill).not.toContain("When project conventions disagree");
+  expect(skill).not.toContain("## Acknowledgment");
+  expect(skill).not.toContain("I have reviewed the typescript skill");
 });
 
-test("implement skill is a per-commit workflow without a false 4-cap", async () => {
+test("implement skill is 1:1 with GaaS implement", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
-  expect(skill).toContain('spawn_agent(agent="greybeard")');
-  expect(skill).toContain('spawn_agent(agent="critic")');
-  expect(skill).toContain("Do not invent a worker-count or fan-out ceiling");
-  expect(skill).toContain("Close the loop");
-  expect(skill).not.toContain("once or twice");
-  expect(skill).not.toContain("After two re-fix rounds");
-  expect(skill).not.toContain("hard cap 4");
-  expect(skill).not.toContain("4 workers");
-  expect(skill).not.toContain("max-parallel");
-  expect(skill).not.toContain("INTERN_TOOLS");
+  expect(skill).toContain("TaskCreate");
+  expect(skill).toContain("@greybeard");
+  expect(skill).toContain("@critique");
+  expect(skill).toContain("## Acknowledgment");
+  expect(skill).toContain(
+    "I have reviewed the implement skill and am ready to follow the commit workflow.",
+  );
+  expect(skill).not.toContain("spawn_agent");
+  expect(skill).not.toContain("Linear claim");
+  expect(skill).not.toContain("Do not invent a worker-count");
+});
+
+test("opsh skill is 1:1 with GaaS opsh", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/opsh/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("# opsh Scripting");
+  expect(skill).toContain("#!/usr/bin/env opsh");
+  expect(skill).toContain("lib::import");
+  expect(skill).toContain("TAP v13");
+  expect(skill).toContain("prove");
+  expect(skill).toContain("testing::register");
+  expect(skill).toContain("Load this skill when writing, reviewing, or debugging opsh scripts.");
+  expect(skill).not.toContain("spawn_agent");
+  expect(skill).not.toContain("write_file/edit_file");
+  expect(skill).not.toContain("Tiny / single-file scripts");
+  expect(skill).not.toContain("## Acknowledgment");
 });
 
 test("first-party skills are how-to playbooks, not director personas", async () => {
@@ -215,55 +224,106 @@ test("philosophy skill is 1:1 with GaaS philosophy", async () => {
   expect(skill).not.toContain("use_skill(");
 });
 
-test("review skill is a code-review playbook, not a director router", async () => {
+test("review skill is 1:1 with GaaS code-review except slash name", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
-  expect(skill).toContain("git diff <base>...HEAD");
+  expect(skill).toContain("name: review");
+  expect(skill).not.toContain("name: code-review");
+  expect(skill).toContain("description: Perform a code review or pull request review on a branch");
+  expect(skill).toContain("# Code Review");
+  expect(skill).toContain("Ask the user");
+  expect(skill).toContain("sub-agents");
+  expect(skill).toContain("typescript-conventions");
   expect(skill).toContain("Cite the Check");
-  expect(skill).toContain("Signal Over Noise");
-  expect(skill).toContain("Pre-existing Code");
-  expect(skill).toContain("do not implement fixes");
-  expect(skill).toContain("Findings only");
+  expect(skill).toContain("git diff <base>...HEAD");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain("argument-hint");
+  expect(skill).not.toContain("Findings only");
+  expect(skill).not.toContain("Post the Review on GitHub");
   expect(skill).not.toContain("spawn_agent");
   expect(skill).not.toContain("wait_agents");
-  expect(skill).not.toContain('task(agent="critic")');
-  expect(skill).not.toContain('task(agent="neckbeard")');
-  expect(skill).not.toContain('task(agent="greybeard")');
+  expect(skill).not.toContain("fleet agents");
 });
 
-test("pull-request-review checkouts a worktree then loads the review skill", async () => {
+test("refactor skill is 1:1 with GaaS refactor", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/refactor/SKILL.md")).text();
+  expect(skill).toContain("ask clarifying questions:");
+  expect(skill).toContain("ask the user about their priorities");
+  expect(skill).toContain("load the `philosophy` skill");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
+test("pull-request-review is 1:1 with GaaS pull-request-review", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/pull-request-review/SKILL.md")).text();
   expect(skill).toContain("git worktree add");
-  expect(skill).toContain("review` skill");
-  expect(skill).toContain("Do not implement fixes");
+  expect(skill).toContain("`code-review` skill");
+  expect(skill).toContain("Load Code Review Skill");
+  expect(skill).toContain("ask the user");
+  expect(skill).not.toContain("Do not implement fixes");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain("### Step 9:");
+  expect(skill).not.toContain("Post the Review on GitHub");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
   expect(skill).not.toContain("spawn_agent");
   expect(skill).not.toContain('task(agent="critic")');
 });
 
-test("interview skill is an ask_operator utility with no false caps", async () => {
+test("interview skill is 1:1 with GaaS interview", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/interview/SKILL.md")).text();
-  expect(skill).toContain("ask_operator");
-  expect(skill).toMatch(/utility/i);
-  expect(skill).toContain("## Interview findings:");
-  expect(skill).toContain("No false caps");
-  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
-  expect(skill).not.toMatch(/2–4/);
-  expect(skill).not.toMatch(/at most \d+/i);
-  expect(skill).not.toMatch(/parameter limits/i);
-  expect(skill).not.toMatch(/maxItems|minItems|inputSchema/i);
-  expect(skill).not.toContain("write a file");
+  expect(skill).toContain("AskUserQuestion");
+  expect(skill).toContain("argument-hint");
+  expect(skill).toContain("tools:\n  - AskUserQuestion");
+  expect(skill).toContain("This is a utility, not a planner");
   expect(skill).toContain("never writes a file");
+  expect(skill).toContain("parameter limits");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
+test("scribe skill is 1:1 with GaaS scribe", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/scribe/SKILL.md")).text();
+  expect(skill).toContain("tools:\n  - question");
+  expect(skill).toContain("Using the Question Tool");
+  expect(skill).toContain("AskUserQuestion");
+  expect(skill).toContain("the `question` tool");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
+test("ast-grep skill is 1:1 with GaaS ast-grep", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/ast-grep/SKILL.md")).text();
+  expect(skill).toContain("CLI: `sg`");
+  expect(skill).toContain("|---|---|");
+  expect(skill).toContain("sg run");
+  expect(skill).toContain("sg scan --inline-rules");
+  expect(skill).toContain("## Acknowledgment");
+  expect(skill).toContain("I have reviewed the ast-grep skill.");
+  expect(skill).not.toContain("run_shell");
+  expect(skill).not.toContain("Invoke `sg` via `run_shell`");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
 });
 
 test("create-issue is Linear-first without restated MCP tool contracts", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
+  expect(skill).toContain("name: create-issue");
   expect(skill).toContain("mcp__linear__");
   expect(skill).toContain("gh issue create");
   expect(skill).toContain(".corbits/MEMORY.md");
   expect(skill).toContain("Preferred issue tracker:");
   expect(skill).toContain("Do not invent a Linear REST client");
   expect(skill).toContain("Do not restate MCP tool names or schemas");
-  // Availability check uses the family prefix; individual MCP tool contracts stay out.
   expect(skill).toContain("`mcp__linear__*`");
+  expect(skill).toContain("Phase 2: Analyze Input");
+  expect(skill).toContain("Phase 5: Review and Adjust");
+  expect(skill).toContain("# Background");
+  expect(skill).toContain("# Outcome");
+  expect(skill).toContain("<Context and what triggered this work");
+  expect(skill).toContain("## Common Patterns");
   expect(skill).not.toContain("mcp__linear__save_issue");
   expect(skill).not.toContain("mcp__linear__list_teams");
   expect(skill).not.toContain("mcp__linear__prepare_attachment_upload");
@@ -298,26 +358,34 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
   }
 });
 
-test("linear-issue-workflow references use_skill(git-worktrees)", async () => {
-  const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
-  expect(skill).toContain('use_skill("git-worktrees")');
-  expect(skill).not.toContain("git worktree add");
+test("git-rebase skill is 1:1 with GaaS git-rebase", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/git-rebase/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("/tmp/rebase-editor.sh");
+  expect(skill).toContain("driving every editor invocation non-interactively");
+  expect(skill).not.toContain('spawn_agent(agent="intern")');
+  expect(skill).not.toContain("Plan the surgery; intern executes");
 });
 
-test("linear-issue-workflow moves ready-for-review PRs to In Review", async () => {
+test("linear-issue-workflow is 1:1 with GaaS", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
-  expect(skill).toContain('set the issue state to "In Review"');
-  expect(skill).toMatch(/ready for review/);
-  expect(skill).toContain("Draft or WIP PRs stay **In Progress**");
-  expect(skill).toContain("Draft or WIP PRs stay In Progress");
-  expect(skill).toContain("Do not mark the Linear issue Done on open PR alone");
-  expect(skill).toContain("Do not leave it In Review after merge when work remains");
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("git worktree add");
+  expect(skill).toContain("code-review");
+  expect(skill).toContain("critique` subagent");
+  expect(skill).toContain('Mark the issue as "In Progress"');
+  expect(skill).not.toContain('use_skill("git-worktrees")');
+  expect(skill).not.toContain("Claim immediately");
+  expect(skill).not.toContain('set the issue state to "In Review"');
 });
 
-test("review skill does not own the Linear In Review write", async () => {
+test("review skill does not own GitHub posting or Linear In Review", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
-  expect(skill).toContain("`linear-issue-workflow` owns the In Review write");
-  expect(skill).not.toContain("Reviewers do not change Linear state");
+  expect(skill).not.toContain("Post the Review on GitHub");
+  expect(skill).not.toContain("`linear-issue-workflow` owns the In Review write");
+  expect(skill).not.toContain("this skill does not set Linear state");
 });
 
 test("slash skills do not set user-invocable: false", async () => {
@@ -327,14 +395,15 @@ test("slash skills do not set user-invocable: false", async () => {
   }
 });
 
-test("corbits-skills plugin files contain no banned tokens outside native-integration", async () => {
-  const nativeRoot = join(pluginRoot, "skills", "native-integration");
-  const files = await listFilesRecursive(pluginRoot);
-  for (const file of files) {
-    if (file.startsWith(nativeRoot)) continue;
-    const text = await Bun.file(file).text();
-    for (const token of BANNED_TOKENS) {
-      expect(text).not.toContain(token);
+test("Corbits-only skills do not contain GaaS tool names", async () => {
+  const corbitsOnly = ["plan", "git-worktrees", "idiot-proof"] as const;
+  for (const name of corbitsOnly) {
+    const files = await listFilesRecursive(join(pluginRoot, "skills", name));
+    for (const file of files) {
+      const text = await Bun.file(file).text();
+      for (const token of BANNED_TOKENS) {
+        expect(text).not.toContain(token);
+      }
     }
   }
 });
@@ -344,7 +413,10 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain(USER_INVOCABLE_FALSE);
   expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
   expect(skill).toContain("TaskCreate");
+  expect(skill).toContain("TaskList");
   expect(skill).toContain("@greybeard");
+  expect(skill).toContain("@critique");
+  expect(skill).toContain("karen");
   expect(skill).toContain('intent="general"');
   expect(skill).toContain("manage_tasks");
   expect(skill).toContain('spawn_agent(agent="greybeard")');
@@ -358,6 +430,31 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("plan");
   expect(skill).toContain("git-worktrees");
   expect(skill).toContain("idiot-proof");
+  expect(skill).toContain("bun:test");
+  expect(skill).toContain('import t from "tap"');
+  expect(skill).toContain("git worktree add");
+  expect(skill).toContain('use_skill("git-worktrees")');
+  expect(skill).toContain('set the issue state to "In Review"');
+  expect(skill).toMatch(/ready for review/);
+  expect(skill).toContain("Draft or WIP PRs stay **In Progress**");
+  expect(skill).toContain("Draft or WIP PRs stay In Progress");
+  expect(skill).toContain("Do not mark the Linear issue Done on open PR alone");
+  expect(skill).toContain("Do not leave it In Review after merge when work remains");
+  expect(skill).toContain("/tmp");
+  expect(skill).toContain("GIT_SEQUENCE_EDITOR");
+  expect(skill).toContain("intern executes sequenced git via `run_shell`");
+  expect(skill).toContain("Do not fork the GaaS git-rebase body");
+  expect(skill).toContain("Do not fork the GaaS opsh body");
+  expect(skill).toContain("Do not fork the GaaS pull-request-review body");
+  expect(skill).toContain("Do not fork the GaaS refactor body");
+  expect(skill).toContain("Do not fork the GaaS scribe body");
+  expect(skill).toContain("Do not fork the GaaS ast-grep body");
+  expect(skill).toContain("Do not fork the GaaS code-review body");
+  expect(skill).toContain("findings-only");
+  expect(skill).toContain("Do not fork the GaaS implement body");
+  expect(skill).toContain("`/implement` does not steal planning from `/plan`");
+  expect(skill).toContain("run `sg` via `run_shell`");
+  expect(skill).toContain("prove");
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {

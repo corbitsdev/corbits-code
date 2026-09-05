@@ -1,14 +1,16 @@
 ---
 name: interview
 argument-hint: "<topic>[; <context>]"
-description: Conduct an iterative multiple-choice interview using ask_operator. Returns the Q&A inline. Use as a utility when a caller needs structured user input on a topic.
+description: Conduct an iterative multiple-choice interview using AskUserQuestion. Returns the Q&A inline. Use as a utility when a caller needs structured user input on a topic.
+tools:
+  - AskUserQuestion
 ---
 
 # Interview
 
-Gather structured user input on a topic via multiple-choice `ask_operator` questions. Emit the Q&A inline; the caller decides what to do with it.
+Use this skill to gather user input on a topic by asking multiple-choice questions in batches via `AskUserQuestion`. Return the questions and answers in the conversation. The caller decides what to do with them.
 
-This is a utility, not a planner. It does not decide what to build, write any files, spawn agents, or invoke other skills.
+This is a utility, not a planner. It does not decide what to build, write any files, or invoke other skills.
 
 ## Argument
 
@@ -17,34 +19,34 @@ This is a utility, not a planner. It does not decide what to build, write any fi
 - **Topic** — what the interview is about
 - **Context** (optional) — facts already known. Treat each as an answered dimension; do not re-ask things context settles.
 
-If no topic is given, ask for one with `ask_operator` before proceeding.
+If no topic is given, ask for one before proceeding.
 
 ## Process
 
 ### Identify dimensions to probe
 
-Enumerate the open questions worth asking from the topic and context. Skip dimensions the context already settles. Add domain-specific ones where relevant. There is no fixed dimension list — the topic determines it.
+Enumerate the open questions worth asking, drawn from the topic and context. Skip dimensions the context already settles. Add domain-specific ones where relevant. There is no fixed dimension list — the topic determines it.
 
 Probe objective and priorities before details. They shape every later question, so anchoring them early prevents reshuffling halfway through.
 
-### Ask with ask_operator
+### Ask in batches
 
-Each question is one `ask_operator` call: `question` (string) plus `options` (array of strings). Fire independent questions together as parallel tool calls in the same turn.
-
-`ask_operator` is single-select per call. The operator can also type a custom answer. There is no multi-select flag — if a dimension genuinely permits several answers, encode the realistic combinations as options, or follow up once the first answer lands.
-
-**No false caps.** `ask_operator` has no skill-invented ceiling on option count, parallel questions per round, or total rounds. Batch every independent dimension you can author now. Drop to one question only when the next question's text or options cannot be written without this answer. Stop when marginal value is low (see below) — never because a made-up quota was hit. If the caller passed an explicit cap, honour it.
+Each round uses `AskUserQuestion`. Refer to the tool's own documentation for parameter limits and multi-select behavior.
 
 **Quality bar for options:**
 
-- Mutually exclusive **short labels** — not "yes / no / maybe"
+- Mutually exclusive and concrete — not "yes / no / maybe"
 - Each option a real, defensible choice — not a strawman
-- Trade-offs, rationale, and context go in the **preceding transcript reply**, then `ask_operator` with a brief question and brief labels. Do not put essays in the option string — `options` are strings, not `{ label, description }` objects
+- Descriptions surface trade-offs ("simpler but less flexible", "consistent with existing patterns")
 - Ground options in the topic and context — do not invent generic options when concrete ones exist
-- Combination options only when the dimension genuinely permits more than one answer
+- Multi-select only when the dimension genuinely permits it
 - If you have a recommendation, put it first and label it
 
-Referencing a prior answer inside a later question's text is fine.
+**Batching:**
+
+- Default 2–4 questions per round, bundling dimensions that do not depend on each other
+- Drop to 1 question only when the next question's text or options cannot be authored without this answer
+- Referencing a prior answer inside a later question's text is fine
 
 ### Decide when to stop
 
@@ -52,15 +54,15 @@ Stop when:
 
 - Every open dimension has been answered or marked out of scope
 - Remaining unknowns are details the caller can reasonably decide
-- The user has signalled fatigue (declines to choose, short non-substantive custom answers, asks to wrap up)
+- The user has signalled fatigue (declines to choose, short non-substantive "Other" answers, asks to wrap up)
 - The topic has shifted into territory outside this interview's scope
 
-There is no fixed round cap. Stop when the marginal value of another round is low.
+There is no fixed round cap. Stop when the marginal value of another round is low. If the caller passed an explicit cap, honour it.
 
 ### Handle trouble
 
 - **Contradiction with a prior answer.** Ask one clarifying question that surfaces both choices directly. Record the resolution; do not silently overwrite.
-- **Custom answer reveals a missing dimension.** Add it to the dimension list and continue.
+- **"Other" reveals a missing dimension.** Add it to the dimension list and continue.
 - **Topic shift.** If the user's answers reframe the topic itself, stop, emit what you have, and tell the caller the topic has changed.
 - **No objective to anchor on.** If the user is fundamentally undecided about the topic's objective itself (not just details), stop without a findings list. Tell the caller what you learned, why you stopped, and what they should consider doing instead.
 
@@ -73,7 +75,7 @@ When the interview ends, emit the Q&A inline as a numbered list of question → 
 
 1. <question>: <answer>
 2. <question>: <answer>
-3. <question>: <answer (combination)> — <answer>
+3. <question>: <answer (multi-select)> — <answer>
 ```
 
 If the user declined some questions or punted a dimension, note it in the same list:
@@ -88,39 +90,28 @@ After emitting the findings, stop. Do not load other skills, invoke other agents
 
 ## Worked example
 
-**Invocation:** `use_skill(name="interview")` with the topic in the conversation, or `/interview notification system; backend is Node/Postgres, internal users only, must integrate with existing auth`
+**Invocation:** `skill(name="interview", arguments="notification system; backend is Node/Postgres, internal users only, must integrate with existing auth")`
 
-**Round 1** (three parallel `ask_operator` calls — independent dimensions, so ask together). Trade-offs belong in the transcript before the calls, not in the labels — e.g. "critical vs activity vs re-engagement; never-miss vs real-time vs per-event opt-in; in-app vs email vs webhook."
+**Round 1** (3 questions, bundled because none depends on the others):
 
 ```
-ask_operator({
-  question: "What is the primary goal of the notification system?",
-  options: [
-    "Alert on critical events",
-    "Keep users informed of activity",
-    "Drive user re-engagement"
-  ]
-})
-
-ask_operator({
-  question: "If you had to pick one, which matters most?",
-  options: [
-    "Reliability of delivery (recommended)",
-    "Latency",
-    "User control"
-  ]
-})
-
-ask_operator({
-  question: "Which delivery channels do you want?",
-  options: [
-    "In-app",
-    "Email",
-    "In-app + Email",
-    "Webhook",
-    "All of the above"
-  ]
-})
+AskUserQuestion([
+  { header: "Goal", question: "What is the primary goal of the notification system?",
+    options: [
+      { label: "Alert on critical events", description: "Errors, security issues, SLA breaches" },
+      { label: "Keep users informed of activity", description: "Mentions, replies, updates" },
+      { label: "Drive user re-engagement", description: "Digests, reminders, summaries" } ] },
+  { header: "Priorities", question: "If you had to pick one, which matters most?",
+    options: [
+      { label: "Reliability of delivery", description: "Never miss a notification, even if delayed" },
+      { label: "Latency", description: "Real-time, even if some are dropped under load" },
+      { label: "User control", description: "Fine-grained per-event opt-in/out" } ] },
+  { header: "Channels", question: "Which delivery channels do you want?", multiSelect: true,
+    options: [
+      { label: "In-app", description: "Notification center in the UI" },
+      { label: "Email", description: "Per-event or digest" },
+      { label: "Webhook", description: "Outbound HTTP to a user-configured endpoint" } ] }
+])
 ```
 
 **Hypothetical answers:** Alert on critical events; Reliability of delivery; In-app + Email.
@@ -136,10 +127,9 @@ ask_operator({
 ## Anti-patterns
 
 - **Interviewing yourself.** Filling in answers because they "seem obvious" — stop and ask, or note as assumption.
-- **Serializing independent questions.** If dimensions do not depend on each other, ask them in parallel.
-- **Inventing quotas.** Do not stop or thin options because of a made-up question or option count.
+- **One question per round, ten rounds deep.** Batch related questions.
 - **Asking about everything.** Prune dimensions that do not apply.
-- **Treating a custom answer as failure.** Custom answers are signal.
+- **Treating "Other" as failure.** Custom answers are signal.
 - **Forgetting context.** Read it. Do not re-ask things the context already settled.
 - **Writing files.** This skill never writes a file. The output is conversational.
 - **Invoking other skills or agents.** Emit findings and stop.

@@ -50,6 +50,16 @@ describe("builderPackage", () => {
     expect(p).toMatch(/never silently skip/i);
   });
 
+  test("systemPrompt requires a counsel / /plan plan for substantial work", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).toContain("## Plan");
+    expect(p).toContain("counsel / `/plan` plan");
+    expect(p).toContain("If that plan is missing from the brief");
+    expect(p).toContain("do not invent one and do not ship");
+    expect(p).toContain("Tiny parent-DIY edits are plan-optional");
+    expect(p).toContain("`/implement` does not steal planning from `/plan`");
+  });
+
   test("systemPrompt requires style, philosophy, and idiot-proof prerequisites", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toContain("Prerequisites");
