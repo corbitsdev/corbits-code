@@ -16,9 +16,11 @@ not read API keys from the environment.
 | Path                 | Role                                                   |
 | -------------------- | ------------------------------------------------------ |
 | `argv.py`            | Pure settings + argv builders (unit-tested, no Harbor) |
+| `session.py`         | Parse harvested `~/.corbits` usage (unit-tested)       |
 | `agent.py`           | `Corbits` installed agent (requires Harbor at import)  |
 | `tasks/trivial/`     | Minimal smoke task (`hello.txt`)                       |
 | `tests/test_argv.py` | Argv/settings unit tests                               |
+| `tests/test_session.py` | Session usage harvest unit tests                    |
 
 ## Prerequisites
 
@@ -95,7 +97,7 @@ From the repo root (so `evals.harbor.agent` is importable):
 
 ```bash
 # Unit tests (no Harbor package required; pytest may be absent)
-PYTHONPATH=. python3 -m unittest evals.harbor.tests.test_argv -v
+PYTHONPATH=. python3 -m unittest evals.harbor.tests.test_argv evals.harbor.tests.test_session -v
 
 # Dry-run trivial task (needs Harbor CLI + Linux binary + API key)
 export CORBITS_API_KEY=…   # or XAI_API_KEY=…
@@ -120,11 +122,21 @@ agents:
       # or: corbits_tarball_url: https://…/corbits-linux.tar.gz
 ```
 
+Harbor's own trial/job timeout is the only wall-clock cap. Do **not** wrap
+`harbor run` in a parent tool timeout — killing the CLI mid-trial wastes the
+tokens already spent and leaves no verifier result.
+
+After each trial Harbor copies `/logs/agent`. The adapter tars `~/.corbits`
+there as `corbits-home.tar.gz` and fills `AgentContext` token fields from
+session `metadata.json`. `cost_usd` is set only when the harvested
+`models-pricing.json` cache has that model; unknown cells stay `null` rather
+than inventing a rate. Tool traces are under
+`agent/corbits-home/.corbits/projects/…/turns-*.jsonl`.
+
 ## Known gaps
 
 - Trivial Harbor dry-run has been run locally (`hello.txt`, verifier reward 1.0)
   with OpenCode Go `mimo-v2.5`. Cost-capped Terminal-Bench smoke is the parent
   ticket **CL-6922** (the old CL-6924 slice ticket was canceled).
-- This adapter does not parse Corbits trajectories into Harbor ATIF; exit
-  metadata is limited to `context.metadata["exit_code"]` plus tee'd stdout in
-  `/logs/agent/corbits.txt`.
+- This adapter does not convert Corbits trajectories into Harbor ATIF. Usage
+  and the session tar are enough to audit a trial without that conversion.
