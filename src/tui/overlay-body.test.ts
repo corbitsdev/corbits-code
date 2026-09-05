@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
+import { OVERLAY_MAX_FRACTION, PROMPT_BASE_ROWS } from "./geometry/index.js";
 import { withTestRenderer } from "./harness.js";
 import {
   composeDecisionBody,
   decisionChoiceRows,
   decisionChoiceRowCount,
+  decisionContextBudget,
+  describeZoneLines,
   DECISION_ACTIVE_MARK,
   DECISION_CHOICE_ROWS,
   DECISION_DITHER,
@@ -249,4 +252,87 @@ describe("decision overlay paints at narrow widths", () => {
       }
     });
   }
+});
+
+describe("describeZoneLines", () => {
+  test("fills the two-line budget with what, then impact", () => {
+    const { lines, fgs } = describeZoneLines(
+      { what: "compaction trims the transcript.", impact: "summarize costs a model call." },
+      60,
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("compaction trims the transcript.");
+    expect(lines[1]).toContain("summarize costs a model call.");
+    expect(fgs[0]).toBe(UI.textDim);
+    expect(fgs[1]).toBe(UI.textFaint);
+  });
+
+  test("consequence tone paints the impact line in UI.warning", () => {
+    const { fgs } = describeZoneLines(
+      { what: "sub-agent cap.", impact: "raising it spends more tokens.", tone: "consequence" },
+      60,
+    );
+    expect(fgs[1]).toBe(UI.warning);
+  });
+
+  test("a what that wraps to both lines drops impact, same as narrow width would", () => {
+    const { lines } = describeZoneLines(
+      {
+        what: "a description long enough that wrapping it at this width already spends both of the zone's two lines",
+        impact: "never shown",
+      },
+      24,
+    );
+    expect(lines.join(" ")).not.toContain("never shown");
+  });
+
+  test("degrades at 48 columns by dropping impact, keeping what", () => {
+    const desc = {
+      what: "short",
+      impact: "dropped at narrow widths",
+    };
+    const wide = describeZoneLines(desc, 48);
+    expect(wide.lines.some((l) => l.includes("short"))).toBe(true);
+
+    const narrow = describeZoneLines(desc, 20);
+    expect(narrow.lines.some((l) => l.includes("short"))).toBe(true);
+    expect(narrow.lines.some((l) => l.includes("dropped"))).toBe(false);
+  });
+
+  test("drops the whole zone's content below the minimum legible width", () => {
+    const { lines } = describeZoneLines({ what: "anything" }, 8);
+    expect(lines.every((l) => l.length === 0)).toBe(true);
+  });
+
+  test("null description renders two blank lines", () => {
+    const { lines } = describeZoneLines(null, 60);
+    expect(lines).toEqual(["", ""]);
+  });
+});
+
+describe("decisionContextBudget", () => {
+  const typicalChrome = {
+    overlayRowsPerItem: 2,
+    overlayTitleRows: 1,
+    overlayHostBorderRows: 2,
+    overlayMaxFraction: OVERLAY_MAX_FRACTION,
+    promptBaseRows: PROMPT_BASE_ROWS,
+  } as const;
+
+  test("a tall terminal returns the full context budget", () => {
+    expect(
+      decisionContextBudget({
+        ...typicalChrome,
+        terminalHeight: 40,
+      }),
+    ).toBe(8);
+  });
+
+  test("a 10-row terminal drops context so at least one choice row remains", () => {
+    const budget = decisionContextBudget({
+      ...typicalChrome,
+      terminalHeight: 10,
+    });
+    expect(budget).toBe(0);
+  });
 });

@@ -7,12 +7,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness.js";
+import { describeZoneLines } from "./overlay-body.js";
 import {
   appendStreamRow,
   closeInsetOverlay,
   createAppShell,
   cycleOverlaySelection,
-  describeZoneLines,
   moveOverlaySelection,
   openListOverlay,
   type AppShell,
