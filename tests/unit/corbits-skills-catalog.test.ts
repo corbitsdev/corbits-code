@@ -127,20 +127,21 @@ test("idiot-proof is a bake-only less-is-more bar", async () => {
   expect(skill).toContain("Do not fix");
 });
 
-test("typescript skill guides TS quality without fake enforcement", async () => {
+test("typescript skill is 1:1 with GaaS typescript", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/typescript/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("## Quick Reference");
+  expect(skill).toContain("### Don't");
   expect(skill).toContain("import type");
   expect(skill).toContain("arktype");
   expect(skill).toContain("unknown");
   expect(skill).toContain("create*");
-  expect(skill).toContain("bun:test");
-  expect(skill).toContain("Guidance for TypeScript output quality");
-  expect(skill).toContain("When project conventions disagree");
-  expect(skill).not.toContain('import t from "tap"');
-  expect(skill).not.toContain("new Cache");
-  expect(skill).not.toMatch(/^## Quick Reference$/m);
-  expect(skill).not.toMatch(/^### Don't$/m);
+  expect(skill).toContain('import t from "tap"');
+  expect(skill).not.toContain("Guidance for TypeScript output quality");
+  expect(skill).not.toContain("When project conventions disagree");
+  expect(skill).not.toContain("## Acknowledgment");
+  expect(skill).not.toContain("I have reviewed the typescript skill");
 });
 
 test("implement skill is a per-commit workflow without a false 4-cap", async () => {
@@ -358,6 +359,8 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("plan");
   expect(skill).toContain("git-worktrees");
   expect(skill).toContain("idiot-proof");
+  expect(skill).toContain("bun:test");
+  expect(skill).toContain('import t from "tap"');
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {
