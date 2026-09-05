@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   createMemoizedParseMarkdown,
   parseMarkdown,
+  splitAtSettledHeading,
+  withholdIncompleteHeading,
   type StyledSegment,
 } from "./markdown-parser.js";
 import { color } from "./semantic-theme.js";
@@ -564,5 +566,30 @@ describe("createMemoizedParseMarkdown", () => {
     const second = memoized("hello", 80);
     expect(second).not.toBe(first);
     expect(second).toEqual(first);
+  });
+});
+
+describe("withholdIncompleteHeading", () => {
+  test("strips a trailing bare heading marker while streaming", () => {
+    expect(withholdIncompleteHeading("hello\n####")).toBe("hello\n");
+    expect(withholdIncompleteHeading("####")).toBe("");
+  });
+
+  test("keeps a heading that already has a title", () => {
+    expect(withholdIncompleteHeading("hello\n#### Title")).toBe("hello\n#### Title");
+  });
+});
+
+describe("splitAtSettledHeading", () => {
+  test("freezes a heading that already has content under it", () => {
+    expect(splitAtSettledHeading("# Title\nbody")).toEqual({
+      frozen: "# Title",
+      live: "body",
+      gapRows: 0,
+    });
+  });
+
+  test("does not split when the last heading is still the open tail", () => {
+    expect(splitAtSettledHeading("# Title")).toBeNull();
   });
 });

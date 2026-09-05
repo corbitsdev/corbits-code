@@ -220,6 +220,13 @@ export function formatAttachmentSummary(attachments: readonly PendingImageAttach
   return `${attachments.length} image${attachments.length === 1 ? "" : "s"} attached: ${names}`;
 }
 
+/** Transcript echo for a user message, annotated with its attachments. */
+export function userRowText(text: string, attachments: readonly PendingImageAttachment[]): string {
+  const summary = formatAttachmentSummary(attachments);
+  if (summary.length === 0) return text;
+  return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`;
+}
+
 function normalizeImagePathCandidate(input: string, cwd: string): string | undefined {
   const unquoted = unquoteShellPath(trimTrailingPunctuation(input.trim()));
   if (unquoted === undefined) return undefined;

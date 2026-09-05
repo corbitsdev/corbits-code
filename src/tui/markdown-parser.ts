@@ -616,3 +616,113 @@ function extractTableCells(line: string): string[] {
 
   return cells;
 }
+
+/**
+ * Markdown source with a half-arrived heading marker withheld.
+ *
+ * A trailing `####` with nothing after it yet is not a heading — it is literal
+ * text, and that is what the parser makes of it, so the row paints the bare
+ * markers for one delta and drops them the moment the title's first character
+ * lands. Holding that line back until it has content keeps a line's
+ * classification from flipping under text that is already on screen.
+ */
+export function withholdIncompleteHeading(text: string): string {
+  return text.replace(/(^|\n)#{1,6}[ \t]*$/, "$1");
+}
+
+/**
+ * An ATX heading line (`#` through `######`) with a title, not a bare marker.
+ * CommonMark allows the marker up to 3 spaces in; a 4th makes it indented code
+ * instead, which this line still has to reject.
+ */
+const ATX_HEADING_LINE_RE = /^ {0,3}#{1,6}[ \t]+\S.*$/;
+
+/**
+ * A fenced code block's opening delimiter: three or more backticks or tildes,
+ * optionally indented up to three spaces (CommonMark's limit before a fence
+ * counts as indented code instead), followed by anything (an info string,
+ * e.g. the "bash" in ` ```bash `).
+ *
+ * Distinct from `FENCE_OPEN_RE` above, which is the streaming highlighter's
+ * looser `\s*` matcher — do not unify the two.
+ */
+const COMMONMARK_FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * A fenced code block's closing delimiter. Unlike the opener, CommonMark
+ * requires the closing line to contain nothing but the fence run and
+ * trailing whitespace — "```stillcode" does not close a fence, it is more
+ * fence content — so this is deliberately not just `COMMONMARK_FENCE_OPEN_RE`
+ * again.
+ */
+const COMMONMARK_FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+
+/**
+ * Lines that are inside a fenced code block, where a leading `#` is a shell
+ * comment or similar and never a heading. A closer needs the same character
+ * as the opener and a run at least as long — a shorter run, a run of the
+ * other character, or a closing-shaped line carrying trailing text is just
+ * more fence content, per CommonMark.
+ */
+function fencedLineMask(lines: readonly string[]): boolean[] {
+  const inside = new Array<boolean>(lines.length).fill(false);
+  let opener: { char: string; length: number } | null = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (opener === null) {
+      const match = lines[i]!.match(COMMONMARK_FENCE_OPEN_RE);
+      if (match) {
+        inside[i] = true;
+        opener = { char: match[1]![0]!, length: match[1]!.length };
+      }
+      continue;
+    }
+    inside[i] = true;
+    const close = lines[i]!.match(COMMONMARK_FENCE_CLOSE_RE);
+    if (close && close[1]![0] === opener.char && close[1]!.length >= opener.length) {
+      opener = null;
+    }
+  }
+  return inside;
+}
+
+/**
+ * A markdown body split at the last heading that already has content behind
+ * it: everything through that heading, and everything after it.
+ *
+ * The renderer's own incremental parser only reuses a block whose raw text is
+ * unchanged; the default block mode merges a heading into the same raw chunk
+ * as the paragraph that follows it, so every keystroke of that paragraph
+ * changes the merged chunk's raw text and forces the heading's already-settled
+ * markup to re-highlight too — visibly flickering while the rest of the
+ * message keeps streaming in. Rendering the two halves as separate
+ * `MarkdownRenderable`s keeps the heading's renderer untouched once it is no
+ * longer the one growing, without changing how paragraphs, lists or tables
+ * inside either half are laid out (both halves still use the library's
+ * default block mode).
+ */
+export interface MarkdownSplit {
+  readonly frozen: string;
+  readonly live: string;
+  /** Blank source lines between the heading and what follows it (0 or 1). */
+  readonly gapRows: number;
+}
+
+export function splitAtSettledHeading(text: string): MarkdownSplit | null {
+  const lines = text.split("\n");
+  const insideFence = fencedLineMask(lines);
+  let boundary = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!insideFence[i] && ATX_HEADING_LINE_RE.test(lines[i]!)) boundary = i;
+  }
+  // No heading, or the last one is still the open tail: nothing to freeze.
+  if (boundary === -1 || boundary >= lines.length - 1) return null;
+  const rest = lines.slice(boundary + 1);
+  const firstContent = rest.findIndex((line) => line.trim().length > 0);
+  // Heading closed but nothing has started under it yet.
+  if (firstContent === -1) return null;
+  return {
+    frozen: lines.slice(0, boundary + 1).join("\n"),
+    live: rest.slice(firstContent).join("\n"),
+    gapRows: firstContent > 0 ? 1 : 0,
+  };
+}

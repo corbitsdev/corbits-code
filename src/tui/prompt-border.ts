@@ -293,6 +293,11 @@ export function costContextText(meter: CostContextMeter, includeCost: boolean): 
   return includeCost && meter.costLabel !== null ? `${base} · ${meter.costLabel}` : base;
 }
 
+export function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.percentLabel === b.percentLabel && a.costLabel === b.costLabel;
+}
+
 /** Replace the operator's home directory with `~`. */
 export function abbreviateHome(path: string, home: string): string {
   if (home.length === 0) return path;

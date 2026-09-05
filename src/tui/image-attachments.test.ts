@@ -9,6 +9,7 @@ import {
   capImageForIngestion,
   imageAttachmentFromPath,
   MAX_IMAGE_DIMENSION,
+  userRowText,
 } from "./image-attachments.js";
 
 // Minimal from-scratch PNG encoder for test fixtures only. Filling scanlines
@@ -154,5 +155,23 @@ describe("image attachment helpers", () => {
       await unlink(pathA).catch(() => undefined);
       await unlink(pathB).catch(() => undefined);
     }
+  });
+
+  test("userRowText returns the text when there are no attachments", () => {
+    expect(userRowText("hello", [])).toBe("hello");
+  });
+
+  test("userRowText annotates a message with its attachment summary", () => {
+    const attachments = [
+      {
+        id: "a",
+        name: "shot.png",
+        contentType: "image/png",
+        data: new Uint8Array(),
+        contentHash: "h",
+      },
+    ];
+    expect(userRowText("hello", attachments)).toBe("hello\n[1 image attached: shot.png]");
+    expect(userRowText("", attachments)).toBe("[1 image attached: shot.png]");
   });
 });

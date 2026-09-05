@@ -29,7 +29,6 @@ import {
   streamRowAt,
   streamRowCount,
   truncateStreamRows,
-  userRowText,
   type AppShell,
 } from "./shell.js";
 import { rampAnimating } from "./ramp.js";
@@ -58,7 +57,7 @@ import {
   turnStateOnSubmit,
   type TurnState,
 } from "./turn-state.js";
-import type { PendingImageAttachment } from "./image-attachments.js";
+import { userRowText, type PendingImageAttachment } from "./image-attachments.js";
 import { toolCallRow } from "./diff.js";
 import { toolResultRow } from "./mcp-view.js";
 import { canCoalesceCall, coalesceCallRows, mergeToolRows } from "./tool-rows.js";

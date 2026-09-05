@@ -11,6 +11,8 @@ import {
   DECISION_ACTIVE_MARK,
   DECISION_CHOICE_ROWS,
   DECISION_DITHER,
+  overlayChoiceText,
+  overlayKindWord,
   wrapOverlayText,
   wrapWords,
 } from "./overlay-body.js";
@@ -334,5 +336,23 @@ describe("decisionContextBudget", () => {
       terminalHeight: 10,
     });
     expect(budget).toBe(0);
+  });
+});
+
+describe("overlayChoiceText", () => {
+  test("quotes a plain list item as-is", () => {
+    expect(overlayChoiceText("  Accept once  ", undefined, undefined)).toBe("Chose Accept once.");
+  });
+
+  test("echoes a settings field from id and value, not the painted label", () => {
+    expect(overlayChoiceText("‹on› off", "auto-compact", "on")).toBe("Set auto compact to on.");
+    expect(overlayChoiceText("label", undefined, "on")).toBe("Set setting to on.");
+  });
+});
+
+describe("overlayKindWord", () => {
+  test("reads internal overlay kinds as words", () => {
+    expect(overlayKindWord("operator")).toBe("operator");
+    expect(overlayKindWord("model_picker")).toBe("model picker");
   });
 });

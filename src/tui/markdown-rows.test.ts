@@ -11,8 +11,8 @@ import {
   createAppShell,
   createStreamRowRenderable,
   replaceStreamRowAt,
-  splitAtSettledHeading,
 } from "./shell";
+import { splitAtSettledHeading } from "./markdown-parser";
 import { isMarkdownRow } from "./stream";
 
 const WIDE = { width: 80, height: 24 } as const;

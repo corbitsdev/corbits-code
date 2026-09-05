@@ -11,6 +11,7 @@ import {
   composeWorkspaceLabel,
   costContextText,
   isPlainRule,
+  meterEquals,
   ruleText,
   ruleWidth,
 } from "./prompt-border";
@@ -316,5 +317,43 @@ describe("composeWorkspaceLabel", () => {
       });
       expect(label.length).toBeLessThanOrEqual(maxWidth);
     }
+  });
+});
+
+describe("meterEquals", () => {
+  test("null meters compare by identity", () => {
+    expect(meterEquals(null, null)).toBe(true);
+    expect(
+      meterEquals(
+        null,
+        composeCostContextMeter({ contextPercentUsed: 10, contextIsEstimate: false }),
+      ),
+    ).toBe(false);
+  });
+
+  test("compares percent and cost labels only", () => {
+    const a = composeCostContextMeter({
+      contextPercentUsed: 68,
+      costLabel: "$0.42",
+      contextIsEstimate: false,
+    });
+    const same = composeCostContextMeter({
+      contextPercentUsed: 68,
+      costLabel: "$0.42",
+      contextIsEstimate: false,
+    });
+    const differentCost = composeCostContextMeter({
+      contextPercentUsed: 68,
+      costLabel: "$0.43",
+      contextIsEstimate: false,
+    });
+    const differentPercent = composeCostContextMeter({
+      contextPercentUsed: 69,
+      costLabel: "$0.42",
+      contextIsEstimate: false,
+    });
+    expect(meterEquals(a, same)).toBe(true);
+    expect(meterEquals(a, differentCost)).toBe(false);
+    expect(meterEquals(a, differentPercent)).toBe(false);
   });
 });

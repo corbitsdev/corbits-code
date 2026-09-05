@@ -372,3 +372,27 @@ export function decisionContextBudget(input: {
     maxOverlayRows - input.overlayRowsPerItem - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
   return Math.max(0, Math.min(DECISION_CONTEXT_ROWS, baseline));
 }
+
+/**
+ * Plain-English echo of an accepted choice. A cycled settings field's label
+ * carries every option with `‹ ›` around the active one (list-painting detail,
+ * not something an operator asked for), so the caller passes the value that
+ * actually won structurally via `itemValues` rather than leaving it to be
+ * recovered from the rendered label — a marker or spacing change, or a label
+ * that legitimately contains `‹`/`›`, would otherwise corrupt the echo
+ * silently. A plain list item has no separate value, so it is quoted as-is.
+ */
+export function overlayChoiceText(
+  label: string,
+  id: string | undefined,
+  value: string | undefined,
+): string {
+  if (value === undefined) return `Chose ${label.trim()}.`;
+  const field = id === undefined ? "setting" : id.replace(/[-_]/g, " ");
+  return `Set ${field} to ${value}.`;
+}
+
+/** Internal overlay kinds read as words in the transcript, not identifiers. */
+export function overlayKindWord(kind: string): string {
+  return kind.replace(/_/g, " ");
+}
