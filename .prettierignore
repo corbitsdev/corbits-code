@@ -4,6 +4,7 @@ vendor/
 scratch/
 node_modules/
 CHANGELOG.md
+plugins/corbits-skills/skills/opsh/SKILL.md
 
 tmp/
 .claude/
