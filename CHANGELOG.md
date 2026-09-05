@@ -20,11 +20,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
+- Restore the philosophy skill body 1:1 with GaaS (including the review acknowledgment). `user-invocable: false` stays so it remains use_skill-only.
 
 ### Fixed
 
 - Headless `corbits exec` now registers the active run so SIGINT/SIGTERM/SIGHUP finalize `run.json`.
-
 
 ## [0.3.15] - 2026-09-04
 

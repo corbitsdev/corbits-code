@@ -1,84 +1,114 @@
 ---
 name: philosophy
+description: Engineering philosophy and work culture principles. Load this skill when making architectural decisions or to understand the team's work principles.
 user-invocable: false
-description: Engineering philosophy and decision principles. Load when making architectural trade-offs, fixing bugs at the right layer, or judging scope and compatibility.
 ---
 
 # Philosophy
 
-Decision guidance for engineering work. Load alongside `style` when judgment matters — architecture, bug placement, scope, compatibility, and what to ship vs cut. This is guidance for choices, not a ritual or a checklist to recite.
+Engineering philosophy and work culture principles. This skill is meant to be loaded alongside the `style` skill to provide broader context for decision-making and collaboration.
 
-## Guiding principles
+## Guiding Principles
 
-**Pragmatic over idealistic.** Skip details that do not change the outcome. If you are unsure whether a detail matters, ask.
+**Pragmatic over idealistic.**
 
-**Simple is usually harder than easy** — and it pays off. Prefer the design you can explain in one pass over the clever one that needs a tour.
+Don't get fixed on details that don't matter. If you're unsure if a detail matters, ask.
 
-**Do no harm** (Engineer Hippocratic Oath). Protect customers and their data. When in doubt, the safer path for data integrity wins.
+**Simple is usually harder than easy, but it pays off in the long run.**
 
-**Benevolent dictatorship.** All ideas are welcome; not all will be acted on. Decide and move — we have work to do.
+**Engineer Hippocratic Oath** - Do no harm to our customers and their data.
 
-**The map is not the territory.** Docs guide you to the code. The code is the source of truth. When they disagree, believe the code and fix the map.
+**Benevolent Dictatorship** - All ideas are welcome, but not all will be acted upon. We've got work to do.
 
-## Constraint ownership
+**"The map is not the territory"** - Documentation is there to guide you to the code, which is the source of truth.
 
-Every system has layers. A constraint belongs in **exactly one** layer — the one with enough information to enforce it correctly.
+## Collaboration & Communication
 
-- Downstream re-checks of upstream guarantees → duplication that eventually conflicts.
-- Callers pre-processing inputs the callee already validates → needless complexity.
-- Three layers enforcing the same rule → two are unnecessary and one is probably wrong.
+Don't be afraid to ask questions.
 
-Find the owning layer. Fix it there. Trust it everywhere else.
+**Direct Messages are for secrets.** Unless it's private, keep talking to people in public. It helps the rest of the engineers learn.
 
-**Before fixing a bug, answer:**
+Don't be offended when people ask you why you implemented something a certain way; if it's not your strongest solution, "it was the best solution I could put together with the information I had" is a fine answer.
+
+**Respect and learn from your fellow engineer.**
+
+Be careful of how much you judge other people's engineering decisions; there's a profound moment as an engineer when you look at something, think that it's totally insane that it was implemented that way, and then realize you're the one who implemented it but you've since forgotten.
+
+## Code & Git Practices
+
+For specific guidelines on commits, comments, and external code attribution, see the `style` skill.
+
+Key philosophical points:
+
+- **Commits should read like a story** - They're there for others and future-you to understand why a change was made
+- **Keep your commit summaries clear and short** - Use the body if the change warrants further explanation
+- **Don't intermix refactors and feature additions** - Keep them separate for clarity
+- **Comments shouldn't describe what code is doing** - They should describe why you're doing it
+
+See the `style` skill for detailed formatting rules and technical specifications.
+
+## Constraint Ownership
+
+Every system has layers. Constraints belong in exactly one layer — the one that has enough information to enforce them correctly.
+
+When a downstream function re-checks conditions that an upstream function already guarantees, you get duplication that eventually conflicts. When callers pre-process inputs to satisfy invariants the callee already enforces, you get unnecessary complexity. When three layers all enforce the same rule, two of them are unnecessary and one of them is probably wrong.
+
+Find the layer that owns the constraint. Fix it there. Trust it everywhere else.
+
+**Before fixing a bug, answer these questions:**
 
 1. What invariant is being violated?
-2. Which layer owns that invariant?
+2. Which layer is responsible for enforcing that invariant?
 3. Does that layer already attempt to enforce it?
 
-If (3) is yes, fix that layer — not a downstream consumer. If the fix wants changes in more than one module, stop and name the owning layer and why.
+If the answer to (3) is yes, fix that layer — not a downstream consumer. If your fix requires changes in more than one module, stop and explain which layer owns the constraint and why.
 
-Two or more fix commits in the same subsystem without resolution = symptom-chasing. Describe the constraint violation and ask where it should be fixed.
+If you have made two or more fix commits to the same subsystem without resolving the issue, you are symptom-chasing. Describe the constraint violation and ask where it should be fixed.
 
-**It is almost never a bug in the compiler — until it is.** Exhaust your own code first. Do not fully dismiss the toolchain either.
+**It's almost never a bug in the compiler — until it is.** Exhaust every possibility in your own code before blaming the toolchain. But never fully dismiss the possibility; sometimes it actually is.
 
-## Backwards compatibility
+## Backwards Compatibility
 
-Compatibility is not inherently virtuous. Context decides.
+Backwards compatibility is not inherently virtuous. It depends entirely on context.
 
-**Public interfaces deserve it.** External API, CLI, wire format, SDK — breaking those has real cost. Deprecate gracefully; version when you must break.
+**Public interfaces deserve backwards compatibility.** If external consumers depend on your API, CLI, wire format, or SDK, breaking them has real cost. Maintain compatibility there, deprecate gracefully, and version when you must break.
 
-**Internal code does not.** Dead parameters, dual paths, and shims "just in case" are tech debt with a noble name. If you own the callers, update the callers.
+**Internal code does not.** When backwards compatibility in internal code means keeping dead parameters, maintaining two paths through the same logic, or wrapping new code around old assumptions just to avoid updating callers — that's not compatibility, that's tech debt with a noble-sounding name. If you own all the callers, update all the callers.
 
-Every leftover adapter is a lie about how the system works. Kill the old path when the new one is proven. **Who breaks if I remove this?** If nobody external, remove it.
+The instinct to "keep the old way working just in case" creates code that is harder to read, harder to change, and harder to trust. Every shim, adapter, and fallback you leave behind is a lie about how the system actually works. Kill the old path when the new one is proven. Don't leave both alive.
 
-## Collaboration
+**Ask yourself:** who breaks if I remove this? If the answer is "nobody external," remove it.
 
-Ask questions early. Prefer public channels over private ones unless the content is secret — others learn from the trail.
+## Testing Philosophy
 
-When challenged on a design: "it was the best solution with the information I had" is a valid answer when it is true. Respect fellow engineers; judge code, not people. The "insane" implementation you are staring at may be yours from six months ago.
+**Tests are primarily there to verify required behavior is being followed. They're your friend.**
 
-## Code & git (philosophy only)
+Refactoring without them is a disconcerting nightmare filled with uncertainty and strife.
 
-Concrete formatting and commit mechanics live in `style`. The philosophical bar:
+## Automation & Tools
 
-- Commits should read like a story of _why_
-- Summaries short; body when the change needs it
-- Do not mix refactors with feature additions
-- Comments explain _why_, never narrate _what_
+**Automate when it's appropriate:** the first time might be too soon to understand the problem, by the third time might be when you should stop doing the same thing manually.
 
-## Testing
+**Solving problems is so much easier with the right tools.** Don't be afraid of building tools.
 
-Tests verify required behavior. They are how you refactor without dread. Prefer tests that pin the contract you care about over tests that freeze incidental structure.
+## Business Context
 
-## Automation & tools
+**Without engineering, sales has nothing to sell. Without sales, engineering can't pay rent.**
 
-Automate when appropriate: the first time may be too soon to understand the problem; by the third time, stop doing it by hand. Build tools when they make the problem easier — do not fear a small tool that removes repeated pain.
+This symbiotic relationship informs our prioritization and decision-making.
 
-## Business context
+## Issue & Project Management
 
-Without engineering, sales has nothing to sell. Without sales, engineering cannot pay rent. That symbiosis informs priority: ship value that can be sold and supported, not museum pieces.
+**Issues and tickets represent actual work to get done; not a hope or a dream.**
 
-## Issues & scope
+An issue should be self-contained enough that it can be handed off at any moment.
 
-Issues represent real work, not hopes. An issue should be hand-offable and fit in about 2–3 days of implementation. Features may span many cheap tickets — clarity beats giant bags of work. Status updates in the ticket reduce status pings.
+An issue shouldn't take longer than 2-3 days to implement.
+
+A single feature can have many tickets; they're cheap, so use as many as makes things clear.
+
+**The more status updates you put in your tickets, the less you'll be bugged by people asking you for status** (see TPS reports).
+
+## Acknowledgment
+
+After reviewing this skill, state: "I have reviewed the philosophy skill."
