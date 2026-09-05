@@ -27,8 +27,6 @@ const SKILL_DIRS = [
   "idiot-proof",
 ] as const;
 
-const SPAWN_RECIPE_SKILLS = ["implement"] as const;
-
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
   "git-rebase",
@@ -109,13 +107,6 @@ test("corbits-skills catalog lists 18 skills with name and description", async (
   }
 });
 
-test("spawn-recipe skills contain spawn_agent(agent=", async () => {
-  for (const name of SPAWN_RECIPE_SKILLS) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
-    expect(skill).toContain("spawn_agent(agent=");
-  }
-});
-
 test("idiot-proof is a bake-only less-is-more bar", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/idiot-proof/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
@@ -144,18 +135,18 @@ test("typescript skill is 1:1 with GaaS typescript", async () => {
   expect(skill).not.toContain("I have reviewed the typescript skill");
 });
 
-test("implement skill is a per-commit workflow without a false 4-cap", async () => {
+test("implement skill is 1:1 with GaaS implement", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
-  expect(skill).toContain('spawn_agent(agent="greybeard")');
-  expect(skill).toContain('spawn_agent(agent="critic")');
-  expect(skill).toContain("Do not invent a worker-count or fan-out ceiling");
-  expect(skill).toContain("Close the loop");
-  expect(skill).not.toContain("once or twice");
-  expect(skill).not.toContain("After two re-fix rounds");
-  expect(skill).not.toContain("hard cap 4");
-  expect(skill).not.toContain("4 workers");
-  expect(skill).not.toContain("max-parallel");
-  expect(skill).not.toContain("INTERN_TOOLS");
+  expect(skill).toContain("TaskCreate");
+  expect(skill).toContain("@greybeard");
+  expect(skill).toContain("@critique");
+  expect(skill).toContain("## Acknowledgment");
+  expect(skill).toContain(
+    "I have reviewed the implement skill and am ready to follow the commit workflow.",
+  );
+  expect(skill).not.toContain("spawn_agent");
+  expect(skill).not.toContain("Linear claim");
+  expect(skill).not.toContain("Do not invent a worker-count");
 });
 
 test("first-party skills are how-to playbooks, not director personas", async () => {
@@ -328,14 +319,15 @@ test("slash skills do not set user-invocable: false", async () => {
   }
 });
 
-test("corbits-skills plugin files contain no banned tokens outside native-integration", async () => {
-  const nativeRoot = join(pluginRoot, "skills", "native-integration");
-  const files = await listFilesRecursive(pluginRoot);
-  for (const file of files) {
-    if (file.startsWith(nativeRoot)) continue;
-    const text = await Bun.file(file).text();
-    for (const token of BANNED_TOKENS) {
-      expect(text).not.toContain(token);
+test("Corbits-only skills do not contain GaaS tool names", async () => {
+  const corbitsOnly = ["plan", "git-worktrees", "idiot-proof"] as const;
+  for (const name of corbitsOnly) {
+    const files = await listFilesRecursive(join(pluginRoot, "skills", name));
+    for (const file of files) {
+      const text = await Bun.file(file).text();
+      for (const token of BANNED_TOKENS) {
+        expect(text).not.toContain(token);
+      }
     }
   }
 });
@@ -345,7 +337,10 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain(USER_INVOCABLE_FALSE);
   expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
   expect(skill).toContain("TaskCreate");
+  expect(skill).toContain("TaskList");
   expect(skill).toContain("@greybeard");
+  expect(skill).toContain("@critique");
+  expect(skill).toContain("karen");
   expect(skill).toContain('intent="general"');
   expect(skill).toContain("manage_tasks");
   expect(skill).toContain('spawn_agent(agent="greybeard")');
