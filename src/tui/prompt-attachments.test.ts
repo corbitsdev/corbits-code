@@ -42,6 +42,45 @@ describe("ingestPathMentions", () => {
     expect(result.text).toBe("./shot.png");
     expect(result.attachments).toEqual([]);
   });
+
+  test("two mentions of the same bytes keep one attachment and rewrite both tokens to its name", async () => {
+    const load = async (path: string): Promise<AttachImageResult> => ({
+      ok: true,
+      attachment: {
+        id: path,
+        name: path.endsWith("alias.png") ? "alias.png" : "shot.png",
+        contentType: "image/png",
+        data: new Uint8Array([1, 2, 3]),
+        path,
+        contentHash: "same-bytes",
+      },
+    });
+    const result = await ingestPathMentions("see ./shot.png and ./alias.png", "/repo", load);
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.name).toBe("shot.png");
+    expect(result.text).toBe("see [Attached image: shot.png] and [Attached image: shot.png]");
+  });
+
+  test("pending plus a unique mention and a duplicate mention returns only the unique as new", async () => {
+    const pending = attachment("clipboard.png");
+    const load = async (path: string): Promise<AttachImageResult> => {
+      if (path.endsWith("dup.png")) {
+        return {
+          ok: true,
+          attachment: { ...attachment("dup.png"), path, contentHash: pending.contentHash },
+        };
+      }
+      return { ok: true, attachment: { ...attachment("unique.png"), path } };
+    };
+    const result = await ingestPathMentions("see ./unique.png and ./dup.png", "/repo", load, [
+      pending,
+    ]);
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.name).toBe("unique.png");
+    expect(result.text).toBe(
+      "see [Attached image: unique.png] and [Attached image: clipboard.png]",
+    );
+  });
 });
 
 describe("ingestOperatorPrompt", () => {
@@ -65,6 +104,32 @@ describe("ingestOperatorPrompt", () => {
     });
     expect(result.text).toBe("just words");
     expect(result.attachments).toEqual([]);
+  });
+
+  test("a path mention matching a pending clipboard hash keeps the pending attachment", async () => {
+    const pending = attachment("clipboard.png");
+    const pendingHash = pending.contentHash;
+    const load = async (path: string): Promise<AttachImageResult> => ({
+      ok: true,
+      attachment: { ...attachment("shot.png"), path, contentHash: pendingHash },
+    });
+    const result = await ingestOperatorPrompt("see ./shot.png", "/repo", load, [pending]);
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]).toEqual(pending);
+    expect(result.text).toBe("see [Attached image: clipboard.png]");
+  });
+
+  test("a path mention of different bytes keeps pending and appends the new attachment", async () => {
+    const pending = attachment("clipboard.png");
+    const load = async (path: string): Promise<AttachImageResult> => ({
+      ok: true,
+      attachment: { ...attachment("shot.png"), path },
+    });
+    const result = await ingestOperatorPrompt("see ./shot.png", "/repo", load, [pending]);
+    expect(result.attachments).toHaveLength(2);
+    expect(result.attachments[0]).toEqual(pending);
+    expect(result.attachments[1]?.name).toBe("shot.png");
+    expect(result.text).toBe("see [Attached image: shot.png]");
   });
 });
 

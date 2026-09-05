@@ -5,6 +5,7 @@
  */
 
 import {
+  findDuplicateAttachment,
   findImagePathMentions,
   type AttachImageResult,
   type PendingImageAttachment,
@@ -20,13 +21,15 @@ export interface PathMentionIngestion {
 
 /**
  * Replace image paths written inline in the prompt with attachment markers and
- * return the loaded attachments. `load` is injected so this stays testable
- * without touching the filesystem.
+ * return only attachments whose content hash is not already in `pending` or
+ * earlier in this batch. Duplicate tokens still rewrite to the kept name.
+ * `load` is injected so this stays testable without touching the filesystem.
  */
 export async function ingestPathMentions(
   text: string,
   cwd: string,
   load: (path: string) => Promise<AttachImageResult>,
+  pending: readonly PendingImageAttachment[] = [],
 ): Promise<PathMentionIngestion> {
   const mentions = findImagePathMentions(text, cwd);
   if (mentions.length === 0) return { text, attachments: [] };
@@ -37,8 +40,12 @@ export async function ingestPathMentions(
   for (const [index, mention] of mentions.entries()) {
     const result = loaded[index];
     if (result === undefined || !result.ok) continue;
-    attachments.push(result.attachment);
-    out = out.replace(mention.raw, `[Attached image: ${result.attachment.name}]`);
+    const kept =
+      findDuplicateAttachment(pending, result.attachment) ??
+      findDuplicateAttachment(attachments, result.attachment) ??
+      result.attachment;
+    if (kept === result.attachment) attachments.push(result.attachment);
+    out = out.replace(mention.raw, `[Attached image: ${kept.name}]`);
   }
   return { text: out, attachments };
 }
@@ -53,7 +60,7 @@ export async function ingestOperatorPrompt(
   load: (path: string) => Promise<AttachImageResult>,
   pending: readonly PendingImageAttachment[] = [],
 ): Promise<PathMentionIngestion> {
-  const ingested = await ingestPathMentions(text, cwd, load);
+  const ingested = await ingestPathMentions(text, cwd, load, pending);
   const resolved = await resolveAtMentions(ingested.text, cwd);
   return { text: resolved, attachments: [...pending, ...ingested.attachments] };
 }
