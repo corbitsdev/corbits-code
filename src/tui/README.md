@@ -1,6 +1,6 @@
 # tui
 
-Shipping OpenTUI shell and co-located TUI modules. Pure TypeScript and Solid surfaces live here; the runner mounts this tree as the product shell.
+Shipping OpenTUI shell and co-located TUI modules. Pure TypeScript / imperative `@opentui/core` surfaces live here; the runner mounts this tree as the product shell.
 
 ## Modules
 

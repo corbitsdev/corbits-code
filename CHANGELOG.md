@@ -13,6 +13,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Changed
+
+- Drop unused `@opentui/keymap`, `@opentui/solid`, and `solid-js`. The interactive TUI is imperative `@opentui/core` only.
+
 ## [0.3.15] - 2026-09-04
 
 ### Added
