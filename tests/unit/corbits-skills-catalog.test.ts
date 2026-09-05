@@ -231,19 +231,17 @@ test("pull-request-review checkouts a worktree then loads the review skill", asy
   expect(skill).not.toContain('task(agent="critic")');
 });
 
-test("interview skill is an ask_operator utility with no false caps", async () => {
+test("interview skill is 1:1 with GaaS interview", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/interview/SKILL.md")).text();
-  expect(skill).toContain("ask_operator");
-  expect(skill).toMatch(/utility/i);
-  expect(skill).toContain("## Interview findings:");
-  expect(skill).toContain("No false caps");
-  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
-  expect(skill).not.toMatch(/2–4/);
-  expect(skill).not.toMatch(/at most \d+/i);
-  expect(skill).not.toMatch(/parameter limits/i);
-  expect(skill).not.toMatch(/maxItems|minItems|inputSchema/i);
-  expect(skill).not.toContain("write a file");
+  expect(skill).toContain("AskUserQuestion");
+  expect(skill).toContain("argument-hint");
+  expect(skill).toContain("tools:\n  - AskUserQuestion");
+  expect(skill).toContain("This is a utility, not a planner");
   expect(skill).toContain("never writes a file");
+  expect(skill).toContain("parameter limits");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain("## Acknowledgment");
 });
 
 test("create-issue is Linear-first without restated MCP tool contracts", async () => {
