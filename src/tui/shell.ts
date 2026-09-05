@@ -6,7 +6,12 @@
  */
 
 import { homedir } from "node:os";
-import { clampBoardRows, type AgentPanelRow, type TaskPanelRow } from "./chrome-state.js";
+import {
+  clampBoardRows,
+  type AgentPanelRow,
+  type ChromeZoneContent,
+  type TaskPanelRow,
+} from "./chrome-state.js";
 
 import {
   BoxRenderable,
@@ -4790,13 +4795,6 @@ export function dispatchPaletteSelection(shell: AppShell, cmd: PaletteCommand): 
     role: "system",
     text: `palette: /${cmd.id} (no onCommand handler)`,
   });
-}
-
-export interface ChromeZoneContent {
-  /** One row per task-panel line. Null/empty = hide the zone. */
-  readonly task?: readonly TaskPanelRow[] | null;
-  /** One row per agents-panel line. Null/empty = hide the zone. */
-  readonly agents?: readonly AgentPanelRow[] | null;
 }
 
 /** Bracket marker per task status; a trailer row (status null) gets none. */

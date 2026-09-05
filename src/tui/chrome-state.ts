@@ -41,7 +41,6 @@ import {
   type LaneState,
 } from "./agent-progress.js";
 import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js";
-import type { ChromeZoneContent } from "./shell.js";
 
 /**
  * How long a finished agent row (done / failed / cancelled / interrupted) stays
@@ -155,6 +154,18 @@ export interface FormattedChromeZones {
   readonly task: readonly TaskPanelRow[] | null;
   /** One row per rendered agents-panel line (null = hide zone, zero rows). */
   readonly agents: readonly AgentPanelRow[] | null;
+}
+
+/**
+ * Partial chrome snapshot for `setChromeZones`. Omitted fields mean don't-touch
+ * (leave the current zone); `null`/empty means hide. Distinct from
+ * `FormattedChromeZones`, which always names both zones.
+ */
+export interface ChromeZoneContent {
+  /** One row per task-panel line. Null/empty = hide the zone. */
+  readonly task?: readonly TaskPanelRow[] | null;
+  /** One row per agents-panel line. Null/empty = hide the zone. */
+  readonly agents?: readonly AgentPanelRow[] | null;
 }
 
 /**
