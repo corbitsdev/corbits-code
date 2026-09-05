@@ -1,26 +1,20 @@
 ---
 name: git-rebase
+description: Reshape git history with rebase — edit-in-place to fix an earlier commit, squash/fixup, drop, split, reword, or validate every replayed commit. Load whenever you need to change a commit that is not HEAD, or for any branch-history cleanup before push. Covers driving every editor invocation non-interactively so the rebase runs without a human at the keyboard.
 user-invocable: false
-description: Reshape git history with rebase — edit-in-place, squash/fixup, drop, split, reword, or validate every replayed commit. Plan the surgery; intern executes sequenced non-interactive git via run_shell. Load whenever a commit that is not HEAD needs changing, or for branch-history cleanup before push.
 ---
 
 # git-rebase
 
-How to reshape a branch's commit history without interactive prompts — squashing fixups, dropping wrong-turn commits, splitting bundled changes, rewording messages. Do not run the rebase or edit files on the parent.
+Use this skill when you need to rewrite a branch's commit history — squashing
+fixups, dropping wrong-turn commits, splitting bundled changes, rewording
+messages — in an environment that does not support interactive prompts.
 
-`git rebase -i` is normally driven through an interactive editor. The techniques below drive every editor invocation programmatically so the rebase runs to completion without a human at the keyboard. Scripted rebases are reproducible, re-runnable, and self-documenting in a way that vim-driven ones never are.
-
-## Recipe
-
-1. Read the techniques below. Identify the surgery (drop, squash, split, reword, edit-in-place, validate).
-2. If a step needs judgment (what to squash, which commits to drop, how to split, which message), `ask_operator` first. Do not guess.
-3. Copy the exact sequenced commands from this skill into an intern brief.
-4. Spawn `spawn_agent(agent="intern")` with that sequenced command list, then collect the result with `wait_agents`. Intern executes via `run_shell`. Intern drives every editor via `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` / `-c core.editor` inline in the git command — do not tell intern to `write_file` an editor script. Intern runs git and resolves mechanical conflicts as the brief specifies.
-5. If intern hits a judgment call mid-rebase, `ask_operator` then re-dispatch intern with the decision.
-
-Plan and synthesize. Intern mutates git.
-
-## Techniques (copy into the intern brief)
+`git rebase -i` is normally driven through an interactive editor. This skill
+shows how to drive every editor invocation programmatically so the rebase
+runs to completion without a human at the keyboard. The same techniques are
+useful when you do have an editor: scripted rebases are reproducible,
+re-runnable, and self-documenting in a way that vim-driven ones never are.
 
 ## Assumptions
 
@@ -29,17 +23,15 @@ Plan and synthesize. Intern mutates git.
   edit-todo behaviors used below. Git ≥ 2.38 adds `--update-refs`,
   which the workflow uses when stacked branches are present (see
   "Stacked branches" below).
-- A POSIX shell (`/bin/sh`) is available for inline editor commands
-  (`sh -c` as `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` /
-  `-c core.editor`). Every editor command in this skill starts with
-  `set -eu` so an intermediate failure (failed `sed`, missing file,
-  undefined variable) aborts with a non-zero exit — letting the rebase
+- A POSIX shell (`/bin/sh`) is available and used as the editor-script
+  shebang. Every editor script in this skill starts with `set -eu` so
+  an intermediate failure (failed `sed`, missing file, undefined
+  variable) aborts the script with a non-zero exit — letting the rebase
   fail loudly rather than silently succeeding with a no-op edit.
-  Intern does not `write_file` helper scripts; the editor is the quoted
-  command git invokes.
-
+  Examples write helper scripts to `/tmp`; substitute a repo-local
+  `tmp/` if your project bans `/tmp`.
 - `sed -i.bak <file>` is the portable in-place form across BSD and GNU
-  sed; it creates `<file>.bak`, which the editor command then removes with
+  sed; it creates `<file>.bak`, which the script then removes with
   `rm -f <file>.bak`. Bare `sed -i` is GNU-only; bare `sed -i ''` is
   BSD-only. Don't mix them.
 - If the repository enforces signed commits (`commit.gpgsign=true`,
@@ -67,7 +59,7 @@ made coherent before the branch is pushed for review:
 Do **not** reach for it when:
 
 - The commit you want to fix is HEAD itself. Use `git commit --amend`
-  (with `-m` for a pre-written message, `--no-edit`
+  (with `-F /path/to/message.txt` for a pre-written message, `--no-edit`
   to keep the existing one). No rebase needed.
 - The branch is already pushed and other people are basing work on it.
 - The history is already coherent and you are only chasing aesthetic
@@ -152,7 +144,7 @@ proof. Run this after every meaningful rebase step.
 **Detecting a zombie rebase.** Some safety configs — notably
 `rebase.missingCommitsCheck=error` — pause a rebase rather than
 aborting it when the rebase plan is rejected, leaving
-`.git/rebase-merge/` in place. The editor command exits 0 and the outer
+`.git/rebase-merge/` in place. The editor script exits 0 and the outer
 `git rebase` command exits 0 too, so a naive caller sees apparent
 success. After every rebase, check explicitly:
 
@@ -210,16 +202,24 @@ my-branch HEAD`.
 
 ### Pattern 2: Script the rebase todo list
 
-Pass an inline editor that takes the todo file path as `$0` (git appends
-it) and rewrites it in place. Point `GIT_SEQUENCE_EDITOR` — or the
-equivalent `git -c sequence.editor=...` — at that command. Do not
-`write_file` a helper script, then run it.
+Write a tiny shell script that takes the todo file path as `$1` and rewrites
+it in place. Point `GIT_SEQUENCE_EDITOR` at it.
 
 ```bash
+cat > /tmp/rebase-editor.sh <<'EOF'
+#!/bin/sh
+set -eu
+todo=$1
 # Substitute the real abbreviated SHA before running — a no-op sed pattern
 # produces a successful no-op rebase that looks like it worked.
-GIT_SEQUENCE_EDITOR='sh -c "set -eu; sed -i.bak \"s/^pick abc1234/edit abc1234/\" \"\$0\"; rm -f \"\$0.bak\"; echo \"--- rewritten rebase plan ---\" >&2; cat \"\$0\" >&2"' git rebase -i origin/main
-# equivalent: git -c sequence.editor='sh -c "..."' rebase -i origin/main
+sed -i.bak 's/^pick abc1234/edit abc1234/' "$todo"
+rm -f "$todo.bak"
+# Show the rewritten plan so a silent no-op is obvious in the output.
+echo "--- rewritten rebase plan ---" >&2
+cat "$todo" >&2
+EOF
+chmod +x /tmp/rebase-editor.sh
+GIT_SEQUENCE_EDITOR=/tmp/rebase-editor.sh git rebase -i origin/main
 ```
 
 The `echo` + `cat` to stderr is cheap insurance: any time you don't see
@@ -229,7 +229,7 @@ For more complex rewrites, replace the todo wholesale. Note that
 `rebase.missingCommitsCheck=error` (a common safety setting) does _not_
 reject a wholesale-replace plan that omits commits — it pauses the
 rebase mid-flight with `No commands done` and leaves
-`.git/rebase-merge/` in place. The editor command exits 0 and so does
+`.git/rebase-merge/` in place. The editor script exits 0 and so does
 the outer `git rebase` command, so a naive caller sees apparent
 success. Preserve every line you don't want to drop, and explicitly use
 `drop` rather than just removing lines, so the check is satisfied and
@@ -238,78 +238,102 @@ detection from "Safety first" above to catch any case where a paused
 rebase slips past.
 
 ```bash
-GIT_SEQUENCE_EDITOR='sh -c "set -eu; printf \"%s\\n\" \
-  \"pick   aaaaaaa First commit\" \
-  \"pick   bbbbbbb Second commit\" \
-  \"reword ccccccc Rename me\" \
-  \"fixup  ddddddd Fold me into ccccccc\" \
-  \"drop   eeeeeee Drop me explicitly so missingCommitsCheck stays happy\" \
-  \"pick   fffffff Keep going\" \
-  > \"\$0\"; echo \"--- rewritten rebase plan ---\" >&2; cat \"\$0\" >&2"' git rebase -i origin/main
+cat > /tmp/rebase-editor.sh <<'EOF'
+#!/bin/sh
+set -eu
+todo=$1
+cat > "$todo" <<TODO
+pick   aaaaaaa First commit
+pick   bbbbbbb Second commit
+reword ccccccc Rename me
+fixup  ddddddd Fold me into ccccccc
+drop   eeeeeee Drop me explicitly so missingCommitsCheck stays happy
+pick   fffffff Keep going
+TODO
+echo "--- rewritten rebase plan ---" >&2
+cat "$todo" >&2
+EOF
+chmod +x /tmp/rebase-editor.sh
+GIT_SEQUENCE_EDITOR=/tmp/rebase-editor.sh git rebase -i origin/main
 ```
 
-The command runs once when git opens the editor for the plan. Its job is to
+The script runs once when git opens the editor for the plan. Its job is to
 leave the todo file in the state you want git to execute.
 
 ### Pattern 3: Provide pre-written commit messages
 
 For `reword` actions (and for `squash` actions that combine messages), git
-invokes `GIT_EDITOR` (or `git -c core.editor=...`) on a temp file containing
-the current message, expecting you to edit it. Replace the editor with an
-inline command that overwrites that file — do not `write_file` a message
-file, then `cp` it:
+invokes `GIT_EDITOR` on a temp file containing the current message,
+expecting you to edit it. Replace the editor with a `cp` that overwrites
+the file with your pre-written message:
 
 ```bash
-GIT_EDITOR='sh -c "printf \"%s\\n\" \"A descriptive subject line under 72 characters\" \"\" \"A body that explains why the change was made, wrapped to 72 columns.\" \"Each paragraph is a complete thought.\" > \"\$0\""' git rebase --continue
-# equivalent: git -c core.editor='sh -c "printf ... > \"\$0\""' rebase --continue
+cat > /tmp/new-message.txt <<'EOF'
+A descriptive subject line under 72 characters
+
+A body that explains why the change was made, wrapped to 72 columns.
+Each paragraph is a complete thought.
+EOF
+GIT_EDITOR="cp /tmp/new-message.txt" git rebase --continue
 ```
 
-Git passes the message file path as the editor's only argument, which
-becomes `$0` for `sh -c`.
+`cp` takes two arguments: source and destination. Git passes the message
+file path as the editor's only argument, which becomes `cp`'s
+destination.
 
-`>` truncates in place (same inode). Avoid `GIT_EDITOR="cp ..."`: `cp`
-follows symlinks (overwriting the target rather than the link) and
-changes the destination's inode and mtime — which can confuse hooks that
-fingerprint the file. Git creates a fresh regular file each time it opens
-the message editor, so the symlink hazard is largely theoretical in the
-common case, but the `printf > "$0"` form costs nothing.
+`cp` has two surprises worth knowing about: it follows symlinks
+(overwriting the target rather than the link), and it changes the
+destination's inode and mtime — which can confuse hooks that fingerprint
+the file. For paranoid use, prefer a form that truncates in place:
 
-**Scope-of-invocation pitfall.** `GIT_EDITOR="cp ..."` (and a too-broad
-inline editor) fires for _every_ editor invocation during the wrapped
-command, including conflict editors and any other commits' message
-editing. Use it only when you know exactly which one invocation will
-happen. For any rebase where you don't know, use an inline dispatcher
-(below) or prefer the direct alternatives:
+```bash
+GIT_EDITOR='sh -c "cat /tmp/new-message.txt > \"$0\""' git rebase --continue
+```
 
-- `git commit --amend -m "subject" -m "body"` — supplies the message
+or use `install -m644 /tmp/new-message.txt "$0"` inside a small editor
+script. Both preserve the destination's inode. Git creates a fresh
+regular file each time it opens the message editor, so the symlink
+hazard is largely theoretical in the common case, but the safer forms
+cost nothing.
+
+**Scope-of-invocation pitfall.** `GIT_EDITOR="cp ..."` fires for _every_
+editor invocation during the wrapped command, including conflict editors
+and any other commits' message editing. Use it only when you know exactly
+which one invocation will happen. For any rebase where you don't know,
+write a dispatcher (below) or prefer the direct alternatives:
+
+- `git commit --amend -F /tmp/message.txt` — supplies the message
   directly, no editor.
-- `git commit -m "subject" -m "body"` — same for fresh commits.
+- `git commit -F /tmp/message.txt` — same for fresh commits.
 
-The inline `GIT_EDITOR` / `-c core.editor` trick is the right tool only
-when git owns the invocation (mid-rebase).
+The `cp` trick is the right tool only when git owns the invocation
+(mid-rebase).
 
 #### Multiple reword targets in one rebase
 
 When several commits are being reworded in a single rebase pass, git calls
-the editor once per `reword` action. Use an inline dispatcher that recognizes
+the editor once per `reword` action. Write a dispatcher that recognizes
 which commit is being reworded by inspecting the current message — and
 fails loudly when an invocation doesn't match anything it knows about:
 
 ```bash
-GIT_EDITOR='sh -c "set -eu
-target=\$0
-first_line=\$(head -1 \"\$target\")
-case \"\$first_line\" in
-  \"Old subject line A\")
-    printf \"%s\\n\" \"New subject A\" \"\" \"Body A\" > \"\$target\" ;;
-  \"Old subject line B\"*)
-    printf \"%s\\n\" \"New subject B\" \"\" \"Body B\" > \"\$target\" ;;
+cat > /tmp/msg-dispatch.sh <<'EOF'
+#!/bin/sh
+set -eu
+target=$1
+first_line=$(head -1 "$target")
+case "$first_line" in
+  "Old subject line A")
+    cat /tmp/msg-A.txt > "$target" ;;
+  "Old subject line B"*)
+    cat /tmp/msg-B.txt > "$target" ;;
   *)
-    echo \"msg-dispatch: unmatched message: \$first_line\" >&2
+    echo "msg-dispatch: unmatched message: $first_line" >&2
     exit 1 ;;
 esac
-"' git rebase -i origin/main
-# equivalent: git -c core.editor='sh -c "..."' rebase -i origin/main
+EOF
+chmod +x /tmp/msg-dispatch.sh
+GIT_EDITOR=/tmp/msg-dispatch.sh git rebase -i origin/main
 ```
 
 The `*)` catch-all is mandatory. Without it, a `reword` action whose
@@ -324,7 +348,7 @@ dispatcher can't tell them apart from `head -1` alone. Either:
 - Match on a longer prefix using more of the message body, or
 - Use `git rebase -i` with explicit SHAs in the todo and have the
   dispatcher key on the commit currently being reworded by reading
-  `git rev-parse HEAD` inside the editor command. During a `reword` action, git
+  `git rev-parse HEAD` inside the script. During a `reword` action, git
   cherry-picks the target commit onto the rebase head _before_ opening
   the editor, so HEAD inside the dispatcher resolves to the target's
   newly-rewritten SHA. The same is true at the editor invocation for
@@ -337,19 +361,18 @@ dispatcher can't tell them apart from `head -1` alone. Either:
 
 This is the workhorse for folding a change into an earlier commit. If
 the target is HEAD, don't rebase at all — `git commit --amend` (with
-`-m` for a pre-written message, `--no-edit` to keep the existing one).
-
+`-F` for a pre-written message, `--no-edit` to keep the existing one).
 The rest of this pattern is for editing an earlier commit.
 
 Mark the target `edit`, modify the working tree at the stop, and
 `git commit --amend`:
 
 ```bash
-GIT_SEQUENCE_EDITOR='sh -c "set -eu; sed -i.bak \"s/^pick TARGET_SHA/edit TARGET_SHA/\" \"\$0\"; rm -f \"\$0.bak\"; echo \"--- rewritten rebase plan ---\" >&2; cat \"\$0\" >&2"' git rebase -i origin/main
-# equivalent: git -c sequence.editor='sh -c "..."' rebase -i origin/main
+# editor script: sed 's/^pick TARGET_SHA/edit TARGET_SHA/'
+GIT_SEQUENCE_EDITOR=/tmp/rebase-editor.sh git rebase -i origin/main
 
-# At the stop, intern edits files in the working tree:
-git add <files>
+# At the stop:
+# ... edit files in working tree ...
 git add <files>
 git commit --amend --no-edit
 git rebase --continue
@@ -448,8 +471,16 @@ commit you want to split, then reconstruct it as multiple commits before
 continuing.
 
 ```bash
-GIT_SEQUENCE_EDITOR='sh -c "set -eu; sed -i.bak \"s/^pick TARGET_SHA/edit TARGET_SHA/\" \"\$0\"; rm -f \"\$0.bak\"; echo \"--- rewritten rebase plan ---\" >&2; cat \"\$0\" >&2"' git rebase -i origin/main
-# equivalent: git -c sequence.editor='sh -c "..."' rebase -i origin/main
+cat > /tmp/rebase-editor.sh <<'EOF'
+#!/bin/sh
+set -eu
+sed -i.bak 's/^pick TARGET_SHA/edit TARGET_SHA/' "$1"
+rm -f "$1.bak"
+echo "--- rewritten rebase plan ---" >&2
+cat "$1" >&2
+EOF
+chmod +x /tmp/rebase-editor.sh
+GIT_SEQUENCE_EDITOR=/tmp/rebase-editor.sh git rebase -i origin/main
 
 # Git stops at TARGET_SHA with that commit applied. Verify the working
 # tree is clean (the commit-being-split is the only thing in the
@@ -505,9 +536,9 @@ git rebase --exec '<build-command>' origin/main
 ```
 
 `--exec` runs the given command after each pick. If it fails, the rebase
-stops at the broken commit — intern amends in place. This is
+stops at the broken commit — ready for you to amend in place. This is
 strictly better than the after-the-fact validation loop in the workflow
-below, because the broken commit is right there under intern's fingers with
+below, because the broken commit is right there under your fingers with
 the failed state still in the working tree.
 
 For a quick gate, use the project's build or type-check command. For
@@ -546,15 +577,11 @@ need to `git add` and continue, but you don't re-do the resolution work.
 
 ## Workflow: a rebase session start to finish
 
-Intern executes this sequence via `run_shell`. Do not run git on the parent.
-If a step needs judgment, `ask_operator` first, then copy the decision into
-the intern brief.
+1. **Identify what needs fixing.** Read `git log --oneline origin/main..HEAD`
+   and the diffs. List the surgery you need: drops, rewords, squashes,
+   splits, in-place amends.
 
-1. **Identify what needs fixing.** Intern reads `git log --oneline origin/main..HEAD`
-   and the diffs. List the surgery: drops, rewords, squashes,
-   splits, in-place amends — `ask_operator` when which-commits is a judgment call.
-
-2. **Branch your way back.** Intern:
+2. **Branch your way back.**
 
    ```bash
    git branch backup-<branch-name>-pre-rebase
@@ -564,15 +591,16 @@ the intern brief.
    separate rebase. Multiple small rebases with validation between is
    easier to debug than one giant rebase.
 
-4. **For each operation, intern:**
-   - Runs the rebase with `GIT_SEQUENCE_EDITOR` / `-c sequence.editor` inline (if scripting the todo). Do not `write_file` an editor script.
-   - Supplies pre-canned commit messages via `-c core.editor` / `GIT_EDITOR` inline (if rewording), or `git commit --amend -m`.
-   - Resolves conflicts as they arise (mechanical). Judgment → intern stops; `ask_operator` then re-brief intern.
-   - When the rebase finishes, runs `git diff backup-<branch-name>-pre-rebase HEAD`.
-     If the intent was to change content, the diff is meaningful and intern reports
-     it. If the intent was only to reshape history, the diff is empty.
+4. **For each operation:**
+   - Write the editor script (if scripting the todo).
+   - Write any pre-canned commit messages (if rewording).
+   - Run the rebase.
+   - Resolve conflicts as they arise.
+   - When the rebase finishes, run `git diff backup-<branch-name>-pre-rebase HEAD`.
+     If you intended to change content, the diff is meaningful and you read
+     it. If you only intended to reshape history, the diff is empty.
 
-5. **Validate.** Intern:
+5. **Validate.**
    - `git diff backup-<branch-name>-pre-rebase HEAD --stat` — empty unless
      intended.
    - Per-commit build, capturing failure output so a red mark is
@@ -597,7 +625,7 @@ the intern brief.
    - Even better, fold validation into the rebase itself with `git rebase
 --exec` (Pattern 7) so the rebase stops at the first broken commit.
 
-6. **Delete the backup** once the branch is pushed and the final state is confirmed. Intern:
+6. **Delete the backup** once you've pushed and confirmed the final state:
    ```bash
    git branch -D backup-<branch-name>-pre-rebase
    ```
@@ -687,11 +715,11 @@ manually — don't reach for `--ours`/`--theirs` as a shortcut.
   forces every collaborator to reset their local copies.
 - **Don't use `GIT_EDITOR="cp ..."` for an unknown number of editor
   invocations** — it will fire for every one, including conflict editors
-  you didn't plan for. Use an inline dispatcher (Pattern 3) or prefer
-  `git commit -m` / `--amend -m` when you control the call directly.
+  you didn't plan for. Use a dispatcher script (Pattern 3) or prefer
+  `git commit -F` / `--amend -F` when you control the call directly.
 - **Don't trust a scripted rebase's exit code alone.** Some safety
   configs (e.g. `rebase.missingCommitsCheck=error`) pause rather than
-  abort when the rebase plan is rejected; the editor command exits 0 and
+  abort when the rebase plan is rejected; the editor script exits 0 and
   the outer `git rebase` command exits 0 too, but `.git/rebase-merge/`
   is left in place. Always check for a leftover rebase dir after the
   command returns — see "Detecting a zombie rebase" in "Safety first".

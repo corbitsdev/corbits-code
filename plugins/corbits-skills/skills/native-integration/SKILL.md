@@ -47,13 +47,15 @@ When the work tracks a Linear issue and Linear MCP is available: set the issue t
 
 When a PR is open and ready for review (not a draft or WIP), set the issue state to "In Review". Draft or WIP PRs stay **In Progress** until they are ready for review. Then move to In Review. Draft or WIP PRs stay In Progress. Do not mark the Linear issue Done on open PR alone. Do not leave it In Review after merge when work remains.
 
-GaaS linear-issue-workflow inlines `git worktree add` and marks In Progress after the plan. Corbits extras: claim-first (this section) and `use_skill("git-worktrees")` for worktree recipes; In Review on ready-for-review PRs (this section). `code-review` maps to Corbits `/review` (slash-name mapping above). Do not fork the GaaS linear-issue-workflow body.
+GaaS linear-issue-workflow inlines `git worktree add` and marks In Progress after the plan. Corbits extras: claim-first (this section) and `use_skill("git-worktrees")` instead of the inlined `git worktree add`; In Review on ready-for-review PRs (this section). `code-review` maps to Corbits `/review` (slash-name mapping above). Do not fork the GaaS linear-issue-workflow body.
 
 `linear-issue-workflow` owns the full Linear ship loop. This mapping does not replace it.
 
 ## Non-git folders
 
 GaaS `style` refuses to operate outside a git repo. Corbits does not: a folder without `.git` is a valid working directory (scratch, unpacked tarball, new project). Git-using skills (`implement`, `review`, `git-rebase`, `pull-request-review`) still no-op or ask when they need a repo. Do not invent a git repo to satisfy those skills.
+
+When GaaS git-rebase writes `/tmp` editor scripts, Corbits still plans on the primary and intern executes sequenced git via `run_shell`; intern may use inline `GIT_SEQUENCE_EDITOR` instead of write_file editor scripts. Do not fork the GaaS git-rebase body.
 
 ## Tracker-agnostic issues
 
@@ -172,4 +174,4 @@ No findings.
 
 ### After posting
 
-Paste the review URL(s) back to the user. Do not mark the Linear issue Done. `--request-changes` is not merge-ready. While the PR is open and ready for review, the issue stays In Review — including after `--request-changes`. Do not ping-pong it back to In Progress. `linear-issue-workflow` owns the In Review write; this skill does not set Linear state.
+Paste the review URL(s) back to the user. Do not mark the Linear issue Done. `--request-changes` is not merge-ready. While the PR is open and ready for review, the issue stays In Review — including after `--request-changes`. Do not ping-pong it back to In Progress. The Linear claim-first section above owns the In Review write; posting a GitHub review does not set Linear state.

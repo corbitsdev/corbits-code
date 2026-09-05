@@ -288,6 +288,16 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
   }
 });
 
+test("git-rebase skill is 1:1 with GaaS git-rebase", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/git-rebase/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("/tmp/rebase-editor.sh");
+  expect(skill).toContain("driving every editor invocation non-interactively");
+  expect(skill).not.toContain('spawn_agent(agent="intern")');
+  expect(skill).not.toContain("Plan the surgery; intern executes");
+});
+
 test("linear-issue-workflow is 1:1 with GaaS", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
   expect(skill).toContain(USER_INVOCABLE_FALSE);
@@ -359,6 +369,10 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("Draft or WIP PRs stay In Progress");
   expect(skill).toContain("Do not mark the Linear issue Done on open PR alone");
   expect(skill).toContain("Do not leave it In Review after merge when work remains");
+  expect(skill).toContain("/tmp");
+  expect(skill).toContain("GIT_SEQUENCE_EDITOR");
+  expect(skill).toContain("intern executes sequenced git via `run_shell`");
+  expect(skill).toContain("Do not fork the GaaS git-rebase body");
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {
