@@ -13,14 +13,14 @@ not read API keys from the environment.
 
 ## Layout
 
-| Path                 | Role                                                   |
-| -------------------- | ------------------------------------------------------ |
-| `argv.py`            | Pure settings + argv builders (unit-tested, no Harbor) |
-| `session.py`         | Parse harvested `~/.corbits` usage (unit-tested)       |
-| `agent.py`           | `Corbits` installed agent (requires Harbor at import)  |
-| `tasks/trivial/`     | Minimal smoke task (`hello.txt`)                       |
-| `tests/test_argv.py` | Argv/settings unit tests                               |
-| `tests/test_session.py` | Session usage harvest unit tests                    |
+| Path                    | Role                                                   |
+| ----------------------- | ------------------------------------------------------ |
+| `argv.py`               | Pure settings + argv builders (unit-tested, no Harbor) |
+| `session.py`            | Parse harvested `~/.corbits` usage (unit-tested)       |
+| `agent.py`              | `Corbits` installed agent (requires Harbor at import)  |
+| `tasks/trivial/`        | Minimal smoke task (`hello.txt`)                       |
+| `tests/test_argv.py`    | Argv/settings unit tests                               |
+| `tests/test_session.py` | Session usage harvest unit tests                       |
 
 ## Prerequisites
 
@@ -50,12 +50,12 @@ temp settings file only:
 
 `providers.<provider>.baseURL` is always written. Resolve it via one of:
 
-| Source                     | Notes                                                                 |
-| -------------------------- | --------------------------------------------------------------------- |
-| `base_url=` agent kwarg    | Preferred for one-off runs                                            |
-| Harbor configured URL      | `model_connection.configured_base_url` (`CORBITS_BASE_URL` / `XAI_BASE_URL` / …) |
-| Harbor inferred catalog    | `model_connection.base_url` — e.g. xAI → `https://api.x.ai/v1` when an API key is present |
-| `CORBITS_BASE_URL`         | Adapter env (also feeds Harbor configured URL)                        |
+| Source                  | Notes                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `base_url=` agent kwarg | Preferred for one-off runs                                                                |
+| Harbor configured URL   | `model_connection.configured_base_url` (`CORBITS_BASE_URL` / `XAI_BASE_URL` / …)          |
+| Harbor inferred catalog | `model_connection.base_url` — e.g. xAI → `https://api.x.ai/v1` when an API key is present |
+| `CORBITS_BASE_URL`      | Adapter env (also feeds Harbor configured URL)                                            |
 
 Stock `harbor run -m xai/grok-4.5` with `XAI_API_KEY` therefore does **not** need an explicit `base_url`. The adapter still fail-closes if nothing resolves.
 
@@ -63,11 +63,11 @@ Do **not** point Harbor cells at the grok-cli OAuth proxy (`https://cli-chat-pro
 
 Example values:
 
-| Cell                          | Example `base_url`                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------ |
-| xAI API key                   | `https://api.x.ai/v1` (Harbor infers this)                                           |
-| Product OAuth / grok-cli path | Not usable in Harbor containers                                                      |
-| OpenAI-compatible             | e.g. `https://api.openai.com/v1` or your cell's gateway                              |
+| Cell                          | Example `base_url`                                      |
+| ----------------------------- | ------------------------------------------------------- |
+| xAI API key                   | `https://api.x.ai/v1` (Harbor infers this)              |
+| Product OAuth / grok-cli path | Not usable in Harbor containers                         |
+| OpenAI-compatible             | e.g. `https://api.openai.com/v1` or your cell's gateway |
 
 Optional: `shell_timeout_ms=` → `shell.timeoutMs` in settings.
 
