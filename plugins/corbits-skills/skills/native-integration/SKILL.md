@@ -43,6 +43,8 @@ GaaS ast-grep invokes `sg` as a CLI. Corbits extras: run `sg` via `run_shell`. D
 
 Slash names that differ from GaaS skill ids: `/review` is GaaS `code-review`; `/create-issue` is GaaS `linear-create`. Keep those Corbits names.
 
+GaaS code-review uses "ask the user", "sub-agents"/"subagent", and `typescript-conventions`. Corbits extras: slash stays `/review`; `ask_operator` (tool mapping above); fleet `spawn_agent` for sub-agents; load `typescript` not `typescript-conventions`; findings-only — do not implement fixes; GitHub posting and Linear In Review (this skill). Do not fork the GaaS code-review body.
+
 GaaS refactor says "ask clarifying questions" / "ask the user". Corbits extras: `ask_operator` (tool mapping above). Do not fork the GaaS refactor body.
 
 GaaS scribe uses the `question` tool. Corbits extras: `ask_operator` (tool mapping above). Do not fork the GaaS scribe body.
