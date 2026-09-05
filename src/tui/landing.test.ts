@@ -56,7 +56,6 @@ const nativeClearInterval = globalThis.clearInterval;
  * export.
  */
 const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
-const SNOW_SAMPLE_CLOCKS_MS = [0, 1500, 3000, 4500, 6000, 7500] as const;
 const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ");
 
 interface IdleTimerHandle {
@@ -363,36 +362,31 @@ describe("landing screen", () => {
       globalThis.clearInterval = nativeClearInterval;
     });
 
-    test("paintLanding with reducedMotion draws no snow on a clock that otherwise snows", async () => {
-      wrapLandingIdleTimer();
+    test("reduced-motion mount never arms the idle timer and never draws snow", async () => {
+      const { armed } = wrapLandingIdleTimer();
       await withTestRenderer(async (h) => {
         const shell = createAppShell(h.renderer, {
           terminal: { columns: 80, rows: 24 },
           wireKeys: false,
           run: "idle",
+          reducedMotion: true,
         });
         try {
+          expect(armed).toHaveLength(0);
           await settle(h);
-          let snowingAt: number | undefined;
-          let snowing = "";
-          for (const nowMs of SNOW_SAMPLE_CLOCKS_MS) {
-            paintLanding(shell, nowMs, false, false);
+          const first = markRows(h).join("\n");
+          expect(first.includes(SNOW_CHAR)).toBe(false);
+          expect(first.length).toBeGreaterThan(0);
+
+          const frames = new Set<string>([first]);
+          for (const nowMs of [0, 500, 1_100, 1_900, 2_600, 3_400]) {
+            paintLanding(shell, nowMs, true);
             await settle(h);
             const frame = markRows(h).join("\n");
-            if (frame.includes(SNOW_CHAR)) {
-              snowingAt = nowMs;
-              snowing = frame;
-              break;
-            }
+            expect(frame.includes(SNOW_CHAR)).toBe(false);
+            frames.add(frame);
           }
-          if (snowingAt === undefined) {
-            throw new Error("expected a still-mode clock that draws snow through paintLanding");
-          }
-          paintLanding(shell, snowingAt, false, true);
-          await settle(h);
-          const quiet = markRows(h).join("\n");
-          expect(quiet.includes(SNOW_CHAR)).toBe(false);
-          expect(stripSnow(quiet)).toBe(stripSnow(snowing));
+          expect(frames.size).toBe(1);
         } finally {
           shell.dispose();
         }

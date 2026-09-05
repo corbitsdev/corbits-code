@@ -290,7 +290,7 @@ export interface LandingAbove {
  * Rows are allocated for the largest tier once and hidden from the top down as
  * smaller tiers are selected, so a resize never rebuilds the subtree.
  */
-export function createLandingAbove(ctx: CliRenderer): LandingAbove {
+export function createLandingAbove(ctx: CliRenderer, reducedMotion = false): LandingAbove {
   const box = new BoxRenderable(ctx, {
     id: "shell-landing-above",
     width: "100%",
@@ -346,7 +346,7 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
     grid: MARK_SMALL,
   };
   fitLandingMark(above, MARK_SMALL);
-  paintLandingMark(above, 0, true);
+  paintLandingMark(above, 0, true, reducedMotion);
   return above;
 }
 
