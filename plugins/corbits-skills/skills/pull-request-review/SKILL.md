@@ -5,7 +5,7 @@ description: Review a pull request by branch name or URL, using a git worktree
 
 # Pull Request Review
 
-Use this skill to review a pull request given a branch name or URL. Do not implement fixes.
+Use this skill to review a pull request given a branch name or URL.
 
 ## Input Formats
 
@@ -109,7 +109,7 @@ Before reviewing, the repository must be properly set up. Look for developer doc
 
 3. Do not assume the setup process. Every repository has its own conventions and requirements.
 
-4. If no setup documentation exists, `ask_operator` how to set up the repository before proceeding.
+4. If no setup documentation exists, ask the user how to set up the repository before proceeding.
 
 ### Step 7: Determine Base Branch
 
@@ -126,9 +126,9 @@ glab mr view --output json | jq -r '.target_branch'
 git branch -r | grep -E 'origin/(main|master)$' | head -1 | sed 's/.*origin\///'
 ```
 
-### Step 8: Load the review skill
+### Step 8: Load Code Review Skill
 
-Load and follow the `review` skill to perform the actual review. The `review` skill provides guidance on:
+Load and follow the `code-review` skill to perform the actual review. The code-review skill provides guidance on:
 
 - Scope determination using git diff
 - Handling pre-existing code
@@ -136,23 +136,6 @@ Load and follow the `review` skill to perform the actual review. The `review` sk
 - Test coverage philosophy
 - Signal over noise (avoiding unactionable findings)
 - Review checklist
-- **Post the Review on GitHub** (required when a PR URL/number is known)
-
-### Step 9: Post the Review on GitHub
-
-When the review targets a GitHub PR (URL, number, or branch with an open PR), **post the finished review on the PR** before cleanup. A review that only lives in chat is not done.
-
-Follow **Post the Review on GitHub** in the `review` skill:
-
-1. Map the verdict to a `gh pr review` action:
-   - Approve → `--approve`
-   - Comment → `--comment`
-   - Request changes → `--request-changes`
-2. Body: clean multi-line shape — lens label, one present-tense line on what the branch does, findings with `path:line`, no AI filler. Hard bans live in that skill section.
-3. If additional personas ran (`critic`, `greybeard`, OSS/quality), each lens with substance posts its own labeled review. Primary owns the merge action; secondary lenses use `--comment` only.
-4. Paste the posted review URL(s) into the user-facing summary.
-
-Do not skip the post because the chat already summarized the findings.
 
 ## Cleanup
 
@@ -166,7 +149,7 @@ Inform the user that the worktree remains available for further investigation an
 
 ## Error Handling
 
-If any command fails during the workflow, do not retry or attempt workarounds. Stop immediately and `ask_operator` how to proceed. Common failure scenarios include:
+If any command fails during the workflow, do not retry or attempt workarounds. Stop immediately and ask the user for guidance. Common failure scenarios include:
 
 - Branch does not exist remotely
 - Worktree creation fails
