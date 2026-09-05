@@ -17,6 +17,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - Operators can select Anthropic Claude Fable 5.1 (`claude-fable-5-1`) from Connect and `/model`. Adaptive thinking matches Claude Fable 5.
 - Operators can select OpenAI GPT-6 Astra (`gpt-6-astra`) from Connect, `/model`, and the Codex fallback catalog. Reasoning effort offers low through max. Context heuristic covers the GPT-6 family.
+- Operators can select Z.AI GLM-5.3 (`glm-5.3`) and GLM-5.3-Flash (`glm-5.3-flash`) from Connect and `/model`. Reasoning effort offers low/high/max. Context heuristic covers the 1M GLM-5.3 window.
 
 ## [0.3.16] - 2026-09-05
 

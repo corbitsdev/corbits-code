@@ -129,6 +129,11 @@ describe("supportedEfforts", () => {
   test("grok-composer-2.5-fast stays on the unknown-model subset without xhigh", () => {
     expect(supportedEfforts("grok-composer-2.5-fast")).toEqual(["low", "medium", "high"]);
   });
+
+  test("glm-5.3 family supports low, high, and max", () => {
+    expect(supportedEfforts("glm-5.3")).toEqual(["low", "high", "max"]);
+    expect(supportedEfforts("glm-5.3-flash")).toEqual(["low", "high", "max"]);
+  });
 });
 
 describe("validateEffort", () => {
@@ -153,6 +158,14 @@ describe("validateEffort", () => {
   test("accepts xhigh on grok-4.6 and rejects it on grok-4.5", () => {
     expect(validateEffort("grok-4.6", "xhigh")).toEqual({ ok: true });
     expect(validateEffort("grok-4.5", "xhigh").ok).toBe(false);
+  });
+
+  test("rejects medium on glm-5.3 family", () => {
+    expect(validateEffort("glm-5.3", "medium").ok).toBe(false);
+    expect(validateEffort("glm-5.3-flash", "medium").ok).toBe(false);
+    expect(validateEffort("glm-5.3", "low")).toEqual({ ok: true });
+    expect(validateEffort("glm-5.3", "high")).toEqual({ ok: true });
+    expect(validateEffort("glm-5.3", "max")).toEqual({ ok: true });
   });
 });
 
@@ -411,6 +424,11 @@ describe("defaultEffortForModel", () => {
   test("grok family defaults to high", () => {
     expect(defaultEffortForModel("grok-4.6")).toBe("high");
     expect(defaultEffortForModel("grok-4.5")).toBe("high");
+  });
+
+  test("glm-5.3 family defaults to max", () => {
+    expect(defaultEffortForModel("glm-5.3")).toBe("max");
+    expect(defaultEffortForModel("glm-5.3-flash")).toBe("max");
   });
 
   test("gpt-5 and o-series default to medium", () => {

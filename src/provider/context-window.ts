@@ -34,6 +34,7 @@ function heuristicWindow(model: string): number {
   if (m.includes("claude")) return 200_000;
   if (m.includes("gemini")) return 1_000_000;
   if (m.includes("deepseek")) return 128_000;
+  if (m.includes("glm-5.3")) return 1_000_000;
   if (m.includes("glm")) return 200_000;
   if (m.includes("o3") || m.includes("o4")) return 200_000;
   if (m.includes("grok") || m.includes("xai")) return 256_000;

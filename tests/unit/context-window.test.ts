@@ -31,6 +31,15 @@ describe("contextWindowFor", () => {
     expect(contextWindowFor("some-unknown-model")).toBe(128_000);
   });
 
+  test("glm-5.3 family uses a 1M window", () => {
+    expect(contextWindowFor("glm-5.3")).toBe(1_000_000);
+    expect(contextWindowFor("glm-5.3-flash")).toBe(1_000_000);
+  });
+
+  test("other glm models stay on the 200k heuristic", () => {
+    expect(contextWindowFor("glm-5.2")).toBe(200_000);
+  });
+
   test("models.dev metadata overrides the family heuristic", () => {
     setModelContextWindows({ "z-ai/glm-4.6": 64_000 });
     expect(contextWindowFor("z-ai/glm-4.6")).toBe(64_000);

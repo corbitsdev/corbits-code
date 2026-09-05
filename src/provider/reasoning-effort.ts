@@ -44,6 +44,11 @@ const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
 // Not ultra (gpt-5.6 Codex-only), not minimal, not none.
 const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
+// GLM-5.3 always reasons. Vendor ladder is low/high/max (no medium, no none);
+// vendor default is max. Flash shares the same text parameters.
+const GLM_53_EFFORTS: readonly ReasoningEffort[] = ["low", "high", "max"];
+const GLM_53_MODELS: readonly string[] = ["glm-5.3", "glm-5.3-flash"];
+
 function isKnownOpenAIReasoningModel(model: string): boolean {
   return (
     model.startsWith("gpt-5") ||
@@ -96,6 +101,9 @@ export function supportedEfforts(
   }
   if (GROK_46_MODELS.includes(model)) {
     return [...GROK_46_EFFORTS];
+  }
+  if (GLM_53_MODELS.includes(model)) {
+    return [...GLM_53_EFFORTS];
   }
   return [...UNKNOWN_MODEL_EFFORTS];
 }
@@ -150,7 +158,7 @@ export function cycleReasoningEffort(
  * (`defaultEffortForDirector`): this is what the prompt shows and what Shift+Tab
  * advances from when the operator has not picked a level.
  *
- * Family table: grok* → high; Codex → medium; gpt-5.1 chat (`none` on the
+ * Family table: grok* → high; glm-5.3* → max; Codex → medium; gpt-5.1 chat (`none` on the
  * ladder, not Codex) → none; gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models with a
  * conservative rung set stay undefined so we do not invent a family default.
  */
@@ -160,6 +168,7 @@ export function defaultEffortForModel(model: string, isCodex = false): Reasoning
   const pick = (desired: ReasoningEffort): ReasoningEffort | undefined =>
     supported.includes(desired) ? desired : undefined;
   if (model.startsWith("grok")) return pick("high");
+  if (GLM_53_MODELS.includes(model)) return pick("max");
   if (!isCodex && supported.includes("none")) return "none";
   if (isCodex || isKnownOpenAIReasoningModel(model)) return pick("medium");
   return undefined;

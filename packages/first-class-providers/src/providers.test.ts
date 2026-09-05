@@ -95,6 +95,8 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     expect(zai?.label).toBe("Z.AI Coding Plan");
     expect(zai?.baseURL).toBe("https://api.z.ai/api/coding/paas/v4");
     expect(zai?.defaultModel).toBe("glm-5.2");
+    expect(zai?.models).toContain("glm-5.3");
+    expect(zai?.models).toContain("glm-5.3-flash");
     expect(zai?.models).toContain("glm-5.2");
   });
 
