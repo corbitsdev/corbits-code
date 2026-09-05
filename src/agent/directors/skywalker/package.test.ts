@@ -142,9 +142,9 @@ describe("skywalkerPackage", () => {
   test("systemPrompt simple path skips explorer+critic for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("DIY on the parent");
-    expect(p).toContain("skip spawn, skip explorer, skip critic");
+    expect(p).toContain("skip spawn, skip explorer, skip plan, skip critic");
     expect(p).toContain("write_file/edit_file");
-    expect(p).toContain("Do not always explorer→implement→critic");
+    expect(p).toContain("Do not always explorer→plan→implement→critic");
   });
 
   test("systemPrompt routes URL reads through web_fetch on primary", () => {
@@ -220,8 +220,11 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("builder = ship product code + tests");
     expect(p).not.toContain("implement = ship product code + tests");
     expect(p).not.toMatch(/\bspawn implement\b/);
-    expect(p).toContain("explorer → implement → critic");
-    expect(p).toContain("Do not always explorer→implement→critic");
+    expect(p).toContain("explorer → plan → implement → critic");
+    expect(p).toContain("Do not always explorer→plan→implement→critic");
+    expect(p).toContain("Substantial builder work consumes a counsel");
+    expect(p).toContain("Tiny parent-DIY edits stay plan-optional");
+    expect(p).toContain("`/implement` does not steal planning from `/plan`");
   });
 
   test("systemPrompt re-dispatches builder on blocking critic", () => {

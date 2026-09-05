@@ -451,6 +451,8 @@ test("native-integration maps GaaS tool names and parks Corbits extras", async (
   expect(skill).toContain("Do not fork the GaaS ast-grep body");
   expect(skill).toContain("Do not fork the GaaS code-review body");
   expect(skill).toContain("findings-only");
+  expect(skill).toContain("Do not fork the GaaS implement body");
+  expect(skill).toContain("`/implement` does not steal planning from `/plan`");
   expect(skill).toContain("run `sg` via `run_shell`");
   expect(skill).toContain("prove");
 });
