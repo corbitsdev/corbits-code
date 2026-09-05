@@ -619,8 +619,10 @@ The prompt repaints on every keystroke (`onFrame` in `shell.ts` calls
 not on a debounce) — anything added to the prompt's paint path must stay
 cheap, because it runs at typing speed.
 
-Ctrl+C interrupts a busy run (or clears a non-empty idle prompt); a second
-Ctrl+C within a 2-second window (`CTRL_C_EXIT_WINDOW_MS`) quits — this
+Ctrl+C interrupts a busy run, or clears idle prompt text and pending
+attachments. Clearing prompt text arms a 2-second quit window
+(`CTRL_C_EXIT_WINDOW_MS`); clearing attachments alone does not. A second
+Ctrl+C while the window is open quits — this
 replaced an Ink-era yes/no exit-confirm modal with the same intent (an
 explicit second confirmation) without adding a modal (`handleCtrlC`,
 `shell.ts`). See "Soft steer vs. follow-up" above for the two

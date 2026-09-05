@@ -26,6 +26,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - Headless `corbits exec` now registers the active run so SIGINT/SIGTERM/SIGHUP finalize `run.json`.
 
+### TUI
+
+- First idle Ctrl+C clears pending image attachments along with prompt text. Clearing attachments only does not arm the quit window. Corbits-owned ephemeral files are unlinked; operator path-mention files stay on disk. Dispose and a second (armed) Ctrl+C also unlink leftover clipboard files.
+
 ## [0.3.15] - 2026-09-04
 
 ### Added

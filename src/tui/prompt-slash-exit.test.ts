@@ -3,11 +3,17 @@
  * through the wired key path on a headless shell.
  */
 import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
+import type { PendingImageAttachment } from "./image-attachments.js";
 import {
   CTRL_C_EXIT_WINDOW_MS,
+  addPendingAttachment,
+  clearPendingAttachments,
   createAppShell,
   handleCtrlC,
   isSlashPopupOpen,
@@ -269,4 +275,177 @@ describe("Ctrl+C exit", () => {
       expect(exits).toBe(1);
     });
   });
+
+  test("idle Ctrl+C with prompt text also drops pending attachments", async () => {
+    await withShell(async ({ shell }) => {
+      let exits = 0;
+      setShellExitHandler(shell, () => {
+        exits += 1;
+      });
+      addPendingAttachment(shell, pendingImage("clip"));
+      shell.prompt.value = "look at this";
+      expect(noticeText(shell)).toContain("1 image");
+
+      handleCtrlC(shell, 0);
+
+      expect(shell.prompt.value).toBe("");
+      expect(shell.pendingAttachments).toHaveLength(0);
+      expect(noticeText(shell)).not.toContain("1 image");
+      expect(shell.statusFlash).toBe("press ctrl+c again to exit");
+
+      handleCtrlC(shell, 1);
+      expect(exits).toBe(1);
+    });
+  });
+
+  test("idle Ctrl+C with only attachments clears them and does not arm exit", async () => {
+    await withShell(async ({ shell }) => {
+      let exits = 0;
+      setShellExitHandler(shell, () => {
+        exits += 1;
+      });
+      addPendingAttachment(shell, pendingImage("clip"));
+      expect(shell.prompt.value).toBe("");
+      expect(noticeText(shell)).toContain("1 image");
+
+      handleCtrlC(shell, 0);
+      expect(shell.pendingAttachments).toHaveLength(0);
+      expect(noticeText(shell)).not.toContain("1 image");
+      expect(shell.statusFlash).not.toBe("press ctrl+c again to exit");
+      expect(noticeText(shell)).not.toContain("press ctrl+c again to exit");
+      expect(exits).toBe(0);
+
+      handleCtrlC(shell, 1);
+      expect(exits).toBe(0);
+    });
+  });
+
+  test("busy Ctrl+C interrupts without dropping pending attachments", async () => {
+    await withShell(async ({ shell }) => {
+      setShellRunState(shell, "busy");
+      addPendingAttachment(shell, pendingImage("clip"));
+
+      handleCtrlC(shell, 0);
+
+      expect(shell.pendingAttachments).toHaveLength(1);
+      expect(shell.session.run).not.toBe("busy");
+    });
+  });
+
+  test("clearPendingAttachments unlinks ephemeralPath and leaves the operator path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
+
+        clearPendingAttachments(shell);
+
+        expect(shell.pendingAttachments).toHaveLength(0);
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("clearPendingAttachments swallows a missing ephemeralPath", async () => {
+    await withShell(async ({ shell }) => {
+      const missing = join(tmpdir(), "ctrlc-attach-missing.png");
+      addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: missing }));
+      expect(() => clearPendingAttachments(shell)).not.toThrow();
+      expect(shell.pendingAttachments).toHaveLength(0);
+    });
+  });
+
+  test("clearPendingAttachments unlinks ephemeralPath on an attachment that also has path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-both-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        addPendingAttachment(
+          shell,
+          pendingImage("both", { ephemeralPath: ephemeral, path: operator }),
+        );
+
+        clearPendingAttachments(shell);
+
+        expect(shell.pendingAttachments).toHaveLength(0);
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("dispose unlinks ephemeralPath and leaves the operator path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-dispose-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
+
+        shell.dispose();
+
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("busy double-Ctrl+C quit unlinks ephemeralPath and leaves the operator path", async () => {
+    await withShell(async ({ shell }) => {
+      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-quit-"));
+      const ephemeral = join(dir, "ours.png");
+      const operator = join(dir, "theirs.png");
+      writeFileSync(ephemeral, "ephemeral-bytes");
+      writeFileSync(operator, "operator-bytes");
+      try {
+        setShellRunState(shell, "busy");
+        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
+        setShellExitHandler(shell, () => {
+          shell.dispose();
+        });
+
+        handleCtrlC(shell, 0);
+        expect(shell.pendingAttachments).toHaveLength(2);
+        expect(existsSync(ephemeral)).toBe(true);
+        expect(existsSync(operator)).toBe(true);
+
+        handleCtrlC(shell, 1);
+
+        expect(existsSync(ephemeral)).toBe(false);
+        expect(existsSync(operator)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
 });
+
+function pendingImage(id: string, extra?: Partial<PendingImageAttachment>): PendingImageAttachment {
+  return {
+    id,
+    name: `${id}.png`,
+    contentType: "image/png",
+    data: new Uint8Array([137, 80, 78, 71]),
+    contentHash: `hash-${id}`,
+    ...extra,
+  };
+}

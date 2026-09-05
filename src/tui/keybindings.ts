@@ -32,7 +32,8 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   },
   {
     keys: "Ctrl+C",
-    description: "interrupt the run, or clear the prompt when idle; press twice to exit",
+    description:
+      "interrupt the run, or clear the prompt and attachments when idle; press twice to exit",
   },
   {
     keys: "Ctrl+G",
