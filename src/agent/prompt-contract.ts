@@ -13,7 +13,7 @@ export const CHAT_PROMPT_QUALITY_MARKERS = [
   "ask_operator only when permission blocks you",
   "short question and short option labels only",
   "Touch only code required for the task",
-  "load the style and philosophy skills",
+  "skill_search when choosing",
   "grep or search_files",
   "never shell-write (echo/heredoc/sed/rm)",
   "ask_director",

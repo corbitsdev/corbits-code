@@ -80,6 +80,11 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
     expect(SKYWALKER_TOOLS as readonly string[]).toContain("search_agents");
     expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("search_agents");
   });
+
+  test("skill_search is not on Skywalker or worker orchestrator allowlists", () => {
+    expect(SKYWALKER_TOOLS as readonly string[]).not.toContain("skill_search");
+    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("skill_search");
+  });
 });
 
 describe("REVIEW_TOOLS / INTERN_TOOLS", () => {

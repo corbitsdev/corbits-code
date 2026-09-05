@@ -36,6 +36,7 @@ const BUILT_IN_TOOL_NAMES: ReadonlySet<string> = new Set([
   "wait_agents",
   "tool_search",
   "use_skill",
+  "skill_search",
   "web_fetch",
   "web_search",
   "write_file",

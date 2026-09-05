@@ -6,14 +6,14 @@ import { type } from "arktype";
 import { resolveSkillBody } from "../extensions/skills.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 
-// Lazy skill loading: the available skills are listed by name + description in
-// the system prompt, but their full instructions are pulled into context only
-// when the model decides one applies and calls use_skill. There is no operator
-// invocation — discovery and loading are entirely model-driven.
+// Lazy skill loading: names are listed in the system prompt; details come from
+// skill_search; this tool pulls the full instructions into context when the
+// model decides one applies. There is no operator invocation — discovery and
+// loading are entirely model-driven.
 const useSkillDefinition: ToolDefinition = {
   name: "use_skill",
   description:
-    "Load the full instructions for one of the available skills (listed under 'Skills' in the system prompt) before doing work it applies to. Pass the skill's name; the returned instructions stay in effect for the rest of the task.",
+    "Load the full instructions for a skill. Names are listed under 'Skills' in the system prompt; call skill_search for descriptions, then this tool with the skill's name to load the body. The returned instructions stay in effect for the rest of the task.",
   inputSchema: {
     type: "object",
     properties: {
@@ -29,7 +29,9 @@ export function createUseSkillTool(
   cwd: string,
   skillDirs: string[] = [],
   telemetry: Telemetry = NOOP_TELEMETRY,
+  allowedNames?: readonly string[],
 ): AgentTool {
+  const allowed = allowedNames === undefined ? undefined : new Set(allowedNames);
   return stringTool({
     definition: useSkillDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -37,6 +39,9 @@ export function createUseSkillTool(
       if (parsed instanceof type.errors) return "Error: use_skill requires name (string).";
       const name = parsed.name.trim();
       if (name.length === 0) return "Error: use_skill requires a non-empty name.";
+      if (allowed !== undefined && !allowed.has(name)) {
+        return `No skill named "${name}" is available.`;
+      }
       const body = await resolveSkillBody(cwd, name, skillDirs);
       if (body === undefined) return `No skill named "${name}" is available.`;
       // Skills are project- or plugin-authored, so the name is as identifying

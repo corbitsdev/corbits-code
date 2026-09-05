@@ -132,7 +132,7 @@ export function buildGuidelines(
     ...(subAgent
       ? []
       : [
-          "- tool_search before assuming a plugin or MCP tool exists; use_skill before work covered by a listed skill.",
+          "- tool_search before assuming a plugin or MCP tool exists; skill_search when choosing among listed skills, use_skill to load a body.",
         ]),
     "",
     subAgent ? "Proceed vs pause:" : "Ask vs proceed:",
@@ -154,7 +154,7 @@ export function buildGuidelines(
     "",
     "Scope and conventions:",
     "- Touch only code required for the task; no drive-by refactors, formatting sweeps, or unrelated fixes.",
-    "- Follow AGENTS.md and /docs for architecture; load the style and philosophy skills when starting repo work.",
+    "- Follow AGENTS.md and /docs for architecture.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
     "- Before finishing implementation work, run the repository-defined typecheck command, relevant tests, and every defined full verification command; these checks are mandatory.",
     "- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration).",
@@ -316,12 +316,12 @@ function baseSection(baseOverride: string | undefined, sessionMode: SessionMode)
   ]);
 }
 
-// Lazy skill listing: only names + descriptions, so the model knows what exists
-// without paying for full instructions until it loads one with use_skill.
+// Name-only skill listing: the model sees what exists without paying for
+// descriptions or bodies. Details come from skill_search; bodies from use_skill.
 export function buildSkillsSection(skills: readonly SkillSummary[]): string {
   return [
-    "Skills (call use_skill with the name to load the full instructions before doing work it covers):",
-    ...skills.map((s) => `- ${s.name}: ${s.description}`),
+    "Skills (names only — call skill_search for details, then use_skill to load a body):",
+    skills.map((s) => s.name).join(", "),
   ].join("\n");
 }
 

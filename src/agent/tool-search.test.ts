@@ -126,6 +126,14 @@ describe("createToolIndex", () => {
     expect(advertised).toContain("web_search");
   });
 
+  test("skill_search is catalog-advertised at the end, never CORE", () => {
+    expect(CORE_TOOL_NAMES).not.toContain("skill_search");
+    expect(CATALOG_TOOL_NAMES[CATALOG_TOOL_NAMES.length - 1]).toBe("skill_search");
+    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(advertised).toContain("skill_search");
+    expect(advertised[advertised.length - 1]).toBe("skill_search");
+  });
+
   test("lsp is advertised only when a language server was detected at startup", () => {
     expect(
       coreToolNamesForSessionMode("orchestrator", { languageServerAvailable: true }),
@@ -344,6 +352,20 @@ describe("advertisedTools", () => {
     for (const name of [...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES]) {
       expect(index.search(name)).not.toContain(name);
     }
+  });
+
+  test("tool_search does not return skill_search even when it is registered", () => {
+    const withSkillSearch: ToolDefinition[] = [
+      ...defs,
+      {
+        name: "skill_search",
+        description: "Look up skill details by capability",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+    ];
+    const idx = createToolIndex(() => withSkillSearch);
+    expect(idx.search("skill")).not.toContain("skill_search");
+    expect(idx.search("capability")).not.toContain("skill_search");
   });
 });
 

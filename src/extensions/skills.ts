@@ -145,12 +145,13 @@ export async function resolveSkillBody(
   return undefined;
 }
 
-// Discover every available skill (name + one-line description) for the lazy
-// listing in the system prompt. Deduped by name: the first base dir that
-// provides a skill wins, so a higher-precedence dir shadows a lower one.
-// Skills with `disable-model-invocation: true` are omitted from the listing
-// but still occupy the name in `seen` so a lower-priority same-name skill
-// cannot leak in. Explicit `use_skill` / `resolveSkillBody` loads still work.
+// Discover every available skill (name + one-line description). Deduped by name:
+// the first base dir that provides a skill wins, so a higher-precedence dir
+// shadows a lower one. Descriptions feed skill_search and the slash picker; the
+// system prompt lists names only. Skills with `disable-model-invocation: true`
+// are omitted from the returned listing but still occupy the name in `seen` so
+// a lower-priority same-name skill cannot leak in. Explicit `use_skill` /
+// `resolveSkillBody` loads still work.
 export async function discoverSkills(
   cwd: string,
   pluginDirs: string[] = [],

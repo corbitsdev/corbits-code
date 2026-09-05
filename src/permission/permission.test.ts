@@ -1109,6 +1109,7 @@ describe("createPermissionGate", () => {
       "present",
       "tool_search",
       "use_skill",
+      "skill_search",
       "search_agents",
       "spawn_agent",
       "wait_agents",

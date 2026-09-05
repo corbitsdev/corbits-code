@@ -237,6 +237,9 @@ export interface SessionChatPromptArgs {
   systemPromptExtensions?: readonly string[];
   sessionMode: SessionMode;
   toolAvailability: ToolAvailability;
+  // Session-start snapshot from createAgentToolset. When provided, skip
+  // rediscovery so the prompt listing and skill_search share one catalog.
+  skills?: readonly SkillSummary[];
 }
 
 export interface SessionChatPrompt {
@@ -252,7 +255,9 @@ export async function loadSessionChatPrompt(
     loadAgentContextExtensions(args.cwd),
     loadSystemPromptOverrides(args.cwd),
     gatherEnvironment(args.cwd),
-    discoverSkills(args.cwd, [...args.skillDirs]),
+    args.skills !== undefined
+      ? Promise.resolve([...args.skills])
+      : discoverSkills(args.cwd, [...args.skillDirs]),
   ]);
   const extensions = [
     ...agentExtensions,

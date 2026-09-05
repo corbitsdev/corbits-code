@@ -13,6 +13,7 @@ import {
   buildGuidelines,
   buildGrokLeafAntiThrashNote,
   buildHarnessFacts,
+  buildSkillsSection,
   buildSubAgentReportContract,
   buildSubAgentSystemPrompt,
 } from "./agent/prompts.js";
@@ -96,7 +97,7 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(guidelines).toContain("Scope and conventions:");
   expect(guidelines).toContain("grep or search_files");
   expect(guidelines).toContain("ask_operator only when permission blocks you");
-  expect(guidelines).toContain("load the style and philosophy skills");
+  expect(guidelines).toContain("skill_search when choosing");
   expect(guidelines).toContain("DIY tiny/single-file/one-route");
   expect(guidelines).toContain("never shell-write (echo/heredoc/sed/rm)");
   expect(guidelines).not.toContain("not mounted on Skywalker");
@@ -158,13 +159,31 @@ test("chat prompt advertises core tools but never enumerates MCP integrations", 
   expect(prompt).not.toContain("Discoverable tools");
 });
 
-test("lists skills and advertises use_skill when skills exist", () => {
+test("lists skill names without descriptions and points at skill_search then use_skill", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [
     { name: "scribe", description: "write docs" },
   ]);
   expect(prompt).toContain("Skills (");
-  expect(prompt).toContain("- scribe: write docs");
+  expect(prompt).toContain("scribe");
+  expect(prompt).not.toContain("write docs");
+  expect(prompt).toContain("skill_search");
   expect(prompt).toContain("use_skill");
+});
+
+test("buildSkillsSection for a synthetic 10-name roster stays under a few hundred chars", () => {
+  const roster = Array.from({ length: 10 }, (_, i) => ({
+    name: `skill${i}`,
+    description: "x".repeat(400),
+  }));
+  const section = buildSkillsSection(roster);
+  expect(section.length).toBeLessThan(400);
+  expect(Buffer.byteLength(section, "utf8")).toBeLessThan(400);
+  for (const skill of roster) {
+    expect(section).toContain(skill.name);
+    expect(section).not.toContain(skill.description);
+  }
+  expect(section).toContain("skill_search");
+  expect(section).toContain("use_skill");
 });
 
 test("omits the skills section when no skills are available", () => {
