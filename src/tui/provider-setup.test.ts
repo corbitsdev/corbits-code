@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
+import { OPENCODE_GO_MODEL_IDS } from "../../packages/opencode-go/src/index.js";
+import { resetGoModelDiscoveryForTests } from "../provider/opencode-go-models.js";
 import {
   loadLocalSettings,
   loadSettings,
@@ -77,7 +79,12 @@ async function createHarness(opts: { width: number; height: number }): Promise<H
 }
 
 afterEach(() => {
+  resetGoModelDiscoveryForTests();
   while (activeHarnesses.length > 0) activeHarnesses.pop()!.destroy();
+});
+
+beforeEach(() => {
+  resetGoModelDiscoveryForTests();
 });
 
 describe("provider setup pure helpers", () => {
@@ -346,6 +353,14 @@ async function pickRow(harness: Harness, ids: readonly string[], id: string): Pr
   for (let i = 0; i < target; i++) harness.pressKey("ARROW_DOWN");
   harness.pressKey("Enter");
   await harness.renderOnce();
+}
+
+function activeListMarker(frame: string): string | undefined {
+  for (const line of frame.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith(">")) return trimmed;
+  }
+  return undefined;
 }
 
 const PROVIDER_IDS = providerChoiceRows().map((r) => r.id);
@@ -638,6 +653,104 @@ describe("runProviderSetup Ollama discovery", () => {
     const frame = harness.captureCharFrame();
     expect(frame).not.toContain("checking installed Ollama models");
     expect(frame).toContain("Ollama returned an invalid models response");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+});
+
+describe("runProviderSetup Go models", () => {
+  const LIVE_ONLY_ID = "muse-spark-1.2-contributor";
+
+  test("choiceFromDef lists selectable Go ids", () => {
+    const go = providerChoiceById("opencode-go");
+    expect(go?.models).toEqual(OPENCODE_GO_MODEL_IDS);
+  });
+
+  test("the Go model step paints live ids after prefetch settles", async () => {
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "opencode-go",
+      createRenderer: async () => harness.renderer,
+      prefetchGoModels: async () => [LIVE_ONLY_ID],
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain(LIVE_ONLY_ID);
+    expect(frame).toContain("type a model id instead");
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+  });
+
+  test("a hanging prefetch does not block the Go model list", async () => {
+    const pending: ((ids: readonly string[]) => void)[] = [];
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "opencode-go",
+      createRenderer: async () => harness.renderer,
+      prefetchGoModels: () =>
+        new Promise<readonly string[]>((resolve) => {
+          pending.push(resolve);
+        }),
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("kimi-k2.7-code");
+    expect(pending).toHaveLength(1);
+
+    harness.pressKey("Ctrl+C");
+    expect(await done).toBe(false);
+    for (const resolve of pending) resolve([]);
+  });
+
+  test("prefetch settle keeps the focused model row", async () => {
+    const pending: ((ids: readonly string[]) => void)[] = [];
+    const harness = await createHarness({ width: 80, height: 30 });
+    const done = runProviderSetup({
+      onSubmit: () => Promise.resolve(),
+      showTelemetryNotice: false,
+      initialProviderId: "opencode-go",
+      createRenderer: async () => harness.renderer,
+      prefetchGoModels: () =>
+        new Promise<readonly string[]>((resolve) => {
+          pending.push(resolve);
+        }),
+    });
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await flush(harness);
+
+    harness.pressKey("ARROW_DOWN");
+    await flush(harness);
+    expect(pending).toHaveLength(1);
+    const before = activeListMarker(harness.captureCharFrame());
+    expect(before).toBeDefined();
+    expect(before).not.toContain("kimi-k2.7-code");
+    expect(before).toContain("kimi-k2.6");
+
+    pending[0]?.(["kimi-k2.6", LIVE_ONLY_ID, "kimi-k2.7-code"]);
+    await flush(harness);
+
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain(LIVE_ONLY_ID);
+    expect(activeListMarker(frame)).toContain("kimi-k2.6");
 
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);

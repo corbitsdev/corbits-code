@@ -1148,6 +1148,118 @@ describe("flat type-to-filter model picker", () => {
       harness.destroy();
     }
   });
+
+  test("setModels on an open picker shows a newly catalogued model id", async () => {
+    const { harness, host } = await mountPicker();
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(false);
+
+      host.setModels?.([
+        { id: "codex/abk-labs:gpt-5.5", label: "gpt-5.5 * [codex/abk-labs]" },
+        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+      ]);
+      await harness.renderOnce();
+
+      expect(host.shell.overlayKind).toBe("model_picker");
+      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(true);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("setModels keeps the focused row by id across the catalog swap", async () => {
+    const { harness, host } = await mountPicker();
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const grokIndex = host.shell.overlayItems.findIndex((label) => label.includes("grok-4.5"));
+      expect(grokIndex).toBeGreaterThanOrEqual(0);
+      moveOverlaySelection(host.shell, grokIndex);
+      expect(host.shell.overlayList?.activeIndex).toBe(grokIndex);
+
+      host.setModels?.([
+        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+        { id: "xai/thegreataxios:grok-4.5", label: "grok-4.5 * [xai/thegreataxios]" },
+        { id: "opencode-go:live-2", label: "live-2 * [opencode-go]" },
+      ]);
+      await harness.renderOnce();
+
+      const next = host.shell.overlayItems.findIndex((label) => label.includes("grok-4.5"));
+      expect(next).toBeGreaterThanOrEqual(0);
+      expect(next).not.toBe(grokIndex);
+      expect(host.shell.overlayList?.activeIndex).toBe(next);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("setModels does not steal an open add-provider overlay", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      runOverlayAction(host.shell, altA);
+      await harness.renderOnce();
+      expect(host.shell.overlayKind).toBe("add_provider");
+
+      host.setModels?.([{ id: "opencode-go:live-1", label: "live-1 * [opencode-go]" }]);
+      await harness.renderOnce();
+
+      expect(host.shell.overlayKind).toBe("add_provider");
+      expect(host.shell.overlayItems).toEqual(["Codex — 0 accounts"]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("setModels re-applies the type-to-filter query against the new catalog", async () => {
+    const { harness, host } = await mountPicker();
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      for (const ch of "grok") {
+        harness.pressKey(ch);
+      }
+      await harness.renderOnce();
+      expect(host.shell.overlayItems.every((label) => label.includes("grok"))).toBe(true);
+
+      host.setModels?.([
+        { id: "xai/thegreataxios:grok-4.5", label: "grok-4.5 * [xai/thegreataxios]" },
+        { id: "opencode-go:grok-live", label: "grok-live * [opencode-go]" },
+        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+      ]);
+      await harness.renderOnce();
+
+      expect(host.shell.overlayKind).toBe("model_picker");
+      expect(host.shell.overlayItems.some((label) => label.includes("grok-4.5"))).toBe(true);
+      expect(host.shell.overlayItems.some((label) => label.includes("grok-live"))).toBe(true);
+      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(false);
+
+      for (let i = 0; i < 4; i++) {
+        harness.pressKey("Backspace");
+      }
+      await harness.renderOnce();
+      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(true);
+      expect(host.shell.overlayItems.some((label) => label.includes("glm"))).toBe(false);
+
+      for (const ch of "glm") {
+        harness.pressKey(ch);
+      }
+      await harness.renderOnce();
+      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
 });
 
 describe("mount failure", () => {

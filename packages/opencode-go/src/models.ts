@@ -1,6 +1,7 @@
-// Pre-seeded OpenCode Go catalog with per-model protocol metadata.
-// Source of truth for endpoints: https://opencode.ai/docs/go/
-// Model list may lag the live /zen/go/v1/models response; keep ids stable.
+// Offline/failure fallback plus per-model protocol metadata.
+// Selectable ids come from live GET /zen/go/v1/models in the host; this
+// packaged list is used when that fetch has not succeeded. Protocol
+// routing stays here. Live ids absent from PROTOCOL_BY_ID use Chat Completions.
 
 export type GoProtocol = "chat-completions" | "responses" | "messages";
 
@@ -46,6 +47,7 @@ export function protocolForGoModel(modelId: string): GoProtocol | undefined {
   return PROTOCOL_BY_ID.get(modelId);
 }
 
+/** True when `modelId` has a local protocol-map entry, not whether it is in the live picker. */
 export function isKnownGoModel(modelId: string): boolean {
   return PROTOCOL_BY_ID.has(modelId);
 }

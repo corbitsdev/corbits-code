@@ -52,7 +52,8 @@ export function billingProductForProvider(
 }
 
 /**
- * True when a known Go model id is configured on a Zen-billed provider path.
+ * True when a protocol-map Go model id is configured on a Zen-billed provider path.
+ * "Known" is local PROTOCOL_BY_ID membership, not live-picker membership.
  * Used to surface a cross-product warning (Go model would bill as Zen PAYG).
  */
 export function isGoModelOnZenPath(modelId: string, provider: BillingProductProvider): boolean {

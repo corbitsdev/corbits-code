@@ -53,6 +53,8 @@ import { createExaMCPServerConfig, EXA_MCP_SERVER_NAME } from "../mcp/exa.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginDescriptor } from "../plugins/admin.js";
 import { cycleReasoningEffort, resolveSessionEffort } from "../provider/reasoning-effort.js";
+import { prefetchGoModels } from "../provider/opencode-go-models.js";
+import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
@@ -2014,6 +2016,32 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             result.model !== undefined ? modelOptionId(connectedName, result.model) : undefined,
           );
           systemNotice(`Connected ${connectedName}. Open /model to pick a model.`);
+          if (isOpenCodeGoProvider({ name: providerName })) {
+            void prefetchGoModels()
+              .then(async () => {
+                if (hostHolder.instance === undefined) return;
+                const nextDisk = await loadSettings(trueGlobalSettingsPath);
+                const nextProviders = await refreshLiveProviderCatalog(
+                  nextDisk,
+                  resolvedForCatalog,
+                );
+                config = {
+                  ...config,
+                  providers: nextProviders,
+                  ...(nextDisk !== null ? { settings: nextDisk } : {}),
+                };
+                hostHolder.instance.refreshModels(
+                  listRecentModels(config.settings ?? { providers: {} }),
+                  listFavoriteModels(config.settings ?? { providers: {} }),
+                  nextProviders,
+                );
+              })
+              .catch((err: unknown) => {
+                tuiLogger.debug("go model prefetch failed: {error}", {
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              });
+          }
         })().catch((err: unknown) => {
           tuiLogger.debug("provider connect failed: {error}", {
             error: err instanceof Error ? err.message : String(err),
@@ -2406,6 +2434,33 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     });
     hostHolder.instance = host;
+
+    if (config.providers.some((p) => isOpenCodeGoProvider(p))) {
+      void prefetchGoModels()
+        .then(async () => {
+          if (hostHolder.instance === undefined) return;
+          const onDisk = await loadSettings(trueGlobalSettingsPath);
+          const resolvedForCatalog: ResolvedProvider = {
+            apiKey: config.apiKey,
+            baseURL: config.baseURL,
+            model: config.model,
+            providerName: config.providerName,
+            ...(config.keyless !== undefined ? { keyless: config.keyless } : {}),
+          };
+          const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
+          config = { ...config, providers, ...(onDisk !== null ? { settings: onDisk } : {}) };
+          hostHolder.instance.refreshModels(
+            listRecentModels(config.settings ?? { providers: {} }),
+            listFavoriteModels(config.settings ?? { providers: {} }),
+            providers,
+          );
+        })
+        .catch((err: unknown) => {
+          tuiLogger.debug("go model prefetch failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
 
     const shutdownRuntime = createRuntimeShutdown({
       disposeHost: host.dispose,

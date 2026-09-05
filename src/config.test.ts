@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -16,6 +16,7 @@ import {
   KEYLESS_API_KEY,
   loadConfig,
   providerCatalogToSettings,
+  refreshLiveProviderCatalog,
   resolveMcpServers,
   runtimeSettingsWithCatalog,
   SOURCE_MAX_TOKENS,
@@ -27,7 +28,8 @@ import {
   type ResolvedProvider,
   type Settings,
 } from "./config/settings.js";
-import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
+import { OPENCODE_GO_BASE_URL, OPENCODE_GO_MODEL_IDS } from "../packages/opencode-go/src/index.js";
+import { prefetchGoModels, resetGoModelDiscoveryForTests } from "./provider/opencode-go-models.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./session/index.js";
 import { saveState } from "./session/state.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
@@ -35,6 +37,16 @@ import { createExaMCPServerConfig } from "./mcp/exa.js";
 import { withFileLogSink } from "../tests/helpers/file-log-sink.js";
 
 const BUILTIN_EXA_MCP = createExaMCPServerConfig();
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  resetGoModelDiscoveryForTests();
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  resetGoModelDiscoveryForTests();
+});
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {
@@ -1701,6 +1713,56 @@ describe("buildProviderCatalog", () => {
     const entry = catalog.find((c) => c.name === "go")!;
     const roundTripped = { go: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ go: provider });
+  });
+});
+
+describe("refreshLiveProviderCatalog", () => {
+  const resolved: ResolvedProvider = {
+    providerName: "fp",
+    baseURL: "https://fp/v1",
+    apiKey: "fp-key",
+    model: "fp-large",
+  };
+
+  const settings: Settings = {
+    providers: {
+      fp: {
+        baseURL: "https://fp/v1",
+        apiKey: "fp-key",
+        models: ["fp-large"],
+      },
+      go: {
+        baseURL: OPENCODE_GO_BASE_URL,
+        apiKey: "go-key",
+        models: ["go-model"],
+        opencodeGo: true,
+      },
+    },
+  };
+
+  test("overlays Go row models with selectableGoModelIds without changing non-Go rows", async () => {
+    const cold = await refreshLiveProviderCatalog(settings, resolved);
+    const coldGo = cold.find((c) => c.name === "go");
+    expect(coldGo?.models).toEqual([...OPENCODE_GO_MODEL_IDS]);
+    expect(coldGo?.models).not.toContain("go-model");
+    expect(cold.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
+    expect(buildProviderCatalog(settings, resolved).find((c) => c.name === "go")?.models).toEqual([
+      "go-model",
+    ]);
+
+    globalThis.fetch = (async () =>
+      Response.json({
+        data: [{ id: "grok-4.5" }, { id: "muse-spark-1.2-contributor" }],
+      })) as unknown as typeof fetch;
+    await prefetchGoModels();
+
+    const warm = await refreshLiveProviderCatalog(settings, resolved);
+    const warmGo = warm.find((c) => c.name === "go");
+    expect(warmGo?.models).toContain("muse-spark-1.2-contributor");
+    expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
+    expect(buildProviderCatalog(settings, resolved).find((c) => c.name === "go")?.models).toEqual([
+      "go-model",
+    ]);
   });
 });
 
