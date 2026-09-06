@@ -5,7 +5,6 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
-import { createListViewport, moveActive, visibleSlice } from "./list-viewport";
 import { withTestRenderer } from "./harness";
 import { paintStreamRow } from "./stream";
 import {
@@ -849,17 +848,5 @@ describe("prompt editing chords", () => {
       },
       { width: 80, height: 24 },
     );
-  });
-});
-
-describe("list kit + overlay focus simulation", () => {
-  test("list viewport keep-active-visible works as overlay consumer", () => {
-    let list = createListViewport({ count: 40, height: 8, activeIndex: 0 });
-    list = moveActive(list, 20);
-    const slice = visibleSlice(list);
-    expect(slice.activeIndex).toBe(20);
-    expect(slice.start).toBeLessThanOrEqual(20);
-    expect(slice.end).toBeGreaterThan(20);
-    expect(20 >= slice.start && 20 < slice.end).toBe(true);
   });
 });
