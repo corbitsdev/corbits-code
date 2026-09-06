@@ -17,8 +17,6 @@ import type {
   TokenUsage,
 } from "@intx/types/runtime";
 import { CODEX_RESPONSES_PATH, CODEX_AUTHORIZE_EXTRA_PARAMS } from "../auth/codex/constants.js";
-import { codexInstructions } from "../auth/codex/instructions.js";
-import { PRODUCT_NAME, ENVIRONMENT_TAG_NAME } from "../branding.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -307,33 +305,13 @@ function optionString(options: InferenceOptions, key: string): string | undefine
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-// `instructions` is pinned to the official Codex prompt (the backend rejects
-// anything else), so Corbits Code's operating prompt rides as a leading developer
-// message that also reconciles the Codex prompt's tool references with the
-// proxies actually wired up here. The function tools sent with the request are
-// authoritative for names/schemas; this text only resolves which dialect to speak.
-function bridgeMessage(systemPrompt: string): ResponsesInputItem {
-  const text = `<${ENVIRONMENT_TAG_NAME} priority="0">
-${PRODUCT_NAME} is the harness, not the Codex CLI. The Codex tools named above (apply_patch, update_plan, shell) proxy onto ${PRODUCT_NAME}'s native tools with the same permissions — prefer whichever name appears in the current tool list. These operating instructions are authoritative where they differ from the base instructions:
-
-${systemPrompt}
-</${ENVIRONMENT_TAG_NAME}>`;
-  return { type: "message", role: "developer", content: [{ type: "input_text", text }] };
-}
-
 function buildRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
   requestProvider: string,
 ): BuiltRequest {
-  const conversation = messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider));
-  // Corbits Code's prompt cannot live in `instructions` (the backend pins that to
-  // the official Codex prompt), so it leads the input as a developer message.
-  const input =
-    options.systemPrompt !== undefined
-      ? [bridgeMessage(options.systemPrompt), ...conversation]
-      : conversation;
+  const input = messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider));
   const tools = toResponsesTools(options);
   const accountId = optionString(options, CODEX_ACCOUNT_ID_OPTION);
   const sessionId = optionString(options, CODEX_SESSION_ID_OPTION);
@@ -341,7 +319,6 @@ function buildRequest(
   const body: Record<string, unknown> = {
     model,
     input,
-    instructions: codexInstructions(),
     // The Codex ChatGPT backend requires `store: false` (store:true → 400) and
     // rejects `previous_response_id` as an unsupported parameter. Multi-turn
     // continuity is full input plus encrypted reasoning round-trip only — do
@@ -355,6 +332,9 @@ function buildRequest(
     // previous_response_id there is no recorded 400.
     parallel_tool_calls: false,
   };
+  if (options.systemPrompt !== undefined) {
+    body["instructions"] = options.systemPrompt;
+  }
   // The Codex backend rejects `max_output_tokens`; it is intentionally omitted.
   if (tools !== undefined) {
     body["tools"] = tools;

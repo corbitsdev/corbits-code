@@ -307,10 +307,7 @@ function requireOk(result: { content: string; isError?: boolean }, label: string
 
 // --- shell (Codex's native command-execution tool) ---
 //
-// The pinned Codex base instructions (bridgeMessage in
-// codex-responses-adapter.ts) name this tool `shell`, not `exec_command` — that
-// is the only native name this codebase's own reference material documents, so
-// it is the name proxied here.
+// Codex's native command-execution tool is named `shell`, not `exec_command`.
 
 const ShellArgs = type({
   command: "string | string[]",
