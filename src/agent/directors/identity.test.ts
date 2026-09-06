@@ -21,7 +21,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
     expect(text).toContain('spawn_agent(agent="builder")');
     expect(text).toContain("Model role: implement.");
-    expect(text).toContain("style, philosophy, native-integration, idiot-proof, typescript");
+    expect(text).toContain("style, philosophy, native-runtime, idiot-proof, ponytail");
     expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
@@ -30,7 +30,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("Optional skills: none by default");
   });
 
-  test("bakes real style/philosophy/native-integration/idiot-proof/typescript bodies for builder workers (CL-6803)", () => {
+  test("bakes real compact Builder skill bodies without broad native-integration or typescript", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     const style = stripFrontmatter(
       readFileSync(
@@ -44,18 +44,30 @@ describe("formatDirectorSystemPrompt", () => {
         "utf8",
       ),
     );
-    const nativeIntegration = stripFrontmatter(
+    const nativeRuntime = stripFrontmatter(
       readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/native-integration/SKILL.md",
-        ),
+        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md"),
         "utf8",
       ),
     );
     const idiotProof = stripFrontmatter(
       readFileSync(
         join(import.meta.dirname, "../../../plugins/corbits-skills/skills/idiot-proof/SKILL.md"),
+        "utf8",
+      ),
+    );
+    const ponytail = stripFrontmatter(
+      readFileSync(
+        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/ponytail/SKILL.md"),
+        "utf8",
+      ),
+    );
+    const nativeIntegration = stripFrontmatter(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/native-integration/SKILL.md",
+        ),
         "utf8",
       ),
     );
@@ -66,11 +78,26 @@ describe("formatDirectorSystemPrompt", () => {
       ),
     );
     expect(text).toContain("# Baked skill guidance");
+    expect(text).toContain("### ponytail");
+    expect(text).toContain("### native-runtime");
     expect(text).toContain(style);
     expect(text).toContain(philosophy);
-    expect(text).toContain(nativeIntegration);
+    expect(text).toContain(nativeRuntime);
     expect(text).toContain(idiotProof);
-    expect(text).toContain(typescript);
+    expect(text).toContain(ponytail);
+    expect(text).toContain("Default to `lite`");
+    expect(text).not.toContain(nativeIntegration);
+    expect(text).not.toContain(typescript);
+    expect(text).not.toContain("### native-integration");
+    expect(text).not.toContain("### typescript");
+  });
+
+  test("skywalker does not bake Ponytail", () => {
+    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.skywalker);
+    expect(text).not.toContain("### ponytail");
+    expect(text).not.toMatch(/ponytail/i);
+    expect(text).not.toContain("Default to `lite`");
+    expect(text).not.toContain("Escalation ladder");
   });
 
   test("does not bake skill bodies when optionalSkills is empty", () => {

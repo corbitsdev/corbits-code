@@ -60,11 +60,14 @@ describe("builderPackage", () => {
     expect(p).toContain("`/implement` does not steal planning from `/plan`");
   });
 
-  test("systemPrompt requires style, philosophy, and idiot-proof prerequisites", () => {
+  test("systemPrompt requires baked core constraints and Ponytail prerequisites", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toContain("Prerequisites");
-    expect(p).toMatch(/style, philosophy, native-integration, and idiot-proof/i);
+    expect(p).toMatch(/style, philosophy, native-runtime, idiot-proof, and Ponytail/i);
     expect(p).toMatch(/use_skill is not mounted/i);
+    expect(p).toMatch(/TypeScript conventions apply when TypeScript is the task surface/i);
+    expect(p).not.toMatch(/native-integration, and idiot-proof/i);
+    expect(p).not.toMatch(/Apply typescript when writing TypeScript/i);
   });
 
   test("systemPrompt is implement leaf only (no orchestrate / spawn / review-as-primary)", () => {
@@ -112,13 +115,13 @@ describe("builderPackage", () => {
     expect(builderPackage.modelRole).toBe("implement");
   });
 
-  test("optionalSkills order is style, philosophy, native-integration, idiot-proof, typescript", () => {
+  test("optionalSkills order is style, philosophy, native-runtime, idiot-proof, ponytail", () => {
     expect(builderPackage.optionalSkills).toEqual([
       "style",
       "philosophy",
-      "native-integration",
+      "native-runtime",
       "idiot-proof",
-      "typescript",
+      "ponytail",
     ]);
   });
 

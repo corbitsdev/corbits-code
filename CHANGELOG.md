@@ -13,6 +13,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Changed
+
+- Builder now bakes compact Ponytail guidance with default lite mode and uses a smaller native-runtime skill instead of the broad native-integration and TypeScript bodies by default.
+
 ## [0.3.17] - 2026-09-05
 
 ### Added
