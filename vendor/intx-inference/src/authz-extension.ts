@@ -25,6 +25,7 @@ import type {
   ApprovalSnapshot,
   BeforeToolExtension,
   PendingOperation,
+  ToolCall,
   ToolDefinition,
 } from "@intx/types/runtime";
 import type { Effect } from "@intx/types/authz";
@@ -118,13 +119,11 @@ function safeOnDecision(
 export function createAuthzExtension<Ctx = unknown>(
   opts: AuthzExtensionOptions<Ctx>,
 ): BeforeToolExtension {
-  // The reactor does not know workflow concepts; per-call context is the
-  // caller's domain. The third arg is plumbing here -- if the caller
-  // needs to attach context (workflow step, tenant id, request id), they
-  // do so by closure on the authorize function. The empty object is the
-  // safe default at this layer.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- the inference layer has no domain knowledge to construct a Ctx; callers that need a populated context use closure capture on the authorize function (see @intx/workflow's AuthorizeContext)
-  const emptyContext = Object.freeze({}) as Ctx;
+  // Per-call context for the authorize callback: the call itself, frozen.
+  // Locally patched — see PATCHES.md#authz-ts-authorize-call-context
+  const frozenCallContext = (call: ToolCall): Ctx =>
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- shape-freeze hygiene; the call is the per-call identity the Ctx contract exists to carry
+    Object.freeze(call) as Ctx;
 
   // One-shot bypass tokens, keyed on ToolCall.id. A token authorizes a single
   // re-dispatch of an already-approved call to skip the `ask` gate it would
@@ -154,7 +153,7 @@ export function createAuthzExtension<Ctx = unknown>(
 
       let result: AuthzCallResult;
       try {
-        result = await opts.authorize(resource, action, emptyContext);
+        result = await opts.authorize(resource, action, frozenCallContext(call));
       } catch (cause) {
         const msg = cause instanceof Error ? cause.message : String(cause);
         const decision: AuthzDecision = {

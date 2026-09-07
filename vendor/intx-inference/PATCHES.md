@@ -56,6 +56,24 @@ date until upstream adopts; downstream users not using OpenAI Responses
 protocol can ignore. **Removal path:** Upstream PR to
 `@intx/inference` adding `isStreamTerminal` to `ProviderAdapter`.
 
+## authz-ts-authorize-call-context
+
+`authz-extension.ts` — The before-tool hook passes the `ToolCall` itself
+(frozen) as the authorize callback's `Ctx` instead of an empty object.
+Upstream's `emptyContext` made the third argument dead plumbing: the
+docblock invites runtimes to choose the shape, but nothing could ever
+populate per-call identity through a build-time closure, so a deployment
+whose policy needs arguments (shell command strings, path restrictions)
+could not authorize at this seam. Freezing matches the existing
+`emptyContext` hygiene; ambient state (cwd, store, principal) stays
+closure-captured on the authorize function.
+
+**Disposition:** Promotion candidate. Requires upstream to pass the call
+as `Ctx` (or an equivalent per-call projection). No kill date until
+upstream adopts; downstream users whose `authorize` ignores the context
+are unaffected. **Removal path:** Upstream PR to `@intx/inference`
+documenting/populating the per-call context at the `authorize` call site.
+
 ## assembly-ts-deps-context-transforms
 
 `assembly.ts` — Resolves `contextTransforms` from either the direct assembly
