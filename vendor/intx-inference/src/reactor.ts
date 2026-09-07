@@ -72,6 +72,18 @@ function assertNever(x: never): never {
   throw new Error(`Unhandled resume case: ${JSON.stringify(x)}`);
 }
 
+/**
+ * `InferenceOptions` plus vendored-only fields the published `@intx/types`
+ * does not carry. `ephemeralTurns` are appended to the materialized prompt
+ * for one inference only and never written to durable history, so transient
+ * director guidance leaves the cached transcript prefix untouched.
+ *
+ * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-ephemeral-turns
+ */
+export type ExtendedInferenceOptions = InferenceOptions & {
+  ephemeralTurns?: ConversationTurn[];
+};
+
 function buildHarnessOpts(
   turns: ConversationTurn[],
   source: InferenceSource,
@@ -531,104 +543,106 @@ export function createReactor(config: ReactorConfig): Reactor {
     if (pending === undefined) return false;
 
     correlatingIds.add(correlationId);
-
-    if (correlationValidator !== undefined) {
-      let valid: boolean;
-      try {
-        valid = await correlationValidator.validate(pending, message);
-      } catch (cause) {
-        logger.warn`Correlation validator threw for ${correlationId}: ${cause}`;
-        correlatingIds.delete(correlationId);
-        return false;
-      }
-      if (!valid) {
-        correlatingIds.delete(correlationId);
-        return false;
-      }
-    }
-
-    // Capture the operation before removal so the resume dispatch can read its
-    // kind and suspended call. Removal happens only after the dispatch is
-    // decided, all inside this correlatingIds-guarded critical section so a
-    // double-deliver early-returns rather than double-dispatching.
-    const op = pending;
-
-    let dispatch: ResumeDispatch;
+    // A finally clears the in-flight marker on every exit — success included.
+    // The success path used to leave the id in the set forever, leaking one
+    // entry per correlated message for the life of the session.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-correlating-ids-leak
     try {
-      dispatch = resumePendingOperation(op, message);
-    } catch (cause) {
+      if (correlationValidator !== undefined) {
+        let valid: boolean;
+        try {
+          valid = await correlationValidator.validate(pending, message);
+        } catch (cause) {
+          logger.warn`Correlation validator threw for ${correlationId}: ${cause}`;
+          return false;
+        }
+        if (!valid) {
+          return false;
+        }
+      }
+
+      // Capture the operation before removal so the resume dispatch can read
+      // its kind and suspended call. Removal happens only after the dispatch
+      // is decided, all inside this correlatingIds-guarded critical section
+      // so a double-deliver early-returns rather than double-dispatching.
+      const op = pending;
+
+      const dispatch = resumePendingOperation(op, message);
+
+      const gate = gates.findByCorrelationId(correlationId);
+      switch (dispatch.mode) {
+        case "redispatch": {
+          // Clear the gate WITHOUT enqueuing gate.cleared: the re-dispatched
+          // call is the resumption, so a gate.cleared-driven re-infer would
+          // double the continuation. The re-dispatch's own tool.done drives
+          // the re-infer.
+          if (gate !== undefined) {
+            gates.clearSilently(gate.gateId);
+            if (stateManager !== null) {
+              stateManager.setGatesSnapshot(gates.snapshot());
+            }
+          }
+          correlations.remove(correlationId);
+          if (stateManager !== null) {
+            stateManager.removePendingOperation(correlationId);
+          }
+          // The grant is already recorded (synchronously, in
+          // resumePendingOperation) with no await since; enqueue the
+          // re-dispatch so it runs on the loop with normal event ordering.
+          // The director seeds its outstanding-result count off this event
+          // before the call's tool.done arrives.
+          enqueue({ type: "resume.execute_tools", calls: dispatch.calls });
+          break;
+        }
+        case "error_result": {
+          // The approver denied the call. Clear the gate SILENTLY (like the
+          // approved redispatch) so it cannot also trip onGateCleared and
+          // enqueue a second continuation. The synthetic error result
+          // answers the parked call; the director appends it and re-infers
+          // once.
+          if (gate !== undefined) {
+            gates.clearSilently(gate.gateId);
+            if (stateManager !== null) {
+              stateManager.setGatesSnapshot(gates.snapshot());
+            }
+          }
+          correlations.remove(correlationId);
+          if (stateManager !== null) {
+            stateManager.removePendingOperation(correlationId);
+          }
+          enqueue({ type: "resume.tool_result", result: dispatch.result });
+          break;
+        }
+        case "gate-cleared": {
+          // Async-tool resumption: clear the gate normally so the director
+          // re-infers, and append the correlated response to history so the
+          // model sees the content it was waiting on.
+          if (gate !== undefined) {
+            gates.clear(gate.gateId);
+          }
+          correlations.remove(correlationId);
+          if (stateManager !== null) {
+            stateManager.removePendingOperation(correlationId);
+            const msg = createInboundTurn(message);
+            if (msg !== null) {
+              stateManager.appendTurn(msg);
+            }
+          }
+          break;
+        }
+      }
+
+      emit({
+        type: "message.correlated",
+        seq: nextSeq(),
+        data: { message, correlationId },
+      });
+
+      return true;
+    } finally {
       correlatingIds.delete(correlationId);
-      throw cause;
     }
-
-    const gate = gates.findByCorrelationId(correlationId);
-    switch (dispatch.mode) {
-      case "redispatch": {
-        // Clear the gate WITHOUT enqueuing gate.cleared: the re-dispatched call
-        // is the resumption, so a gate.cleared-driven re-infer would double the
-        // continuation. The re-dispatch's own tool.done drives the re-infer.
-        if (gate !== undefined) {
-          gates.clearSilently(gate.gateId);
-          if (stateManager !== null) {
-            stateManager.setGatesSnapshot(gates.snapshot());
-          }
-        }
-        correlations.remove(correlationId);
-        if (stateManager !== null) {
-          stateManager.removePendingOperation(correlationId);
-        }
-        // The grant is already recorded (synchronously, in
-        // resumePendingOperation) with no await since; enqueue the re-dispatch
-        // so it runs on the loop with normal event ordering. The director seeds
-        // its outstanding-result count off this event before the call's
-        // tool.done arrives.
-        enqueue({ type: "resume.execute_tools", calls: dispatch.calls });
-        break;
-      }
-      case "error_result": {
-        // The approver denied the call. Clear the gate SILENTLY (like the
-        // approved redispatch) so it cannot also trip onGateCleared and enqueue
-        // a second continuation. The synthetic error result answers the parked
-        // call; the director appends it and re-infers once.
-        if (gate !== undefined) {
-          gates.clearSilently(gate.gateId);
-          if (stateManager !== null) {
-            stateManager.setGatesSnapshot(gates.snapshot());
-          }
-        }
-        correlations.remove(correlationId);
-        if (stateManager !== null) {
-          stateManager.removePendingOperation(correlationId);
-        }
-        enqueue({ type: "resume.tool_result", result: dispatch.result });
-        break;
-      }
-      case "gate-cleared": {
-        // Async-tool resumption: clear the gate normally so the director
-        // re-infers, and append the correlated response to history so the model
-        // sees the content it was waiting on.
-        if (gate !== undefined) {
-          gates.clear(gate.gateId);
-        }
-        correlations.remove(correlationId);
-        if (stateManager !== null) {
-          stateManager.removePendingOperation(correlationId);
-          const msg = createInboundTurn(message);
-          if (msg !== null) {
-            stateManager.appendTurn(msg);
-          }
-        }
-        break;
-      }
-    }
-
-    emit({
-      type: "message.correlated",
-      seq: nextSeq(),
-      data: { message, correlationId },
-    });
-
-    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -654,7 +668,7 @@ export function createReactor(config: ReactorConfig): Reactor {
   }
 
   async function executeInfer(
-    options: InferenceOptions | undefined,
+    options: ExtendedInferenceOptions | undefined,
   ): Promise<void> {
     if (stateManager === null) return;
 
@@ -685,6 +699,11 @@ export function createReactor(config: ReactorConfig): Reactor {
       prompt = result.output;
       manifestBuffer.push(result.record);
       await persistBlobs(result.blobs);
+    }
+
+    const ephemeral = options?.ephemeralTurns;
+    if (ephemeral !== undefined && ephemeral.length > 0) {
+      prompt = [...prompt, ...ephemeral];
     }
 
     // Tripwire: a malformed tool sequence is invalid in a coherent tool
@@ -810,7 +829,7 @@ export function createReactor(config: ReactorConfig): Reactor {
       }
     })();
 
-    void track(p);
+    track(p);
     await p;
   }
 
@@ -914,13 +933,13 @@ export function createReactor(config: ReactorConfig): Reactor {
     let outcomes: (ToolResult | typeof SUSPENDED)[];
     if (parallel) {
       const p = Promise.all(calls.map((c) => runOne(c)));
-      void track(p);
+      track(p);
       outcomes = await p;
     } else {
       outcomes = [];
       for (const call of calls) {
         const p = runOne(call);
-        void track(p);
+        track(p);
         outcomes.push(await p);
       }
     }
@@ -957,6 +976,19 @@ export function createReactor(config: ReactorConfig): Reactor {
     for (const result of results) {
       enqueue({ type: "tool.done", result });
     }
+
+    // Checkpoint the completed tool cycle (the assistant tool_call turn plus
+    // its results) so an interrupt that rebuilds the agent from the store
+    // reloads the full exchange. Otherwise context commits only at cycle
+    // terminals and an uncommitted tool turn vanishes on rebuild. Guarded on
+    // addToHistory: only then does history end with the tool_result turn, so
+    // the persisted prefix is well-formed rather than an assistant turn with
+    // unanswered tool calls.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-checkpoint-after-tool-cycle
+    if (addToHistory) {
+      await commitCycle();
+    }
   }
 
   async function executeCompact(
@@ -979,6 +1011,7 @@ export function createReactor(config: ReactorConfig): Reactor {
 
     stateManager.replaceTurns(result.output);
     await contextStore.writeTurns(result.output);
+    lastWrittenTurnsRevision = stateManager.getTurnsRevision();
     await persistBlobs(result.blobs);
     manifestBuffer.push(result.record);
     cycleCompactorName = compactor.name;
@@ -1040,7 +1073,12 @@ export function createReactor(config: ReactorConfig): Reactor {
     const message = buildCycleMessage();
 
     try {
-      await contextStore.writeTurns(stateManager.getTurns());
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-unchanged-history
+      const currentRevision = stateManager.getTurnsRevision();
+      if (currentRevision !== lastWrittenTurnsRevision) {
+        await contextStore.writeTurns(stateManager.getTurns());
+        lastWrittenTurnsRevision = currentRevision;
+      }
       await contextStore.writeManifest(manifestBuffer);
       await writeMetadata();
       const commit = await contextStore.commit({ message });
@@ -1057,7 +1095,16 @@ export function createReactor(config: ReactorConfig): Reactor {
 
     resetCycleAccumulators();
 
-    if (afterCheckpoint !== undefined) {
+    // Fire only for commits the director actually asked to checkpoint.
+    // A hasWork-only commit (e.g. the auto-commit after execute_tools with
+    // addToHistory) is internal durability plumbing, not a checkpoint the
+    // caller requested — without this guard, a director that checkpoints
+    // in a later decide() call (as opposed to pairing checkpoint with the
+    // action that produced the work) gets afterCheckpoint invoked twice
+    // for what is, from the director's perspective, a single checkpoint.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-after-checkpoint-director-only
+    if (afterCheckpoint !== undefined && hasOverride) {
       try {
         await afterCheckpoint();
       } catch (cause) {
@@ -1528,6 +1575,14 @@ export function createReactor(config: ReactorConfig): Reactor {
   }
 
   let lastCheckpointHash: string | undefined;
+
+  // Turns revision most recently serialized to the context store. A checkpoint
+  // whose history has not changed since this revision skips writeTurns rather
+  // than re-serializing the entire (potentially large) conversation and its
+  // historical tool-output blobs.
+  //
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-last-written-turns-revision
+  let lastWrittenTurnsRevision = 0;
 
   async function initiateShutdown(): Promise<void> {
     if (shutdownStarted) return;

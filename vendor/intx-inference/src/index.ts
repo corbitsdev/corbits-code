@@ -47,7 +47,12 @@ export type {
 
 export { createInboundTurn, assertWellFormedToolSequence } from "./turns";
 export { createReactor } from "./reactor";
-export type { Reactor, ReactorConfig, ReactorEmittedEvent } from "./reactor";
+export type {
+  ExtendedInferenceOptions,
+  Reactor,
+  ReactorConfig,
+  ReactorEmittedEvent,
+} from "./reactor";
 export { validateActions } from "./actions";
 export type { ValidationResult } from "./actions";
 export { createGateManager } from "./gates";

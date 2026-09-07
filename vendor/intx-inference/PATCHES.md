@@ -20,6 +20,22 @@ confirm every hunk still maps to an entry here (or, if upstream has since
 absorbed the same fix, drop the entry and its markers — verify by reading
 the new upstream code, not by assuming).
 
+### 2026-09-07 re-sync (upstream `0205b07b`)
+
+Every entry above was re-carried against the new pin; none was dropped as
+upstream-absorbed. Upstream changes in the pinned range touched exactly two
+patched files: `reactor.ts` (doom-loop detection: `doomLoopThreshold`
+config, `toolBatchSignature`, run-scoped repeat accounting in `executeTools`,
+and a fatal break in the action loop) and `assembly.ts` (a
+`doomLoopThreshold` passthrough). Both were three-way merged against the
+prior patch set with no conflicts and no rewrites: the patches'
+`try/finally` in `tryCorrelate`, the `commitCycle()` call in `executeTools`,
+and the `resolvedContextTransforms` resolution all sit alongside the new
+upstream code unchanged. New upstream code paths added inside the
+`tryCorrelate` critical section (none in this range) or after
+`executeTools`' history append (the doom-loop check) compose correctly with
+the carried patches. No entry's disposition changed.
+
 ## adapter-ts-stream-terminal-detector
 
 `adapter.ts` — Adds `StreamTerminalDetector`/`ProviderAdapter.isStreamTerminal`.

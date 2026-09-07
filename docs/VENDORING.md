@@ -23,22 +23,16 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 
 | Package                | Vendor path                   | License       | Synced from upstream commit                | Retrieved  | Local patches                                |
 | ---------------------- | ----------------------------- | ------------- | ------------------------------------------ | ---------- | -------------------------------------------- |
-| `@intx/inference`      | `vendor/intx-inference/`      | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types`          | `vendor/intx-types/`          | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim                              |
-| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim                              |
+| `@intx/inference`      | `vendor/intx-inference/`      | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-inference/PATCHES.md` |
+| `@intx/types`          | `vendor/intx-types/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
 
-`@intx/inference` is temporarily behind `@intx/types` and
-`@intx/storage-isogit` as of the 2026-08-22 sync: this is stage 2 of a
-staged re-vendor (the two lower-coupling packages first), with
-`@intx/inference`'s re-sync tracked separately as stage 3. The
-cross-package coupling described below did not regress in this gap — the
-`PendingOperation` shape both packages already shared did not change
-between `ad0f99e7` and `55c4431e` (`vendor/intx-types/src/runtime.ts` and
-`src/index.ts` are byte-identical across that range), so `@intx/inference`
-built against the older `@intx/types` still typechecks against the newer
-one. A later re-sync of `@intx/inference` should still move all three
-together per the coupling rule below, since that check only holds for
-this specific gap, not in general.
+The 2026-09-07 sync moved all three packages together to a single
+upstream commit, restoring the single-commit coherence the coupling rule
+below assumes. An interim 2026-08-22 sync had moved only `@intx/types`
+and `@intx/storage-isogit`; the gap did not regress the coupling — the
+`PendingOperation` shape was byte-identical across it — but it was a
+staged exception, not the steady state.
 
 The license column records what each package declares in its own
 `package.json`; the corresponding `LICENSE` file travels with every vendored
