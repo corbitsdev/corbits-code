@@ -93,6 +93,7 @@ export type ReactorAssemblyConfig = {
   inferenceRunner?: ReactorConfig["inferenceRunner"];
   gateTimeout?: number;
   shutdownTimeoutMs?: number;
+  doomLoopThreshold?: number | false;
 };
 
 /**
@@ -143,6 +144,7 @@ export function createReactorAssembly(
     inferenceRunner,
     gateTimeout,
     shutdownTimeoutMs,
+    doomLoopThreshold,
   } = config;
 
   // Audit collector is created up-front so the authz extension can route its
@@ -232,14 +234,6 @@ export function createReactorAssembly(
         }
       : callerOnShutdown;
 
-  // Transforms arrive either directly on the assembly config or riding
-  // `deps` (the only channel the published `@intx/agent` forwards verbatim).
-  // A direct value wins so callers composing their own assembly are
-  // unaffected by whatever a shared deps object carries.
-  //
-  // Locally patched — see vendor/intx-inference/PATCHES.md#assembly-ts-deps-context-transforms
-  const resolvedContextTransforms = contextTransforms ?? deps.contextTransforms;
-
   // exactOptionalPropertyTypes is on: only set optional keys when defined.
   const reactorConfig: ReactorConfig = {
     sessionId,
@@ -255,9 +249,7 @@ export function createReactorAssembly(
     ...(composedBeforeToolExtensions !== undefined
       ? { beforeToolExtensions: composedBeforeToolExtensions }
       : {}),
-    ...(resolvedContextTransforms !== undefined
-      ? { contextTransforms: resolvedContextTransforms }
-      : {}),
+    ...(contextTransforms !== undefined ? { contextTransforms } : {}),
     ...(compactors !== undefined ? { compactors } : {}),
     ...(composedAfterCheckpoint !== undefined
       ? { afterCheckpoint: composedAfterCheckpoint }
@@ -269,6 +261,7 @@ export function createReactorAssembly(
     ...(inferenceRunner !== undefined ? { inferenceRunner } : {}),
     ...(gateTimeout !== undefined ? { gateTimeout } : {}),
     ...(shutdownTimeoutMs !== undefined ? { shutdownTimeoutMs } : {}),
+    ...(doomLoopThreshold !== undefined ? { doomLoopThreshold } : {}),
   };
 
   const reactor = createReactor(reactorConfig);

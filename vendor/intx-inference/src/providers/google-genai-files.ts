@@ -169,9 +169,7 @@ export async function uploadGoogleGenAIFile(
   const init: RequestInit = {
     method: "POST",
     headers,
-    // DOM lib BodyInit is narrower than Node's Uint8Array typing; fetch accepts bytes.
-    // Locally patched — see vendor/intx-inference/PATCHES.md#google-genai-files-ts-body-init-cast
-    body: opts.bytes as unknown as BodyInit,
+    body: opts.bytes,
   };
   // `RequestInit.signal` is typed as `AbortSignal | null` under
   // `exactOptionalPropertyTypes`; only attach the property when

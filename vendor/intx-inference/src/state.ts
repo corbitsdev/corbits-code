@@ -18,23 +18,6 @@ import type { GateSnapshot } from "./gates";
 export type ReactorStateManager = ReturnType<typeof createStateManager>;
 
 /**
- * Recursively freezes a turn so snapshots can share its reference instead of
- * deep-cloning the whole history on every director decision. Freezing costs
- * O(turn size) once at append; cloning cost O(total history) per snapshot.
- *
- * Locally patched — see vendor/intx-inference/PATCHES.md#state-ts-deep-freeze-turns-revision
- */
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const key of Object.getOwnPropertyNames(value)) {
-    deepFreeze((value as Record<string, unknown>)[key]);
-  }
-  return Object.freeze(value);
-}
-
-/**
  * Creates a mutable state container. All mutations go through explicit methods;
  * the `snapshot()` method produces an immutable view for the director.
  */
@@ -44,11 +27,7 @@ export function createStateManager(
   initialOps: PendingOperation[],
   initialUsage: TokenUsage,
 ) {
-  let turns: ConversationTurn[] = initialTurns.map(deepFreeze);
-  // Monotonic counter bumped whenever `turns` changes. Persistence compares it
-  // against the revision it last wrote so an unchanged history is never
-  // re-serialized on a checkpoint (INFERENCE.md § Cycle boundary commit).
-  let turnsRevision = 0;
+  let turns: ConversationTurn[] = [...initialTurns];
   const pendingOperations = new Map<string, PendingOperation>(
     initialOps.map((op) => [op.correlationId, op]),
   );
@@ -59,13 +38,11 @@ export function createStateManager(
   const activeForks: { forkId: string; mode: "independent" | "child" }[] = [];
 
   function appendTurn(msg: ConversationTurn): void {
-    turns.push(deepFreeze(msg));
-    turnsRevision += 1;
+    turns.push(msg);
   }
 
   function replaceTurns(next: ConversationTurn[]): void {
-    turns = next.map(deepFreeze);
-    turnsRevision += 1;
+    turns = [...next];
   }
 
   function addPendingOperation(op: PendingOperation): void {
@@ -106,13 +83,7 @@ export function createStateManager(
   }
 
   function getTurns(): ConversationTurn[] {
-    // Copy so a caller mutating the result cannot corrupt reactor state, the
-    // same guarantee snapshot() gives for the turns it exposes.
-    return turns.slice();
-  }
-
-  function getTurnsRevision(): number {
-    return turnsRevision;
+    return turns;
   }
 
   function getPendingOperations(): PendingOperation[] {
@@ -124,25 +95,15 @@ export function createStateManager(
   }
 
   function snapshot(): ReactorState {
-    // `turns` is a lazy, memoized getter: high-frequency events (tool.done,
-    // inference.error) reach directors that never inspect it, so paying an
-    // O(history) copy on every decision would make per-event cost scale with
-    // session length. Deferring to first access keeps those decisions cheap.
-    //
-    // The remaining collections are small, so they are copied eagerly here to
-    // stay true point-in-time snapshots: a mutation between snapshot() and a
-    // later read must not leak into the view. Only `turns` trades that guarantee
-    // for the perf win, and its elements are deep-frozen at append, so a
-    // deferred read still cannot observe a mutated turn.
-    let turnsView: ConversationTurn[] | undefined;
     return {
       sessionId,
-      get turns() {
-        return (turnsView ??= turns.slice());
-      },
-      pendingOperations: Array.from(pendingOperations.values()).map((op) => ({
-        ...op,
+      turns: turns.map((m) => ({
+        ...m,
+        content: m.content.map((b) => structuredClone(b)),
       })),
+      pendingOperations: Array.from(pendingOperations.values()).map((op) =>
+        structuredClone(op),
+      ),
       activeGates: activeGatesSnapshot.map((g) => ({
         gateId: g.gateId,
         type: g.type,
@@ -167,7 +128,6 @@ export function createStateManager(
     addFork,
     removeFork,
     getTurns,
-    getTurnsRevision,
     getPendingOperations,
     getTokenUsage,
     snapshot,
