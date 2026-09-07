@@ -132,8 +132,63 @@ export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
   paintChrome(shell);
 }
 
-/** Repaint the prompt borders and the transient notice row from live state. */
-export function paintChrome(shell: AppShell): void {
+/**
+ * Every input the chrome compose paths read, as one comparable key. A missed
+ * input here means stale chrome, so this list is exhaustive:
+ *
+ * - notice row: the composed `noticeText` output (folds in steer/follow-up
+ *   queue counts, the in-flight tool and its start time, `lockupNowMs` as the
+ *   waiting-on clock, the interrupt flash, transcript pin state, the status
+ *   flash, and pending attachment count)
+ * - border geometry: `layout.contentWidth`
+ * - top rule: MCP-needs-auth presence, plugin-needs-attention, `modelLabel`
+ * - bottom rule: workspace cwd and branch, `homedir()` (label compression)
+ * - both rules' lockup slot: `lockupNowMs`, `lockupAnimating`, `lockupPhase`,
+ *   `lockupChangedMs`, `lockupRampPhase`, `lockupStalledForMs`
+ * - cost meter: band, percent label, cost label (or absence)
+ * - landing suggestions: whether the prompt has text
+ *
+ * Landing and zone paints read their own state and do not pass through here.
+ */
+function chromeComposeKey(shell: AppShell, notice: string): string {
+  const meter = shell.costContext;
+  return [
+    notice,
+    shell.layout.contentWidth,
+    shell.mcpNeedsAuth.length > 0 ? "1" : "0",
+    shell.pluginNeedsAttention ? "1" : "0",
+    shell.modelLabel ?? "",
+    shell.lockupNowMs,
+    shell.lockupAnimating ? "1" : "0",
+    shell.lockupPhase ?? "",
+    shell.lockupChangedMs,
+    shell.lockupRampPhase ?? "",
+    String(shell.lockupStalledForMs),
+    shell.workspace.cwd,
+    shell.workspace.branch,
+    homedir(),
+    meter === null ? "" : `${meter.band}\u0001${meter.percentLabel}\u0001${meter.costLabel ?? ""}`,
+    shell.prompt.value.length,
+  ].join("\u0000");
+}
+
+const paintedChromeKey = new WeakMap<AppShell, string>();
+const chromeComposeCounts = new WeakMap<AppShell, number>();
+
+/** Compose passes run since mount. Test seam for the repaint gate. */
+export function chromeComposeCount(shell: AppShell): number {
+  return chromeComposeCounts.get(shell) ?? 0;
+}
+
+/**
+ * Repaint the prompt borders and the transient notice row from live state.
+ *
+ * Recomposes only when a composed input actually changed; passes with an
+ * unchanged key cost one key build and a string compare. `force` bypasses the
+ * gate for paths that must repaint regardless (layout application, where the
+ * column budget and the render tree may have moved under identical text).
+ */
+export function paintChrome(shell: AppShell, opts?: { readonly force?: boolean }): void {
   if (shell.disposed) return;
   // Headless tests often destroy the renderer without dispose
   // (`withTestRenderer` cleanup). A TTL flash armed before that teardown
@@ -141,6 +196,10 @@ export function paintChrome(shell: AppShell): void {
   if (shell.renderer.isDestroyed || shell.notice.isDestroyed) return;
   syncPending(shell);
   const notice = noticeText(shell);
+  const key = chromeComposeKey(shell, notice);
+  if (!opts?.force && paintedChromeKey.get(shell) === key) return;
+  paintedChromeKey.set(shell, key);
+  chromeComposeCounts.set(shell, chromeComposeCount(shell) + 1);
   shell.notice.content = new StyledText([
     fgChunk(UI.textDim)(notice.length > 0 ? ` ${notice}` : ""),
   ]);
@@ -459,9 +518,10 @@ function lockupFrameInput(shell: AppShell): LockupInput {
 }
 
 /**
- * Repaint both border rules. Recomposed on every pass rather than cached: a
- * resize changes the column budget without changing any label, and the lockup
- * changes every animation frame without changing the geometry.
+ * Repaint both border rules. Reached through `paintChrome`, which gates on the
+ * compose key: a resize changes the column budget without changing any label,
+ * and the lockup changes every animation frame without changing the geometry —
+ * both move the key (width, lockup fields) and so pass the gate.
  */
 export function paintPromptBorder(shell: AppShell): void {
   const width = shell.layout.contentWidth;
@@ -653,7 +713,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     }
   }
 
-  paintChrome(shell);
+  // Forced: a relayout can move the column budget and the render tree under
+  // identical composed text, so the trailing chrome pass always recomposes.
+  paintChrome(shell, { force: true });
 }
 
 /**

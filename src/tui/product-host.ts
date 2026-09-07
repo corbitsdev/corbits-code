@@ -376,9 +376,15 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   const stickyPoll = setInterval(() => {
     if (disposed) return;
     try {
-      paintChrome(shell);
+      // The poll's own state is sticky alone: paintChrome's compose gate makes
+      // an unchanged pass free, but do not even schedule it while idle — the
+      // whole point of the poll is the strip, not the chrome. True→false and
+      // false→true edges both paint via the stickyWasNeeded latch below.
       const stickyNeeded =
         chromeState !== null && agentsChromeNeedsSticky(chromeState.agents, Date.now());
+      if (stickyNeeded || stickyWasNeeded) {
+        paintChrome(shell);
+      }
       // While the agents strip owns live clocks / linger, skip transcript
       // syncAgentProgress rewrites — spawn/final/fail anchors still arrive via
       // event paths; only the sticky clock tick is frozen here.
