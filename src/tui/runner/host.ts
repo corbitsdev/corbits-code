@@ -10,14 +10,14 @@
 import type { EventEmitter } from "node:events";
 import type { CliRenderer } from "@opentui/core";
 
-import type { SubAgentSession, SubAgentTranscriptEntry } from "../subagent/session-store.js";
-import { commandItemsFromRegistry, type RegistryCommandSource } from "./command-catalog.js";
+import type { SubAgentSession, SubAgentTranscriptEntry } from "../../subagent/session-store.js";
+import { commandItemsFromRegistry, type RegistryCommandSource } from "../command-catalog.js";
 import {
   openCommandSurface,
   type CommandSurfaceDeps,
   type CommandSurfaceKind,
-} from "./command-surfaces.js";
-import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js";
+} from "../command-surfaces.js";
+import { chromeFromSession, type ChromeSessionInput } from "../chrome-state.js";
 import {
   buildModelsFirstCatalog,
   describeModelCatalogOption,
@@ -25,34 +25,34 @@ import {
   type ModelCatalogOption,
   type ModelCatalogProvidersInput,
   type ModelCatalogRef,
-} from "./model-catalog.js";
+} from "../model-catalog.js";
 import {
   type ItemDescription,
   clearShellExitHandler,
   setShellExitHandler,
-} from "./shell/internals.js";
+} from "../shell/internals.js";
 import {
   setPromptCostContext,
   setPromptModelLabel,
   setPromptWorkspace,
   surfaceSystemNotice,
-} from "./shell/prompt.js";
+} from "../shell/prompt.js";
 import {
   mountProductHost,
   type ProductHost,
   type ProductHostAddProviderChoice,
-} from "./product-host.js";
-import { onTurnBoundary } from "../agent/reactor-events.js";
-import type { CostSummary } from "../cost/cost-summary.js";
-import { watchGitBranch, type FetchBranch } from "./workspace-watch.js";
-import type { PromptActionBarModelLabelInput } from "./components/prompt-action-bar-label.js";
-import type { ObserveSession } from "./residuals.js";
-import type { PendingImageAttachment } from "./image-attachments.js";
-import { toolCallRow } from "./diff.js";
-import { toolResultRow } from "./mcp-view.js";
-import { pushToolCall, pushToolResult } from "./tool-rows.js";
-import type { StreamRow } from "./stream.js";
-import type { QueueKind } from "./session-queue.js";
+} from "../product-host.js";
+import { onTurnBoundary } from "../../agent/reactor-events.js";
+import type { CostSummary } from "../../cost/cost-summary.js";
+import { watchGitBranch, type FetchBranch } from "../workspace-watch.js";
+import type { PromptActionBarModelLabelInput } from "../components/prompt-action-bar-label.js";
+import type { ObserveSession } from "../residuals.js";
+import type { PendingImageAttachment } from "../image-attachments.js";
+import { toolCallRow } from "../diff.js";
+import { toolResultRow } from "../mcp-view.js";
+import { pushToolCall, pushToolResult } from "../tool-rows.js";
+import type { StreamRow } from "../stream.js";
+import type { QueueKind } from "../session-queue.js";
 
 export interface RunnerHostDeps {
   readonly title: string;

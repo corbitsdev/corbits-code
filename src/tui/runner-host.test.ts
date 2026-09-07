@@ -13,7 +13,7 @@ import {
   mountRunnerHost,
   observeSessionFromSubAgents,
   rowFromTranscriptEntry,
-} from "./runner-host.js";
+} from "./runner/host.js";
 
 /** The bottom rule holds StyledText; join its chunks for assertions. */
 function ruleOf(rule: { content: unknown }): string {

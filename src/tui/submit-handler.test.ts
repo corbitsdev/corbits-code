@@ -4,9 +4,9 @@ import {
   createSubmitHandler,
   IMAGE_ONLY_PROMPT,
   routeSubmission,
-  telemetryStartupNotice,
   userInboundMessage,
-} from "./runner.js";
+} from "./runner/submit.js";
+import { telemetryStartupNotice } from "./runner/settings.js";
 import type { PendingImageAttachment } from "./image-attachments.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import {

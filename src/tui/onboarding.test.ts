@@ -40,8 +40,8 @@ await withMockedModule(
   }),
 );
 await withMockedModule(
-  import.meta.resolve("./runner.js"),
-  (real: typeof import("./runner.js")) => ({
+  import.meta.resolve("./runner/index.js"),
+  (real: typeof import("./runner/index.js")) => ({
     ...real,
     runTUI: async (config: Config) => {
       tuiConfig = config;

@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
 import { helpItems, SHELL_SHORTCUTS } from "./keybindings.js";
 import { createHarness, withTestRenderer, type Harness } from "./harness.js";
-import { mountRunnerHost } from "./runner-host.js";
+import { mountRunnerHost } from "./runner/host.js";
 import { openCommandSurface } from "./command-surfaces.js";
 import { focusOwner } from "./focus/focus-state.js";
 import {

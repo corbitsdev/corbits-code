@@ -1,4 +1,4 @@
-import { runTUI } from "./runner.js";
+import { runTUI } from "./runner/index.js";
 import { buildProviderSubmitHandler } from "./provider/submit.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
 import {

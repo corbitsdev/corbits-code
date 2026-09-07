@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createRuntimeShutdown } from "./runtime-shutdown.js";
+import { createRuntimeShutdown } from "./runner/shutdown.js";
 
 describe("runtime shutdown", () => {
   test("restores the terminal, cancels workers, and closes the primary agent", async () => {

@@ -4,12 +4,11 @@ import { AgentContextLockError, type Agent } from "@intx/agent";
 import {
   agentRebuildFailure,
   closeAgentForRebuild,
-  createTUIEventEmitter,
-  getTUIRunSummaryStatus,
-  loadLocalSettingsWriteBase,
   resumeTranscriptLoadErrorBlock,
-  tuiSendFailureMessage,
-} from "../../../src/tui/runner.js";
+} from "../../../src/tui/runner/exit.js";
+import { createTUIEventEmitter, getTUIRunSummaryStatus } from "../../../src/tui/runner/index.js";
+import { loadLocalSettingsWriteBase } from "../../../src/tui/runner/settings.js";
+import { tuiSendFailureMessage } from "../../../src/tui/runner/commands.js";
 import { createSessionOperationQueue } from "../../../src/tui/session-operation-queue.js";
 import { createRunSink } from "../../../src/session/run-sink.js";
 

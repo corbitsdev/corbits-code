@@ -285,9 +285,17 @@ describe("agents chrome (live strip above the prompt)", () => {
  */
 describe("every emitted runtime channel has a subscriber", () => {
   const srcDir = fileURLToPath(new URL("../", import.meta.url));
-  const runner = readFileSync(`${srcDir}tui/runner.ts`, "utf8");
+  // CL-6791 phase 4 split src/tui/runner.ts into src/tui/runner/*; the
+  // emitted-channel set now spans every module in that directory.
+  const runnerDir = fileURLToPath(new URL("./runner/", import.meta.url));
+  const runnerSources = Array.from(new Bun.Glob("*.ts").scanSync({ cwd: runnerDir }))
+    .filter((f) => !f.endsWith(".test.ts"))
+    .map((f) => readFileSync(`${runnerDir}${f}`, "utf8"))
+    .join("\n");
 
-  const emitted = new Set([...runner.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) => m[1]!));
+  const emitted = new Set(
+    [...runnerSources.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) => m[1]!),
+  );
   // Progress pings are store-mirrored chrome, not a host paint path.
   emitted.delete("subagent.progress");
 

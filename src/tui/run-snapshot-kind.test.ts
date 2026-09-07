@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { clearActiveRun, getActiveRun, setActiveRun } from "../session/active-run.js";
 import { finalizeRunState, loadState, saveState, type RunState } from "../session/state.js";
-import { clearsActiveRun, type SnapshotKind } from "./runner.js";
+import { clearsActiveRun } from "./runner/exit.js";
+import type { SnapshotKind } from "./runner/state.js";
 
 describe("clearsActiveRun", () => {
   test("only the run-ending write clears the active-run handle", () => {

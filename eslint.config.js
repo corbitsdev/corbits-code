@@ -147,4 +147,32 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // CL-6791 phase 4: src/tui/runner.ts (plus runner-host/runtime-shutdown)
+    // was split into src/tui/runner/*. The runner owns the session, so it may
+    // import shell/**, provider/**, surfaces, layer-0 TUI modules, and non-TUI
+    // src — but only the process entry (src/index.ts), the onboarding chain
+    // that boots it (src/tui/onboarding.ts), and tests may import the runner
+    // layer. Everything else depends on it, never the reverse.
+    files: ["src/**/*.ts"],
+    ignores: ["src/index.ts", "src/tui/onboarding.ts", "src/tui/runner/**", "**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // Anchored full-source match from anywhere in src: relative
+              // (`./runner/x.js`, `../tui/runner/index.js`) and bare
+              // (non-.js) specifiers alike.
+              regex:
+                "^(\\.\\./)*(\\./)?(.*tui/)?runner(/[^/]+)*(\\.js)?$|^\\.\\/runner(\\/[^/]+)*(\\.js)?$",
+              message:
+                "src/tui/runner/** may only be imported by src/index.ts, src/tui/onboarding.ts, and tests — the runner is the top of the TUI stack. Depend on the layer-0 modules it composes instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
