@@ -77,4 +77,21 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // CL-6791 ratchet: src/tui files have per-file line budgets enforced by
+    // `bun run check:tui-budget` (scripts/guard-tui-file-budget.ts). A barrel
+    // `export *` makes module size invisible to importers and lets a split
+    // quietly regress into a god-file; export named symbols instead.
+    files: ["src/tui/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ExportAllDeclaration",
+          message:
+            "export * is banned under src/tui — files have line budgets enforced by `bun run check:tui-budget` (scripts/budgets.json); export named symbols instead.",
+        },
+      ],
+    },
+  },
 );
