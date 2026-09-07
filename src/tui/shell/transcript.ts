@@ -7,21 +7,18 @@ import {
   TextRenderable,
   TextTableRenderable,
   StyledText,
-  bold as boldChunk,
-  fg as fgChunk,
   type BaseRenderable,
   type CliRenderer,
-  type TextChunk,
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
 import { splitAtSettledHeading, withholdIncompleteHeading } from "../markdown-parser.js";
+import { diffLineChunks, retextStyledKindRow } from "./row-retext.js";
 import {
   blockLabel,
   EXPAND_KEY,
   expandedRowLines,
   splitTrailingArrow,
-  isExpansionRow,
   isMarkdownRow,
   isSentenceRow,
   MAIN_AGENT,
@@ -147,11 +144,11 @@ export function transcriptRowOffset(shell: AppShell): number {
 /**
  * Rewrite a row's body on its existing paint node.
  *
- * Streaming rows are replaced on every token, and tearing the node down each
- * time would drop the markdown parser's block state — the very thing that makes
- * incremental rendering stable. Returns false when the node shape does not
- * match the row and the caller must rebuild it — including a row whose block
- * label just appeared or disappeared, since that changes the node's shape.
+ * Every row kind retextes in place — streaming markdown keeps the parser's
+ * block state, and the styled kinds (diff, tool sentence, expansion,
+ * structured) rewrite their line and table content. Returns false when the
+ * node shape does not match the row (a label or arrow appearing, a line-count
+ * change) and the caller must rebuild it.
  */
 export function retextStreamRow(
   shell: AppShell,
@@ -159,16 +156,7 @@ export function retextStreamRow(
   row: StreamRow,
   label: string | null,
 ): boolean {
-  if (row.diff !== undefined || row.structured !== undefined) return false;
-  // A sentence-style tool row paints via styled lines (verb + coloured
-  // subject, and a diff/detail tail once expanded) rather than a single-fg
-  // TextRenderable, so it always rebuilds like diff/structured rows do.
-  if (isSentenceRow(row)) return false;
-  // Expanding swaps a text row for a styled-lines box: a different node shape
-  // and a different height, so the caller must rebuild rather than re-text.
-  if (isExpansionRow(row)) return false;
   const layout = transcriptRowLayout(shell);
-
   if (label !== null) {
     if (!(node instanceof BoxRenderable)) return false;
     const [headerNode, innerNode] = node.getChildren();
@@ -177,12 +165,13 @@ export function retextStreamRow(
     headerNode.content = label;
     return true;
   }
-
   return retextStreamRowBody(node, row, layout);
 }
 
 /** The shape-matching rewrite shared by labelled and unlabelled rows. */
 function retextStreamRowBody(node: BaseRenderable, row: StreamRow, layout: RowLayout): boolean {
+  if (retextStyledKindRow(node, row, layout)) return true;
+  if (row.diff !== undefined || row.structured !== undefined || isSentenceRow(row)) return false;
   if (node instanceof TextRenderable) {
     if (isMarkdownRow(row)) return false;
     node.content = paintStreamRow(row, layout).content;
@@ -383,14 +372,6 @@ function createMarkdownBody(
     }),
   );
   return column;
-}
-
-/** Map one styled body line's segments to native text chunks. */
-function diffLineChunks(line: StyledBodyLine): TextChunk[] {
-  return line.map((segment) => {
-    const chunk = fgChunk(segment.fg)(segment.text);
-    return segment.bold === true ? boldChunk(chunk) : chunk;
-  });
 }
 
 /**

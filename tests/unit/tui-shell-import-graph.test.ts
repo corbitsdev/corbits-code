@@ -14,6 +14,7 @@ const shellDir = join(repoRoot, "src/tui/shell");
 // Adding a module to src/tui/shell is a decision: assign it a rank here.
 const RANKS: Record<string, number> = {
   "internals.ts": 0,
+  "row-retext.ts": 0,
   "layout.ts": 1,
   "transcript.ts": 1,
   "chrome.ts": 2,
