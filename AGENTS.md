@@ -75,7 +75,7 @@ It authenticates over HTTPS via `gh`'s credential helper and rewrites the SSH re
 
 ## Building on Interchange
 
-Interchange is the standard library for this repo. Every `@intx/*` package this repo imports resolves to vendored source under `vendor/intx-*` at a single pinned upstream commit (provenance, patch ledgers, and the re-sync procedure: `docs/VENDORING.md`). We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
+Interchange is the standard library for this repo. Every `@intx/*` package this repo imports resolves to vendored source under `vendor/intx-*` at a single pinned upstream commit — the sole exception is `@intx/tools-lsp`, which remains on published npm (provenance, patch ledgers, and the re-sync procedure: `docs/VENDORING.md`). We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
 
 | Package                | Covers                                                                                                                |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------- |

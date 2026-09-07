@@ -1,8 +1,9 @@
 # Vendored Interchange packages
 
-Corbits Code consumes most of Interchange as published `@intx/*` npm
-packages. A few packages are instead vendored as source, directly from the
-upstream Interchange repository, under `vendor/`. This document is the
+Corbits Code consumes Interchange by vendoring every `@intx/*` package it
+imports as source, directly from the upstream Interchange repository, under
+`vendor/` at a single pinned upstream commit. The sole exception is
+`@intx/tools-lsp`, which remains on published npm. This document is the
 authoritative record of what is vendored, from which upstream commit, and
 whether it carries local patches.
 
@@ -247,7 +248,9 @@ does not resolve to a ledger heading, or if a ledger heading has no marker.
    they are unless the package's own `package.json` exports or dependencies
    changed upstream — diff the two `package.json` files by hand; the
    partial `vendor/intx-workflow-host/adapters/` tree has no `package.json`
-   of its own, so just re-copy the `adapters/` directory). Run
+   of its own, so just re-copy its two vendored files,
+   `adapters/substrate-mailbox-store.ts` and
+   `adapters/substrate-mailbox-store.test.ts`). Run
    `bun install`, `bun run typecheck`, `bun run build`, `bun run test`.
 3. For a **patched** package (`@intx/inference`): before overwriting
    anything, run `bin/vendor-patch-diff` (optionally
