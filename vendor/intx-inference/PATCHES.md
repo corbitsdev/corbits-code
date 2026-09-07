@@ -29,6 +29,12 @@ the socket or sending `[DONE]`; without this, a client reading the stream
 hangs waiting for a socket close that never comes. Consumed by `harness.ts`'s
 SSE loop.
 
+**Disposition:** Promotion candidate. Requires upstream to add a
+`StreamTerminalDetector` hook (or equivalent) to `ProviderAdapter`. No kill
+date until upstream adopts; downstream users not using OpenAI Responses
+protocol can ignore. **Removal path:** Upstream PR to
+`@intx/inference` adding `isStreamTerminal` to `ProviderAdapter`.
+
 ## assembly-ts-deps-context-transforms
 
 `assembly.ts` — Resolves `contextTransforms` from either the direct assembly
@@ -37,6 +43,12 @@ contextTransforms ?? deps.contextTransforms`). The published `@intx/agent`
 forwards `deps` into reactor assembly verbatim and exposes no dedicated field
 for transforms; riding `deps` reaches the vendored assembly without requiring
 a change to the published package.
+
+**Disposition:** Kill candidate when `@intx/agent` exposes a dedicated
+`contextTransforms` field on its assembly config (or when all callers use the
+vendored package directly). **Removal path:** Upstream PR to `@intx/agent` to
+forward `contextTransforms` explicitly; then delete both this patch and
+`harness-ts-context-transforms`.
 
 ## errors-ts-classify-abort-reason
 
@@ -47,10 +59,19 @@ carries it as `raw: { origin: reason }` on the returned `InferenceError`.
 undifferentiated "inference aborted". Called with `signal?.reason` from all
 four abort-check sites in `harness.ts`.
 
+**Disposition:** Promotion candidate. Small, additive change — adding an
+optional `reason` param to `classifyAbortError` and enriching `raw`. **Removal
+path:** Upstream PR adding the optional `reason` parameter and `ClassifiedAbortRaw`
+type. No kill date until upstream ships it.
+
 ## harness-ts-context-transforms
 
 `harness.ts` — `Dependencies.contextTransforms` carries the field
 `assembly.ts` reads off `deps` (see assembly-ts-deps-context-transforms).
+
+**Disposition:** Kill candidate — pair with `assembly-ts-deps-context-transforms`.
+**Removal path:** Upstream PR to `@intx/agent` exposing `contextTransforms`
+explicitly. Ships out together with the assembly patch.
 
 ## harness-ts-inactivity-on-semantic-progress
 
@@ -60,11 +81,18 @@ forever without a terminal event never tripped it, pinning the caller
 indefinitely. Now it re-arms only when `adapter.parseResponse` actually
 produces events from a chunk.
 
+**Disposition:** Promotion candidate. Clear upstream bug fix — the inactivity
+timer should not re-arm on raw bytes. **Removal path:** Upstream PR to
+`@intx/inference` gating re-arm on parsed-event output.
+
 ## harness-ts-is-stream-terminal
 
 `harness.ts` — `isStreamTerminal` consulted in the SSE loop. Stops reading
 once `adapter.isStreamTerminal?.(sseData)` returns true, for protocols whose
 end-of-turn is a semantic event rather than `[DONE]` or socket close.
+
+**Disposition:** Companion to `adapter-ts-stream-terminal-detector`. Ships
+out together when upstream adopts the `isStreamTerminal` hook.
 
 ## harness-ts-commitment-boundary-streaming
 
@@ -81,11 +109,20 @@ memory. A retryable failure after commitment can no longer discard
 already-streamed output, so retry is suppressed there and the error surfaces
 on the live stream. See `isCommitting` and the docblock on `runInference`.
 
+**Disposition:** Long-lived. This is a design-level change to `runInference`
+that upstream would need to adopt wholesale, not a simple param fix.
+**Removal path:** Upstream redesigns `runInference` with commitment-boundary
+streaming built in. No kill date — this is the core streaming architecture
+for Corbits and likely to remain a fork patch for the foreseeable future.
+
 ## harness-ts-is-committing
 
 `harness.ts` — `isCommitting` helper used by the commitment-boundary redesign
 above. Classifies which events count as commitment (everything except
 pre-commit metadata).
+
+**Disposition:** Companion to `harness-ts-commitment-boundary-streaming`.
+Ships out together.
 
 ## reactor-ts-ephemeral-turns
 
@@ -94,6 +131,11 @@ the materialized prompt for one inference call only, never written to durable
 history, so transient director guidance does not touch the cached transcript
 prefix. No native equivalent exists upstream. `index.ts` re-exports the type
 (mechanical; no separate marker).
+
+**Disposition:** Long-lived. No upstream equivalent exists and is not planned.
+Ephemeral turns are a Corbits-specific mechanism for injecting transient
+director guidance. **Removal path:** Only if Corbits adopts an alternative
+mechanism for transient prompt injection. No kill date.
 
 ## reactor-ts-correlating-ids-leak
 
@@ -104,6 +146,10 @@ but never on the three success dispatch paths (`redispatch` / `error_result` /
 of the process. Wrapped the whole critical section in `try/finally` so every
 exit clears it.
 
+**Disposition:** Promotion candidate. Clear upstream bug fix. **Removal
+path:** Upstream PR wrapping `tryCorrelate` in try/finally to clear
+`correlatingIds` on all exit paths.
+
 ## reactor-ts-checkpoint-after-tool-cycle
 
 `reactor.ts` — Checkpoint after a tool cycle that appends to history.
@@ -112,6 +158,11 @@ interrupt that rebuilds the agent from the store reloads the completed tool
 exchange instead of losing an uncommitted tool turn (context previously
 committed only at cycle terminals).
 
+**Disposition:** Promotion candidate. Durability correctness fix —
+interrupting after a tool cycle must not lose committed tool turns.
+**Removal path:** Upstream PR adding `commitCycle()` call in
+`executeTools` when `addToHistory` is true.
+
 ## reactor-ts-skip-unchanged-history
 
 `reactor.ts` — Skip re-serializing unchanged history on checkpoint.
@@ -119,6 +170,11 @@ committed only at cycle terminals).
 revision most recently written and skips `contextStore.writeTurns` when
 nothing changed, avoiding an O(history) re-serialize (including historical
 tool-output blobs) on every checkpoint.
+
+**Disposition:** Promotion candidate. Performance optimization with no
+behavioral change — reduces checkpoint cost from O(history) to O(1) when
+no turns were added. **Removal path:** Upstream PR adding revision check
+in `commitCycle`.
 
 ## reactor-ts-after-checkpoint-director-only
 
@@ -129,11 +185,19 @@ durability plumbing, not a checkpoint the caller asked for; without gating on
 later `decide()` call got `afterCheckpoint` invoked twice for what is, from
 its perspective, a single checkpoint.
 
+**Disposition:** Promotion candidate. Event correctness fix — prevents
+spurious double `afterCheckpoint` events that confuse directors.
+**Removal path:** Upstream PR gating `afterCheckpoint` on
+`hasOverride`/`pendingMessage !== null`.
+
 ## reactor-ts-last-written-turns-revision
 
 `reactor.ts` — `lastWrittenTurnsRevision` state backing the skip-rewrite
 optimization (reactor-ts-skip-unchanged-history). Tracks the turns revision
 most recently serialized to the context store.
+
+**Disposition:** Companion to `reactor-ts-skip-unchanged-history`. Ships out
+together.
 
 ## sse-ts-max-line-length
 
@@ -141,6 +205,10 @@ most recently serialized to the context store.
 and throws instead of growing unbounded — an unbounded run of bytes with no
 newline is indistinguishable from a stuck or hostile stream and would
 otherwise OOM the process.
+
+**Disposition:** Promotion candidate. Security/correctness fix — prevents
+OOM from a stuck or malicious stream. **Removal path:** Upstream PR adding
+`MAX_LINE_LENGTH` cap to SSE line parsing.
 
 ## state-ts-deep-freeze-turns-revision
 
@@ -152,12 +220,22 @@ never inspect `turns`, so the prior eager deep-clone made per-event cost
 scale with session length. `getTurnsRevision()` also backs
 `reactor.ts`'s checkpoint-skip optimization.
 
+**Disposition:** Promotion candidate. Performance optimization — eliminates
+O(n) structuredClone on every event for directors that don't inspect turns.
+**Removal path:** Upstream PR lazy-ifying `ReactorState.snapshot().turns`
+with revision tracking.
+
 ## google-genai-files-ts-body-init-cast
 
 `providers/google-genai-files.ts` — Casts `opts.bytes as unknown as BodyInit`
 — DOM lib's `BodyInit` type is narrower than Node's `Uint8Array` typing, but
 `fetch` accepts the bytes at runtime. Worth filing upstream as a real typing
 gap rather than carrying indefinitely.
+
+**Disposition:** Promotion candidate. Typing gap — should be fixed upstream.
+**Removal path:** Upstream PR widening `BodyInit` to accept `Uint8Array`, or
+Corbits adds a local type assertion wrapper and removes the cast from the
+vendored patch.
 
 ---
 
