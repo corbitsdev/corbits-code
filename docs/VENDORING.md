@@ -21,18 +21,19 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 
 ## What's vendored
 
-| Package                | Vendor path                   | License       | Synced from upstream commit                | Retrieved  | Local patches                                |
-| ---------------------- | ----------------------------- | ------------- | ------------------------------------------ | ---------- | -------------------------------------------- |
-| `@intx/inference`      | `vendor/intx-inference/`      | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types`          | `vendor/intx-types/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/agent`          | `vendor/intx-agent/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/authz`          | `vendor/intx-authz/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/log`            | `vendor/intx-log/`            | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/tools-posix`    | `vendor/intx-tools-posix/`    | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/mailbox`        | `vendor/intx-mailbox/`        | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/harness`        | `vendor/intx-harness/`        | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/mime`           | `vendor/intx-mime/`           | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| Package                                            | Vendor path                           | License       | Synced from upstream commit                | Retrieved  | Local patches                                |
+| -------------------------------------------------- | ------------------------------------- | ------------- | ------------------------------------------ | ---------- | -------------------------------------------- |
+| `@intx/inference`                                  | `vendor/intx-inference/`              | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-inference/PATCHES.md` |
+| `@intx/types`                                      | `vendor/intx-types/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/storage-isogit`                             | `vendor/intx-storage-isogit/`         | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/agent`                                      | `vendor/intx-agent/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/authz`                                      | `vendor/intx-authz/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/log`                                        | `vendor/intx-log/`                    | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/tools-posix`                                | `vendor/intx-tools-posix/`            | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/mailbox`                                    | `vendor/intx-mailbox/`                | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/harness`                                    | `vendor/intx-harness/`                | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/mime`                                       | `vendor/intx-mime/`                   | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/workflow-host` (partial — `adapters/` only) | `vendor/intx-workflow-host/adapters/` | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
 
 ## Provenance, ownership, and kill dates
 
@@ -185,9 +186,13 @@ those packages now resolves to the single root instance. As of this sync,
 
 ## Patched vs. verbatim
 
-`@intx/types` and `@intx/storage-isogit` are verbatim copies of upstream —
-no modifications. A diff against any later upstream checkout at the same
-paths will show 100% upstream-authored lines.
+Of the eleven vendored paths, exactly one carries local patches:
+`@intx/inference` — every divergence is a real fix not yet upstream, listed
+one-per-patch in `vendor/intx-inference/PATCHES.md`. The other ten paths
+(nine whole packages plus the partial `vendor/intx-workflow-host/adapters/`
+tree) are verbatim copies of upstream — no modifications. A diff against a
+pristine upstream checkout at the same commit and paths will show 100%
+upstream-authored lines.
 
 ## Notable upstream shape changes carried by the 2026-08-22 sync
 
@@ -237,12 +242,13 @@ does not resolve to a ledger heading, or if a ledger heading has no marker.
 
 1. In the read-only upstream clone, confirm the commit to sync to and note
    its hash for this document's table.
-2. For a **verbatim** package (`@intx/types`, `@intx/storage-isogit`):
-   copy `src/`, `README.md` over the vendored directory's `src/`,
-   `README.md` (leave `package.json` and `LICENSE` as they are unless the
-   package's own `package.json` exports or dependencies changed upstream —
-   diff the two `package.json` files by hand). Run `bun install`,
-   `bun run typecheck`, `bun run build`, `bun run test`.
+2. For a **verbatim** package, copy `src/`, `README.md` over the vendored
+   directory's `src/`, `README.md` (leave `package.json` and `LICENSE` as
+   they are unless the package's own `package.json` exports or dependencies
+   changed upstream — diff the two `package.json` files by hand; the
+   partial `vendor/intx-workflow-host/adapters/` tree has no `package.json`
+   of its own, so just re-copy the `adapters/` directory). Run
+   `bun install`, `bun run typecheck`, `bun run build`, `bun run test`.
 3. For a **patched** package (`@intx/inference`): before overwriting
    anything, run `bin/vendor-patch-diff` (optionally
    `--upstream /path/to/interchange`) to re-derive the exact local
