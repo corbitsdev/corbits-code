@@ -31,6 +31,7 @@ import { createAgentToolset } from "../../src/agent/tools.js";
 import { ID_PREFIX } from "../../src/branding.js";
 import type { PermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
+import { assertReplySend } from "../../src/subagent/run.js";
 
 export const INTEGRATION_SOURCE: InferenceSource = {
   id: "anthropic:claude-integration",
@@ -82,6 +83,7 @@ export async function openIntegrationSession(
 
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/integration-tools`,
+    definitions: [],
     factory: () => toolset.dynamicRunner,
   });
 
@@ -161,6 +163,7 @@ export async function runUntilDone(
     collectTask,
   ]).then(([result]) => result);
 
+  if (sendResult.type !== "reply") assertReplySend(sendResult);
   return { events, reply: sendResult.reply };
 }
 

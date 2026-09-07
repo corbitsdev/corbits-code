@@ -57,7 +57,6 @@ import { prefetchGoModels } from "../provider/opencode-go-models.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
-import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import {
   createPluginLoadDiagnostics,
   emitPluginWarningLog,
@@ -966,22 +965,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const initialCodexProfile = codexProfileFromProviderName(config.providerName);
     const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
 
-    // Refresh the pinned Codex instructions without blocking TUI startup. Every
-    // deliver below awaits settlement, so the first request never races the
-    // refresh: codex-responses-adapter places the instructions at the top of
-    // every request body, and an in-memory swap after inference #1 would change
-    // the whole prefix and forfeit the provider prompt cache mid-session.
-    // Best-effort, same as exec boot: on failure the session runs on
-    // cached/bundled instructions.
-    const codexInstructionsRefreshed: Promise<void> =
-      initialCodexProfile === undefined
-        ? Promise.resolve()
-        : refreshCodexInstructions().catch((err: unknown) => {
-            tuiLogger.warn("Codex instructions refresh failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
-
     // Reload, interrupt, compaction continuation, and proxy deliver share one queue
     // so a rebuild never races an in-flight deliver.
     const sessionOps = createSessionOperationQueue();
@@ -995,7 +978,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // otherwise the message silently never reaches the agent.
         await deliverAgentMessage({
           getFatalBuildError: () => fatalBuildError,
-          ready: codexInstructionsRefreshed,
           deliverToLiveAgent,
           onDeliverFailure: systemNotice,
         });

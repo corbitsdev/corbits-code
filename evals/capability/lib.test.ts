@@ -792,7 +792,6 @@ describe("parseEvalRunReport", () => {
       cases: [
         sampleResult({
           diagnostics: {
-            codexInstructionsHash: "abc123def456",
             advertisedTools: ["read_file", "run_shell"],
             reasoningEffort: "high",
           },
@@ -800,7 +799,6 @@ describe("parseEvalRunReport", () => {
       ],
     });
     expect(report.cases[0]!.diagnostics).toEqual({
-      codexInstructionsHash: "abc123def456",
       advertisedTools: ["read_file", "run_shell"],
       reasoningEffort: "high",
     });
