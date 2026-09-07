@@ -618,6 +618,9 @@ describe("attachSessionBridge", () => {
             type: "inference.text.delta",
             data: { token: "the answer." },
           });
+          // Deltas coalesce: the accumulated text lands at the next renderer
+          // frame, not per token.
+          await h.renderOnce();
 
           const assistant = shell.streamLog.filter((r) => r.role === "assistant");
           expect(assistant).toHaveLength(1);

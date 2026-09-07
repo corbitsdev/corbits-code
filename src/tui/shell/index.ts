@@ -29,6 +29,7 @@ import { badgeCount, createSessionQueue, enqueue } from "../session-queue.js";
 import { UI } from "../theme.js";
 import { createOverlayView, isDecisionOverlay } from "../overlay-view.js";
 import { emptyKillRing } from "../prompt-kill-ring.js";
+import { flushStreamRowUpdates } from "../runtime-bridge.js";
 
 import {
   type AppShell,
@@ -319,6 +320,11 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   // the text before the edit and the box would size itself one keystroke behind.
   const onFrame = (): void => {
     if (disposed) return;
+    // Streaming row retexts coalesce here: deltas only mark the open row
+    // dirty, and this frame hook applies the accumulated text once — the
+    // row's markdown body is reparsed whole per retext, so per-delta
+    // replacement is quadratic across a message.
+    flushStreamRowUpdates(shell);
     syncPromptRows(shell);
     syncPromptHighlights(shell);
     // Applied after a natural render, not at mutation time: a row's own box

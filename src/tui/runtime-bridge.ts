@@ -406,6 +406,12 @@ interface BridgeBag {
    * Last-hop routing (routeQueuedDelivery) reads this when deliver runs.
    */
   liveSteerInject: boolean;
+  /**
+   * The open row has accumulated deltas since its last paint. Deltas only mark
+   * this; the actual retext (a full markdown re-parse) happens once per
+   * renderer frame or at the next close/settle seam, never per token.
+   */
+  dirtyOpenRow: boolean;
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>();
@@ -492,6 +498,7 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   const open = bag.openRow;
   if (open === null) return;
   bag.openRow = null;
+  bag.dirtyOpenRow = false;
   // Reasoning stops scrolling and keeps its opening line; the elapsed time and
   // the full chain of thought stay on the row, behind the expand key.
   const thought = open.kind === "thinking" ? thoughtOf(bag, open) : undefined;
@@ -509,9 +516,11 @@ function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: s
   const open = bag.openRow;
   if (open !== null && open.kind === kind) {
     open.text += text;
-    if (open.folded) paintFoldedRow(shell, bag, open);
-    else if (kind === "thinking") advanceOpenReveal(shell, open, bag.now());
-    else replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true));
+    // One repaint per renderer frame, not one per token: the row's markdown
+    // body is reparsed whole on every retext, so per-delta replacement is
+    // O(row length) per token — O(n^2) across a message. The frame hook
+    // (`flushStreamRowUpdates`) and every close/settle seam apply the text.
+    bag.dirtyOpenRow = true;
     return;
   }
   closeOpenRow(shell, bag);
@@ -550,11 +559,16 @@ function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: s
 
 /**
  * Advance a "thinking" row's reveal position at the bounded rate and repaint
- * if it moved. Called on every delta and on the animation tick, so the line
- * both grows with new tokens and keeps crawling through buffered text during
- * a pause in arrival — capped either way by what has actually arrived.
+ * if it moved. Called from the coalesced frame flush and the animation tick,
+ * so the line both grows with new tokens and keeps crawling through buffered
+ * text during a pause in arrival — capped either way by what has arrived.
  */
-function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number): void {
+function advanceOpenReveal(
+  shell: AppShell,
+  bag: BridgeBag,
+  open: OpenStreamRow,
+  nowMs: number,
+): void {
   // A folded row is settled text above the turn's tool rows; it has no scroll
   // line to advance.
   if (open.folded) return;
@@ -563,11 +577,47 @@ function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number):
   open.revealAt = nowMs;
   if (revealed === open.revealChars) return;
   open.revealChars = revealed;
+  bag.dirtyOpenRow = false;
   replaceStreamRowAt(
     shell,
     open.index,
     openRowContent(open.kind, open.text, true, undefined, revealed),
   );
+}
+
+/**
+ * Apply the coalesced open-row paint. Deltas only accumulate text and mark the
+ * row dirty; this is the single retext — once per renderer frame (via
+ * `flushStreamRowUpdates` on the shell's frame hook) or at the next
+ * close/settle seam, whichever comes first.
+ */
+function flushOpenRow(shell: AppShell, bag: BridgeBag): void {
+  const open = bag.openRow;
+  if (open === null || !bag.dirtyOpenRow) return;
+  if (open.folded) {
+    bag.dirtyOpenRow = false;
+    paintFoldedRow(shell, bag, open);
+    return;
+  }
+  if (open.kind === "thinking") {
+    // Repaints iff the reveal position moved; a no-op leaves the row dirty so
+    // the next tick/frame retries, and closeOpenRow always applies the tail.
+    advanceOpenReveal(shell, bag, open, bag.now());
+    return;
+  }
+  bag.dirtyOpenRow = false;
+  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, true));
+}
+
+/**
+ * Flush the shell's dirty open stream row, if any. Called once per renderer
+ * frame from the shell's frame hook (the same seam as `syncPromptRows`), so
+ * streaming retexts coalesce to one per frame regardless of delta cadence.
+ */
+export function flushStreamRowUpdates(shell: AppShell): void {
+  const bag = bridges.get(shell);
+  if (bag === undefined || bag.disposed) return;
+  flushOpenRow(shell, bag);
 }
 
 /**
@@ -840,6 +890,10 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
  */
 function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   if (shell.session.run !== "busy") return;
+  // The turn is settling: whatever the open row accumulated must be on it
+  // before the settle paints, even if no renderer frame ran between the last
+  // delta and here.
+  flushOpenRow(shell, bag);
   bag.turnThinking = null;
   shell.inFlightTool = null;
   if (bag.liveFleet > 0) {
@@ -971,6 +1025,7 @@ export function attachSessionBridge(
     attemptRow: null,
     turnThinking: null,
     liveSteerInject: false,
+    dirtyOpenRow: false,
   };
   bridges.set(shell, bag);
 
@@ -1050,7 +1105,7 @@ export function attachSessionBridge(
     // mark: it needs to keep crawling through already-arrived text even when
     // no new delta has landed this tick.
     if (bag.openRow !== null && bag.openRow.kind === "thinking") {
-      advanceOpenReveal(shell, bag.openRow, nowMs);
+      advanceOpenReveal(shell, bag, bag.openRow, nowMs);
     }
     syncToolElapsed(shell, bag, nowMs);
     const input = {
@@ -1418,6 +1473,7 @@ export function attachSessionBridge(
       }
     },
     dispose: () => {
+      flushOpenRow(shell, bag);
       bag.disposed = true;
       applyCadence(null);
       clearShellBridgeHooks(shell);
