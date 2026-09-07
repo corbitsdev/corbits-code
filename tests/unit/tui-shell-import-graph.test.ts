@@ -50,7 +50,7 @@ function importSpecifiers(text: string): string[] {
 }
 
 async function readShell(): Promise<ImportEdge[]> {
-  const glob = new Bun.Glob("*.ts");
+  const glob = new Bun.Glob("**/*.ts");
   const edges: ImportEdge[] = [];
   for await (const rel of glob.scan({ cwd: shellDir, dot: true })) {
     const text = await Bun.file(join(shellDir, rel)).text();

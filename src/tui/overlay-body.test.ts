@@ -5,7 +5,6 @@ import { withTestRenderer } from "./harness.js";
 import {
   composeDecisionBody,
   decisionChoiceRows,
-  decisionChoiceRowCount,
   decisionContextBudget,
   describeZoneLines,
   DECISION_ACTIVE_MARK,
@@ -142,16 +141,6 @@ describe("composeDecisionBody", () => {
 
 describe("decisionChoiceRows", () => {
   const LABEL = "Always allow run_shell in /Users/someone/abklabs/corbits-code (session grant)";
-  const SHORT = "Reject";
-
-  test("every choice occupies the same row count, wrapped or not", () => {
-    for (const width of [40, 48, 60, 80] as const) {
-      const rows = decisionChoiceRowCount([SHORT, LABEL], width);
-      expect(rows).toBeGreaterThanOrEqual(DECISION_CHOICE_ROWS);
-      expect(decisionChoiceRows(SHORT, true, width, rows)).toHaveLength(rows);
-      expect(decisionChoiceRows(LABEL, false, width, rows)).toHaveLength(rows);
-    }
-  });
 
   test("the active choice is marked, and short labels pad to two rows", () => {
     const rows = decisionChoiceRows("Reject", true, 60);

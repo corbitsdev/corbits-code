@@ -218,18 +218,6 @@ function choiceWrapLines(label: string, width: number): string[] {
 }
 
 /**
- * Shared row count for every choice at `width`: at least
- * `DECISION_CHOICE_ROWS`, raised to the tallest wrap so nothing is clipped.
- */
-export function decisionChoiceRowCount(labels: readonly string[], width: number): number {
-  let rows = DECISION_CHOICE_ROWS;
-  for (const label of labels) {
-    rows = Math.max(rows, choiceWrapLines(label, width).length);
-  }
-  return rows;
-}
-
-/**
  * Shape one choice into a fixed-height block: the label, marked when active,
  * wrapped on word boundaries with a hanging indent. `rowCount` pads shorter
  * wraps with empty dim rows so every choice occupies the same height.
