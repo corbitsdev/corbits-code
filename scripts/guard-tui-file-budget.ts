@@ -24,9 +24,14 @@ async function main(): Promise<void> {
   }
   const budgets = budgetsResult;
 
-  for await (const path of new Bun.Glob("src/tui/**/*.ts").scan(".")) {
+  // The object form is required: Bun.Glob only honors `dot` when the scan
+  // arguments arrive as a single options object, so dot-prefixed files (which
+  // also dodge eslint's default ignores) stay inside the ratchet.
+  const scanned = new Set<string>();
+  for await (const path of new Bun.Glob("src/tui/**/*.ts").scan({ cwd: ".", dot: true })) {
     const text = await Bun.file(path).text();
     const lines = text.split("\n").length;
+    scanned.add(path);
 
     const budget = budgets[path];
     if (budget === undefined) {
@@ -39,6 +44,12 @@ async function main(): Promise<void> {
       fail(
         `${path}: ${lines} lines exceeds budget of ${budget} — split the file instead of raising the budget`,
       );
+    }
+  }
+
+  for (const key of Object.keys(budgets)) {
+    if (!scanned.has(key)) {
+      fail(`${key}: budget entry for a file that no longer exists — remove the stale key`);
     }
   }
 

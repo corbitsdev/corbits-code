@@ -43,8 +43,9 @@ bun run check
 ```
 
 `bun run check` is the single pre-PR gate: it runs `lint`, `typecheck`,
-`build`, and `check:projects-dir-guard` — which runs the `test` suite under
-the projects-dir sandbox guard — in that order, matching CI.
+`build`, `check:projects-dir-guard` — which runs the `test` suite under
+the projects-dir sandbox guard — and `check:tui-budget` (the src/tui
+line-budget ratchet), in that order, matching CI.
 
 Run the full suite before declaring any task complete. Do not substitute individual targets. If a failure is pre-existing and unrelated to your change, say so explicitly.
 

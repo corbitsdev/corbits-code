@@ -125,3 +125,9 @@ jobs:
       # reproduces locally with `bun run test`.
       - name: Test
         run: bun run check:projects-dir-guard
+
+      # Same ratchet the local `bun run check` gate runs (last step of the
+      # chain): every src/tui file must be listed in scripts/budgets.json and
+      # stay within its line budget, so file growth is a visible decision.
+      - name: TUI file budget
+        run: bun run check:tui-budget

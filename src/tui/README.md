@@ -4,20 +4,20 @@ Shipping OpenTUI shell and co-located TUI modules. Pure TypeScript / imperative 
 
 ## Modules
 
-| Path               | Role                                                            |
-| ------------------ | --------------------------------------------------------------- |
-| `geometry/`        | Pure zone registry + `resolveGeometry`                          |
-| `focus/`           | Focus tree + scroll lease state machine                         |
-| `list-viewport.ts` | Pure list windowing kit                                         |
-| `chrome-state.ts`  | Live task/agents → `setChromeZones` lines                       |
-| `shell.ts`         | App shell frame (`createAppShell`) — OpenTUI **core class** API |
+| Path              | Role                                                            |
+| ----------------- | --------------------------------------------------------------- |
+| `geometry/`       | Pure zone registry + `resolveGeometry`                          |
+| `focus/`          | Focus tree + scroll lease state machine                         |
+| `chrome-state.ts` | Live task/agents → `setChromeZones` lines                       |
+| `shell.ts`        | App shell frame (`createAppShell`) — OpenTUI **core class** API |
 
 ## Live chrome zones
 
 Product host owns task / subagent state and pushes snapshots (event or poll):
 
 ```ts
-import { formatChromeZones, setChromeZones } from "./index";
+import { formatChromeZones } from "./chrome-state";
+import { setChromeZones } from "./shell";
 
 // On task/subagent change:
 setChromeZones(
