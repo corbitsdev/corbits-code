@@ -52,7 +52,7 @@ package; the date is the deadline even if it is not.
 | `vendor/intx-authz/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/authz@>=0.4.0` publishes                                         |
 | `vendor/intx-log/`                    | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/log@>=0.4.0` publishes                                           |
 | `vendor/intx-tools-posix/`            | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/tools-posix@>=0.4.0` publishes                                   |
-| `vendor/intx-mailbox/`                | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Never published to npm (verified 2026-09-07: registry 404 for all versions)                                                                                     | step-1  | 2027-03-07 or when `@intx/mailbox@>=0.4.0` publishes                                       |
+| `vendor/intx-mailbox/`                | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Never published to npm (verified 2026-09-07: registry 404 for all versions)                                                                                     | step-1  | 2027-03-07 or when any `@intx/mailbox` version publishes to npm                            |
 | `vendor/intx-harness/`                | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | `driveConnectorReplies`/`AgentEventStream` (`src/reply-drain.ts`) is past npm `0.3.0` (verified 2026-09-07: absent from the published tarball)                  | step-1  | 2027-03-07 or when a published `@intx/harness` exports `driveConnectorReplies`             |
 | `vendor/intx-mime/`                   | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | `buildMessageHeaders` is past npm `0.3.0` (verified 2026-09-07: absent from the published tarball); `@intx/mailbox` re-exports it                               | step-1  | 2027-03-07 or when a published `@intx/mime` exports `buildMessageHeaders`                  |
 | `vendor/intx-workflow-host/adapters/` | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | App-internal: `substrate-mailbox-store.ts` has never been published in any `@intx/workflow-host` release (verified 2026-09-07: absent from the `0.3.0` tarball) | step-1  | 2027-03-07 or when a published `@intx/workflow-host` exports `createSubstrateMailboxStore` |
@@ -217,7 +217,10 @@ One new upstream test, `browser-bundle.test.ts`, is excluded via
 `@intx/log` and `@intx/mime` to `./src/*.ts`. Both are vendored source as
 of the 2026-09-07 syncs (`@intx/mime` in the step-1 pass, which vendored
 it for `buildMessageHeaders`), so the condition has a `src/` target again;
-the test stays excluded pending a re-run of the bundle in CI conditions.
+the exclusion remains because a local re-run of the bundle fails for a
+different reason — the vendored mime sources import `@intx/crypto`, which
+stays on published npm, and `Bun.build` cannot resolve that bare specifier
+from inside the vendor workspace.
 
 `@intx/inference` carries local patches — real fixes not yet present
 upstream, not workarounds for something upstream has since fixed. Every

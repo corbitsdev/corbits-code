@@ -6,9 +6,10 @@ pathIgnorePatterns = [
   "tmp/**",
   # Bundles vendor/intx-storage-isogit's browser entry point with Bun.build,
   # under the "intx-src" export condition that resolves @intx/log and
-  # @intx/mime to ./src/*.ts. @intx/log is vendored source, but @intx/mime
-  # stays on published npm (dist-only, no src/), so the condition matches an
-  # export key whose target file doesn't exist. Not a vendored-code defect —
+  # @intx/mime to ./src/*.ts. Both are vendored source now, but the bundle
+  # still fails: the vendored mime sources import @intx/crypto, which stays
+  # on published npm (dist-only), and Bun.build cannot resolve that bare
+  # specifier from inside the vendor workspace. Not a vendored-code defect —
   # see docs/VENDORING.md.
   "vendor/intx-storage-isogit/src/browser-bundle.test.ts",
 ]
