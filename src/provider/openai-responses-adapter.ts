@@ -28,6 +28,7 @@ export const OPENAI_RESPONSES_PROVIDER = "openai-responses";
 
 // Key the source stashes in defaults.providerOptions for this adapter.
 export const OPENAI_SESSION_ID_OPTION = "openaiSessionId";
+export const OPENCODE_SESSION_ID_OPTION = "opencodeSessionId";
 
 type ResponsesInputContentPart =
   { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
@@ -214,6 +215,7 @@ function buildRequest(
       "content-type": "application/json",
       accept: "text/event-stream",
       authorization: BEARER_CREDENTIAL_SENTINEL,
+      ...(sessionId !== undefined ? { "x-opencode-session": sessionId } : {}),
     },
     body: JSON.stringify(body),
   };

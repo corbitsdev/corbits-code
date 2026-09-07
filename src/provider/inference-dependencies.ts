@@ -6,12 +6,14 @@ import * as codexResponses from "./codex-responses-adapter.js";
 import * as grokResponses from "./grok-responses-adapter.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as openaiResponses from "./openai-responses-adapter.js";
+import * as opencodeGoAnthropic from "./opencode-go-anthropic-adapter.js";
 import { CODEX_RESPONSES_PROVIDER, withCodexContentTypeRepair } from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses-adapter.js";
+import { OPENCODE_GO_MESSAGES_PROVIDER } from "./opencode-go-anthropic-adapter.js";
 
 // Corbits Code ships first-party adapters on top of the built-in provider set:
 // openai-compatible and OpenCode Go chat-completions adapters, Codex/Grok
@@ -47,6 +49,11 @@ const manifest: AdapterManifest = [
     specifier: "openai-responses-adapter",
     export: "createOpenAIResponsesAdapter",
   },
+  {
+    provider: OPENCODE_GO_MESSAGES_PROVIDER,
+    specifier: "opencode-go-anthropic-adapter",
+    export: "createOpenCodeGoAnthropicAdapter",
+  },
 ];
 
 const localModules: Record<string, unknown> = {
@@ -56,6 +63,7 @@ const localModules: Record<string, unknown> = {
   "grok-responses-adapter": grokResponses,
   "bifrost-adapter": bifrostAdapter,
   "openai-responses-adapter": openaiResponses,
+  "opencode-go-anthropic-adapter": opencodeGoAnthropic,
 };
 
 let cached: Promise<Dependencies> | undefined;
