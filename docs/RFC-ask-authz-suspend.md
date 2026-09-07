@@ -7,125 +7,253 @@
 
 ## Summary
 
-The current permission gate holds `resolve()` callbacks in memory for the
-duration of operator interaction. This works in-process but has no durability,
-no cross-process portability, and no integration with the `@intx/types`
-`Channel<T>` message bus that underlies the reactor. This RFC proposes a
-migration path toward an explicit suspend/resume primitive that survives
-process restarts and plugs into the unified message bus, aligning with the
-reactor's approval-suspend primitive that CL-5699 will adopt.
+The current permission gate parks tool calls on in-memory `resolve()`
+closures (`src/tui/gate-events.ts:23-39`) held open by the gate-wire
+overlay. This RFC decides how Corbits Code adopts the upstream reactor's
+approval-suspend primitive instead: a before-tool authz hook that returns
+a `suspend` effect carrying an approval gate and a persisted
+`PendingOperation`, with resumption driven by the reactor's signal
+dispatch — not by any callback we invent.
+
+This RFC resolves the four decisions CL-5683 requires:
+
+- **(a)** The gate's pending-record bookkeeping maps onto the upstream
+  `PendingOperation`/`correlationId` flow by adopting the upstream
+  `correlationId` as the single identity for a parked call and reusing the
+  existing `pendingOperations` persistence in
+  `src/session/optimized-context-store.ts` — no parallel queue.
+- **(b)** Director ask-handling consumes the reactor's suspend action and
+  `gate.cleared` resume dispatch; the director stops owning approval
+  queues. The wiring seam is `requestApproval` at
+  `src/session/assemble-runtime.ts:218,248`, not the director.
+- **(c)** `src/permission/classify.ts` allow/ask tiering stays a
+  pre-filter above authz grants; it is not authz policy.
+- **(d)** Headless denial and the stricter chained-command deny are
+  re-homed as `block` effects in the authz extension's before-tool hook,
+  where upstream already has a block channel.
+
+No code changes in this cut — design decision only. It blocks only
+CL-5699.
 
 ## Motivation
 
 ### Current architecture
 
-The permission system is already unified in-process — both shell/file-tool
-permissions and operator questions flow through typed gate events:
-
-- `PermissionGateEvent` (`src/tui/gate-events.ts:23-39`) — carries a
-  `PermissionRequest`, a `resolve(outcome)` callback, optional `timeoutMs`,
-  and an `AbortSignal`.
-- `OperatorGateEvent` (`src/tui/gate-events.ts:4-21`) — carries a question,
-  options, a `resolve(result)` callback, optional `timeoutMs`, and an
-  `AbortSignal`.
-
-The overlay host (`src/tui/gate-wire.ts`) connects these events to the TUI,
-holding the `resolve()` callback open until the operator interacts. A
-reconciliation queue (`src/permission/queue.ts`) serializes concurrent requests
-and routes grants through the approval store.
+- `PermissionGateEvent` (`src/tui/gate-events.ts:23-39`) carries a
+  `PermissionRequest`, a `resolve(outcome)` callback, optional
+  `timeoutMs`, and an `AbortSignal`.
+- `OperatorGateEvent` (`src/tui/gate-events.ts:4-21`) is the question
+  analogue.
+- The gate-wire overlay (`src/tui/gate-wire.ts`) connects these events to
+  the TUI and holds `resolve()` open until the operator interacts; it also
+  owns the pending-display overlay that serializes what the operator sees
+  (`src/tui/gate-wire.ts:235-273`).
+- `src/permission/queue.ts` is an in-memory `Map` of concurrent pending
+  entries keyed by id (`src/permission/queue.ts:38-41`) used to reconcile
+  grants through the approval store; `src/permission/store.ts` persists
+  grants only, not pending requests.
 
 ### The gap
 
-The "suspend" is implicit: the `resolve()` closure sits in memory, pinned by
-the gate-wire's pending queue. If the process dies, the suspend is lost — the
-LLM's tool call returns a hung future with no recovery path. This is fine for
-an interactive terminal session but blocks:
+The "suspend" is implicit: the `resolve()` closure sits in memory, pinned
+by the gate-wire's pending overlay. If the process dies, the suspend is
+lost — the LLM's tool call returns a hung future with no recovery path.
+Today there is **no durability for pending approvals**: the queue is an
+in-memory Map and the store holds grants only. Nothing in this RFC claims
+restart recovery for pending approvals until that changes (see the
+durability decision under (a)).
 
-1. **Process restart recovery.** A crashed session cannot resume a pending
-   operator approval.
-2. **Cross-process portability.** The `@intx/types` `Channel<T>` pattern lets
-   messages flow between the reactor and external surfaces (TUI, web, CI).
-   Permission requests cannot currently ride this bus because they are
-   closure-based, not message-based.
-3. **Reactor approval-suspend primitive.** The upstream reactor now supports an
-   explicit `suspend()` / `resume()` cycle for gate interactions. Corbits Code
-   does not yet use it because the current closure-based approach predates it.
+Meanwhile the upstream reactor (vendored at `vendor/intx-inference`)
+already carries the primitive:
 
-## Design
+- The before-tool authz hook returns, for an `ask` effect,
+  `{ type: "suspend", gate: { type: "approval", gateId, correlationId,
+  timeoutAt }, pendingOp }` (`authz-extension.ts:263-267` upstream; the
+  reactor persists `pendingOp`, minting `correlationId` at :223 and
+  `gateId = pending-${correlationId}` at :226).
+- `DEFAULT_APPROVAL_TIMEOUT_MS = 3_600_000` (:36) — one hour.
+- Resume is signal-driven dispatch in the reactor: a suspended call parks
+  on the reserved `signalName(correlationId)` channel (see the park-kind
+  prose in `packages/types/src/signals.ts:67` and `runtime.ts:663`
+  upstream), and a cleared gate enqueues a `reactor.gate.cleared` event
+  the director decides on (`reactor.ts:8-10, 68-72` upstream).
+- A re-dispatch of an already-approved call bypasses the gate via a
+  delete-on-read in-memory `approvedOnce` token
+  (`authz-extension.ts:211-218`).
 
-### Phase 1: Explicit suspend token (CL-5699 scope)
+Corbits Code does not use this yet because the closure-based approach
+predates the vendoring.
 
-Replace the bare `resolve()` closure with a `SuspendToken` that carries:
+## Decisions
 
-```typescript
-interface SuspendToken {
-  /** Unique ID for this permission interaction. */
-  id: string;
-  /** Resume with the operator's decision. */
-  resume(outcome: ApprovalOutcome | OperatorResult): void;
-  /** Cancel the interaction (auto-deny / auto-cancel). */
-  cancel(reason: string): void;
-  /** Whether the interaction is still pending. */
-  readonly pending: boolean;
-}
-```
+### (a) Gate pending records map onto PendingOperation / correlationId
 
-The gate-wire creates a `SuspendToken` for each gate event, stores it in a
-`Map<string, SuspendToken>`, and passes the token to the reactor's suspend
-mechanism. The reactor calls `token.resume()` when the operator answers, and
-`token.cancel()` on timeout or abort.
+**Decision:** adopt the upstream `correlationId` as the single identity of
+a parked permission request. The gate's current per-request ids and
+resolve closures are replaced by the upstream flow: the authz hook mints
+`correlationId`, wraps the request into a `pendingOp`
+(`PendingOperation` from `@intx/types/runtime`, with `approvalSnapshot`
+and `suspendedCall`), and returns the `suspend` effect. The reactor
+persists the operation; resume is addressed by `correlationId` via the
+signal channel, not by holding a callback.
 
-This keeps the in-process behavior identical to today but gives the reactor an
-explicit handle it can persist, serialize, or pass across process boundaries.
+Rationale: today `src/session/optimized-context-store.ts` already
+persists `PendingOperation[]` from `@intx/types/runtime`
+(`optimized-context-store.ts:9,178`), and upstream persists the operation
+precisely so the id survives a restart (comment at
+`authz-extension.ts:219-221`). Using that existing surface means the
+gate's bookkeeping collapses into one identity and one store instead of a
+parallel `Map<string, SuspendToken>` in the gate-wire.
 
-### Phase 2: Message-bus integration (future, out of scope for v0.3.19)
+**Durability, stated honestly:** as of this RFC, restart recovery for
+pending approvals is **not delivered and remains out of CL-5699 scope**.
+`src/permission/queue.ts` is an in-memory `Map` and
+`src/permission/store.ts` persists grants only, so a crashed session
+still loses the pending approval. The mapping above is what makes
+recovery *possible later* (the persisted `pendingOperations` plus
+`correlationId`-addressed resume), but wiring snapshot-and-restore is
+separate work and is not claimed by CL-5699.
 
-Once Phase 1 lands, permission requests can be serialized as `Channel<T>`
-messages. The reactor suspends with a token, the TUI overlay resumes it.
-A future web or CI surface could do the same without in-process coupling.
+### (b) Director consumes suspend actions; requestApproval is the seam
 
-The serialized form would be:
+**Decision:** director ask-handling consumes the reactor's suspend action
+and the `gate.cleared`-driven resume dispatch, and stops managing its own
+approval queue. The `requestApproval` hook stays wired where it is today
+— `src/session/assemble-runtime.ts:218` (the dependency declaration) and
+`:248` (the wiring into the approval persist/log plumbing) — and its job
+narrows to feeding the operator-facing surface. The director never sees
+the gate itself; it sees outcomes only as tool-result text today
+(`src/agent/director.ts:276` matches "Blocked by permission policy:
+Operator declined:") and, after adoption, additionally sees the suspend
+as a parked tool call and the clear as a `reactor.gate.cleared` event it
+decides on.
 
-```typescript
-interface SuspendMessage {
-  kind: "permission-suspend";
-  token: string; // SuspendToken.id
-  request: PermissionRequest;
-}
-```
+Rationale: upstream deliberately separates "the call is parked" (reactor,
+gate, persisted operation) from "the director decides what happens when
+the gate clears" (resume dispatch reaches the director as a normal
+event). Putting the queue in the director would duplicate the reactor's
+park/bookkeeping role; putting it nowhere loses the operator surface.
+The seam ownership follows the existing wiring: the session assembles the
+gate dependencies, the reactor owns the suspend lifecycle, the director
+only reacts to events.
 
-### Interaction with CL-7333 umbrella
+### (c) classify.ts tiering stays a pre-filter above authz grants
 
-This RFC informs CL-5699 (adopt reactor's approval-suspend primitive) and
-indirectly CL-5697 (vendor `@intx/inference` at HEAD, which ships the suspend
-primitive in the reactor). No code changes in this RFC — it is a design doc.
+**Decision:** `src/permission/classify.ts`'s allow/ask `Tier`
+(`classify.ts:69`) remains a pre-filter that decides *whether and how*
+the authz path is consulted; it does not become authz policy. Read-only
+tools classify `allow` and short-circuit; everything else classifies
+`ask` and flows through the authz grant path, where grants, denies, and
+the suspend effect live.
+
+Rationale: the classifier encodes Corbits' tool-level defaults (which
+tools are safe to auto-run) — knowledge that lives on our side of the
+boundary and that upstream authz has no way to express. Authz grants
+encode per-project operator intent (patterns, scopes, persistence).
+Collapsing the two would either push Corbits tool defaults into
+grant-matching (wrong layer, wrong persistence) or force the grant store
+to re-implement tiering. Keeping the tier as a pre-filter preserves both
+and gives the suspend primitive a clean trigger: `ask` tier is exactly
+the condition under which the before-tool hook can return `suspend`.
+
+### (d) Headless denial and stricter command-deny re-home as block effects
+
+**Decision:** the two Corbits-only deny paths move into the authz
+extension's before-tool hook as `block` effects, which upstream already
+supports (`{ type: "block", reason }` is a first-class hook return in
+`authz-extension.ts:205-208`):
+
+- **Headless denial** — today in `src/permission/gate.ts:592-600` and
+  `654-660` (note: `gate.ts` is 750 lines; the ticket's 625-line figure
+  is stale). When the run is non-interactive there is no operator to
+  approve, so instead of reaching the `ask` effect the hook returns
+  `block` with the existing denial reasons.
+- **Stricter chained-command deny** — today
+  `src/permission/gate.ts:549-552`, owned by `preGrantGuardReason`
+  (`gate.ts:137-163`), which hard-denies chained shell commands whose
+  segments target restricted or sensitive paths even when a grant
+  exists. This stays a pre-grant guard but is expressed as a `block`
+  effect in the hook rather than gate-internal bookkeeping.
+
+Neither path has an upstream equivalent, so both are ours to carry; the
+decision is only *where* they live. Putting them in the hook means the
+gate's `ask` path is the only path that can suspend, and denial never
+needs a parked operation, a correlation id, or a resume.
+
+Rationale: upstream's hook contract already distinguishes
+allow / block / ask / suspend. Denial-without-interaction is exactly
+`block`; approval-requiring is exactly `ask`→`suspend`. Re-homing keeps
+`gate.ts`'s remaining job limited to interactive outcome routing while
+the vendored reactor owns the lifecycle.
+
+## Transport: what exists, not `Channel<T>`
+
+`@intx/types` has no `Channel<T>`. An earlier draft of this RFC designed
+a bus around one; that interface does not exist upstream or in our tree.
+The real mechanisms are:
+
+- **Upstream:** the reserved signal channel — a suspended step parks on
+  `signalName(correlationId)` and resume is the reactor's signal-driven
+  dispatch (`packages/types/src/signals.ts:67`,
+  `packages/types/src/runtime.ts:663`, `reactor.ts:8-10, 68-72`).
+  This is the transport the suspend primitive is designed against, so it
+  is the one we adopt: gate clears are delivered by enqueueing a signal
+  on the correlation-id channel, and the reactor's existing resume
+  dispatch does the rest.
+- **Ours:** the TUI-side runtime channels (`src/tui/runtime-channels`)
+  are EventEmitter-based — a display-plane mechanism, suited to
+  surfacing the pending operation to the operator, not to resuming a
+  parked reactor step.
+
+Decision: resume transport is the upstream signal channel (it is what
+the reactor dispatches on); the EventEmitter runtime channels stay on
+the display plane and carry the approval snapshot to the overlay. No new
+message type is introduced.
 
 ## Alternatives considered
 
-1. **Keep closure-based suspend, add try/catch wrapping.** Low effort but does
-   not solve durability or cross-process portability. The reactor's primitive
-   would go unused.
+1. **Keep closure-based suspend.** Zero migration cost but leaves the
+   reactor's primitive unused, keeps `resolve()` pinned in memory, and
+   forfeits the persisted-`pendingOp` identity that any future restart
+   recovery needs.
 
-2. **Serialize the full `PermissionRequest` into the context store.** Heavier
-   than needed — the token ID is sufficient to re-derive state from the queue.
-   The full request can be reconstructed from the queue's pending entries.
+2. **Invent a `SuspendToken` with `resume()`/`cancel()` handed to the
+   reactor.** Rejected: corresponds to nothing upstream. The reactor's
+   resume is signal-driven dispatch; a callback-based token would be a
+   second resume mechanism racing the first.
 
-3. **Skip Phase 1, jump straight to message-bus integration.** Risks a larger
-   blast radius; the Phase 1 token gives a clean seam for testing and
-   incremental migration.
+3. **Serialize the full `PermissionRequest` into the store "because the
+   queue can reconstruct it."** Rejected as stated: the queue is an
+   in-memory `Map` (`src/permission/queue.ts:38-41`), so after process
+   death there are no pending entries to reconstruct from, and
+   `src/permission/store.ts` persists grants only. Snapshot/restore of
+   pending operations is real future work, decided out of scope in (a).
+
+4. **Skip adoption until a cross-process surface exists.** Rejected: the
+   closure-based path already breaks down on single-process restart, and
+   adoption is a prerequisite for CL-5699 regardless.
 
 ## Migration path
 
-1. CL-5683 (this RFC) — design complete.
-2. CL-5699 — implement `SuspendToken`, wire gate-wire to use it, pass tokens
-   to reactor. Gate-wire behavior unchanged from the operator's perspective.
-3. Monitor adoption; Phase 2 only when a cross-process surface requests it.
+1. CL-5683 (this RFC) — design complete; decisions (a)-(d) above.
+2. CL-5699 — implement: route `ask`-tier calls through the authz hook's
+   suspend effect; persist `PendingOperation` via the existing
+   `optimized-context-store` surface; deliver gate clears on the
+   correlation-id signal channel; re-home the two deny paths as `block`
+   effects; narrow `requestApproval` to the operator-facing seam.
+   Gate-wire display behavior unchanged from the operator's perspective.
+   Explicitly out of scope: snapshot-and-restore of pending approvals
+   across restart.
+3. Monitor adoption; revisit restart recovery as a separate ticket with
+   its own scope.
 
 ## Open questions
 
-- Should `SuspendToken` be in `src/permission/` or `src/agent/`? The token is
-  created by the permission gate but consumed by the reactor. Leaning toward
-  `src/permission/suspend.ts` with a re-export from `src/agent/`.
-- Should the token carry an optional serialized snapshot for process restart
-  recovery? Adds complexity; defer to Phase 2 unless a concrete use case
-  appears.
+- Should the approval `approvalSnapshot` → TUI payload mapping live in
+  the gate-wire overlay or in a new adapter beside
+  `src/session/optimized-context-store.ts`? Leaning gate-wire, since it
+  already owns the pending-display overlay.
+- Exact timeout policy: upstream defaults to one hour
+  (`DEFAULT_APPROVAL_TIMEOUT_MS`, `authz-extension.ts:36`); whether
+  unattended auto-continue runs should pass a shorter
+  `approvalTimeoutMs` per run.
