@@ -304,7 +304,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
 
   const shell = createAppShell(renderer, {
     title: config.title,
-    clipboard: createSystemClipboard(),
+    clipboard: createSystemClipboard(renderer),
     mouseCapture: {
       get: () => renderer.useMouse,
       set: (enabled: boolean) => {
