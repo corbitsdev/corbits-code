@@ -757,7 +757,11 @@ class ChatDirectorImpl extends DefaultDirector {
       // has no reason to respond to. Reason-bearing approver rejections and
       // policy denies re-infer below — the model responds to the reason or
       // adapts to the deny text.
-      if (declined !== null && declined.kind === "approver-rejection" && declined.reason === undefined) {
+      if (
+        declined !== null &&
+        declined.kind === "approver-rejection" &&
+        declined.reason === undefined
+      ) {
         if (hasActiveTasks(this.tasks)) {
           if (this.declinedTerminationNudges < MAX_DECLINED_OPEN_TASK_NUDGES) {
             this.declinedTerminationNudges++;

@@ -150,7 +150,11 @@ describe("operator declined tool calls", () => {
   test("reason-less approver rejection takes the canned path", async () => {
     const director = createChatDirector("", [], { onTasksChange: () => {} });
     const actions = actionsArray(
-      await director.decide(makeToolErrorEvent("c", "denied by approver"), mockState, mockCapabilities),
+      await director.decide(
+        makeToolErrorEvent("c", "denied by approver"),
+        mockState,
+        mockCapabilities,
+      ),
     );
     expect(hasCheckpoint(actions)).toBe(true);
     expect(hasDeclineReply(actions)).toBe(true);
