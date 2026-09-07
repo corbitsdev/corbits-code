@@ -19,5 +19,8 @@
     "@intx/mime": "0.3.0",
     "@intx/types": "workspace:*",
     "arktype": "catalog:"
+  },
+  "devDependencies": {
+    "@intx/storage-isogit": "workspace:*"
   }
 }

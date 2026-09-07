@@ -16,5 +16,8 @@
   "dependencies": {
     "@intx/agent": "workspace:*",
     "@intx/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@intx/storage-isogit": "workspace:*"
   }
 }

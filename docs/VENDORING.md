@@ -94,7 +94,7 @@ including nested Bun package layouts such as
 `node_modules/.bun/@intx+agent@…/node_modules/@intx/types` — at the
 vendored tree. That is the runtime and install-time story.
 
-TypeScript needs a second pin. Published packages such as `@intx/agent@0.3.0`
+TypeScript needs a second pin. Published packages such as `@intx/tools-lsp`
 ship `dist/*.d.ts` that import `@intx/types/runtime`. When a stale or
 partial install leaves a nested published `@intx/types@0.3.0` (with its
 older `dist/` shapes, missing fields such as `PendingOperation.kind`),

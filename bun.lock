@@ -58,6 +58,9 @@
         "@intx/types": "workspace:*",
         "arktype": "catalog:",
       },
+      "devDependencies": {
+        "@intx/storage-isogit": "workspace:*",
+      },
     },
     "vendor/intx-authz": {
       "name": "@intx/authz",
@@ -114,6 +117,9 @@
       "dependencies": {
         "@intx/agent": "workspace:*",
         "@intx/types": "workspace:*",
+      },
+      "devDependencies": {
+        "@intx/storage-isogit": "workspace:*",
       },
     },
     "vendor/intx-types": {
