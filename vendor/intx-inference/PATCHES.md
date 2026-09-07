@@ -20,6 +20,20 @@ confirm every hunk still maps to an entry here (or, if upstream has since
 absorbed the same fix, drop the entry and its markers — verify by reading
 the new upstream code, not by assuming).
 
+**Vocabulary:** this ledger's disposition labels map onto the CL-7302
+ticket taxonomy as follows — "Promotion candidate" = Upstreamable,
+"Long-lived" = Re-carryable, "Kill candidate" = Droppable, and "Companion"
+entries are Re-carryable but ride their primary patch's disposition (they
+ship out or die with it).
+
+**Re-carry status (CL-5697):** at the sync to upstream HEAD `0205b07b`,
+all 17 entries below were re-carried via three-way merge with zero
+conflicts. Upstream moved only `reactor.ts` (new doom-loop detection:
+`doomLoopThreshold`, `toolBatchSignature`, run-scoped accounting, fatal
+break) and `assembly.ts` (passthrough change). Every entry now carries a
+re-carry note stating the merge cost and the survivability risk going
+into the next sync.
+
 ## adapter-ts-stream-terminal-detector
 
 `adapter.ts` — Adds `StreamTerminalDetector`/`ProviderAdapter.isStreamTerminal`.
@@ -34,6 +48,8 @@ SSE loop.
 date until upstream adopts; downstream users not using OpenAI Responses
 protocol can ignore. **Removal path:** Upstream PR to
 `@intx/inference` adding `isStreamTerminal` to `ProviderAdapter`.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk —
+`adapter.ts` is stable upstream and untouched by the doom-loop work.
 
 ## assembly-ts-deps-context-transforms
 
@@ -49,6 +65,13 @@ a change to the published package.
 vendored package directly). **Removal path:** Upstream PR to `@intx/agent` to
 forward `contextTransforms` explicitly; then delete both this patch and
 `harness-ts-context-transforms`.
+**Obligation:** both `contextTransforms` patches have live consumers today —
+`src/session/assemble-runtime.ts:423` and `src/subagent/run.ts:880` — so they
+must be re-carried on every sync until upstream exposes the field; only then
+can they be killed.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts (upstream touched
+`assembly.ts` with a passthrough change; the hunk applied cleanly). Low
+risk, but the consumer obligation above keeps this on the sync checklist.
 
 ## errors-ts-classify-abort-reason
 
@@ -63,6 +86,8 @@ four abort-check sites in `harness.ts`.
 optional `reason` param to `classifyAbortError` and enriching `raw`. **Removal
 path:** Upstream PR adding the optional `reason` parameter and `ClassifiedAbortRaw`
 type. No kill date until upstream ships it.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk —
+`errors.ts` sees little upstream churn.
 
 ## harness-ts-context-transforms
 
@@ -72,6 +97,10 @@ type. No kill date until upstream ships it.
 **Disposition:** Kill candidate — pair with `assembly-ts-deps-context-transforms`.
 **Removal path:** Upstream PR to `@intx/agent` exposing `contextTransforms`
 explicitly. Ships out together with the assembly patch.
+**Obligation:** live consumers at `src/session/assemble-runtime.ts:423` and
+`src/subagent/run.ts:880` — re-carry until upstream exposes the field, then
+kill.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk.
 
 ## harness-ts-inactivity-on-semantic-progress
 
@@ -84,6 +113,9 @@ produces events from a chunk.
 **Disposition:** Promotion candidate. Clear upstream bug fix — the inactivity
 timer should not re-arm on raw bytes. **Removal path:** Upstream PR to
 `@intx/inference` gating re-arm on parsed-event output.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Moderate risk —
+upstream reworked retry/failover inside `harness.ts`'s `runInference` wrapper;
+re-verify the SSE-loop arming site on the next sync.
 
 ## harness-ts-is-stream-terminal
 
@@ -93,6 +125,8 @@ end-of-turn is a semantic event rather than `[DONE]` or socket close.
 
 **Disposition:** Companion to `adapter-ts-stream-terminal-detector`. Ships
 out together when upstream adopts the `isStreamTerminal` hook.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk;
+same sync-checklist caveat as the inactivity patch above.
 
 ## harness-ts-commitment-boundary-streaming
 
@@ -114,6 +148,10 @@ that upstream would need to adopt wholesale, not a simple param fix.
 **Removal path:** Upstream redesigns `runInference` with commitment-boundary
 streaming built in. No kill date — this is the core streaming architecture
 for Corbits and likely to remain a fork patch for the foreseeable future.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Priority risk —
+upstream moved retry emission into `harness.ts`'s `runInference` wrapper,
+which is exactly the function this patch redesigns; re-verify the
+retry-suppression-after-commitment interaction on every sync.
 
 ## harness-ts-is-committing
 
@@ -123,6 +161,8 @@ pre-commit metadata).
 
 **Disposition:** Companion to `harness-ts-commitment-boundary-streaming`.
 Ships out together.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Priority risk —
+tracks the commitment-boundary patch.
 
 ## reactor-ts-ephemeral-turns
 
@@ -132,10 +172,15 @@ history, so transient director guidance does not touch the cached transcript
 prefix. No native equivalent exists upstream. `index.ts` re-exports the type
 (mechanical; no separate marker).
 
-**Disposition:** Long-lived. No upstream equivalent exists and is not planned.
-Ephemeral turns are a Corbits-specific mechanism for injecting transient
-director guidance. **Removal path:** Only if Corbits adopts an alternative
-mechanism for transient prompt injection. No kill date.
+**Disposition:** Long-lived. Upstream carries no transient-turn or
+prompt-injection mechanism as of `0205b07b` (verified by reading the
+upstream reactor at that SHA); no upstream issue or PR toward one exists in
+the clone. **Removal path:** Only if Corbits adopts an alternative mechanism
+for transient prompt injection. No kill date.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Priority risk —
+upstream's new doom-loop detection added run-scoped accounting and a fatal
+break path in `reactor.ts`; re-verify that ephemeral turns do not interact
+badly with doom-loop signatures or the run accounting on the next sync.
 
 ## reactor-ts-correlating-ids-leak
 
@@ -149,6 +194,10 @@ exit clears it.
 **Disposition:** Promotion candidate. Clear upstream bug fix. **Removal
 path:** Upstream PR wrapping `tryCorrelate` in try/finally to clear
 `correlatingIds` on all exit paths.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Moderate risk —
+`tryCorrelate` sits adjacent to upstream's new signal-driven resume dispatch
+in `reactor.ts`; re-verify exit paths after upstream changes to gate
+clearing.
 
 ## reactor-ts-checkpoint-after-tool-cycle
 
@@ -162,6 +211,10 @@ committed only at cycle terminals).
 interrupting after a tool cycle must not lose committed tool turns.
 **Removal path:** Upstream PR adding `commitCycle()` call in
 `executeTools` when `addToHistory` is true.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Moderate risk —
+upstream's doom-loop fatal break fires from inside the tool cycle; re-verify
+that a doom-loop break still commits (or intentionally does not commit) the
+in-flight cycle.
 
 ## reactor-ts-skip-unchanged-history
 
@@ -169,12 +222,15 @@ interrupting after a tool cycle must not lose committed tool turns.
 `commitCycle` now compares `stateManager.getTurnsRevision()` against the
 revision most recently written and skips `contextStore.writeTurns` when
 nothing changed, avoiding an O(history) re-serialize (including historical
-tool-output blobs) on every checkpoint.
+tool-output blobs) on no-op checkpoints.
 
 **Disposition:** Promotion candidate. Performance optimization with no
 behavioral change — reduces checkpoint cost from O(history) to O(1) when
 no turns were added. **Removal path:** Upstream PR adding revision check
 in `commitCycle`.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk;
+depends on the `turnsRevision` plumbing in `state.ts`, which is itself a
+patch (below).
 
 ## reactor-ts-after-checkpoint-director-only
 
@@ -189,6 +245,7 @@ its perspective, a single checkpoint.
 spurious double `afterCheckpoint` events that confuse directors.
 **Removal path:** Upstream PR gating `afterCheckpoint` on
 `hasOverride`/`pendingMessage !== null`.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk.
 
 ## reactor-ts-last-written-turns-revision
 
@@ -198,6 +255,8 @@ most recently serialized to the context store.
 
 **Disposition:** Companion to `reactor-ts-skip-unchanged-history`. Ships out
 together.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk;
+tracks the skip-unchanged-history patch.
 
 ## sse-ts-max-line-length
 
@@ -209,6 +268,8 @@ otherwise OOM the process.
 **Disposition:** Promotion candidate. Security/correctness fix — prevents
 OOM from a stuck or malicious stream. **Removal path:** Upstream PR adding
 `MAX_LINE_LENGTH` cap to SSE line parsing.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk —
+`sse.ts` has a single upstream commit and is effectively frozen.
 
 ## state-ts-deep-freeze-turns-revision
 
@@ -224,6 +285,8 @@ scale with session length. `getTurnsRevision()` also backs
 O(n) structuredClone on every event for directors that don't inspect turns.
 **Removal path:** Upstream PR lazy-ifying `ReactorState.snapshot().turns`
 with revision tracking.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk —
+`state.ts` sees little upstream churn.
 
 ## google-genai-files-ts-body-init-cast
 
@@ -233,9 +296,39 @@ with revision tracking.
 gap rather than carrying indefinitely.
 
 **Disposition:** Promotion candidate. Typing gap — should be fixed upstream.
-**Removal path:** Upstream PR widening `BodyInit` to accept `Uint8Array`, or
-Corbits adds a local type assertion wrapper and removes the cast from the
-vendored patch.
+**Removal path:** Upstream PR widening `BodyInit` to accept `Uint8Array` so
+the cast can be deleted from the vendored file.
+**Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk.
+
+---
+
+## Upstream promotion ledger
+
+Every Promotion candidate above, as a tracked dependency row per CL-7302.
+These are dependencies on upstream maintainers, not work we schedule; the
+tracking reference is this ledger until an upstream issue is filed, and the
+revisit point is the next vendored sync (see `docs/VENDORING.md`).
+
+| Patch | Upstream ask | Upstream contact | Tracking | Revisit |
+| --- | --- | --- | --- | --- |
+| adapter-ts-stream-terminal-detector (+ harness-ts-is-stream-terminal) | Add an `isStreamTerminal`/`StreamTerminalDetector` hook to `ProviderAdapter` for semantic end-of-stream protocols | Alexander Guy <alexander.guy@pm.me> | This ledger (vendor/intx-inference/PATCHES.md#adapter-ts-stream-terminal-detector) | Next vendored sync |
+| errors-ts-classify-abort-reason | Add optional `reason` param to `classifyAbortError`, carried as `raw: { origin }` | Alexander Guy <alexander.guy@pm.me> | This ledger (#errors-ts-classify-abort-reason) | Next vendored sync |
+| harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
+| reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
+| reactor-ts-checkpoint-after-tool-cycle | Call `commitCycle()` in `executeTools` when `addToHistory` is true | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-checkpoint-after-tool-cycle) | Next vendored sync |
+| reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
+| reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |
+| sse-ts-max-line-length | Cap the unterminated SSE line buffer (`MAX_LINE_LENGTH`, 16 MiB) | Alexander Guy <alexander.guy@pm.me> | This ledger (#sse-ts-max-line-length) | Next vendored sync |
+| state-ts-deep-freeze-turns-revision | Make `ReactorState.snapshot().turns` a lazy, revision-tracked getter | Alexander Guy <alexander.guy@pm.me> | This ledger (#state-ts-deep-freeze-turns-revision) | Next vendored sync |
+| google-genai-files-ts-body-init-cast | Widen `BodyInit` to accept Node's `Uint8Array` typing so the cast can be removed | Alexander Guy <alexander.guy@pm.me> | This ledger (#google-genai-files-ts-body-init-cast) | Next vendored sync |
+
+Contact basis: identified from the read-only upstream clone
+(`faremeter/interchange`); Alexander Guy <alexander.guy@pm.me> is the
+overwhelmingly dominant author of every upstream file these patches touch
+(`packages/inference/src/{reactor,harness,adapter,errors,sse,state}.ts`,
+`providers/google-genai-files.ts`, `packages/inference/src/assembly.ts`),
+so he is the named contact for every row. Next action per row: file the
+upstream issue and replace the ledger tracking reference.
 
 ---
 
