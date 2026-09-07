@@ -20,8 +20,9 @@ import {
   defineDirector,
   defineTool,
   type Agent,
+  type AuthorizeFn,
 } from "@intx/agent";
-import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { noopAuditStore } from "@intx/agent/testing";
 import type { Compactor, ContextStore, InferenceSource, ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
@@ -222,6 +223,8 @@ export interface SessionGateArgs {
   interactive: boolean;
   skipPermissions: boolean;
   auto?: boolean | undefined;
+  /** Route this gate's decisions through the reactor authz seam (main session). */
+  reactorGated?: boolean | undefined;
   onGrant?: PermissionGateOptions["onGrant"] | undefined;
 }
 
@@ -251,6 +254,7 @@ export async function assembleSessionGate(args: SessionGateArgs): Promise<Sessio
     interactive: args.interactive,
     skipPermissions: args.skipPermissions,
     auto: args.auto,
+    reactorGated: args.reactorGated,
     onGrant: args.onGrant,
   });
   return { gate, seededApprovals };
@@ -337,6 +341,11 @@ export interface ChatAgentWiring {
   getProviderId?: (() => string | undefined) | undefined;
   /** Pre-created holder so the workflow controller can close over it first. */
   directorHolder?: { instance?: ChatDirector };
+  /**
+   * Reactor authorization: the permission gate expressed as the vendored
+   * before-tool authz seam's effect vocabulary (see createReactorAuthorize).
+   */
+  authorize: AuthorizeFn;
   /** Read at each build so /clear and workdir rotation use the live store path. */
   getWorkdir: () => string;
   inferenceDeps: Awaited<ReturnType<typeof createInferenceDependencies>>;
@@ -424,7 +433,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
       },
       audit: noopAuditStore(),
-      authorize: permissiveAuthorize(),
+      // Gate-backed reactor authorization: ask-tier calls suspend via the
+      // vendored approval-suspend primitive instead of parking on a closure.
+      authorize: wiring.authorize,
       directors: createDirectorRegistry({
         factories: [chatDirectorDef.factory],
         defaultId: `${ID_PREFIX}/chat`,

@@ -120,7 +120,7 @@ export function createAuthzExtension<Ctx = unknown>(
   opts: AuthzExtensionOptions<Ctx>,
 ): BeforeToolExtension {
   // Per-call context for the authorize callback: the call itself, frozen.
-  // Locally patched — see PATCHES.md#authz-ts-authorize-call-context
+  // Locally patched — see vendor/intx-inference/PATCHES.md#authz-ts-authorize-call-context
   const frozenCallContext = (call: ToolCall): Ctx =>
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- shape-freeze hygiene; the call is the per-call identity the Ctx contract exists to carry
     Object.freeze(call) as Ctx;

@@ -142,6 +142,9 @@ const { createAgentToolset, ASK_OPERATOR_OPTION_MAX_CHARS, ASK_OPERATOR_QUESTION
 
 const fakePermissionGate: PermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
+  authorizeCall: mock(async () => ({ effect: "allow" as const })),
+  resolveSuspended: mock(async () => undefined),
+  isReactorGated: () => false,
   getApprovals: () => [],
   reset: () => {},
   getSessionApprovals: () => [],

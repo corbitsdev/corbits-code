@@ -269,12 +269,23 @@ export const submitOutputDefinition: ToolDefinition = {
   },
 };
 
+// Model-facing text of a declined or blocked tool call. Two flows produce it:
+// the middleware path's verdict ("Blocked by permission policy: Operator
+// declined: …", still used by sub-agents) and the reactor path, where a
+// rejected approval decision answers the parked call with upstream's
+// "denied by approver…" error result and a deny/no-grant effect arrives as a
+// block ("Denied by policy: …" / "No matching grants for …").
+const DECLINED_TOOL_RESULT_MARKERS = [
+  "Blocked by permission policy: Operator declined:",
+  "denied by approver",
+  "Denied by policy:",
+  "No matching grants for ",
+] as const;
+
 function isOperatorDeclinedToolResult(result: { content: unknown; isError?: boolean }): boolean {
-  return (
-    result.isError === true &&
-    typeof result.content === "string" &&
-    result.content.includes("Blocked by permission policy: Operator declined:")
-  );
+  if (result.isError !== true || typeof result.content !== "string") return false;
+  const content = result.content;
+  return DECLINED_TOOL_RESULT_MARKERS.some((marker) => content.includes(marker));
 }
 
 function operatorDeclinedHasMessage(result: { content: unknown }): boolean {
