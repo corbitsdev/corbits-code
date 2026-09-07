@@ -94,11 +94,7 @@ export function dispatchOverlayAccept(
  * whatever size it first opened at.
  */
 export function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
-  const perItem = overlayRowsPerItem(
-    shell.overlayKind,
-    shell.overlayItems,
-    shell.layout.contentWidth,
-  );
+  const perItem = overlayRowsPerItem(shell.overlayKind);
   const chrome = overlayChromeRows(
     shell.overlayKind,
     shell.overlayBodyLines.length,
@@ -117,7 +113,6 @@ export function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
 interface OverlayListShape {
   items: number;
   rowsPerItem: number;
-  indicator: boolean;
 }
 
 function placeholderOptions(count: number): SelectOption[] {
@@ -126,8 +121,8 @@ function placeholderOptions(count: number): SelectOption[] {
 
 /**
  * SelectRenderable keeps its scroll offset and visible-item capacity private
- * in its type surface (OpenTUI 0.5.10 exposes no accessors for either), so
- * the wrapper reads them reflectively and narrows the values instead of
+ * in its type surface (@opentui/core 0.5.10 exposes no accessors for either),
+ * so the wrapper reads them reflectively and narrows the values instead of
  * asserting a shape.
  */
 function selectScrollState(select: SelectRenderable): { offset: number; visible: number } {
@@ -145,7 +140,7 @@ export function createOverlayList(
   ctx: RenderContext,
   opts: { count: number; items: number; activeIndex?: number },
 ): OverlayList {
-  let shape: OverlayListShape = { items: Math.max(1, opts.items), rowsPerItem: 1, indicator: true };
+  let shape: OverlayListShape = { items: Math.max(1, opts.items), rowsPerItem: 1 };
   let count = Math.max(0, opts.count);
   const activeIndex = opts.activeIndex ?? 0;
   let options = placeholderOptions(count);
@@ -158,7 +153,7 @@ export function createOverlayList(
       width: "100%",
       flexShrink: 0,
       showDescription: shape.rowsPerItem > 1,
-      showSelectionIndicator: shape.indicator,
+      showSelectionIndicator: true,
       itemSpacing: 0,
       // Selection is a text colour, not a filled band: the highlighted row
       // already stands out, and a block would fight the host's background.
@@ -176,15 +171,15 @@ export function createOverlayList(
 
   const reshape = (next: Partial<OverlayListShape>): void => {
     const merged = { ...shape, ...next };
-    if (
-      merged.items === shape.items &&
-      merged.rowsPerItem === shape.rowsPerItem &&
-      merged.indicator === shape.indicator
-    ) {
+    if (merged.items === shape.items && merged.rowsPerItem === shape.rowsPerItem) {
       return;
     }
+    // A rebuild lands on the open-time index; carry the live selection across
+    // (clamped to the new count) so a resize does not snap the cursor back.
+    const current = select.getSelectedIndex();
     shape = merged;
     select = build();
+    select.setSelectedIndex(count === 0 ? 0 : Math.min(count - 1, Math.max(0, current)));
   };
 
   return {

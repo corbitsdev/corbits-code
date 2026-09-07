@@ -150,7 +150,7 @@ describe("overlay view", () => {
     expect(chrome).toBe(9);
     expect(overlayChromeRows("palette", 2, true, true)).toBe(8);
     expect(overlayChromeRows("model_picker", 2, false, false)).toBe(5);
-    const perItem = overlayRowsPerItem("model_picker", ["first", "second"], 80);
+    const perItem = overlayRowsPerItem("model_picker");
     expect(perItem).toBe(1);
     expect(overlayMinHostRows(chrome, perItem, true)).toBe(10);
     expect(overlayMinHostRows(chrome, perItem, false)).toBe(9);

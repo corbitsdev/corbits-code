@@ -9,7 +9,6 @@ import type {
 } from "./shell/internals.js";
 import {
   decisionChoiceRows,
-  decisionChoiceRowCount,
   DECISION_CHOICE_ROWS,
   describeZoneLines,
   DESCRIPTION_ZONE_LINES,
@@ -70,13 +69,10 @@ export function isDecisionOverlay(kind: PrimaryOverlayKind | null): boolean {
 }
 
 /** Display rows one list item occupies for the open overlay. */
-export function overlayRowsPerItem(
-  kind: PrimaryOverlayKind | null,
-  items: readonly string[],
-  contentWidth: number,
-): number {
-  if (!isDecisionOverlay(kind)) return 1;
-  return decisionChoiceRowCount(items, overlayRowWidth(contentWidth));
+export function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
+  // Decision rows paint SelectRenderable's fixed name + description pair, so
+  // the reservation is that pair — a growing budget leaves a blank band.
+  return isDecisionOverlay(kind) ? DECISION_CHOICE_ROWS : 1;
 }
 
 /**
@@ -364,20 +360,23 @@ export function createOverlayView(ctx: RenderContext) {
     }
     const decision = isDecisionOverlay(presentation.kind);
     const width = overlayRowWidth(contentWidth);
-    // SelectRenderable renders a fixed name + description pair per item, so a
-    // decision block is folded into those two rows; anything past the second
-    // wrap line clips rather than growing the row.
+    // SelectRenderable paints a fixed name + description pair per item, so a
+    // decision block folds into those rows; overflow clips with an ellipsis.
     list.setHeight(list.height, decision ? DECISION_CHOICE_ROWS : 1);
     list.select.showSelectionIndicator = true;
+    const descriptionWidth = width - CHOICE_PREFIX_WIDTH;
     list.select.options = presentation.items.map((label) => {
       if (!decision) return { name: label, description: "" };
       const rows = decisionChoiceRows(label, false, width);
+      const full = rows
+        .slice(1)
+        .map((r) => r.text.trim())
+        .filter(Boolean)
+        .join(" ");
+      const text = full.slice(0, Math.max(1, descriptionWidth - 1));
       return {
         name: rows[0]?.text.slice(CHOICE_PREFIX_WIDTH) ?? label,
-        description: rows
-          .slice(1)
-          .map((row) => row.text.trim())
-          .join(" "),
+        description: full.length > descriptionWidth ? `${text}…` : full,
       };
     });
     // An empty list renders nothing — the renderable would still claim a row

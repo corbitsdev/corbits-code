@@ -982,10 +982,6 @@ export function initShellInternals(shell: AppShell, bag: ShellInternals): void {
   internals.set(shell, bag);
 }
 
-export function transcriptSpacerOf(shell: AppShell): BoxRenderable | undefined {
-  return transcriptSpacers.get(shell);
-}
-
 export function setTranscriptSpacer(shell: AppShell, spacer: BoxRenderable): void {
   transcriptSpacers.set(shell, spacer);
 }

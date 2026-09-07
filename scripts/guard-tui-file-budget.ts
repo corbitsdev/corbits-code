@@ -2,9 +2,13 @@ import { type } from "arktype";
 
 // Ratchet for the CL-6791 TUI split: every .ts file under src/tui gets a line
 // budget in scripts/budgets.json, seeded at its size when the ratchet landed.
-// Budgets only ever shrink — a file that exceeds its budget must be split, not
-// re-seeded, and a new src/tui file must be added to budgets.json explicitly so
-// adding it is a visible growth decision rather than silent accretion.
+// Budgets shrink over time. The one legitimate way a budget rises is a split:
+// extracting a module can legitimately re-seed the remaining file at its
+// post-split size, and that re-seed is a visible decision in the same commit
+// as the split. Growth without a split is banned — a file that exceeds its
+// budget must be split, not padded — and a new src/tui file must be added to
+// budgets.json explicitly so adding it is a visible growth decision rather
+// than silent accretion.
 
 const Budgets = type("Record<string, number>");
 

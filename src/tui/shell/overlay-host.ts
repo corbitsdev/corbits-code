@@ -98,11 +98,7 @@ export function applyOverlayBodyText(
       width,
       decisionContextBudget({
         terminalHeight,
-        overlayRowsPerItem: overlayRowsPerItem(
-          shell.overlayKind,
-          shell.overlayItems,
-          shell.layout.contentWidth,
-        ),
+        overlayRowsPerItem: overlayRowsPerItem(shell.overlayKind),
         overlayTitleRows: overlayTitleRows(shell.overlayKind),
         overlayHostBorderRows: OVERLAY_HOST_BORDER_ROWS,
         overlayMaxFraction: OVERLAY_MAX_FRACTION,
@@ -607,11 +603,7 @@ export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): voi
   // Ask for the whole list again, not the height it currently has: a body that
   // shrank should hand its rows back to the choices rather than leave the
   // viewport stuck at the size an earlier, taller body forced it to.
-  const perItem = overlayRowsPerItem(
-    shell.overlayKind,
-    shell.overlayItems,
-    shell.layout.contentWidth,
-  );
+  const perItem = overlayRowsPerItem(shell.overlayKind);
   const chrome = overlayChromeRows(
     shell.overlayKind,
     shell.overlayBodyLines.length,

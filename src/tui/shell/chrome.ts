@@ -626,11 +626,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     const bodyH = Math.max(1, hostH - chrome);
     // The viewport counts items, not rows; a decision overlay spends several
     // rows per item, so the row budget has to be divided back down.
-    const perItem = overlayRowsPerItem(
-      shell.overlayKind,
-      shell.overlayItems,
-      shell.layout.contentWidth,
-    );
+    const perItem = overlayRowsPerItem(shell.overlayKind);
     shell.overlayList.setHeight(
       Math.max(1, Math.floor(bodyH / perItem)),
       isDecisionOverlay(shell.overlayKind) ? DECISION_CHOICE_ROWS : 1,

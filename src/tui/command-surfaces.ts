@@ -13,6 +13,7 @@ import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
 import type { PluginOrigin } from "../plugins/admin.js";
 import { classifyPluginRemove, isOwnedDiskInstall } from "../plugins/uninstall.js";
 import { maskEcho, maskSecret } from "./provider-setup.js";
+import { writeClipboard } from "./copy-path.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
 import { setStatusFlash } from "./shell/chrome.js";
 import type { AppShell, ItemDescription, OverlaySelection } from "./shell/internals.js";
@@ -1387,13 +1388,17 @@ export function openMcpSurface(
         const url = target.authURL;
         if (target.state !== "needs-auth" || url === undefined) return;
         mcp.openAuthURL(url);
-        // The copy is the fallback that makes this work over SSH, where the
-        // browser that must receive the redirect is not on this machine.
-        void shell.clipboard.writeText(url);
-        closeReplaceableOverlay(shell);
-        setStatusFlash(shell, `opening ${target.name} authorization — link copied`, {
-          ttlMs: MCP_AUTH_FLASH_MS,
+        // The copy is the SSH fallback: the browser taking the redirect is
+        // often not this machine.
+        // Flash long enough (6s) to notice the browser was asked to open.
+        const flashTtl = { ttlMs: 6000 };
+        const say = (suffix: string): void =>
+          setStatusFlash(shell, `opening ${target.name} authorization — ${suffix}`, flashTtl);
+        writeClipboard(shell.clipboard, url, {
+          onSuccess: () => say("link copied"),
+          onFailure: () => say("copy failed"),
         });
+        closeReplaceableOverlay(shell);
       },
       onAction: (id, key) => {
         if (key.ctrl || !(key.meta || key.option)) return false;
@@ -1431,9 +1436,6 @@ export function openMcpSurface(
     });
   });
 }
-
-/** Long enough to notice the browser was asked to open, and why. */
-const MCP_AUTH_FLASH_MS = 6000;
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

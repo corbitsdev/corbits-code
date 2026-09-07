@@ -108,8 +108,12 @@ export default tseslint.config(
         {
           patterns: [
             {
+              // Anchored full-source match: `../provider.js` from shell/x.ts,
+              // `../../tui/overlays` from a deeper shell subdir, and bare
+              // (non-.js) specifiers all resolve to banned modules and must
+              // all be caught.
               regex:
-                "^\\.\\./(provider|runner|product-host|overlays|command-surfaces|gate-wire|model-catalog|list-modal)(/[^/]+)*(\\.js)?$",
+                "^(\\.\\./)+(tui/)?(provider|runner|product-host|overlays|command-surfaces|gate-wire|model-catalog|list-modal)(/[^/]+)*(\\.js)?$",
               message:
                 "src/tui/shell/** must not import host surfaces (provider, runner, product-host, overlays, command-surfaces, gate-wire, model-catalog, list-modal) — those own the shell, never the reverse. Depend on siblings in shell/* or layer-0 TUI modules instead.",
             },

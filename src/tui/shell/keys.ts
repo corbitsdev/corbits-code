@@ -92,7 +92,7 @@ import { EXPAND_KEY } from "../stream.js";
 const PASTE_BURST_MS = 15;
 
 /** A single unmodified character, as opposed to a control chord or named key. */
-export function isPrintableInsertKey(key: KeyEvent): boolean {
+function isPrintableInsertKey(key: KeyEvent): boolean {
   return (
     !key.ctrl &&
     !key.meta &&
@@ -127,7 +127,7 @@ function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
  * Re-pressing the chord that opened a picker closes it, through the same path
  * Esc uses so key claims and focus are unwound identically.
  */
-export function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
+function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
   if (shell.overlayList === null) return false;
   const kind = toggledSurfaceFor(key);
   if (kind === null || kind !== shell.overlayKind) return false;
@@ -210,7 +210,7 @@ export function routePromptWheelToTranscript(
   };
 }
 
-export interface ShellKeyHandlers {
+interface ShellKeyHandlers {
   onKey: (key: KeyEvent) => void;
   onPaste: (event: { bytes: Uint8Array; preventDefault: () => void }) => void;
 }
