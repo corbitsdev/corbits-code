@@ -26,6 +26,10 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 | `@intx/inference`      | `vendor/intx-inference/`      | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-inference/PATCHES.md` |
 | `@intx/types`          | `vendor/intx-types/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
 | `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/agent`          | `vendor/intx-agent/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/authz`          | `vendor/intx-authz/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/log`            | `vendor/intx-log/`            | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/tools-posix`    | `vendor/intx-tools-posix/`    | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
 
 The 2026-09-07 sync moved all three packages together to a single
 upstream commit, restoring the single-commit coherence the coupling rule
@@ -52,11 +56,18 @@ type that lives in `@intx/types`'s `runtime.ts`, and `@intx/storage-isogit`'s
 inference package's exported function signatures reference types that only
 exist in the newer `@intx/types`.
 
-The remaining Interchange packages this repo consumes (`@intx/authz`,
-`@intx/agent`, `@intx/tools-posix`, `@intx/log`) stay on published npm
-releases as of this writing. Whether any of those has the same
-cross-package coupling is a question for whoever vendors them next, not
-answered here.
+The 2026-09-07 sync also vendored the remaining four consumed packages
+(`@intx/agent`, `@intx/authz`, `@intx/log`, `@intx/tools-posix`) at the
+same upstream commit, completing the set: every `@intx/*` package this
+repo imports now resolves to vendored source. None of the four carried
+local patches at vendoring time; their trees are verbatim upstream
+copies. `@intx/tools-lsp` remains on published npm (`0.3.0`) — it is a
+thin adapter whose transitive `@intx/*` dependencies resolve to the
+vendored workspaces via root `overrides`, so it tracks the vendored set
+without being vendored itself. Published transitive dependencies that
+stay on npm (`@intx/mime`, `@intx/crypto`, `@intx/inference-discovery`,
+`@intx/inference-testing`) are pinned to the root's published versions so
+the lockfile never nests duplicate copies of them either.
 
 A `version` field of `"0.2.2"` in a vendored package's `package.json` is a
 carried-over convention from the original `@intx/inference` vendoring, not a
@@ -147,12 +158,12 @@ lockfile never nests duplicate copies.
 One new upstream test, `browser-bundle.test.ts`, is excluded via
 `bunfig.toml`'s `pathIgnorePatterns`. It bundles `browser.ts` with
 `Bun.build` under the `intx-src` export condition, which resolves
-`@intx/log` and `@intx/mime` to `./src/*.ts` — real files in upstream's
-own monorepo, where those two are also vendored source. Here they remain
-published npm installs (`dist/` only, no `src/`), so the condition
-matches an export key whose target does not exist and the bundle fails
-to resolve. This is an environment gap, not a defect in the vendored
-code; re-check it whenever `@intx/log` or `@intx/mime` get vendored too.
+`@intx/log` and `@intx/mime` to `./src/*.ts`. `@intx/log` is vendored
+source since the 2026-09-07 sync, but `@intx/mime` remains a published
+npm install (`dist/` only, no `src/`), so the condition still matches an
+export key whose target does not exist and the bundle fails to resolve.
+This is an environment gap, not a defect in the vendored code; re-check
+it when `@intx/mime` gets vendored too.
 
 `@intx/inference` carries local patches — real fixes not yet present
 upstream, not workarounds for something upstream has since fixed. Every

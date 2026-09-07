@@ -1,0 +1,23 @@
+{
+  "name": "@intx/agent",
+  "version": "0.2.2",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
+    }
+  },
+  "dependencies": {
+    "@intx/inference": "workspace:*",
+    "@intx/log": "workspace:*",
+    "@intx/mime": "0.3.0",
+    "@intx/types": "workspace:*",
+    "arktype": "catalog:"
+  }
+}
