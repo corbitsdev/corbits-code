@@ -11,7 +11,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
 import { createHarness, type Harness } from "./harness.js";
-import { createAppShell, toggleCollapsedRow } from "./shell.js";
+import { toggleCollapsedRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
 import { isThinkingRow, rowGroupGap, type StreamRow } from "./stream.js";
 
 type Bridge = ReturnType<typeof attachSessionBridge>;

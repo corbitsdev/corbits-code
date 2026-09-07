@@ -7,17 +7,16 @@ import type { PermissionRequest } from "../permission/types.js";
 import type { KeyEvent } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness.js";
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell } from "./shell/internals.js";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
-  createAppShell,
   exitOverlayAnswerMode,
   handleOverlayAnswerKey,
-  moveOverlaySelection,
   setOverlayAnswerActive,
-  toggleOverlayExpand,
-  type AppShell,
-} from "./shell.js";
+} from "./shell/overlay-host.js";
+import { moveOverlaySelection, toggleOverlayExpand } from "./shell/overlay-list.js";
 import { streamRowGutter } from "./stream.js";
 import {
   approvalOutcomeFromSelection,

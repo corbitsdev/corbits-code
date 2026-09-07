@@ -15,7 +15,8 @@ import {
   resolveGeometry,
 } from "./geometry/index.js";
 import { withTestRenderer, type Harness } from "./harness";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 
 async function settle(h: Harness): Promise<void> {
   await h.renderOnce();

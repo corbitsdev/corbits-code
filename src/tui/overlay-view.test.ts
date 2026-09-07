@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { SelectRenderable, TextRenderable } from "@opentui/core";
 import { withTestRenderer } from "./harness";
-import { createOverlayList } from "./shell";
+import { createOverlayList } from "./shell/overlay-list";
 import {
   createOverlayView,
   overlayChromeRows,

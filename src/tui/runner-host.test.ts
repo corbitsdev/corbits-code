@@ -6,13 +6,9 @@ import type { KeyEvent } from "@opentui/core";
 import type { CostSummary } from "../cost/cost-summary.js";
 import type { SubAgentSession } from "../subagent/session-store.js";
 import { createHarness } from "./harness.js";
-import {
-  acceptOverlaySelection,
-  closeInsetOverlay,
-  moveOverlaySelection,
-  resolvePaletteCatalog,
-  runOverlayAction,
-} from "./shell.js";
+import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host.js";
+import { moveOverlaySelection, runOverlayAction } from "./shell/overlay-list.js";
+import { resolvePaletteCatalog } from "./shell/palette.js";
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,

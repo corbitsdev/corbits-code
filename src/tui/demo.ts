@@ -22,18 +22,11 @@ import {
 import type { ObserveSession } from "./residuals.js";
 import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import { formatChromeZones } from "./chrome-state.js";
-import {
-  appendStreamRow,
-  createAppShell,
-  enterSubagentObserve,
-  openHelpOverlay,
-  openListOverlay,
-  openMentionsOverlay,
-  openSettingsOverlay,
-  paintChrome,
-  setChromeZones,
-  setShellRunState,
-} from "./shell.js";
+import { appendStreamRow, paintChrome, setChromeZones, setShellRunState } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import { enterSubagentObserve } from "./shell/observe.js";
+import { openListOverlay } from "./shell/overlay-host.js";
+import { openHelpOverlay, openMentionsOverlay, openSettingsOverlay } from "./shell/palette.js";
 
 /** Demo-only rows: never shipped, just something to look at in `s`/`l`/`e`/`n`. */
 const DEMO_SETTINGS_ITEMS: readonly string[] = [

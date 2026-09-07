@@ -48,7 +48,8 @@ import { xaiProviderName } from "../config/xai-providers.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { wrapLines } from "./view/height.js";
 import { resolveSideMargin } from "./geometry/margins.js";
-import { createOverlayList, type OverlayList } from "./shell.js";
+import type { OverlayList } from "./shell/internals.js";
+import { createOverlayList } from "./shell/overlay-list.js";
 import { buildModelsFirstCatalog } from "./model-catalog.js";
 import { rampFor, rampLine } from "./ramp.js";
 import {

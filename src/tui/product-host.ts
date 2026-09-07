@@ -41,22 +41,23 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   clearTranscript,
-  createAppShell,
-  isAddProviderShortcutKey,
   paintChrome,
   setChromeZones,
   setHeader,
-  setPaletteCatalog,
-  setPaletteOnCommand,
   setMcpNeedsAuth,
-  setOwnedOverlayItems,
   setStatusFlash,
-  surfaceSystemNotice,
+} from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import {
+  setPaletteOnCommand,
   type AppShell,
   type ItemDescription,
   type OverlaySelection,
   type PaletteOnObserveRequest,
-} from "./shell.js";
+} from "./shell/internals.js";
+import { setOwnedOverlayItems } from "./shell/overlay-host.js";
+import { isAddProviderShortcutKey, setPaletteCatalog } from "./shell/palette.js";
+import { surfaceSystemNotice } from "./shell/prompt.js";
 import type { QueueKind } from "./session-queue.js";
 import { hydrateHistoryRows } from "./history-hydrate.js";
 import type { StreamRow } from "./stream.js";

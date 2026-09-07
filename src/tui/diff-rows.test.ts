@@ -8,7 +8,8 @@ import { rgbToHex, type CapturedSpan } from "@opentui/core";
 
 import { toolCallRow } from "./diff";
 import { withTestRenderer, type Harness } from "./harness";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import { DIFF_FG } from "./stream";
 import { toolResultRow } from "./mcp-view";
 

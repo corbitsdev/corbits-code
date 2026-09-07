@@ -7,7 +7,8 @@
 import { describe, expect, test } from "bun:test";
 import { resolveContentWidth, resolveSideMargin } from "./geometry/margins";
 import { withTestRenderer, type Harness } from "./harness";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import { rowGroupGap, type StreamRow } from "./stream";
 
 /** Markdown blocks highlight asynchronously; settle before capturing a frame. */

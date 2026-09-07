@@ -16,7 +16,8 @@ import {
   wrapOverlayText,
   wrapWords,
 } from "./overlay-body.js";
-import { createAppShell, openListOverlay } from "./shell.js";
+import { createAppShell } from "./shell/index.js";
+import { openListOverlay } from "./shell/overlay-host.js";
 import { UI } from "./theme.js";
 import { stringWidth } from "./view/height.js";
 

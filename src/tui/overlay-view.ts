@@ -1,7 +1,12 @@
 import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
 import { middleEllipsis } from "./command-display.js";
 import { formatPaletteRows, type PaletteCommand } from "./command-catalog.js";
-import type { OverlayList } from "./shell.js";
+import type {
+  OverlayList,
+  ItemDescription,
+  OpenListOverlayOpts,
+  PrimaryOverlayKind,
+} from "./shell/internals.js";
 import {
   decisionChoiceRows,
   decisionChoiceRowCount,
@@ -9,7 +14,6 @@ import {
   describeZoneLines,
   DESCRIPTION_ZONE_LINES,
 } from "./overlay-body.js";
-import type { ItemDescription, OpenListOverlayOpts, PrimaryOverlayKind } from "./shell.js";
 import { destroySubtree } from "./teardown.js";
 import { UI } from "./theme.js";
 

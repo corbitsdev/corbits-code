@@ -4,12 +4,12 @@ Shipping OpenTUI shell and co-located TUI modules. Pure TypeScript / imperative 
 
 ## Modules
 
-| Path              | Role                                                            |
-| ----------------- | --------------------------------------------------------------- |
-| `geometry/`       | Pure zone registry + `resolveGeometry`                          |
-| `focus/`          | Focus tree + scroll lease state machine                         |
-| `chrome-state.ts` | Live task/agents → `setChromeZones` lines                       |
-| `shell.ts`        | App shell frame (`createAppShell`) — OpenTUI **core class** API |
+| Path              | Role                                                                    |
+| ----------------- | ----------------------------------------------------------------------- |
+| `geometry/`       | Pure zone registry + `resolveGeometry`                                  |
+| `focus/`          | Focus tree + scroll lease state machine                                 |
+| `chrome-state.ts` | Live task/agents → `setChromeZones` lines                               |
+| `shell/`          | App shell split (see `shell/internals.ts`) — OpenTUI **core class** API |
 
 ## Live chrome zones
 
@@ -17,7 +17,7 @@ Product host owns task / subagent state and pushes snapshots (event or poll):
 
 ```ts
 import { formatChromeZones } from "./chrome-state";
-import { setChromeZones } from "./shell";
+import { setChromeZones } from "./shell/chrome.js";
 
 // On task/subagent change:
 setChromeZones(
@@ -35,12 +35,8 @@ setChromeZones(
 Host enters with real child rows + label; appends child events while focused; Esc restores parent.
 
 ```ts
-import {
-  appendObserveStreamRow,
-  appendStreamRow,
-  enterSubagentObserve,
-  leaveSubagentObserve,
-} from "./shell";
+import { appendStreamRow, appendObserveStreamRow } from "./shell/chrome.js";
+import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe.js";
 
 enterSubagentObserve(shell, {
   sessionId: child.id,
@@ -62,7 +58,8 @@ Demo/fixture path (`makeObserveFixture`) is unchanged for `v` / palette observe.
 ## App shell
 
 ```ts
-import { createAppShell, appendTranscript } from "./shell";
+import { createAppShell } from "./shell/index.js";
+import { appendTranscript } from "./shell/chrome.js";
 
 // renderer from createCliRenderer() or createTestRenderer()
 const shell = createAppShell(renderer, { title: "corbits" });

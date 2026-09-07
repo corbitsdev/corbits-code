@@ -10,21 +10,17 @@ import { paintStreamRow } from "./stream";
 import {
   appendStreamRow,
   appendTranscript,
-  applyShellCancelLast,
-  closeInsetOverlay,
-  createAppShell,
-  interruptShell,
-  isTranscriptFollowing,
   noticeText,
-  openInsetOverlay,
   setPendingQueue,
   shellFocusPrompt,
   shellFocusTranscript,
-  stickyMode,
-  submitPrompt,
   toggleShellFocus,
-  transcriptRowLayout,
-} from "./shell";
+} from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { isTranscriptFollowing, stickyMode } from "./shell/internals";
+import { closeInsetOverlay, openInsetOverlay } from "./shell/overlay-host";
+import { applyShellCancelLast, interruptShell, submitPrompt } from "./shell/prompt";
+import { transcriptRowLayout } from "./shell/transcript";
 
 /** The transient notice row sits directly above the prompt box's top rule. */
 function noticeRow(frame: string): string {

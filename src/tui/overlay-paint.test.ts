@@ -8,18 +8,18 @@
 import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import { enterCopyMode } from "./shell/copy.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell } from "./shell/internals.js";
+import { openListOverlay } from "./shell/overlay-host.js";
 import {
-  appendStreamRow,
-  createAppShell,
-  enterCopyMode,
   openHelpOverlay,
-  openListOverlay,
   openMentionsOverlay,
   openPalette,
   openSettingsOverlay,
-  setPromptModelLabel,
-  type AppShell,
-} from "./shell.js";
+} from "./shell/palette.js";
+import { setPromptModelLabel } from "./shell/prompt.js";
 
 const MODEL_LABEL = "xai/thegreataxios · grok-4.5";
 

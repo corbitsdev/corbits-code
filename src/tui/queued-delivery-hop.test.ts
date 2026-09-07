@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { attachSessionBridge, type SessionBridge } from "./runtime-bridge";
 import { createLiveSessionPort } from "./live-session-port";
-import { createAppShell } from "./shell";
+import { createAppShell } from "./shell/index";
 import { withTestRenderer } from "./harness";
 import { createLiveSteerDeliver, routeQueuedDelivery } from "./queued-delivery.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";

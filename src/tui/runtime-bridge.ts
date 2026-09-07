@@ -18,19 +18,16 @@ import {
 } from "./session-queue.js";
 import {
   appendStreamRow,
-  applyShellInterrupt,
-  clearShellBridgeHooks,
   paintChrome,
   paintLanding,
   replaceStreamRowAt,
   setLockupFrame,
-  setShellBridgeHooks,
   setStatusFlash,
-  streamRowAt,
-  streamRowCount,
   truncateStreamRows,
-  type AppShell,
-} from "./shell.js";
+} from "./shell/chrome.js";
+import { clearShellBridgeHooks, setShellBridgeHooks, type AppShell } from "./shell/internals.js";
+import { applyShellInterrupt } from "./shell/prompt.js";
+import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { resolveRampPhase, resolveTurnLabel, sendFailureText } from "./session-chrome.js";

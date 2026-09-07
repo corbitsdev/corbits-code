@@ -7,17 +7,12 @@ import { focusOwner } from "./focus/index";
 import { createHarness, withTestRenderer, type Harness } from "./harness";
 import { openPermissionsOverlay } from "./overlays";
 import { providerChoiceRows, runProviderSetup } from "./provider-setup";
-import {
-  appendStreamRow,
-  closeInsetOverlay,
-  createAppShell,
-  enterSubagentObserve,
-  leaveSubagentObserve,
-  openInsetOverlay,
-  openPalette,
-  toggleShellFocus,
-  type AppShell,
-} from "./shell";
+import { appendStreamRow, toggleShellFocus } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
+import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe";
+import { closeInsetOverlay, openInsetOverlay } from "./shell/overlay-host";
+import { openPalette } from "./shell/palette";
 
 async function typeInto(h: Harness, text: string): Promise<void> {
   for (const ch of text) h.mockInput.pressKey(ch);

@@ -2,18 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import { focusOwner } from "./focus";
 import { withTestRenderer } from "./harness";
+import { createAppShell } from "./shell/index";
+import type { OverlaySelection } from "./shell/internals";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
   closeReplaceableOverlay,
-  createAppShell,
-  cycleOverlaySelection,
   openListOverlay,
-  openPalette,
   setOwnedOverlayItems,
-  toggleOverlayExpand,
-  type OverlaySelection,
-} from "./shell";
+} from "./shell/overlay-host";
+import { cycleOverlaySelection, toggleOverlayExpand } from "./shell/overlay-list";
+import { openPalette } from "./shell/palette";
 
 const catalog = [{ id: "help", label: "/help", keywords: ["help"] }];
 

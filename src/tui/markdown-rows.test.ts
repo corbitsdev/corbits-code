@@ -6,12 +6,8 @@
 import { describe, expect, test } from "bun:test";
 import { MarkdownRenderable, BoxRenderable, type CapturedSpan } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
-import {
-  appendStreamRow,
-  createAppShell,
-  createStreamRowRenderable,
-  replaceStreamRowAt,
-} from "./shell";
+import { appendStreamRow, createStreamRowRenderable, replaceStreamRowAt } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import { splitAtSettledHeading } from "./markdown-parser";
 import { isMarkdownRow } from "./stream";
 

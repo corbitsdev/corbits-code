@@ -13,19 +13,16 @@ import {
 } from "./harness";
 import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays";
 import { wrapOverlayText } from "./overlay-body";
+import { relayout } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import {
-  acceptOverlaySelection,
   clearShellOverlayHooks,
-  closeInsetOverlay,
-  createAppShell,
-  handleListFilterKey,
-  moveOverlaySelection,
-  openListOverlay,
-  pageOverlaySelection,
-  relayout,
   setShellOverlayHooks,
   type OverlaySelection,
-} from "./shell";
+} from "./shell/internals";
+import { acceptOverlaySelection, closeInsetOverlay, openListOverlay } from "./shell/overlay-host";
+import { moveOverlaySelection, pageOverlaySelection } from "./shell/overlay-list";
+import { handleListFilterKey } from "./shell/palette";
 import { UI } from "./theme";
 
 function colorHex(c: unknown): string {

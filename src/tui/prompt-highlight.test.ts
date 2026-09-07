@@ -5,12 +5,9 @@
 import { describe, expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
-import {
-  createAppShell,
-  setPromptRecognitionSource,
-  syncPromptHighlights,
-  type AppShell,
-} from "./shell";
+import { createAppShell } from "./shell/index";
+import { setPromptRecognitionSource, type AppShell } from "./shell/internals";
+import { syncPromptHighlights } from "./shell/prompt";
 import { UI } from "./theme";
 
 const ACTION_FG = RGBA.fromHex(UI.action);

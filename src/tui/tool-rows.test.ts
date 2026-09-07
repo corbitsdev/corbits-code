@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { toolCallRow } from "./diff";
 import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
-import { createAppShell } from "./shell";
+import { createAppShell } from "./shell/index";
 import {
   isCollapsibleRow,
   paintStreamRow,

@@ -14,22 +14,19 @@ import type { PluginOrigin } from "../plugins/admin.js";
 import { classifyPluginRemove, isOwnedDiskInstall } from "../plugins/uninstall.js";
 import { maskEcho, maskSecret } from "./provider-setup.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
+import { setStatusFlash } from "./shell/chrome.js";
+import type { AppShell, ItemDescription, OverlaySelection } from "./shell/internals.js";
 import {
   captureOverlayContinuation,
   closeInsetOverlay,
   closeReplaceableOverlay,
   isOverlayContinuationCurrent,
   isOverlayGenerationCurrent,
-  openHelpOverlay,
   openListOverlay,
-  openSettingsOverlay,
   reserveOverlayHost,
   setOwnedOverlayItems,
-  setStatusFlash,
-  type AppShell,
-  type ItemDescription,
-  type OverlaySelection,
-} from "./shell.js";
+} from "./shell/overlay-host.js";
+import { openHelpOverlay, openSettingsOverlay } from "./shell/palette.js";
 
 /** A remembered approval, flattened for display and revocation by id. */
 export interface GrantEntry {

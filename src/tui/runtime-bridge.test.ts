@@ -7,7 +7,9 @@ import {
   type TaskProgressSession,
 } from "./runtime-bridge";
 import { DEFAULT_STALL_MS } from "./agent-progress";
-import { appendStreamRow, createAppShell, paintChrome, streamRowCount } from "./shell";
+import { appendStreamRow, paintChrome } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import { withTestRenderer } from "./harness";
 import { badgeCount } from "./session-queue";

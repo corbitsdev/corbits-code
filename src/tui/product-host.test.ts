@@ -8,12 +8,9 @@ import type { KeyEvent } from "@opentui/core";
 import type { PermissionRequest } from "../permission/types.js";
 import { AGENTS_PANEL_LINGER_MS } from "./chrome-state.js";
 import { createHarness } from "./harness.js";
-import {
-  acceptOverlaySelection,
-  handleListFilterKey,
-  moveOverlaySelection,
-  runOverlayAction,
-} from "./shell.js";
+import { acceptOverlaySelection } from "./shell/overlay-host.js";
+import { moveOverlaySelection, runOverlayAction } from "./shell/overlay-list.js";
+import { handleListFilterKey } from "./shell/palette.js";
 import {
   mountProductHost,
   operatorResultFromSelection,

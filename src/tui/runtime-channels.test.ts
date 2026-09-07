@@ -13,7 +13,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createHarness } from "./harness.js";
 import { mountProductHost, type ProductHostConfig } from "./product-host.js";
-import { isLanding } from "./shell.js";
+import { isLanding } from "./shell/internals.js";
 
 async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promise<{
   host: Awaited<ReturnType<typeof mountProductHost>>;

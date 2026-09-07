@@ -9,14 +9,14 @@ import type { OperatorResult } from "../agent/tools.js";
 import { formatCommandForApproval } from "./command-display.js";
 import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
-import type { AppShell, OverlaySelection } from "./shell.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import type { AppShell, OverlaySelection } from "./shell/internals.js";
 import {
-  appendStreamRow,
   closeInsetOverlay,
   isOverlayHostIdle,
   onOverlayClosed,
   setOverlayBody,
-} from "./shell.js";
+} from "./shell/overlay-host.js";
 import { EXPAND_KEY } from "./stream.js";
 import type { OperatorGateEvent, PermissionGateEvent } from "./gate-events.js";
 import {

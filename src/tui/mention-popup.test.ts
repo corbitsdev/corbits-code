@@ -10,17 +10,15 @@ import type { KeyEvent } from "@opentui/core";
 
 import { wireGates } from "./gate-wire";
 import { withTestRenderer } from "./harness";
+import { createAppShell } from "./shell/index";
+import { setMentionSuggestionSource, type AppShell } from "./shell/internals";
+import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host";
 import {
-  acceptOverlaySelection,
-  closeInsetOverlay,
   closeMentionPopup,
-  createAppShell,
   handleMentionPopupKey,
   isMentionPopupOpen,
   openAtMentionSuggestions,
-  setMentionSuggestionSource,
-  type AppShell,
-} from "./shell";
+} from "./shell/palette";
 
 const TREE: Readonly<Record<string, readonly string[]>> = {
   "": ["AGENTS.md", "README.md", "session-notes.md", "src/"],

@@ -6,7 +6,8 @@ import { describe, expect, test } from "bun:test";
 
 import { openSettingsSurface, type CommandSurfaceDeps } from "./command-surfaces.js";
 import { withTestRenderer } from "./harness.js";
-import { closeInsetOverlay, createAppShell } from "./shell.js";
+import { createAppShell } from "./shell/index.js";
+import { closeInsetOverlay } from "./shell/overlay-host.js";
 import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 
 describe("overlay dependency gaps never render fixture content", () => {

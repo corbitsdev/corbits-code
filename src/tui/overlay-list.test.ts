@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
-import { createOverlayList } from "./shell";
+import { createOverlayList } from "./shell/overlay-list";
 
 function windowOf(list: ReturnType<typeof createOverlayList>): number[] {
   const { start, end } = list.visibleRange();

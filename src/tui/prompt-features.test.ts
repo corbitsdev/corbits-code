@@ -7,22 +7,24 @@ import { describe, expect, test } from "bun:test";
 
 import type { PendingImageAttachment } from "./image-attachments.js";
 import { withTestRenderer, type Harness } from "./harness";
+import { noticeText } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import {
-  acceptOverlaySelection,
-  attachClipboardImage,
-  clearPendingAttachments,
-  createAppShell,
-  moveOverlaySelection,
-  noticeText,
-  openAtMentionSuggestions,
   setMentionSuggestionSource,
   setPromptImageSource,
-  setSentMessageHistory,
   setShellBridgeHooks,
-  submitPrompt,
   type AppShell,
   type FlashSchedule,
-} from "./shell";
+} from "./shell/internals";
+import { acceptOverlaySelection } from "./shell/overlay-host";
+import { moveOverlaySelection } from "./shell/overlay-list";
+import { openAtMentionSuggestions } from "./shell/palette";
+import {
+  attachClipboardImage,
+  clearPendingAttachments,
+  setSentMessageHistory,
+  submitPrompt,
+} from "./shell/prompt";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 
 const CLIP: PendingImageAttachment = {

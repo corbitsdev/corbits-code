@@ -11,7 +11,8 @@ import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
 import { RAMP_CYCLE_MS, rampPulse } from "./ramp";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 
 const SHELL_OPTS = {
   terminal: { columns: 80, rows: 24 },

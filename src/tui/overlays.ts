@@ -3,10 +3,18 @@
  * Pure content builders + open helpers on the shared list/focus/geometry kit.
  */
 
-import type { AppShell, ItemDescription, OverlaySelection, PrimaryOverlayKind } from "./shell.js";
+import type {
+  AppShell,
+  ItemDescription,
+  OverlaySelection,
+  PrimaryOverlayKind,
+} from "./shell/internals.js";
+import {
+  closeReplaceableOverlay,
+  openListOverlay,
+  reserveOverlayHost,
+} from "./shell/overlay-host.js";
 import type { KeyEvent } from "@opentui/core";
-import { closeReplaceableOverlay, openListOverlay, reserveOverlayHost } from "./shell.js";
-
 export type { OverlaySelection, PrimaryOverlayKind };
 
 export interface OpenPermissionsOpts {

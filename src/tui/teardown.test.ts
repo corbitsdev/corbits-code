@@ -7,7 +7,8 @@
 import { describe, expect, test } from "bun:test";
 import { BoxRenderable, TextRenderable, type CliRenderer } from "@opentui/core";
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import { destroySubtree } from "./teardown";
 
 function descendants(node: BoxRenderable): readonly TextRenderable[] {

@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, closeInsetOverlay, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { closeInsetOverlay } from "./shell/overlay-host";
 import { openModelPickerOverlay } from "./overlays";
 import type { PaletteCommand } from "./command-catalog";
 

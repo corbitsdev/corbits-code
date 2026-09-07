@@ -6,7 +6,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { makePermissionItems, withTestRenderer } from "./harness.js";
-import { createAppShell, appendStreamRow, type AppShell } from "./shell.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell } from "./shell/internals.js";
 import { openPermissionsOverlay } from "./overlays.js";
 
 const WIDTH = 80;

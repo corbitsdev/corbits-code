@@ -6,7 +6,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
-import { createAppShell, noticeText } from "./shell.js";
+import { noticeText } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
 import { withTestRenderer } from "./harness.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import { STALL_NOTICE_MESSAGE, STALL_RECOVERY_MESSAGE } from "./stall-watchdog.js";

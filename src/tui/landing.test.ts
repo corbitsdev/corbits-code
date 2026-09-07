@@ -10,20 +10,18 @@ import { makePermissionItems, withTestRenderer, type Harness } from "./harness";
 import {
   appendStreamRow,
   applyLandingSuggestion,
-  createAppShell,
   LANDING_IDLE_REPAINT_INTERVAL_MS,
   noticeText,
   paintChrome,
   setChromeZones,
   setPluginNeedsAttention,
-  setPromptModelLabel,
-  setPromptWorkspace,
-  isLanding,
   paintLanding,
-  streamRowCount,
-  surfaceSystemNotice,
   toggleTasksPanel,
-} from "./shell";
+} from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { isLanding } from "./shell/internals";
+import { setPromptModelLabel, setPromptWorkspace, surfaceSystemNotice } from "./shell/prompt";
+import { streamRowCount } from "./shell/transcript";
 import { openPermissionsOverlay } from "./overlays";
 import {
   LANDING_HINTS,

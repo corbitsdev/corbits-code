@@ -9,13 +9,10 @@ import { withTestRenderer, type Harness } from "./harness";
 import { PROMPT_BASE_ROWS, PROMPT_CAP_FRACTION, PROMPT_IDLE_ROWS } from "./geometry/index.js";
 import { focusOwner } from "./focus/index.js";
 import { promptCaretRow, promptRowCount } from "./prompt-input.js";
-import {
-  appendStreamRow,
-  closeInsetOverlay,
-  createAppShell,
-  toggleShellFocus,
-  type AppShell,
-} from "./shell";
+import { appendStreamRow, toggleShellFocus } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
+import { closeInsetOverlay } from "./shell/overlay-host";
 import { openPermissionsOverlay } from "./overlays";
 
 function withShell(

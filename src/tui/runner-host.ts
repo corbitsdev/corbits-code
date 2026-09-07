@@ -26,21 +26,23 @@ import {
   type ModelCatalogProvidersInput,
   type ModelCatalogRef,
 } from "./model-catalog.js";
-import type { ItemDescription } from "./shell.js";
+import {
+  type ItemDescription,
+  clearShellExitHandler,
+  setShellExitHandler,
+} from "./shell/internals.js";
+import {
+  setPromptCostContext,
+  setPromptModelLabel,
+  setPromptWorkspace,
+  surfaceSystemNotice,
+} from "./shell/prompt.js";
 import {
   mountProductHost,
   type ProductHost,
   type ProductHostAddProviderChoice,
 } from "./product-host.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import {
-  clearShellExitHandler,
-  setPromptCostContext,
-  setPromptModelLabel,
-  setPromptWorkspace,
-  setShellExitHandler,
-  surfaceSystemNotice,
-} from "./shell.js";
 import type { CostSummary } from "../cost/cost-summary.js";
 import { watchGitBranch, type FetchBranch } from "./workspace-watch.js";
 import type { PromptActionBarModelLabelInput } from "./components/prompt-action-bar-label.js";

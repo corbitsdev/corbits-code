@@ -94,4 +94,28 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // CL-6791 phase 2: src/tui/shell.ts was split into src/tui/shell/* along a
+    // strict dependency gradient (internals -> geometry/layout -> transcript
+    // builders -> chrome paint pipeline -> overlay host/list -> prompt ->
+    // palette -> observe/copy -> keys -> index). The shell may use layer-0
+    // TUI primitives and its own siblings; it must never reach the host
+    // surfaces that consume it — those import the shell, not the reverse.
+    files: ["src/tui/shell/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^\\.\\./(provider|runner|product-host|overlays|command-surfaces|gate-wire|model-catalog|list-modal)(/[^/]+)*(\\.js)?$",
+              message:
+                "src/tui/shell/** must not import host surfaces (provider, runner, product-host, overlays, command-surfaces, gate-wire, model-catalog, list-modal) — those own the shell, never the reverse. Depend on siblings in shell/* or layer-0 TUI modules instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

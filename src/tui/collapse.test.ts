@@ -7,13 +7,9 @@ import { describe, expect, test } from "bun:test";
 import { toolCallRow } from "./diff";
 import { resolveSideMargin } from "./geometry/margins";
 import { withTestRenderer } from "./harness";
-import {
-  appendStreamRow,
-  createAppShell,
-  toggleCollapsedRow,
-  shellFocusTranscript,
-  type AppShell,
-} from "./shell";
+import { appendStreamRow, toggleCollapsedRow, shellFocusTranscript } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
 import {
   EXPAND_HINT_LABEL,
   isCollapsibleRow,

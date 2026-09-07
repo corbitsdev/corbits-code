@@ -156,18 +156,22 @@ import {
 import { createRuntimeShutdown } from "./runtime-shutdown.js";
 import {
   applyFocus,
-  attachClipboardImage,
-  setEffortCycleHandler,
-  setMentionSuggestionSource,
   setPluginNeedsAttention,
-  setPromptModelLabel,
-  setPromptRecognitionSource,
-  setSentMessageHistory,
-  setShellInputSuspended,
   setShellRunState,
   setStatusFlash,
+} from "./shell/chrome.js";
+import {
+  setEffortCycleHandler,
+  setMentionSuggestionSource,
+  setPromptRecognitionSource,
+} from "./shell/internals.js";
+import {
+  attachClipboardImage,
+  setPromptModelLabel,
+  setSentMessageHistory,
+  setShellInputSuspended,
   surfaceSystemNotice,
-} from "./shell.js";
+} from "./shell/prompt.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import {
   captureAuthFailure,

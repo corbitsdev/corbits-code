@@ -10,21 +10,17 @@ import {
   residualListFromCatalog,
   type ObserveSession,
 } from "./residuals.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
 import {
-  acceptOverlaySelection,
-  appendStreamRow,
   clearShellOverlayHooks,
-  closeInsetOverlay,
-  createAppShell,
-  enterSubagentObserve,
-  leaveSubagentObserve,
-  moveOverlaySelection,
-  openHelpOverlay,
-  openMentionsOverlay,
-  openSettingsOverlay,
   setShellOverlayHooks,
   type OverlaySelection,
-} from "./shell.js";
+} from "./shell/internals.js";
+import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe.js";
+import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host.js";
+import { moveOverlaySelection } from "./shell/overlay-list.js";
+import { openHelpOverlay, openMentionsOverlay, openSettingsOverlay } from "./shell/palette.js";
 
 const SETTINGS_TEST_ITEMS = ["Permissions", "Telemetry", "Close"] as const;
 

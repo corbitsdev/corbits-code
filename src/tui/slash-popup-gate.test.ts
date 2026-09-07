@@ -16,22 +16,19 @@ import type { PaletteCommand } from "./command-catalog";
 import { openCommandSurface, type CommandSurfaceDeps } from "./command-surfaces";
 import { wireGates } from "./gate-wire";
 import { openAddProviderOverlay, openPermissionsOverlay } from "./overlays";
+import { createAppShell } from "./shell/index";
+import { isSlashPopupOpen, type AppShell } from "./shell/internals";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
   closeReplaceableOverlay,
-  createAppShell,
-  cycleOverlaySelection,
   isOverlayHostIdle,
-  isSlashPopupOpen,
-  moveOverlaySelection,
   onOverlayClosed,
-  openHelpOverlay,
   openListOverlay,
-  openPalette,
   reserveOverlayHost,
-  type AppShell,
-} from "./shell";
+} from "./shell/overlay-host";
+import { cycleOverlaySelection, moveOverlaySelection } from "./shell/overlay-list";
+import { openHelpOverlay, openPalette } from "./shell/palette";
 
 const CATALOG: readonly PaletteCommand[] = [
   {

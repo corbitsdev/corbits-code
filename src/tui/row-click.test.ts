@@ -8,7 +8,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import { ROW_ARROW, type StreamRow } from "./stream";
 
 const CALL: StreamRow = {

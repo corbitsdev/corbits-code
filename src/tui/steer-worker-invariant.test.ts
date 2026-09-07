@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
-import { createAppShell } from "./shell";
+import { createAppShell } from "./shell/index";
 import { withTestRenderer } from "./harness";
 import { badgeCount } from "./session-queue";
 
