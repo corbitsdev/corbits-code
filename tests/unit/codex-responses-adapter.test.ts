@@ -51,12 +51,13 @@ describe("codex-responses buildRequest", () => {
     expect(body["parallel_tool_calls"]).toBe(false);
     expect(body["include"]).toEqual(["reasoning.encrypted_content"]);
     expect(body["prompt_cache_key"]).toBe("sess-1");
+    expect(body).not.toHaveProperty("instructions");
     expect(body["input"]).toEqual([
       { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] },
     ]);
   });
 
-  test("pins instructions to the Codex prompt and carries the system prompt as a leading developer message", () => {
+  test("sends the system prompt as instructions without injecting a developer message", () => {
     const options: InferenceOptions = {
       ...baseOptions,
       systemPrompt: "be terse",
@@ -71,21 +72,10 @@ describe("codex-responses buildRequest", () => {
     const body = JSON.parse(
       adapter().buildRequest([userTurn("x")], "gpt-5-codex", options).body,
     ) as Record<string, unknown>;
-    // The backend pins instructions to the official Codex prompt; the app prompt
-    // must not be sent here.
-    expect(typeof body["instructions"]).toBe("string");
-    expect(body["instructions"]).not.toBe("be terse");
-    expect(body["instructions"]).toContain("You are Codex");
-    const input = body["input"] as Record<string, unknown>[];
-    expect(input[0]).toMatchObject({ type: "message", role: "developer" });
-    const leadText = (input[0]!["content"] as { text: string }[])[0]!.text;
-    expect(leadText).toContain("be terse");
-    expect(leadText).toContain("Corbits Code");
-    expect(input[1]).toMatchObject({
-      type: "message",
-      role: "user",
-      content: [{ type: "input_text", text: "x" }],
-    });
+    expect(body["instructions"]).toBe(options.systemPrompt);
+    expect(body["input"]).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "x" }] },
+    ]);
     expect(body["tools"]).toEqual([
       {
         type: "function",
@@ -96,6 +86,35 @@ describe("codex-responses buildRequest", () => {
     ]);
     expect(body["tool_choice"]).toBe("auto");
   });
+
+  test.each([undefined, "", "Corbits operating prompt"])(
+    "preserves conversation order and system turns with systemPrompt %j",
+    (systemPrompt) => {
+      const turns: ConversationTurn[] = [
+        userTurn("first"),
+        { role: "system", timestamp: 0, content: [{ type: "text", text: "real instruction" }] },
+        { role: "assistant", timestamp: 0, content: [{ type: "text", text: "reply" }] },
+        userTurn("next"),
+      ];
+      const options = systemPrompt === undefined ? baseOptions : { ...baseOptions, systemPrompt };
+      const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", options).body);
+      if (systemPrompt === undefined) {
+        expect(body).not.toHaveProperty("instructions");
+      } else {
+        expect(body.instructions).toBe(systemPrompt);
+      }
+      expect(body.input).toEqual([
+        { type: "message", role: "user", content: [{ type: "input_text", text: "first" }] },
+        {
+          type: "message",
+          role: "system",
+          content: [{ type: "input_text", text: "real instruction" }],
+        },
+        { type: "message", role: "assistant", content: [{ type: "output_text", text: "reply" }] },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "next" }] },
+      ]);
+    },
+  );
 
   test("encodes assistant tool calls and tool results as Responses items", () => {
     const turns: ConversationTurn[] = [

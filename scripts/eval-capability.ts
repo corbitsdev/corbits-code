@@ -17,17 +17,13 @@ import { spawn } from "node:child_process";
 import { loadConfig, type Config } from "../src/config/index.js";
 import { runExec, resolveExecDirectorOverlay } from "../src/exec/runner.js";
 import { SETTINGS_DIR_NAME } from "../src/branding.js";
-import {
-  codexProfileFromProviderName,
-  isCodexProviderName,
-} from "../src/config/codex-providers.js";
+import { isCodexProviderName } from "../src/config/codex-providers.js";
 import {
   REASONING_EFFORTS,
   isReasoningEffort,
   validateEffort,
   type ReasoningEffort,
 } from "../src/provider/reasoning-effort.js";
-import { codexInstructionsHash } from "../src/auth/codex/instructions.js";
 import { advertisedToolNamesForSessionMode } from "../src/agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../src/agent/lsp-availability.js";
 import { resolveSessionMode } from "../src/config/session-mode.js";
@@ -613,18 +609,16 @@ async function applyEvalEffort(
 }
 
 /**
- * Per-cell diagnostics for debugging eval failures: which Codex instructions
- * text was pinned, which built-in tools the model was offered, and the
- * requested reasoning effort. Reuses the exec runner's own resolution
- * (resolveSessionMode, resolveExecDirectorOverlay) rather than forking the
- * logic, so a --director overlay or a non-default session mode here reports
- * the same advertised list exec actually runs with.
+ * Per-cell diagnostics for debugging eval failures: which built-in tools the
+ * model was offered, and the requested reasoning effort. Reuses the exec
+ * runner's own resolution (resolveSessionMode, resolveExecDirectorOverlay)
+ * rather than forking the logic, so a --director overlay or a non-default
+ * session mode here reports the same advertised list exec actually runs with.
  *
  * reasoningEffort echoes the configured value, not the provider's internal
  * default when unset — accepted as-is per review.
  */
 export async function buildEvalDiagnostics(config: Config): Promise<EvalDiagnostics> {
-  const codexProfile = codexProfileFromProviderName(config.providerName);
   const localSettings = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   const sessionMode = resolveSessionMode(config.settings, localSettings) ?? "orchestrator";
   const overlay = resolveExecDirectorOverlay(config.director);
@@ -634,7 +628,6 @@ export async function buildEvalDiagnostics(config: Config): Promise<EvalDiagnost
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
     });
   return {
-    codexInstructionsHash: codexProfile !== undefined ? codexInstructionsHash() : null,
     advertisedTools,
     reasoningEffort: config.reasoningEffort ?? null,
   };

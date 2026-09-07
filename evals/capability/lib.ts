@@ -154,8 +154,6 @@ export interface CaseResult {
 }
 
 export interface EvalDiagnostics {
-  /** Short identity (hash) of the pinned Codex instructions text in use; null for non-Codex providers. */
-  codexInstructionsHash: string | null;
   /** Built-in tool names advertised to the model for this run. */
   advertisedTools: readonly string[];
   reasoningEffort: string | null;
@@ -732,8 +730,6 @@ function parseEvalDiagnostics(raw: unknown): EvalDiagnostics | null {
   if (!Array.isArray(raw.advertisedTools)) return null;
   const advertisedTools = raw.advertisedTools.filter((t): t is string => typeof t === "string");
   return {
-    codexInstructionsHash:
-      typeof raw.codexInstructionsHash === "string" ? raw.codexInstructionsHash : null,
     advertisedTools,
     reasoningEffort: typeof raw.reasoningEffort === "string" ? raw.reasoningEffort : null,
   };
