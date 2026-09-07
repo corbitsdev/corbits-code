@@ -108,13 +108,13 @@ describe("overlay host never shares cells with the prompt border", () => {
 
       const expected = [
         " model · Esc cancel · Enter choose · Alt+A /connect add provider",
-        ` > ${ITEMS[0]}`,
+        ` ▶ ${ITEMS[0]}`,
         ...ITEMS.slice(1).map((i) => `   ${i}`),
       ];
       expectCleanInterior(interior, expected);
 
       // The selected row must be intact, not overwritten by the model label.
-      expect(interior).toContain(` > ${ITEMS[0]}`);
+      expect(interior).toContain(` ▶ ${ITEMS[0]}`);
       for (const row of interior) {
         expect(row.includes(MODEL_LABEL)).toBe(false);
         expect(row.includes("thegreataxios")).toBe(false);

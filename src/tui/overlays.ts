@@ -5,72 +5,13 @@
 
 import type { AppShell, ItemDescription, OverlaySelection, PrimaryOverlayKind } from "./shell.js";
 import type { KeyEvent } from "@opentui/core";
-import { wrapOverlayText } from "./overlay-body.js";
 import { closeReplaceableOverlay, openListOverlay, reserveOverlayHost } from "./shell.js";
 
 export type { OverlaySelection, PrimaryOverlayKind };
 
-/** Fixture: 30 permission options (acceptance scenario 2). */
-export function makePermissionItems(count = 30): readonly string[] {
-  const n = Math.max(1, Math.floor(count));
-  return Array.from({ length: n }, (_, i) => {
-    if (i === 0) return "Allow once";
-    if (i === 1) return "Allow session";
-    if (i === 2) return "Always allow this tool";
-    if (i === 3) return "Deny";
-    return `Allow tool call #${i - 3}`;
-  });
-}
-
-/** Fixture: long operator question + many choices (acceptance scenario 3). */
-export function makeOperatorQuestion(): {
-  readonly body: string;
-  readonly choices: readonly string[];
-} {
-  const body = [
-    "The agent wants to run a destructive command on the working tree.",
-    "Review the plan carefully — this cannot be undone from the TUI.",
-    "",
-    "Proposed: git reset --hard origin/main && rm -rf node_modules",
-    "Files at risk: 128 modified, 12 untracked.",
-    "Continue only if you accept discarding local work.",
-  ].join("\n");
-  const choices = [
-    "Cancel — keep working tree",
-    "Allow this once",
-    "Allow for this session",
-    "Always allow git reset",
-    "Open diff first",
-    "Ask again later",
-    "Switch to dry-run",
-    "Abort agent run",
-  ];
-  return { body, choices };
-}
-
-/** Fixture: model/provider picker list. */
-export function makeModelPickerItems(): readonly string[] {
-  return [
-    "claude-sonnet-4 * [anthropic]",
-    "claude-opus-4 * [anthropic]",
-    "gpt-5 * [openai]",
-    "gpt-5-mini * [openai]",
-    "gemini-2.5-pro * [google]",
-    "gemini-2.5-flash * [google]",
-    "grok-3 * [xai]",
-    "ollama-llama3.3 * [local]",
-    "o3 * [codex]",
-    "o4-mini * [codex]",
-  ];
-}
-
-/** Wrap overlay body text to terminal width on word boundaries (no paint). */
-export function wrapOverlayBody(text: string, width: number, maxLines = 8): readonly string[] {
-  return wrapOverlayText(text, width, maxLines);
-}
-
 export interface OpenPermissionsOpts {
-  readonly items?: readonly string[];
+  /** Choices to offer; there is no fallback list — callers supply their own. */
+  readonly items: readonly string[];
   /** Stable ids aligned with `items` (e.g. ApprovalScope.id). */
   readonly itemIds?: readonly string[];
   readonly activeIndex?: number;
@@ -93,12 +34,11 @@ export interface OpenPermissionsOpts {
   readonly echoChoice?: boolean;
 }
 
-export function openPermissionsOverlay(shell: AppShell, opts?: OpenPermissionsOpts): void {
-  const items = opts?.items ?? makePermissionItems(30);
+export function openPermissionsOverlay(shell: AppShell, opts: OpenPermissionsOpts): void {
   openListOverlay(shell, {
     kind: "permissions",
     title: "permissions",
-    items,
+    items: opts.items,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-permissions",
     ...(opts?.body !== undefined ? { body: opts.body } : {}),
@@ -112,8 +52,10 @@ export function openPermissionsOverlay(shell: AppShell, opts?: OpenPermissionsOp
 }
 
 export interface OpenOperatorOpts {
-  readonly body?: string;
-  readonly choices?: readonly string[];
+  /** Question text painted above the choices. */
+  readonly body: string;
+  /** Choices to offer; there is no fallback list — callers supply their own. */
+  readonly choices: readonly string[];
   readonly itemIds?: readonly string[];
   readonly activeIndex?: number;
   /** Per-open accept; host binds OperatorResult mapping. */
@@ -141,16 +83,13 @@ export interface OpenOperatorOpts {
 const NO_WAY_TO_ANSWER =
   "No options were offered and this question takes no typed answer. Press Esc to cancel it.";
 
-export function openOperatorOverlay(shell: AppShell, opts?: OpenOperatorOpts): void {
-  const fixture = makeOperatorQuestion();
-  const choices = opts?.choices ?? fixture.choices;
-  const body = opts?.body ?? fixture.body;
-  const stranded = choices.length === 0 && opts?.onTextAnswer === undefined;
+export function openOperatorOverlay(shell: AppShell, opts: OpenOperatorOpts): void {
+  const stranded = opts.choices.length === 0 && opts.onTextAnswer === undefined;
   openListOverlay(shell, {
     kind: "operator",
     title: "",
-    body: stranded ? `${body}\n\n${NO_WAY_TO_ANSWER}` : body,
-    items: choices,
+    body: stranded ? `${opts.body}\n\n${NO_WAY_TO_ANSWER}` : opts.body,
+    items: opts.choices,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-operator",
     // Chat-first: keep the transcript visible while the operator answers.
@@ -164,7 +103,8 @@ export function openOperatorOverlay(shell: AppShell, opts?: OpenOperatorOpts): v
 }
 
 export interface OpenModelPickerOpts {
-  readonly items?: readonly string[];
+  /** Models to list; there is no fallback list — callers supply their own. */
+  readonly items: readonly string[];
   /** Stable model/provider ids aligned with `items`. */
   readonly itemIds?: readonly string[];
   readonly activeIndex?: number;
@@ -187,14 +127,14 @@ export interface OpenModelPickerOpts {
   readonly setDefaultHint?: boolean;
 }
 
-export function openModelPickerOverlay(shell: AppShell, opts?: OpenModelPickerOpts): void {
+export function openModelPickerOverlay(shell: AppShell, opts: OpenModelPickerOpts): void {
   const release = reserveOverlayHost(shell);
   try {
     closeReplaceableOverlay(shell);
     openListOverlay(shell, {
       kind: "model_picker",
       title: "model / provider",
-      items: opts?.items ?? makeModelPickerItems(),
+      items: opts.items,
       activeIndex: opts?.activeIndex ?? 0,
       frameId: "overlay-model",
       ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),

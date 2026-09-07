@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
-import { withTestRenderer, type Harness } from "./harness";
+import { makePermissionItems, withTestRenderer, type Harness } from "./harness";
 import {
   appendStreamRow,
   applyLandingSuggestion,
@@ -24,7 +24,7 @@ import {
   surfaceSystemNotice,
   toggleTasksPanel,
 } from "./shell";
-import { makePermissionItems, openPermissionsOverlay } from "./overlays";
+import { openPermissionsOverlay } from "./overlays";
 import {
   LANDING_HINTS,
   LANDING_SUGGESTIONS,

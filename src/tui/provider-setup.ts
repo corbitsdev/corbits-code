@@ -48,12 +48,7 @@ import { xaiProviderName } from "../config/xai-providers.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { wrapLines } from "./view/height.js";
 import { resolveSideMargin } from "./geometry/margins.js";
-import {
-  createListViewport,
-  moveActive,
-  visibleSlice,
-  type ListViewportState,
-} from "./list-viewport.js";
+import { createOverlayList, type OverlayList } from "./shell.js";
 import { buildModelsFirstCatalog } from "./model-catalog.js";
 import { rampFor, rampLine } from "./ramp.js";
 import {
@@ -861,9 +856,9 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   const margin = resolveSideMargin(renderer.width || 80);
 
   let listRows: readonly ResidualCatalogEntry[] = providerChoiceRows(choices);
-  let list: ListViewportState = createListViewport({
+  let list: OverlayList = createOverlayList(renderer as CliRenderer, {
     count: listRows.length,
-    height: listHeight(),
+    items: listHeight(),
   });
 
   function listHeight(): number {
@@ -1111,7 +1106,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       }
       return;
     }
-    const slice = visibleSlice(list);
+    const slice = list.visibleRange();
     listSlots.forEach((slot, i) => {
       const index = slice.start + i;
       const row = index < slice.end ? listRows[index] : undefined;
@@ -1120,7 +1115,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
         slot.visible = false;
         return;
       }
-      const active = index === slice.activeIndex;
+      const active = index === list.activeIndex;
       slot.visible = true;
       slot.content = ` ${active ? ">" : " "} ${row.label}`;
       slot.fg = active ? UI.text : UI.textDim;
@@ -1549,7 +1544,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
           // not only the one picked on this screen.
           choice = { ...choice, models: [...result.models], defaultModel: values.model };
           listRows = modelChoiceRows(choice).filter((row) => row.id !== TYPE_MODEL_ID);
-          list = createListViewport({ count: listRows.length, height: listHeight() });
+          list = createOverlayList(renderer as CliRenderer, {
+            count: listRows.length,
+            items: listHeight(),
+          });
         }
         paint();
       },
@@ -1597,9 +1595,9 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
         listRows = modelChoiceRows(choice);
         const found =
           focusedId === undefined ? -1 : listRows.findIndex((row) => row.id === focusedId);
-        list = createListViewport({
+        list = createOverlayList(renderer as CliRenderer, {
           count: listRows.length,
-          height: listHeight(),
+          items: listHeight(),
           activeIndex: found >= 0 ? found : 0,
         });
         paint();
@@ -1691,9 +1689,9 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       0,
       listRows.findIndex((row) => modelFromRowId(choice?.id ?? "", row.id) === values.model),
     );
-    list = createListViewport({
+    list = createOverlayList(renderer as CliRenderer, {
       count: listRows.length,
-      height: listHeight(),
+      items: listHeight(),
       activeIndex: active,
     });
     beginGoPrefetch();
@@ -1705,9 +1703,9 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       0,
       listRows.findIndex((row) => row.id === choice?.id),
     );
-    list = createListViewport({
+    list = createOverlayList(renderer as CliRenderer, {
       count: listRows.length,
-      height: listHeight(),
+      items: listHeight(),
       activeIndex: active,
     });
   };
@@ -1922,13 +1920,13 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
 
     if (key.name === "up" || key.name === "k") {
       key.preventDefault();
-      list = moveActive(list, -1);
+      list.move(-1);
       paint();
       return;
     }
     if (key.name === "down" || key.name === "j") {
       key.preventDefault();
-      list = moveActive(list, 1);
+      list.move(1);
       paint();
       return;
     }

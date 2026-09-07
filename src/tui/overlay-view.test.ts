@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { TextRenderable } from "@opentui/core";
+import { SelectRenderable, TextRenderable } from "@opentui/core";
 import { withTestRenderer } from "./harness";
-import { createListViewport } from "./list-viewport";
+import { createOverlayList } from "./shell";
 import {
   createOverlayView,
   overlayChromeRows,
@@ -15,21 +15,31 @@ const palette: OverlayListPresentation = {
   kind: "palette",
   items: ["/help", "/model", "/mcp"],
   paletteCommands: [{ label: "/help" }, { label: "/model" }, { label: "/mcp" }],
-  viewport: createListViewport({ count: 3, height: 3 }),
+  list: null,
   bodyLines: [],
   bodyFgs: [],
   answer: null,
   describe: () => undefined,
 };
 
+/** Text rows the body paints itself; the SelectRenderable renders the list. */
 function bodyRows(view: ReturnType<typeof createOverlayView>): string[] {
-  return view.body.getChildren().map((row) => {
-    if (!(row instanceof TextRenderable)) throw new Error("expected an overlay text row");
-    return row.content.chunks.map((chunk) => chunk.text).join("");
-  });
+  return view.body
+    .getChildren()
+    .filter((row): row is TextRenderable => row instanceof TextRenderable)
+    .map((row) => row.content.chunks.map((chunk) => chunk.text).join(""));
 }
 
-async function paletteFrame(width: number, presentation = palette): Promise<readonly string[]> {
+function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderable {
+  const found = view.body.getChildren().find((row) => row instanceof SelectRenderable);
+  if (!(found instanceof SelectRenderable)) throw new Error("expected the overlay list");
+  return found;
+}
+
+async function paletteFrame(
+  width: number,
+  presentation: Omit<OverlayListPresentation, "list"> = palette,
+): Promise<readonly string[]> {
   return withTestRenderer(
     async (h) => {
       const view = createOverlayView(h.renderer);
@@ -37,7 +47,16 @@ async function paletteFrame(width: number, presentation = palette): Promise<read
       view.host.visible = true;
       view.host.height = 8;
       view.title.visible = false;
-      view.paintList(presentation, width);
+      view.paintList(
+        {
+          ...presentation,
+          list: createOverlayList(h.renderer, {
+            count: presentation.items.length,
+            items: Math.max(1, presentation.items.length),
+          }),
+        },
+        width,
+      );
       await h.renderOnce();
       return h
         .captureCharFrame()
@@ -63,7 +82,6 @@ describe("overlay view", () => {
       ...palette,
       items: [label],
       paletteCommands: [{ label }],
-      viewport: createListViewport({ count: 1, height: 1 }),
     });
     const help = rows.find((row) => row.includes("help"));
     expect(help).toBe(" /help-abcdefghij…");
@@ -78,21 +96,22 @@ describe("overlay view", () => {
         ...palette,
         kind: "model_picker",
         items: ["first"],
-        viewport: createListViewport({ count: 1, height: 1 }),
+        list: createOverlayList(h.renderer, { count: 1, items: 1 }),
         bodyLines: ["context"],
         answer: { text: "typed", active: true },
         describe: () => {
-          expect(bodyRows(view)).toEqual([" context", " > first", " answer> typed▌"]);
+          expect(bodyRows(view)).toEqual([" context", " answer> typed▌"]);
+          expect(bodySelect(view).getSelectedOption()?.name).toBe("first");
           return { what: "late description" };
         },
       };
       view.paintList(presentation, 80);
       expect(bodyRows(view)).toContain(" late description");
       view.paintList({ ...presentation, describe: () => null }, 80);
-      expect(bodyRows(view)).toHaveLength(6);
+      expect(bodyRows(view)).toHaveLength(5);
       view.paintList({ ...presentation, describe: () => undefined }, 80);
-      expect(bodyRows(view)).toEqual([" context", " > first", " answer> typed▌"]);
-      view.paintList({ ...presentation, viewport: null }, 80);
+      expect(bodyRows(view)).toEqual([" context", " answer> typed▌"]);
+      view.paintList({ ...presentation, list: null }, 80);
       expect(bodyRows(view)).toEqual([]);
     });
   });

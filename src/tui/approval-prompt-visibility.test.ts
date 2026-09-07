@@ -5,9 +5,9 @@
  * the prompt box's growth and over the overlay's own context text.
  */
 import { describe, expect, test } from "bun:test";
-import { withTestRenderer } from "./harness.js";
+import { makePermissionItems, withTestRenderer } from "./harness.js";
 import { createAppShell, appendStreamRow, type AppShell } from "./shell.js";
-import { openPermissionsOverlay, makePermissionItems } from "./overlays.js";
+import { openPermissionsOverlay } from "./overlays.js";
 
 const WIDTH = 80;
 // Deliberately spans from far below the documented 24-row baseline down to

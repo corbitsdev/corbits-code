@@ -19,6 +19,7 @@ import {
   CliRenderEvents,
   MarkdownRenderable,
   ScrollBoxRenderable,
+  SelectRenderable,
   SyntaxStyle,
   TextRenderable,
   TextTableRenderable,
@@ -29,7 +30,9 @@ import {
   type CliRenderer,
   type KeyEvent,
   type MouseEvent,
+  type RenderContext,
   type Selection,
+  type SelectOption,
   type TextChunk,
 } from "@opentui/core";
 
@@ -125,14 +128,6 @@ import {
   type LandingAbove,
   type LandingBelowContent,
 } from "./landing.js";
-import {
-  createListViewport,
-  moveActive,
-  page as pageList,
-  setCount as setListCount,
-  setHeight as setListHeight,
-  type ListViewportState,
-} from "./list-viewport.js";
 import { evictedRowsNotice, trimRetainedLog } from "./long-log.js";
 import { filterPaletteCommands, paletteLabels, type PaletteCommand } from "./command-catalog.js";
 import { helpItems } from "./keybindings.js";
@@ -198,6 +193,7 @@ import {
 } from "./overlay-view.js";
 import {
   composeDecisionBody,
+  DECISION_CHOICE_ROWS,
   decisionContextBudget,
   overlayChoiceText,
   overlayKindWord,
@@ -622,8 +618,8 @@ export interface AppShell {
   modelLabel: string | null;
   /** Working directory and git branch carried by the bottom border. */
   workspace: { cwd: string; branch: string | null };
-  /** Overlay list viewport (null when closed). */
-  overlayList: ListViewportState | null;
+  /** Overlay list state (null when closed). */
+  overlayList: OverlayList | null;
   /** Overlay item labels currently shown. */
   overlayItems: readonly string[];
   /** Which primary overlay is open (null when closed). */
@@ -1247,8 +1243,153 @@ function refreshOverlayTitle(shell: AppShell): void {
   );
 }
 
+/** Item window the SelectRenderable currently shows. */
+export interface OverlayListRange {
+  /** Inclusive start index into the full list. */
+  readonly start: number;
+  /** Exclusive end index into the full list. */
+  readonly end: number;
+}
+
+/**
+ * The open overlay's list, backed by @opentui/core's SelectRenderable.
+ * OpenTUI owns selection clamping, movement and scroll-keep-visible; this
+ * wrapper exposes the item-count view the shell reads (the renderable counts
+ * terminal rows, `rowsPerItem` converts) and rebuilds the renderable when its
+ * geometry changes, because the renderable only recomputes its visible-item
+ * capacity in its constructor and renderer resize callbacks.
+ */
+export interface OverlayList {
+  readonly select: SelectRenderable;
+  readonly activeIndex: number;
+  /** Item-row capacity reserved by layout (not the renderable's row height). */
+  readonly height: number;
+  readonly offset: number;
+  readonly count: number;
+  move(delta: number): void;
+  page(dir: -1 | 1): void;
+  jump(index: number): void;
+  setCount(count: number): void;
+  setHeight(items: number, rowsPerItem?: number): void;
+  visibleRange(): OverlayListRange;
+}
+
+interface OverlayListShape {
+  items: number;
+  rowsPerItem: number;
+  indicator: boolean;
+}
+
+function placeholderOptions(count: number): SelectOption[] {
+  return Array.from({ length: Math.max(0, count) }, () => ({ name: "", description: "" }));
+}
+
+/**
+ * SelectRenderable keeps its scroll offset and visible-item capacity private
+ * in its type surface, so the wrapper reads them reflectively and narrows the
+ * values instead of asserting a shape.
+ */
+function selectScrollState(select: SelectRenderable): { offset: number; visible: number } {
+  const numberProp = (name: string): number => {
+    const value = Object.getOwnPropertyDescriptor(select, name)?.value;
+    return typeof value === "number" ? value : 1;
+  };
+  return {
+    offset: numberProp("scrollOffset"),
+    visible: Math.max(1, numberProp("maxVisibleItems")),
+  };
+}
+
+export function createOverlayList(
+  ctx: RenderContext,
+  opts: { count: number; items: number; activeIndex?: number },
+): OverlayList {
+  let shape: OverlayListShape = { items: Math.max(1, opts.items), rowsPerItem: 1, indicator: true };
+  let count = Math.max(0, opts.count);
+  const activeIndex = opts.activeIndex ?? 0;
+  let options = placeholderOptions(count);
+
+  const build = (): SelectRenderable =>
+    new SelectRenderable(ctx, {
+      options,
+      selectedIndex: activeIndex,
+      height: shape.items * shape.rowsPerItem,
+      width: "100%",
+      flexShrink: 0,
+      showDescription: shape.rowsPerItem > 1,
+      showSelectionIndicator: shape.indicator,
+      itemSpacing: 0,
+      // Selection is a text colour, not a filled band: the highlighted row
+      // already stands out, and a block would fight the host's background.
+      backgroundColor: UI.ground,
+      focusedBackgroundColor: UI.ground,
+      selectedBackgroundColor: UI.ground,
+      textColor: UI.textDim,
+      focusedTextColor: UI.textDim,
+      selectedTextColor: UI.text,
+      descriptionColor: UI.textDim,
+      selectedDescriptionColor: UI.text,
+    });
+
+  let select = build();
+
+  const reshape = (next: Partial<OverlayListShape>): void => {
+    const merged = { ...shape, ...next };
+    if (
+      merged.items === shape.items &&
+      merged.rowsPerItem === shape.rowsPerItem &&
+      merged.indicator === shape.indicator
+    ) {
+      return;
+    }
+    shape = merged;
+    select = build();
+  };
+
+  return {
+    get select() {
+      return select;
+    },
+    get activeIndex() {
+      return select.getSelectedIndex();
+    },
+    get height() {
+      return shape.items;
+    },
+    get offset() {
+      return selectScrollState(select).offset;
+    },
+    get count() {
+      return count;
+    },
+    move(delta: number) {
+      if (delta < 0) select.moveUp(-delta);
+      else if (delta > 0) select.moveDown(delta);
+    },
+    page(dir: -1 | 1) {
+      this.move(dir * (shape.items > 1 ? shape.items - 1 : 1));
+    },
+    jump(index: number) {
+      if (count === 0) return;
+      select.setSelectedIndex(Math.max(0, Math.min(count - 1, Math.floor(index))));
+    },
+    setCount(next: number) {
+      count = Math.max(0, Math.floor(next));
+      options = placeholderOptions(count);
+      select.options = options;
+    },
+    setHeight(items: number, rowsPerItem?: number) {
+      reshape({ items: Math.max(1, Math.floor(items)), ...(rowsPerItem ? { rowsPerItem } : {}) });
+    },
+    visibleRange() {
+      const { offset, visible } = selectScrollState(select);
+      return { start: offset, end: Math.min(count, offset + visible) };
+    },
+  };
+}
+
 /** Stable id for the focused row: `itemIds[index]` when supplied, else its label. */
-function activeOverlayItemId(shell: AppShell, list: ListViewportState): string {
+function activeOverlayItemId(shell: AppShell, list: OverlayList): string {
   const bag = internals.get(shell);
   return (
     bag?.primaryBindings.itemIds[list.activeIndex] ??
@@ -1259,18 +1400,19 @@ function activeOverlayItemId(shell: AppShell, list: ListViewportState): string {
 
 function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList;
+  if (!list) return;
   shell.overlayView.paintList(
     {
       kind: shell.overlayKind,
       items: shell.overlayItems,
       paletteCommands: shell.paletteCommands,
-      viewport: list,
+      list,
       bodyLines: shell.overlayBodyLines,
       bodyFgs: shell.overlayBodyFgs,
       answer: overlayAnswerState(shell),
       describe: () => {
         const describe = internals.get(shell)?.primaryBindings.describe;
-        return describe && list ? describe(activeOverlayItemId(shell, list)) : undefined;
+        return describe ? describe(activeOverlayItemId(shell, list)) : undefined;
       },
     },
     shell.layout.contentWidth,
@@ -1571,7 +1713,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
       shell.overlayItems,
       shell.layout.contentWidth,
     );
-    shell.overlayList = setListHeight(shell.overlayList, Math.max(1, Math.floor(bodyH / perItem)));
+    shell.overlayList.setHeight(
+      Math.max(1, Math.floor(bodyH / perItem)),
+      isDecisionOverlay(shell.overlayKind) ? DECISION_CHOICE_ROWS : 1,
+    );
     paintOverlayList(shell);
   }
 
@@ -1731,7 +1876,7 @@ interface PriorOverlaySnapshot {
   readonly items: readonly string[];
   readonly bodyLines: readonly string[];
   readonly bodyFgs: readonly string[];
-  readonly list: ListViewportState;
+  readonly list: OverlayList;
   readonly title: string;
   readonly paletteCommands: readonly PaletteCommand[];
   readonly primaryBindings: Readonly<PrimaryOverlayBindings>;
@@ -3342,9 +3487,9 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
   // reserve a blank band the operator can neither read nor act on.
   const listItems = labels.length;
 
-  shell.overlayList = createListViewport({
+  shell.overlayList = createOverlayList(shell.renderer as CliRenderer, {
     count: labels.length,
-    height: Math.max(1, listItems),
+    items: Math.max(1, listItems),
     activeIndex: opts?.activeIndex ?? 0,
   });
 
@@ -4059,17 +4204,11 @@ export function setOwnedOverlayItems(
     const displayedCount = shell.overlayItems.length;
     const activeIndex = activeId === undefined ? -1 : bag.primaryBindings.itemIds.indexOf(activeId);
     if (activeIndex >= 0 && shell.overlayList.activeIndex !== activeIndex) {
-      shell.overlayList = createListViewport({
-        count: displayedCount,
-        height: shell.overlayList.height,
-        activeIndex,
-      });
+      shell.overlayList.jump(activeIndex);
       paintOverlayList(shell);
     }
     if (displayedCount !== previousCount) {
-      if (shell.overlayList !== null) {
-        shell.overlayList = setListHeight(shell.overlayList, Math.max(1, displayedCount));
-      }
+      shell.overlayList?.setHeight(Math.max(1, displayedCount));
       relayoutOverlayHost(shell, displayedCount);
       paintOverlayList(shell);
     }
@@ -4084,9 +4223,9 @@ export function setOwnedOverlayItems(
     ...prior,
     items: [...items],
     primaryBindings: { ...prior.primaryBindings, itemIds: [...itemIds] },
-    list: createListViewport({
+    list: createOverlayList(shell.renderer as CliRenderer, {
       count: items.length,
-      height: prior.list.height,
+      items: prior.list.height,
       activeIndex: activeIndex >= 0 ? activeIndex : prior.list.activeIndex,
     }),
   };
@@ -4115,13 +4254,8 @@ export function setOverlayItems(
   // selection as the list narrows. The `/` popup instead resets to the top
   // row on every keystroke, matching pre-refresh behavior where each filter
   // reopened the overlay fresh.
-  shell.overlayList = opts?.resetActive
-    ? createListViewport({
-        count: items.length,
-        height: shell.overlayList.height,
-        activeIndex: 0,
-      })
-    : setListCount(shell.overlayList, items.length);
+  shell.overlayList.setCount(items.length);
+  if (opts?.resetActive) shell.overlayList.jump(0);
   paintOverlayList(shell);
 }
 
@@ -4137,7 +4271,7 @@ export function toggleOverlayExpand(shell: AppShell): boolean {
 /** Move overlay selection (j/k / arrows). */
 export function moveOverlaySelection(shell: AppShell, delta: number): void {
   if (!shell.overlayList) return;
-  shell.overlayList = moveActive(shell.overlayList, delta);
+  shell.overlayList.move(delta);
   paintOverlayList(shell);
 }
 
@@ -4171,7 +4305,7 @@ export function runOverlayAction(shell: AppShell, key: KeyEvent): boolean {
 /** Page overlay selection (PgUp/PgDn). */
 export function pageOverlaySelection(shell: AppShell, dir: -1 | 1): void {
   if (!shell.overlayList) return;
-  shell.overlayList = pageList(shell.overlayList, dir);
+  shell.overlayList.page(dir);
   paintOverlayList(shell);
 }
 

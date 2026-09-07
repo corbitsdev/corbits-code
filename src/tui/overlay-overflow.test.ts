@@ -17,8 +17,8 @@ import {
   moveOverlaySelection,
   type AppShell,
 } from "./shell.js";
-import { visibleSlice } from "./list-viewport.js";
-import { makePermissionItems, openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
+import { makePermissionItems } from "./harness.js";
+import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import {
   operatorChoicesFromOptions,
   permissionBodyFromRequest,
@@ -52,7 +52,7 @@ function activeVisible(shell: AppShell): void {
   const list = shell.overlayList;
   expect(list).not.toBeNull();
   if (!list) return;
-  const slice = visibleSlice(list);
+  const slice = list.visibleRange();
   expect(list.activeIndex).toBeGreaterThanOrEqual(slice.start);
   expect(list.activeIndex).toBeLessThan(slice.end);
 }

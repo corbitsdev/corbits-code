@@ -5,7 +5,7 @@
  * `applyOverlayBodyText` in shell.ts).
  */
 import { describe, expect, test } from "bun:test";
-import { withTestRenderer } from "./harness.js";
+import { makePermissionItems, withTestRenderer } from "./harness.js";
 import {
   createAppShell,
   appendStreamRow,
@@ -13,7 +13,7 @@ import {
   openPalette,
   type AppShell,
 } from "./shell.js";
-import { openPermissionsOverlay, makePermissionItems } from "./overlays.js";
+import { openPermissionsOverlay } from "./overlays.js";
 import { DECISION_CHOICE_ROWS } from "./overlay-body.js";
 
 function primeSession(shell: AppShell): void {

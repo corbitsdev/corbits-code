@@ -225,7 +225,7 @@ describe("openers toggle their surface shut", () => {
 
   test("an opener cannot dismiss an approval overlay", async () => {
     await withShell({ columns: 80, rows: 30 }, (shell, h) => {
-      openPermissionsOverlay(shell);
+      openPermissionsOverlay(shell, { items: ["Allow once", "Deny"] });
       expect(shell.overlayKind).toBe("permissions");
 
       // A decision surface leaves by a choice or Esc, never because some other
