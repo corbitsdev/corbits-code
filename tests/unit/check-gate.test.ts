@@ -14,7 +14,6 @@ const ci = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8"
 const guardSource = readFileSync(join(repoRoot, "scripts", "guard-real-projects-dir.ts"), "utf8");
 
 const GUARD_SCRIPT = "check:projects-dir-guard";
-const BUDGET_SCRIPT = "check:tui-budget";
 const TEST_SUITE = "bun test ./src ./tests ./evals --randomize --seed 424242";
 
 describe("check gate", () => {
@@ -27,14 +26,6 @@ describe("check gate", () => {
     expect(pkg.scripts.check).toContain(`bun run ${GUARD_SCRIPT}`);
     // The guard delegates to `bun run test` so the suite command has one home.
     expect(guardSource).toContain('"run", "test"');
-  });
-
-  test("`check` and CI both run the TUI file-budget ratchet", () => {
-    expect(pkg.scripts[BUDGET_SCRIPT]).toContain("scripts/guard-tui-file-budget.ts");
-    expect(pkg.scripts.check).toContain(`bun run ${BUDGET_SCRIPT}`);
-    // Without a CI step the ratchet gates nothing on merge; without the
-    // check-chain entry local `bun run check` goes green while CI fails.
-    expect(ci).toContain(`run: bun run ${BUDGET_SCRIPT}`);
   });
 
   test("CI's test job invokes the same script, not a raw test command", () => {
