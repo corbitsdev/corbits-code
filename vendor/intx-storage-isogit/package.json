@@ -18,8 +18,8 @@
     }
   },
   "dependencies": {
-    "@intx/log": "0.2.2",
-    "@intx/mime": "0.2.2",
+    "@intx/log": "0.3.0",
+    "@intx/mime": "0.3.0",
     "@intx/types": "workspace:*",
     "@isomorphic-git/lightning-fs": "4.7.0",
     "arktype": "catalog:",
@@ -27,6 +27,6 @@
     "isomorphic-git": "catalog:"
   },
   "devDependencies": {
-    "@intx/crypto": "0.2.2"
+    "@intx/crypto": "0.3.0"
   }
 }
