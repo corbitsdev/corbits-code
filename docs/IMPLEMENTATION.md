@@ -36,7 +36,7 @@ Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`,
 
 ## Interchange packages
 
-Interchange is consumed as published `@intx/*` npm packages pinned at **0.2.2**. The one exception is `@intx/inference`, which resolves (via a workspace override) to `vendor/intx-inference` — upstream 0.2.2 source plus the audited patch set recorded on CL-4352. There is no interchange working copy in this repo, and we never modify or push to the upstream interchange repository. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
+Interchange is consumed as published `@intx/*` npm packages pinned at **0.3.0**. The exceptions are `@intx/inference`, `@intx/types`, and `@intx/storage-isogit`, which resolve (via workspace overrides) to vendored source under `vendor/intx-*` — `@intx/inference` is upstream 0.2.2 source plus the audited patch set recorded on CL-4352. There is no interchange working copy in this repo, and we never modify or push to the upstream interchange repository. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
 
 ## Developer Setup
 

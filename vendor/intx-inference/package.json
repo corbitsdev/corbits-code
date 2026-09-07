@@ -14,11 +14,11 @@
     }
   },
   "dependencies": {
-    "@intx/log": "0.2.2",
+    "@intx/log": "0.3.0",
     "@intx/types": "workspace:*",
     "arktype": "catalog:"
   },
   "devDependencies": {
-    "@intx/mime": "0.2.2"
+    "@intx/mime": "0.3.0"
   }
 }
