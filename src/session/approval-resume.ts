@@ -15,10 +15,15 @@ import type { Agent, SendResult } from "@intx/agent";
 import type { ApprovalSnapshot, InboundMessage } from "@intx/types/runtime";
 import { type } from "arktype";
 
+import { getLogger } from "@intx/log";
+
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { buildRequests } from "../permission/classify.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { PermissionRequest } from "../permission/types.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
 const ApprovalSnapshotShape = type({
   name: "string",
@@ -58,6 +63,27 @@ export function requestFromApprovalSnapshot(
   return anySecret ? { ...request, scopes: [] } : request;
 }
 
+// The reactor's approval timeout answers the parked call with this exact
+// upstream text (vendored reactor.ts) before removing the correlation, so its
+// presence after the suspension watermark marks the correlation as settled.
+const APPROVAL_TIMEOUT_RESULT_TEXT = "approval timed out";
+
+function settledAfterSuspend(
+  turns: Awaited<ReturnType<Agent["history"]>>,
+  fromIndex: number,
+): boolean {
+  return turns
+    .slice(fromIndex)
+    .flatMap((turn) => turn.content)
+    .some(
+      (block) =>
+        block.type === "tool_result" &&
+        block.content.some(
+          (part) => part.type === "text" && part.text === APPROVAL_TIMEOUT_RESULT_TEXT,
+        ),
+    );
+}
+
 function decisionMessage(
   correlationId: string,
   outcome: "approved" | "rejected",
@@ -83,7 +109,7 @@ function decisionMessage(
 export function createApprovalResume(args: {
   // Late-bound: the live agent is read at handle() time so rebuilds
   // (/clear, model switch) deliver through the current instance.
-  getAgent: () => Pick<Agent, "deliver"> | undefined;
+  getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
   gate: PermissionGate;
 }): ApprovalResume {
   const { getAgent, gate } = args;
@@ -93,6 +119,11 @@ export function createApprovalResume(args: {
       const agent = getAgent();
       if (agent === undefined) return true;
       const { correlationId, approvalSnapshot } = result;
+
+      // Turn-count watermark for the settled guard below: a "approval timed
+      // out" tool result appended after this point means the reactor settled
+      // this very correlation before our decision lands.
+      const turnsAtSuspend = (await agent.history()).length;
 
       if (approvalSnapshot === undefined) {
         // A suspension without a snapshot cannot be surfaced; fail closed by
@@ -109,6 +140,13 @@ export function createApprovalResume(args: {
       }
 
       const outcome = await gate.resolveSuspended(request);
+      if (settledAfterSuspend(await agent.history(), turnsAtSuspend)) {
+        // The reactor already answered the parked call (its approval timeout
+        // fired while the surface was still up). Delivering now would append
+        // the raw decision JSON as an uncorrelated user turn — drop and log.
+        logger.warn`late approval decision dropped correlation=${correlationId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
+        return true;
+      }
       if (outcome === undefined || !outcome.allow) {
         agent.deliver(decisionMessage(correlationId, "rejected", outcome?.message));
         return true;

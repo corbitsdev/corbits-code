@@ -10,11 +10,16 @@
 // and ask suspends the call as a PendingOperation keyed by the correlationId
 // the hook mints.
 
+import { getLogger } from "@intx/log";
+
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { ToolCall, type ToolCall as ToolCallType } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import type { AuthzCallResult } from "@intx/inference";
 import type { PermissionGate } from "./gate.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "authz"]);
 
 const AuthorizeContext = ToolCall;
 
@@ -40,6 +45,10 @@ export function createReactorAuthorize(
       case "allow":
         return { effect: "allow", matchingGrants: [], resolvedBy: null };
       case "deny":
+        // The model-facing block stays generic (upstream's formatBlockReason);
+        // the gate's specific reason is preserved here for the audit trail —
+        // without this it reaches neither model, transcript, nor any log.
+        logger.warn`authz deny resource=${resource} reason=${verdict.reason}`;
         return { effect: "deny", matchingGrants: [], resolvedBy: null };
       case "ask":
         return { effect: "ask", matchingGrants: [], resolvedBy: null };

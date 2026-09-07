@@ -44,6 +44,14 @@ function openWith(gate: ReturnType<typeof gateWithDeferredApproval>["gate"]) {
   return openIntegrationSession({ permissionGate: gate, authorize: createReactorAuthorize(gate) });
 }
 
+// The resume path reads history (async) before raising the approval surface,
+// so tests must wait for the ask rather than yielding a single microtask.
+async function waitForAsk(ctx: ReturnType<typeof gateWithDeferredApproval>): Promise<void> {
+  for (let i = 0; i < 100 && ctx.asks.length === 0; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe("integration — reactor approval suspend/resume", () => {
   test.serial(
     "ask-tier call suspends with a correlationId, resumes on approval, and re-dispatches without re-asking",
@@ -82,7 +90,7 @@ describe("integration — reactor approval suspend/resume", () => {
         expect(request?.subject).toBe("curl -sS https://example.com");
         const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
         const handling = resume.handle(result);
-        await Promise.resolve();
+        await waitForAsk(ctx);
         expect(ctx.asks.length).toBe(1);
         ctx.approve();
         expect(await handling).toBe(true);
@@ -123,7 +131,7 @@ describe("integration — reactor approval suspend/resume", () => {
 
       const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
       const handling = resume.handle(result);
-      await Promise.resolve();
+      await waitForAsk(ctx);
       ctx.reject("not today");
       expect(await handling).toBe(true);
 
@@ -188,6 +196,9 @@ describe("integration — reactor approval suspend/resume", () => {
       const dones = toolDoneEvents(turn.events);
       expect(dones.length).toBeGreaterThanOrEqual(1);
       expect(dones[0]!.data.result.isError).toBe(true);
+      // Assert the block text: this deny is a policy deny, not an operator
+      // decline, so the director's classification must leave it unmatched.
+      expect(dones[0]!.data.result.content).toContain("Denied by policy:");
       // Stricter-than-authz command deny is preserved as a block effect; the
       // approval surface was never raised.
       expect(ctx.asks.length).toBe(0);
@@ -195,6 +206,37 @@ describe("integration — reactor approval suspend/resume", () => {
       await closeIntegrationSession(session);
     }
   });
+
+  test.serial(
+    "rejected decision with a reason re-infers on the reason, not the canned decline",
+    async () => {
+      const ctx = gateWithDeferredApproval();
+      const session = await openWith(ctx.gate);
+      try {
+        session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
+        session.harness.scenario.replyOnce("anthropic", { text: "I'll skip the fetch, then." });
+
+        const turn = await runUntilSuspended(session, "Please fetch example.com.");
+        const { result } = turn;
+        expect(result.type).toBe("suspended");
+        if (result.type !== "suspended") return;
+
+        const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
+        const handling = resume.handle(result);
+        await waitForAsk(ctx);
+        ctx.reject("never touch the network");
+        expect(await handling).toBe(true);
+
+        // The reply must come from re-inference (the scenario's scripted
+        // model turn), not the director's canned decline.
+        const reply = await turn.reply();
+        expect(reply).toBe("I'll skip the fetch, then.");
+        expect(reply).not.toBe("Tool call rejected by operator.");
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 });
 
 // The vendored authz seam must hand the authorize callback the full ToolCall —
