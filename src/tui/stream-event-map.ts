@@ -14,7 +14,7 @@ import {
   normalizeInferenceErrorForTerminal,
   type InferenceErrorLike,
 } from "../inference-gateway-error.js";
-import { isProviderFailurePresentationSuppressed } from "./provider-failure-attempt.js";
+import { isProviderFailurePresentationSuppressed } from "./provider/failure-attempt.js";
 import type { RunState } from "./session-queue.js";
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */

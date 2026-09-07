@@ -33,12 +33,12 @@ await withMockedModule(
   }),
 );
 
-const { buildProviderSubmitHandler } = await import("./provider-setup-submit.js");
+const { buildProviderSubmitHandler } = await import("./provider/submit.js");
 const { createGlobalSettingsWriter, persistGlobalHTTPMCPServer } =
   await import("../mcp/add-server.js");
 const { loadLocalSettings, loadSettings, localSettingsPath, resolveLocalSettingsPath } =
   await import("../config/settings.js");
-import type { OAuthResult, ProviderFormValues, SubmitPhase } from "./provider-setup.js";
+import type { OAuthResult, ProviderFormValues, SubmitPhase } from "./provider/types.js";
 
 const noopSetPhase = (_phase: SubmitPhase): void => {};
 const stagedCodexTokens = {

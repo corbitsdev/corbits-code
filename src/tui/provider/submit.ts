@@ -1,21 +1,21 @@
 import {
-  OAuthProviderScopeError,
-  checkOAuthProviderScope,
-  isBlockingOAuthScopeCheckResult,
-} from "../auth/oauth-scope-check.js";
+  isOllamaProviderId,
+  normalizeOllamaRootURL,
+  ollamaOpenAIBaseURL,
+} from "../../provider/ollama.js";
+import { validateProviderConnection } from "../../provider/validate-connection.js";
 import {
   mergeProviderIntoSettings,
   saveGlobalSettings,
   saveLocalSettings,
   type Settings,
-} from "../config/settings.js";
+} from "../../config/settings.js";
 import {
-  isOllamaProviderId,
-  normalizeOllamaRootURL,
-  ollamaOpenAIBaseURL,
-} from "../provider/ollama.js";
-import { validateProviderConnection } from "../provider/validate-connection.js";
-import type { ProviderSetupSubmit } from "./provider-setup.js";
+  OAuthProviderScopeError,
+  checkOAuthProviderScope,
+  isBlockingOAuthScopeCheckResult,
+} from "../../auth/oauth-scope-check.js";
+import type { ProviderSetupSubmit } from "./types.js";
 
 /**
  * Persist the project-local provider/model selection after a successful

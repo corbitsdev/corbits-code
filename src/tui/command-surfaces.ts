@@ -12,7 +12,7 @@ import { isAbsoluteHTTPURL, validateMCPServerName } from "../mcp/add-server.js";
 import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
 import type { PluginOrigin } from "../plugins/admin.js";
 import { classifyPluginRemove, isOwnedDiskInstall } from "../plugins/uninstall.js";
-import { maskEcho, maskSecret } from "./provider-setup.js";
+import { maskEcho, maskSecret } from "./provider/form.js";
 import { writeClipboard } from "./copy-path.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
 import { setStatusFlash } from "./shell/chrome.js";

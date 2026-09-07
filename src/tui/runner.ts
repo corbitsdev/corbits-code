@@ -31,9 +31,9 @@ import {
   type MCPServerConfig,
   type MCPServerSettingsEntry,
 } from "../config/settings.js";
-import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
-import { persistConnectedSelection } from "./provider-setup-submit.js";
-import { connectProviderInline } from "./provider-connect.js";
+import { addProviderSelectorChoices, providerChoices } from "./provider/choices.js";
+import { connectProviderInline } from "./provider/connect.js";
+import { persistConnectedSelection } from "./provider/submit.js";
 import { modelOptionId } from "./model-catalog.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
@@ -121,7 +121,7 @@ import {
   createProviderFailureAttemptTracker,
   suppressProviderFailurePresentation,
   type ProviderFailureAttempt,
-} from "./provider-failure-attempt.js";
+} from "./provider/failure-attempt.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";

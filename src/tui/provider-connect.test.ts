@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createHarness, type Harness } from "./harness.js";
-import { connectProviderInline } from "./provider-connect.js";
+import { connectProviderInline } from "./provider/connect.js";
 import { loadSettings } from "../config/settings.js";
 
 // The mid-session "connect a new provider" flow shares its persistence and

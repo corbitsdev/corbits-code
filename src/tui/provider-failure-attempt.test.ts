@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createProviderFailureAttemptTracker } from "./provider-failure-attempt.js";
+import { createProviderFailureAttemptTracker } from "./provider/failure-attempt.js";
 
 describe("provider failure attempt tracker", () => {
   test("does not carry a settled attempt's diagnostic into the next attempt", () => {

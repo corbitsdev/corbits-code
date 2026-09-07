@@ -122,4 +122,29 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // CL-6791 phase 3: src/tui/provider-setup.ts (plus connect/submit/
+    // failure-attempt) was split into src/tui/provider/*. The layer may use
+    // shell primitives (overlay-list etc.), layer-0 TUI modules, OpenTUI, and
+    // non-TUI src; it must never reach the host surfaces that mount it.
+    files: ["src/tui/provider/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // Anchored full-source match: `../runner.js` from provider/x.ts,
+              // `../../tui/product-host.js` from a deeper subdir, and bare
+              // (non-.js) specifiers all resolve to banned modules and must
+              // all be caught.
+              regex: "^(\\.\\./)+(tui/)?(runner|product-host)(/[^/]+)*(\\.js)?$",
+              message:
+                "src/tui/provider/** must not import host surfaces (runner, product-host) — those mount the provider setup surface, never the reverse. Depend on provider siblings, shell/*, or layer-0 modules instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Config, UnconfiguredConfig } from "../config/index.js";
-import type { ProviderSetupConfig } from "./provider-setup.js";
+import type { ProviderSetupConfig } from "./provider/types.js";
 import type { WelcomeConfig } from "./welcome.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
@@ -29,8 +29,8 @@ await withMockedModule(
   }),
 );
 await withMockedModule(
-  import.meta.resolve("./provider-setup.js"),
-  (real: typeof import("./provider-setup.js")) => ({
+  import.meta.resolve("./provider/setup.js"),
+  (real: typeof import("./provider/setup.js")) => ({
     ...real,
     runProviderSetup: async (config: ProviderSetupConfig) => {
       callOrder.push("setup");
