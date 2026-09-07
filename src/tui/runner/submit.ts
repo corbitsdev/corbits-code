@@ -34,7 +34,7 @@ import {
   routeQueuedDelivery,
 } from "../queued-delivery.js";
 import type { InferenceAttemptIdentity } from "./state.js";
-import { tuiSendFailureMessage } from "./commands.js";
+import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { Agent } from "@intx/agent";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";

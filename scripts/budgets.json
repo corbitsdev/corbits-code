@@ -272,5 +272,7 @@
   "src/tui/width-contract.ts": 71,
   "src/tui/workflow-controller.ts": 271,
   "src/tui/workspace-watch.test.ts": 101,
-  "src/tui/workspace-watch.ts": 62
+  "src/tui/workspace-watch.ts": 62,
+  "src/tui/row-retext.test.ts": 76,
+  "src/tui/runner/send-failure-message.ts": 38
 }

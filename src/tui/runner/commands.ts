@@ -1,7 +1,6 @@
 /**
  * Command layer for the TUI runner: slash-command registry population, the
- * command context the handlers run against, result surfacing, and the
- * inference-failure message contract shared by the submit path.
+ * command context the handlers run against, and result surfacing.
  */
 
 import { getLogger } from "@intx/log";
@@ -34,42 +33,13 @@ import { renameSession } from "../../session/index.js";
 import { truncateSessionLabel } from "../../session/session-label.js";
 import { surfaceSystemNotice, attachClipboardImage } from "../shell/prompt.js";
 import type { InferenceErrorLike } from "../../inference-gateway-error.js";
-import {
-  CREDENTIAL_FAILURE_USER_MESSAGE,
-  isResolvedProviderFailureError,
-  terminalProviderFailureMessage,
-} from "../../inference-error-message.js";
+import { terminalProviderFailureMessage } from "../../inference-error-message.js";
 import type { InferenceAttemptIdentity } from "./state.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import { userInboundMessage } from "./submit.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
-
-export function tuiSendFailureMessage(
-  error: unknown,
-  failureKind: "auth" | "error",
-  providerFailureObserved: boolean,
-  attempt: InferenceAttemptIdentity,
-  providerError?: InferenceErrorLike,
-): string {
-  if (failureKind === "auth") {
-    return CREDENTIAL_FAILURE_USER_MESSAGE;
-  }
-  if (!providerFailureObserved && !isResolvedProviderFailureError(error)) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  const providerId =
-    providerError?.providerId ??
-    (isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId);
-  const displayLabel = providerId === attempt.providerId ? attempt.displayLabel : undefined;
-  if (providerError === undefined && isResolvedProviderFailureError(error)) return error.message;
-  const diagnostic = providerError ?? {
-    category: "fatal",
-    message: error instanceof Error ? error.message : String(error),
-  };
-  return terminalProviderFailureMessage(providerId, diagnostic, displayLabel);
-}
 
 export function surfaceTerminalProviderFailure(
   shell: Parameters<typeof surfaceSystemNotice>[0],

@@ -72,9 +72,9 @@ export function retextStyledKindRow(
   return false;
 }
 
-/** Rewrite the gutter a styled-lines or structured wrapper carries. */
 function retextGutter(node: TextRenderable, gutter: PaintedStreamLine): void {
   node.content = gutter.content;
+  node.fg = gutter.fg;
   node.width = stringWidth(gutter.content);
 }
 

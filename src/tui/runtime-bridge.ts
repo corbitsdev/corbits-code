@@ -1328,12 +1328,12 @@ export function attachSessionBridge(
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
   };
-
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
     shell.session = createSessionQueue("idle");
     bag.pendingEchoes.length = 0;
     bag.liveFleet = 0;
+    bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
 
