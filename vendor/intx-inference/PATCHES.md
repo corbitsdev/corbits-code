@@ -23,7 +23,12 @@ the new upstream code, not by assuming).
 ### 2026-09-07 re-sync (upstream `0205b07b`)
 
 Every entry above was re-carried against the new pin; none was dropped as
-upstream-absorbed. Upstream changes in the pinned range touched exactly two
+upstream-absorbed. The sync also dropped one divergence that was **not**
+ledgered at the time: `claude-fable-5-1` in `providers/anthropic.ts`'s
+`ADAPTIVE_THINKING_MODELS` and its "adaptive thinking request shape" suite in
+`providers/anthropic.test.ts`. It is recovered post-sync as
+`providers-ts-anthropic-adaptive-fable-5-1` below. Upstream changes in the
+pinned range touched exactly two
 patched files: `reactor.ts` (doom-loop detection: `doomLoopThreshold`
 config, `toolBatchSignature`, run-scoped repeat accounting in `executeTools`,
 and a fatal break in the action loop) and `assembly.ts` (a
@@ -252,6 +257,23 @@ gap rather than carrying indefinitely.
 **Removal path:** Upstream PR widening `BodyInit` to accept `Uint8Array`, or
 Corbits adds a local type assertion wrapper and removes the cast from the
 vendored patch.
+
+## providers-ts-anthropic-adaptive-fable-5-1
+
+`providers/anthropic.ts` — Adds `claude-fable-5-1` to
+`ADAPTIVE_THINKING_MODELS`, so the adapter sends the
+`thinking:{type:"adaptive"}` + `output_config.effort` wire shape the model
+requires instead of the `thinking:{type:"enabled",budget_tokens}` shape
+adaptive-only models reject. Upstream's list lacks the model. Consumed by the
+`first-class-providers` registry (`claude-fable-5-1` is a shipped, selectable
+anthropic and zen model; CHANGELOG 0.3.17 advertises adaptive thinking for
+Fable 5) and guarded by the "adaptive thinking request shape" suite in
+`providers/anthropic.test.ts`.
+
+**Disposition:** Re-carryable — a one-line list addition that survives sync
+trivially; the guard suite re-applies verbatim. Risk: upstream may grow its
+own adaptive-models list; reconcile the two on next sync. **Removal path:**
+Upstream adding `claude-fable-5-1` to its own `ADAPTIVE_THINKING_MODELS`.
 
 ---
 

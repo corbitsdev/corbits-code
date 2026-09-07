@@ -39,6 +39,8 @@ export const ADAPTIVE_THINKING_MODELS: ReadonlySet<string> = new Set([
   "claude-sonnet-5",
   "claude-opus-5",
   "claude-fable-5",
+  // Locally patched — see vendor/intx-inference/PATCHES.md#providers-ts-anthropic-adaptive-fable-5-1
+  "claude-fable-5-1",
   "claude-opus-4-8",
   "claude-opus-4-6",
   "claude-opus-4-7",
