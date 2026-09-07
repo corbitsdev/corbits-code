@@ -30,6 +30,62 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 | `@intx/authz`          | `vendor/intx-authz/`          | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
 | `@intx/log`            | `vendor/intx-log/`            | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
 | `@intx/tools-posix`    | `vendor/intx-tools-posix/`    | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/mailbox`        | `vendor/intx-mailbox/`        | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/harness`        | `vendor/intx-harness/`        | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| `@intx/mime`           | `vendor/intx-mime/`           | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+
+## Provenance, ownership, and kill dates
+
+Every vendored path with its upstream source, why the published npm package
+did not cover the need, its owner, and its kill date. A kill date is a
+proposal the operator ratifies on review; each ties an observable condition
+to a hard backstop date (2027-03-07, six months after this sync). When the
+condition is met the vendored tree is dropped in favour of the published
+package; the date is the deadline even if it is not.
+
+| Vendor path                           | Upstream repo           | Upstream commit                            | Patched            | Why not the published package                                                                                                                                   | Owner   | Proposed kill date                                                                         |
+| ------------------------------------- | ----------------------- | ------------------------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
+| `vendor/intx-inference/`              | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | Yes — `PATCHES.md` | Local fixes not yet upstream                                                                                                                                    | runtime | 2027-03-07 or when patches land upstream and publish                                       |
+| `vendor/intx-types/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Cross-package coupling with `@intx/inference`                                                                                                                   | runtime | 2027-03-07 or when the coupled trio publishes past `0.3.0`                                 |
+| `vendor/intx-storage-isogit/`         | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Cross-package coupling with `@intx/inference`                                                                                                                   | runtime | 2027-03-07 or when the coupled trio publishes past `0.3.0`                                 |
+| `vendor/intx-agent/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/agent@>=0.4.0` publishes                                         |
+| `vendor/intx-authz/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/authz@>=0.4.0` publishes                                         |
+| `vendor/intx-log/`                    | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/log@>=0.4.0` publishes                                           |
+| `vendor/intx-tools-posix/`            | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/tools-posix@>=0.4.0` publishes                                   |
+| `vendor/intx-mailbox/`                | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Never published to npm (verified 2026-09-07: registry 404 for all versions)                                                                                     | step-1  | 2027-03-07 or when `@intx/mailbox@>=0.4.0` publishes                                       |
+| `vendor/intx-harness/`                | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | `driveConnectorReplies`/`AgentEventStream` (`src/reply-drain.ts`) is past npm `0.3.0` (verified 2026-09-07: absent from the published tarball)                  | step-1  | 2027-03-07 or when a published `@intx/harness` exports `driveConnectorReplies`             |
+| `vendor/intx-mime/`                   | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | `buildMessageHeaders` is past npm `0.3.0` (verified 2026-09-07: absent from the published tarball); `@intx/mailbox` re-exports it                               | step-1  | 2027-03-07 or when a published `@intx/mime` exports `buildMessageHeaders`                  |
+| `vendor/intx-workflow-host/adapters/` | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | App-internal: `substrate-mailbox-store.ts` has never been published in any `@intx/workflow-host` release (verified 2026-09-07: absent from the `0.3.0` tarball) | step-1  | 2027-03-07 or when a published `@intx/workflow-host` exports `createSubstrateMailboxStore` |
+
+### The 2026-09-07 step-1 vendor pass
+
+Three needs from the ticket were verified against npm and found already
+covered by published packages, so they are **dependencies, not vendored
+trees**:
+
+- `@intx/hub-sessions` `./substrate` — `createAgentRepoStore({ dataDir,
+signingKey })` (local disk + keypair, no hub, no database) is present in
+  the published `0.3.0` tarball. Root `dependencies` pins `0.3.0`.
+- `@intx/mail-memory` — `InMemoryTransport`/`createInMemoryTransport` are
+  present in the published `0.3.0`. Root `dependencies` pins `0.3.0`.
+- the `@intx/workflow onEvent` seam — the `opts.onEvent` sink on
+  `createWorkflowStepInvoker` lives in `@intx/workflow-host`'s
+  `adapters/step-invoker.ts`, and the published `@intx/workflow-host@0.3.0`
+  tarball already carries it (its `subscribeAgentEvents(agent,
+opts.onEvent)` wiring). Root `dependencies` pins `0.3.0`.
+
+Everything vendored in this pass sits at the same upstream commit
+`0205b07b64d03f0fec2e4be3593c764070a9ba8a` as the existing trees; no
+vendored tree mixes pins.
+
+`vendor/intx-workflow-host/adapters/` is a partial-package vendor: upstream
+`packages/workflow-host` has a `package.json`, but this tree carries only
+the never-published `substrate-mailbox-store` adapter (source + its test,
+563 lines, documented on-disk layout, O(delta) flushes). It is
+deliberately **not** a workspace member and nothing in `src/` imports it —
+Step 1 decides whether to wire it as a package when it consumes it. Its
+`@intx/hub-sessions/substrate` and `@intx/mailbox` imports resolve once
+that wiring exists; until then it is inert provenance, not dead weight.
 
 The 2026-09-07 sync moved all three packages together to a single
 upstream commit, restoring the single-commit coherence the coupling rule
@@ -65,7 +121,7 @@ copies. `@intx/tools-lsp` remains on published npm (`0.3.0`) — it is a
 thin adapter whose transitive `@intx/*` dependencies resolve to the
 vendored workspaces via root `overrides`, so it tracks the vendored set
 without being vendored itself. Published transitive dependencies that
-stay on npm (`@intx/mime`, `@intx/crypto`, `@intx/inference-discovery`,
+stay on npm (`@intx/crypto`, `@intx/inference-discovery`,
 `@intx/inference-testing`) are pinned to the root's published versions so
 the lockfile never nests duplicate copies of them either.
 
@@ -150,20 +206,18 @@ behavioral one. The package also picked up two new dependencies
 (`@isomorphic-git/lightning-fs`, `buffer`, both used only by the new
 `./browser` runtime, which nothing here imports) and a new
 `@intx/crypto` dev dependency for its own test suite, pinned to `0.2.2` —
-the same "stay on published npm for a package we don't vendor" pattern as the
-`@intx/log` and `@intx/mime` dependencies on the other vendored packages,
-which are kept aligned with the root's published `0.3.0` pins so the
-lockfile never nests duplicate copies.
+the same "stay on published npm for a package we don't vendor" pattern as
+the `@intx/log` dependency on the other vendored packages; `@intx/mime`
+joined the vendored set in the 2026-09-07 step-1 pass, and its consumers
+now resolve it through the root `workspace:*` override.
 
 One new upstream test, `browser-bundle.test.ts`, is excluded via
 `bunfig.toml`'s `pathIgnorePatterns`. It bundles `browser.ts` with
 `Bun.build` under the `intx-src` export condition, which resolves
-`@intx/log` and `@intx/mime` to `./src/*.ts`. `@intx/log` is vendored
-source since the 2026-09-07 sync, but `@intx/mime` remains a published
-npm install (`dist/` only, no `src/`), so the condition still matches an
-export key whose target does not exist and the bundle fails to resolve.
-This is an environment gap, not a defect in the vendored code; re-check
-it when `@intx/mime` gets vendored too.
+`@intx/log` and `@intx/mime` to `./src/*.ts`. Both are vendored source as
+of the 2026-09-07 syncs (`@intx/mime` in the step-1 pass, which vendored
+it for `buildMessageHeaders`), so the condition has a `src/` target again;
+the test stays excluded pending a re-run of the bundle in CI conditions.
 
 `@intx/inference` carries local patches — real fixes not yet present
 upstream, not workarounds for something upstream has since fixed. Every

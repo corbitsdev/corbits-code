@@ -50,6 +50,9 @@
     "./vendor/intx-authz",
     "./vendor/intx-log",
     "./vendor/intx-tools-posix",
+    "./vendor/intx-mailbox",
+    "./vendor/intx-harness",
+    "./vendor/intx-mime",
     "./packages/*"
   ],
   "overrides": {
@@ -59,7 +62,10 @@
     "@intx/agent": "workspace:*",
     "@intx/authz": "workspace:*",
     "@intx/log": "workspace:*",
-    "@intx/tools-posix": "workspace:*"
+    "@intx/tools-posix": "workspace:*",
+    "@intx/mailbox": "workspace:*",
+    "@intx/harness": "workspace:*",
+    "@intx/mime": "workspace:*"
   },
   "catalog": {
     "@types/semver": "^7.7.1",
@@ -80,6 +86,12 @@
     "@intx/storage-isogit": "workspace:*",
     "@intx/tools-lsp": "0.3.0",
     "@intx/tools-posix": "workspace:*",
+    "@intx/mailbox": "workspace:*",
+    "@intx/harness": "workspace:*",
+    "@intx/mime": "workspace:*",
+    "@intx/mail-memory": "0.3.0",
+    "@intx/hub-sessions": "0.3.0",
+    "@intx/workflow-host": "0.3.0",
     "@intx/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "0.5.10",
