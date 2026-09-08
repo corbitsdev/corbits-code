@@ -121,7 +121,6 @@ export interface RunnerServices {
   >;
   deliveryGeneration: ReturnType<typeof import("../queued-delivery.js").createDeliveryGeneration>;
   buildSessionSources: () => import("../../session/assemble-runtime.js").LiveSessionSources;
-  codexInstructionsRefreshed: Promise<void>;
   providerFailureAttempts: ReturnType<
     typeof import("../provider/failure-attempt.js").createProviderFailureAttemptTracker
   >;

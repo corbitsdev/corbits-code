@@ -12,7 +12,6 @@ import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId } from "../agent/directors/types.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
-import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { type ToolAvailability } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
@@ -503,18 +502,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const liveDefaultSource = initialBundle.defaultSource;
     const selectedSource = initialBundle.selected;
     let liveSource: InferenceSource = selectedSource;
-
-    // Refresh pinned Codex instructions before first inference, same as the
-    // TUI path. Best-effort: a network failure falls back to the disk cache
-    // or bundled copy without failing the run. Exec is one-shot (no long-lived
-    // session to catch up later), so this is awaited rather than fire-and-forget.
-    if (initialCodexProfile !== undefined) {
-      await refreshCodexInstructions().catch((err: unknown) => {
-        logger.warn("Codex instructions refresh failed: {error}", {
-          error: formatCaughtError(err),
-        });
-      });
-    }
 
     // Refresh OAuth tokens before first inference when starting on codex/xai.
     if (initialCodexProfile !== undefined) {

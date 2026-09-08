@@ -10,7 +10,6 @@
 
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
-import { getLogger } from "@intx/log";
 import {
   localSettingsPath,
   shellTimeoutFromSettings,
@@ -65,7 +64,6 @@ import { WorkflowController } from "../workflow-controller.js";
 import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
 import { deliverAgentMessage } from "../deliver-agent-message.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
-import { refreshCodexInstructions } from "../../auth/codex/instructions.js";
 import { getTelemetry, liveTelemetry } from "../../telemetry/singleton.js";
 import { createChatDirector } from "../../agent/director.js";
 import { attachApprovalBudget } from "../request-approval.js";
@@ -73,7 +71,7 @@ import { createGateRequestApproval } from "../request-approval.js";
 import { getActivePricingCache } from "../../cost/cost-visibility.js";
 import type { OperatorGateEvent } from "../gate-events.js";
 import { sessionDir } from "../../session/index.js";
-import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { ID_PREFIX } from "../../branding.js";
 import {
   liveAgent,
   type RunnerHost,
@@ -81,8 +79,6 @@ import {
   type RunnerState,
   type TUIStart,
 } from "./state.js";
-
-const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
 export async function assembleTUISession(
   state: RunnerState,
@@ -358,22 +354,6 @@ export async function assembleTUISession(
     getProvider: () => state.config,
   });
 
-  // Refresh the pinned Codex instructions without blocking TUI startup. Every
-  // deliver below awaits settlement, so the first request never races the
-  // refresh: codex-responses-adapter places the instructions at the top of
-  // every request body, and an in-memory swap after inference #1 would change
-  // the whole prefix and forfeit the provider prompt cache mid-session.
-  // Best-effort, same as exec boot: on failure the session runs on
-  // cached/bundled instructions.
-  const codexInstructionsRefreshed: Promise<void> =
-    state.initialCodexProfile === undefined
-      ? Promise.resolve()
-      : refreshCodexInstructions().catch((err: unknown) => {
-          tuiLogger.warn("Codex instructions refresh failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
   // so a rebuild never races an in-flight deliver.
   const sessionOps = createSessionOperationQueue();
@@ -387,7 +367,6 @@ export async function assembleTUISession(
       // otherwise the message silently never reaches the agent.
       await deliverAgentMessage({
         getFatalBuildError: () => state.fatalBuildError,
-        ready: codexInstructionsRefreshed,
         deliverToLiveAgent,
         onDeliverFailure: (text) => state.systemNotice?.(text),
       });
@@ -514,7 +493,6 @@ export async function assembleTUISession(
     sessionOps,
     deliveryGeneration,
     buildSessionSources,
-    codexInstructionsRefreshed,
     providerFailureAttempts,
     baseToolCount,
     mcpStates,

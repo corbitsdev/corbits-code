@@ -14,6 +14,7 @@ import {
   defineDirector,
   fromToolRunner,
   stringTool,
+  type SendResult,
 } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
@@ -145,6 +146,31 @@ import type {
 
 import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
+
+/**
+ * The sub-agent toolset resolves permission approvals inside the tool
+ * handler (see createDynamicToolRunner's waitForApproval wiring), so the
+ * reactor should never park a gate and Agent.send should always settle on
+ * "reply". This guard is the sound fallback if that ever drifts: instead of
+ * flattening the suspension into an opaque message, the thrown error carries
+ * the correlationId and approval snapshot needed to resume or diagnose.
+ */
+export function assertReplySend(
+  result: SendResult,
+): asserts result is Extract<SendResult, { type: "reply" }> {
+  if (result.type === "reply") return;
+  const error = new Error(
+    `Sub-agent send returned a suspended result ` +
+      `(correlationId=${result.correlationId}` +
+      `${result.approvalSnapshot !== undefined ? ", approvalSnapshot present" : ""})`,
+  );
+  Object.assign(error, {
+    suspendedType: result.type,
+    correlationId: result.correlationId,
+    ...(result.approvalSnapshot !== undefined ? { approvalSnapshot: result.approvalSnapshot } : {}),
+  });
+  throw error;
+}
 
 export type {
   NestedDispatchDeps,
@@ -809,6 +835,7 @@ async function runSubAgentInner(
     };
     const toolsFactory = defineTool({
       id: `${ID_PREFIX}/subagent-tools`,
+      definitions: [],
       // Without the watchdog config, child tool calls run under default budgets
       // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
       factory: () => {
@@ -1111,6 +1138,7 @@ async function runSubAgentInner(
             terminalProviderError,
           );
         }
+        if (result.type !== "reply") assertReplySend(result);
         return result.reply.trim().length > 0
           ? result.reply.trim()
           : "Sub-agent finished without a textual result.";
@@ -1173,6 +1201,7 @@ async function runSubAgentInner(
           terminalProviderError,
         );
       }
+      if (result.type !== "reply") assertReplySend(result);
       // A successful non-empty reply must not be clobbered by a late cancel that
       // races the completion window — keep the completed report. Empty replies
       // still honor abort so we salvage (or rethrow) rather than fabricating
