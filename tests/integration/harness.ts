@@ -33,6 +33,11 @@ import { ID_PREFIX } from "../../src/branding.js";
 import type { PermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
 import { assertReplySend } from "../../src/subagent/run.js";
+import { createModelSummarizer, type CompletionFn } from "../../src/session/summarizer.js";
+import {
+  buildCompactionContinuationMessage,
+  createSessionPruningCompactor,
+} from "../../src/session/runtime-assembly.js";
 
 export const INTEGRATION_SOURCE: InferenceSource = {
   id: "anthropic:claude-integration",
@@ -52,6 +57,8 @@ export interface IntegrationSession {
 
 export interface OpenIntegrationSessionOpts {
   permissionGate: PermissionGate;
+  /** Registers the production compactor and continuation; only inference is replaced. */
+  compactionCompletion?: CompletionFn;
   /** Reactor authorization override (defaults to permissive). */
   authorize?: (
     resource: string,
@@ -85,6 +92,9 @@ export async function openIntegrationSession(
       createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], {
         onTasksChange: () => undefined,
         inactivityTimeoutMs: 750_000,
+        ...(opts.compactionCompletion !== undefined
+          ? { requestContinuation: () => agent.deliver(buildCompactionContinuationMessage()) }
+          : {}),
       }),
   });
 
@@ -131,6 +141,20 @@ export async function openIntegrationSession(
       factories: [chatDirectorDef.factory],
       defaultId: `${ID_PREFIX}/chat`,
     }),
+    ...(opts.compactionCompletion !== undefined
+      ? {
+          compactors: {
+            "pruning-compactor": createSessionPruningCompactor({
+              compactionMode: "llm",
+              summarize: createModelSummarizer({
+                getSource: () => INTEGRATION_SOURCE,
+                deps: harness.deps,
+                complete: opts.compactionCompletion,
+              }),
+            }),
+          },
+        }
+      : {}),
     closeTimeoutMs: 0,
   });
 
