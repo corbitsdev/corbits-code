@@ -50,8 +50,8 @@ export type BridgeInboundEvent =
    */
   | { readonly type: "fleet"; readonly running: number }
   /**
-   * Workers newly parked in ask_director (transition-only, emitter-side
-   * deduped). The bridge stashes and delivers them when the parent can act.
+   * Authoritative snapshot of currently pending top-level ask_director
+   * questions, including empty. The bridge reconciles and dedups delivery.
    */
   | { readonly type: "agent-ask"; readonly asks: readonly PendingAskWake[] }
   | { readonly type: "tool.boundary" }

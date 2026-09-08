@@ -362,13 +362,15 @@ export interface BridgeBag {
    * stashing the same question twice.
    */
   pendingAskWake: Map<string, PendingAskWake>;
+  deliveredAskWake: Map<string, string>;
   /**
-   * Set once `submit` exists inside `attachSessionBridge`; the module-scope
+   * Set inside `attachSessionBridge`; the module-scope
    * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
    */
   flushPendingAskWake: (() => void) | null;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
+  lastSentOrigin: "composer" | "internal" | null;
   /** One auto-retry per rate-limit window. */
   quotaFired: boolean;
   now: () => number;
@@ -942,10 +944,12 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
       paintChrome(shell);
       return;
     }
-    // Parked ask_director questions: stash keyed by session (repeat store
-    // notifications overwrite rather than duplicate), then deliver now when
-    // the parent is free — otherwise they wait for settle or gate close.
-    for (const ask of event.asks) bag.pendingAskWake.set(ask.sessionId, ask);
+    bag.pendingAskWake = new Map(event.asks.map((ask) => [ask.sessionId, ask]));
+    for (const [sessionId, questionId] of bag.deliveredAskWake) {
+      if (bag.pendingAskWake.get(sessionId)?.questionId !== questionId) {
+        bag.deliveredAskWake.delete(sessionId);
+      }
+    }
     bag.flushPendingAskWake?.();
     return;
   }
@@ -1036,8 +1040,10 @@ export function attachSessionBridge(
     turn: initialTurnState(now()),
     liveFleet: 0,
     pendingAskWake: new Map(),
+    deliveredAskWake: new Map(),
     flushPendingAskWake: null,
     lastSentMessage: "",
+    lastSentOrigin: null,
     quotaFired: false,
     now,
     toolRows: new Map(),
@@ -1235,6 +1241,13 @@ export function attachSessionBridge(
     if (settled) settleRun();
   };
 
+  const recordLastSent = (
+    replay: { text: string; origin: "composer" | "internal" } | null,
+  ): void => {
+    bag.lastSentMessage = replay === null ? "" : replay.text;
+    bag.lastSentOrigin = replay === null ? null : replay.origin;
+  };
+
   const submit = (
     text: string,
     kind: "queue" | "steer" | "immediate" | "reinject",
@@ -1286,7 +1299,7 @@ export function attachSessionBridge(
         meta: "stop",
       });
       bag.port.interrupt();
-      bag.lastSentMessage = "";
+      recordLastSent(null);
       bag.turn = turnStateOnInterrupt(bag.turn, now());
     }
 
@@ -1307,12 +1320,12 @@ export function attachSessionBridge(
         ...(kind === "reinject" ? { meta: "reinject" } : {}),
       });
       bag.pendingEchoes.push(t);
-      bag.port.sendImmediate(t, attachments);
       shell.session = setRunState(shell.session, "busy");
-      bag.lastSentMessage = t;
+      recordLastSent({ text: t, origin: "composer" });
       bag.turn = turnStateOnSubmit(bag.turn, now());
       paintChrome(shell);
       paintPhase();
+      bag.port.sendImmediate(t, attachments);
       return;
     }
 
@@ -1332,18 +1345,26 @@ export function attachSessionBridge(
     paintChrome(shell);
   };
 
-  /**
-   * Deliver stashed ask wakes as one turn, but only when the parent can act:
-   * never mid-cycle, and never while an operator gate holds the run. The
-   * gate-closed path flushes explicitly — a gate's `isProcessing` lingers by
-   * design, so the ordinary idle condition would never fire there.
-   */
-  const flushPendingAskWake = (force = false): void => {
-    if (bag.pendingAskWake.size === 0) return;
-    if (!force && (bag.turn.isProcessing || bag.turn.blockedGateCount > 0)) return;
-    const asks = [...bag.pendingAskWake.values()];
-    bag.pendingAskWake.clear();
-    submit(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"), "immediate");
+  const sendInternalText = (text: string): void => {
+    appendStreamRow(shell, { role: "user", text });
+    bag.pendingEchoes.push(text);
+    shell.session = setRunState(shell.session, "busy");
+    recordLastSent({ text, origin: "internal" });
+    bag.turn = turnStateOnSubmit(bag.turn, now());
+    paintChrome(shell);
+    paintPhase();
+    // Harness turns are not composer input: /feedback must never consume them.
+    bag.port.deliver({ id: crypto.randomUUID(), text, kind: "queue", enqueuedAt: now() });
+  };
+  const flushPendingAskWake = (): void => {
+    if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0) return;
+    const asks = [...bag.pendingAskWake.values()].filter(
+      (ask) => bag.deliveredAskWake.get(ask.sessionId) !== ask.questionId,
+    );
+    if (asks.length === 0) return;
+    // Outbound delivery can synchronously re-enter through store/stream events.
+    for (const ask of asks) bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
+    sendInternalText(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"));
   };
   bag.flushPendingAskWake = () => flushPendingAskWake();
 
@@ -1365,16 +1386,18 @@ export function attachSessionBridge(
     drainAtBoundary(shell, bag);
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
-    bag.lastSentMessage = "";
+    recordLastSent(null);
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
   };
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
     shell.session = createSessionQueue("idle");
+    recordLastSent(null);
     bag.pendingEchoes.length = 0;
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
+    bag.deliveredAskWake.clear();
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
@@ -1395,10 +1418,7 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     bag.turn = turnStateGateClosed(bag.turn, now());
     paintPhase();
-    // Flush a wake stashed while the gate held the run — but only at true
-    // session-idle. A gate closing over a still-live parent cycle must not
-    // inject mid-cycle; that cycle's own settle flushes the stash instead.
-    flushPendingAskWake(bag.turn.blockedGateCount === 0 && shell.session.run === "idle");
+    flushPendingAskWake();
   };
 
   const tick = (): void => {
@@ -1415,12 +1435,13 @@ export function attachSessionBridge(
       })
     ) {
       bag.quotaFired = true;
-      const replay = bag.lastSentMessage;
+      const replay = { text: bag.lastSentMessage, origin: bag.lastSentOrigin };
       bag.turn = clearQuotaWait(bag.turn);
       setStatusFlash(shell, "rate limit cleared — resubmitting", {
         ttlMs: RUNTIME_FLASH_MS,
       });
-      submit(replay, "immediate");
+      if (replay.origin === "internal") sendInternalText(replay.text);
+      else submit(replay.text, "immediate");
       return;
     }
 
@@ -1521,6 +1542,10 @@ export function attachSessionBridge(
     dispose: () => {
       flushOpenRow(shell, bag);
       bag.disposed = true;
+      recordLastSent(null);
+      bag.pendingAskWake.clear();
+      bag.deliveredAskWake.clear();
+      bag.flushPendingAskWake = null;
       applyCadence(null);
       clearShellBridgeHooks(shell);
       bridges.delete(shell);

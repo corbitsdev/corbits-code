@@ -17,12 +17,11 @@ import { loadSentMessages } from "../../session/sent-messages.js";
 import { setActiveDisposeHost } from "../../session/active-host.js";
 import {
   createFleetWatch,
-  createPendingAskWatch,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   liveFleetCount,
   observeFleet,
-  observePendingAsks,
+  pendingAskSnapshot,
 } from "../../subagent/index.js";
 import { scheduleUpgradeNotice } from "../../upgrade/index.js";
 import pkg from "../../../package.json" with { type: "json" };
@@ -52,6 +51,39 @@ import { hostOf, liveAgent, type RunnerServices, type RunnerState } from "./stat
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
+
+export function createFleetWakePublisher(
+  sessions: RunnerServices["subAgentSessions"],
+  emitter: RunnerServices["emitter"],
+) {
+  let lastLiveFleet = 0;
+  let suspended = false;
+  const publish = (): void => {
+    if (suspended) return;
+    const lanes = sessions.list();
+    // Reconcile even an empty snapshot before a fleet drop can settle the parent.
+    const asks = pendingAskSnapshot(lanes, (id) => sessions.peekAsk(id));
+    emitter.emit("event", { type: "agent-ask", asks });
+    const fleet = liveFleetCount(sessions.list());
+    if (fleet !== lastLiveFleet) {
+      lastLiveFleet = fleet;
+      emitter.emit("event", { type: "fleet", running: fleet });
+    }
+  };
+  const withSuspended = (reset: () => void): void => {
+    suspended = true;
+    // The bridge clears its fleet count even when the store's count is unchanged.
+    lastLiveFleet = -1;
+    try {
+      reset();
+    } finally {
+      suspended = false;
+    }
+    // A failed cancellation must not publish its partially reset snapshot.
+    publish();
+  };
+  return { publish, withSuspended };
+}
 
 export function wirePostStartup(
   state: RunnerState,
@@ -127,27 +159,10 @@ export function wirePostStartup(
     for (const update of observation.updates) surfaceSystemNotice(hostOf(state).shell, update);
   };
   let fleetSettle: ReturnType<typeof setTimeout> | null = null;
-  // Live-lane count feeds the bridge's idle-with-fleet hold (CL-7057): the
-  // run stays busy after the parent turn settles until the last lane
-  // terminalizes. Store notifications fire per child event, not per status
-  // flip, so emit only when the count itself moves.
-  let lastLiveFleet = 0;
-  // Parked ask_director questions ride the same store subscription. The
-  // emitter-side watch dedups on questionId transitions, so only a newly
-  // parked question reaches the bridge; delivery timing is the bridge's.
-  let askWatch = createPendingAskWatch();
+  const fleetWakePublisher = createFleetWakePublisher(services.subAgentSessions, services.emitter);
+  state.withFleetPublicationSuspended = fleetWakePublisher.withSuspended;
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
-    const lanes = services.subAgentSessions.list();
-    const fleet = liveFleetCount(lanes);
-    if (fleet !== lastLiveFleet) {
-      lastLiveFleet = fleet;
-      services.emitter.emit("event", { type: "fleet", running: fleet });
-    }
-    const asks = observePendingAsks(askWatch, lanes, (id) => services.subAgentSessions.peekAsk(id));
-    askWatch = asks.watch;
-    if (asks.wakes.length > 0) {
-      services.emitter.emit("event", { type: "agent-ask", asks: asks.wakes });
-    }
+    fleetWakePublisher.publish();
     if (fleetSettle !== null) return;
     fleetSettle = setTimeout(() => {
       fleetSettle = null;

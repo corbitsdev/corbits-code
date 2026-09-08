@@ -1,15 +1,5 @@
-/**
- * Parent-wake for workers parked in ask_director: the pure emitter-side
- * diff. Bridge delivery (stash / coalesce / flush-once) lives in
- * tui/agent-ask-wake.test.ts.
- */
 import { describe, expect, test } from "bun:test";
-import {
-  createPendingAskWatch,
-  observePendingAsks,
-  pendingAskWakeText,
-  type FleetLane,
-} from "./fleet-report.js";
+import { pendingAskSnapshot, pendingAskWakeText, type FleetLane } from "./fleet-report.js";
 
 function lane(overrides: Partial<FleetLane> & { id: string }): FleetLane {
   return {
@@ -24,77 +14,52 @@ function lane(overrides: Partial<FleetLane> & { id: string }): FleetLane {
   };
 }
 
-interface FakeAsk {
-  readonly question: string;
-  readonly questionId: string;
-}
-
-function peekAskFrom(asks: ReadonlyMap<string, FakeAsk>) {
-  return (id: string): FakeAsk | undefined => asks.get(id);
-}
-
-describe("observePendingAsks", () => {
-  test("a parked top-level ask wakes once, naming the question", () => {
-    const asks = new Map([["a1", { question: "Which port?", questionId: "q1" }]] as const);
-    const first = observePendingAsks(
-      createPendingAskWatch(),
-      [lane({ id: "a1", agentId: "builder", description: "Build the thing" })],
-      peekAskFrom(asks),
-    );
-    expect(first.wakes).toHaveLength(1);
-    expect(first.wakes[0]).toMatchObject({
-      sessionId: "a1",
+describe("pendingAskSnapshot", () => {
+  test("repeated calls return complete identical snapshots for distinct sessions sharing a catalog", () => {
+    const lanes = [
+      lane({ id: "a1", agentId: "builder", description: "Build the thing" }),
+      lane({ id: "a2", agentId: "builder" }),
+    ];
+    const peek = () => ({ question: "Which port?", questionId: "q1" });
+    const expected = lanes.map((worker) => ({
+      sessionId: worker.id,
       agentId: "builder",
-      description: "Build the thing",
+      description: worker.description,
       question: "Which port?",
       questionId: "q1",
+    }));
+    expect(pendingAskSnapshot(lanes, peek)).toEqual(expected);
+    expect(pendingAskSnapshot(lanes, peek)).toEqual(expected);
+  });
+
+  test("resolution, removal and replacement are reflected without prior watch state", () => {
+    const lanes = [lane({ id: "a1" })];
+    const asks = new Map([["a1", { question: "A?", questionId: "q1" }]]);
+    const peek = (id: string) => asks.get(id);
+    expect(pendingAskSnapshot(lanes, peek)[0]?.questionId).toBe("q1");
+    expect(pendingAskSnapshot([], peek)).toEqual([]);
+    asks.clear();
+    expect(pendingAskSnapshot(lanes, peek)).toEqual([]);
+    asks.set("a1", { question: "B?", questionId: "q2" });
+    expect(pendingAskSnapshot(lanes, peek)[0]).toMatchObject({
+      sessionId: "a1",
+      question: "B?",
+      questionId: "q2",
     });
-
-    // Store notifies again for the same question: no extra wake.
-    const repeat = observePendingAsks(
-      first.watch,
-      [lane({ id: "a1", agentId: "builder", description: "Build the thing" })],
-      peekAskFrom(asks),
-    );
-    expect(repeat.wakes).toEqual([]);
   });
 
-  test("a resolved ask drops from the watch; a re-ask with a new questionId wakes again", () => {
-    const asks = new Map([["a1", { question: "A?", questionId: "q1" }]] as const);
-    const first = observePendingAsks(
-      createPendingAskWatch(),
-      [lane({ id: "a1" })],
-      peekAskFrom(asks),
+  test("only running root workers with a pending question are included", () => {
+    const lanes = [
+      lane({ id: "root" }),
+      lane({ id: "child", parentSessionId: "orchestrator" }),
+      lane({ id: "done", status: "done" }),
+      lane({ id: "cancelled", status: "cancelled" }),
+      lane({ id: "no-ask" }),
+    ];
+    const asks = pendingAskSnapshot(lanes, (id) =>
+      id === "no-ask" ? undefined : { question: "Q?", questionId: "q1" },
     );
-    expect(first.wakes).toHaveLength(1);
-
-    const resolved = observePendingAsks(first.watch, [lane({ id: "a1" })], peekAskFrom(new Map()));
-    expect(resolved.wakes).toEqual([]);
-
-    const reask = new Map([["a1", { question: "B?", questionId: "q2" }]] as const);
-    const again = observePendingAsks(resolved.watch, [lane({ id: "a1" })], peekAskFrom(reask));
-    expect(again.wakes).toHaveLength(1);
-    expect(again.wakes[0]?.questionId).toBe("q2");
-  });
-
-  test("nested-orchestrator asks never wake the root", () => {
-    const asks = new Map([["child", { question: "Q?", questionId: "q1" }]] as const);
-    const { wakes } = observePendingAsks(
-      createPendingAskWatch(),
-      [lane({ id: "child", parentSessionId: "orchestrator" })],
-      peekAskFrom(asks),
-    );
-    expect(wakes).toEqual([]);
-  });
-
-  test("a lane that is not running does not wake", () => {
-    const asks = new Map([["a1", { question: "Q?", questionId: "q1" }]] as const);
-    const { wakes } = observePendingAsks(
-      createPendingAskWatch(),
-      [lane({ id: "a1", status: "done" })],
-      peekAskFrom(asks),
-    );
-    expect(wakes).toEqual([]);
+    expect(asks.map((ask) => ask.sessionId)).toEqual(["root"]);
   });
 });
 
@@ -112,7 +77,7 @@ describe("pendingAskWakeText", () => {
     expect(text).toContain("Which port?");
     expect(text).toContain("q1");
     expect(text).toContain("send_input");
-    // The worker raised it; the parent must not present it as operator-asked.
+    expect(text).toContain("targeting agent_id a1");
     expect(text.toLowerCase()).toContain("worker");
   });
 });
