@@ -10,8 +10,7 @@ import { SelectRenderable } from "@opentui/core";
 import type { PermissionRequest } from "../permission/types.js";
 import { withTestRenderer } from "./harness";
 import { createAppShell } from "./shell/index.js";
-import { toggleOverlayExpand } from "./shell/overlay-list.js";
-import { createOverlayList } from "./shell/overlay-list";
+import { createOverlayList, toggleOverlayExpand } from "./shell/overlay-list.js";
 import { wireGates } from "./gate-wire.js";
 import { DECISION_CHOICE_ROWS } from "./overlay-body";
 import {

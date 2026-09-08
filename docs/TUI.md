@@ -325,8 +325,9 @@ blank row separates the subject from context. Choices are deliberately small:
 each one is a bare, single-line action name (`Reject`, `Accept once`, the
 scope's label) with no consequence text folded into the row. A scope's hint
 paints instead as a body message above the choice list
-(`permissionBodyFromRequest` in `src/tui/gate-wire.ts`), and the expand key
-reveals the full body — collapsed payloads and hints alike — in the overlay
+(`permissionBodyFromRequest` in `src/tui/gate-wire.ts`), and the expand key,
+which binds only when the subject carries collapsed payloads, reveals the
+full body — collapsed payloads and hints alike — in the overlay
 and, whole, in the transcript. Every choice reserves the same fixed two rows
 (label plus a row of air) so list paging stays a simple multiple. The active
 choice is marked by text color alone — cream (`UI.text`) against the dim rows

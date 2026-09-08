@@ -1,9 +1,8 @@
 /**
- * Selection continuity of the shell's overlay list across count and height
- * changes. Scroll clamping and windowing itself are delegated to
- * @opentui/core's SelectRenderable and are not re-tested here; what this pins
- * is the wrapper's own reshape/setCount logic that carries the live selection
- * across a rebuild so a resize does not snap the cursor back.
+ * Overlay-list navigation and windowing: page/jump/move clamping, the
+ * end-exclusive visible window, and the setCount/setHeight/reshape logic
+ * that carries the live selection across a rebuild so a resize or list
+ * change does not snap the cursor back.
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
