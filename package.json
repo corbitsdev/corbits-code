@@ -46,12 +46,20 @@
     "./vendor/intx-inference",
     "./vendor/intx-types",
     "./vendor/intx-storage-isogit",
+    "./vendor/intx-agent",
+    "./vendor/intx-authz",
+    "./vendor/intx-log",
+    "./vendor/intx-tools-posix",
     "./packages/*"
   ],
   "overrides": {
     "@intx/inference": "workspace:*",
     "@intx/types": "workspace:*",
-    "@intx/storage-isogit": "workspace:*"
+    "@intx/storage-isogit": "workspace:*",
+    "@intx/agent": "workspace:*",
+    "@intx/authz": "workspace:*",
+    "@intx/log": "workspace:*",
+    "@intx/tools-posix": "workspace:*"
   },
   "catalog": {
     "@types/semver": "^7.7.1",
@@ -65,13 +73,13 @@
     "tar": "^7.5.1"
   },
   "dependencies": {
-    "@intx/agent": "0.3.0",
-    "@intx/authz": "0.3.0",
+    "@intx/agent": "workspace:*",
+    "@intx/authz": "workspace:*",
     "@intx/inference": "workspace:*",
-    "@intx/log": "0.3.0",
+    "@intx/log": "workspace:*",
     "@intx/storage-isogit": "workspace:*",
     "@intx/tools-lsp": "0.3.0",
-    "@intx/tools-posix": "0.3.0",
+    "@intx/tools-posix": "workspace:*",
     "@intx/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "0.5.10",
