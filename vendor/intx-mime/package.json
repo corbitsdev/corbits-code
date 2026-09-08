@@ -1,0 +1,17 @@
+{
+  "name": "@intx/mime",
+  "version": "0.2.2",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@intx/crypto": "0.3.0",
+    "@intx/types": "workspace:*",
+    "arktype": "catalog:"
+  }
+}

@@ -149,6 +149,7 @@ describe("deleteFilePlugin", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd,
       requestApproval: async () => ({ allow: false }),
     });

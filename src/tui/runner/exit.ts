@@ -482,6 +482,10 @@ export async function createRunLifecycle(
         );
         state.workdir = sessionContextDir(state.config.cwd, state.sessionId);
         await initSessionDir(state.config.cwd, state.sessionId);
+        const rotatedBundle = services.buildSessionSources();
+        state.liveSources = rotatedBundle.sources;
+        state.liveDefaultSource = rotatedBundle.defaultSource;
+        state.liveSource = rotatedBundle.selected;
         services.permissionGate.reset();
         services.runSink.reset();
         services.sessionCost.reset();

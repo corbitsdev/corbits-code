@@ -82,6 +82,9 @@ export interface RunnerServices {
   permissionGate: Awaited<
     ReturnType<typeof import("../../session/assemble-runtime.js").assembleSessionGate>
   >["gate"];
+  approvalResume: ReturnType<
+    typeof import("../../session/approval-resume.js").createApprovalResume
+  >;
   permissionsAdmin: ReturnType<typeof import("../../permission/admin.js").createPermissionsAdmin>;
   liveSubAgent: ReturnType<
     typeof import("../../session/runtime-assembly.js").createLiveSubAgentSources

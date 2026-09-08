@@ -258,7 +258,12 @@ export function createSubmitPath(
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
     try {
-      await live.agentProxy.send(message);
+      const result = await live.agentProxy.send(message);
+      // An ask-tier call parked on the reactor's approval gate settles the
+      // send early; resolve the operator surface here and deliver the
+      // decision on the correlationId signal channel so the parked run
+      // resumes.
+      await services.approvalResume.handle(result);
     } catch (error) {
       handleSendFailure(error, attempt, providerFailure);
     } finally {

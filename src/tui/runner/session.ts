@@ -45,6 +45,8 @@ import {
   resolveLiveSessionSources,
   type LiveSessionSources,
 } from "../../session/assemble-runtime.js";
+import { createApprovalResume } from "../../session/approval-resume.js";
+import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
   buildCompactionContinuationMessage,
   createLiveSubAgentSources,
@@ -135,7 +137,13 @@ export async function assembleTUISession(
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
+    // Main session: gating rides the reactor's approval-suspend seam.
+    reactorGated: true,
     onGrant: (approval, covers) => emitter.emit("permission.grant", { approval, covers }),
+  });
+  const approvalResume = createApprovalResume({
+    getAgent: () => state.currentAgent,
+    gate: permissionGate,
   });
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
@@ -422,6 +430,7 @@ export async function assembleTUISession(
       state.reloadIfIdle?.();
     },
     getWorkdir: () => state.workdir,
+    authorize: createReactorAuthorize(permissionGate),
     inferenceDeps: start.inferenceDeps,
     getSources: () => (state.liveSources.length > 0 ? state.liveSources : [state.liveSource]),
     getDefaultSource: () =>
@@ -470,6 +479,7 @@ export async function assembleTUISession(
     activeRunHandle: start.activeRunHandle,
     inferenceDeps: start.inferenceDeps,
     permissionGate,
+    approvalResume,
     permissionsAdmin,
     liveSubAgent,
     subAgentSessions,

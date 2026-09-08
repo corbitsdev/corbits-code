@@ -1,0 +1,15 @@
+{
+  "name": "@intx/authz",
+  "version": "0.2.2",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@intx/types": "workspace:*"
+  }
+}
