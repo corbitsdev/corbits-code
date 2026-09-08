@@ -221,6 +221,9 @@ status / current tool) — Amp/Codex-style lanes without a FLEET header board:
 ```
 
 An `ask_director` lane stays live and reads as waiting on the director, not stalled.
+When a parked question lands while the parent is idle, the runner injects one
+coalesced wake turn so the parent answers via `send_input` — the strip itself
+never re-delivers it.
 
 `formatChromeZones` → `formatAgentsPanel` owns that paint. Geometry stays
 stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is

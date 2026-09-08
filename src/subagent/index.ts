@@ -13,14 +13,19 @@ export type {
 export { createSubAgentSessionStore } from "./session-store.js";
 export {
   createFleetWatch,
+  createPendingAskWatch,
   fleetDigest,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   liveFleetCount,
   observeFleet,
+  observePendingAsks,
+  pendingAskWakeText,
   type FleetLane,
   type FleetObservation,
   type FleetWatch,
+  type PendingAskWake,
+  type PendingAskWatch,
 } from "./fleet-report.js";
 export {
   EMPTY_THRASH_STATE,

@@ -67,6 +67,7 @@ import {
   fleetProgress,
   type AgentProgressSession,
 } from "./agent-progress.js";
+import { pendingAskWakeText, type PendingAskWake } from "../subagent/fleet-report.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -268,6 +269,7 @@ function isBridgeInbound(event: { type: string }): event is BridgeInboundEvent {
     case "system":
     case "run":
     case "fleet":
+    case "agent-ask":
     case "tool.boundary":
     case "error":
       return true;
@@ -353,6 +355,18 @@ export interface BridgeBag {
    * session-idle — and the hold releases when the count lands back at zero.
    */
   liveFleet: number;
+  /**
+   * Worker asks parked in ask_director, keyed by session, waiting for a
+   * moment the parent can act on them (idle settle or last gate closing).
+   * Keying by session is what stops a repeat emitter notification from
+   * stashing the same question twice.
+   */
+  pendingAskWake: Map<string, PendingAskWake>;
+  /**
+   * Set once `submit` exists inside `attachSessionBridge`; the module-scope
+   * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
+   */
+  flushPendingAskWake: (() => void) | null;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
   /** One auto-retry per rate-limit window. */
@@ -900,11 +914,13 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     // pending send now — the parent they were steering has stopped, so
     // each one starts its own turn — while follow-ups keep waiting.
     drainSteersAtBoundary(shell, bag);
+    bag.flushPendingAskWake?.();
     return;
   }
   shell.session = setRunState(shell.session, "idle");
   // Full drain: soft steers first, then follow-ups (drainOrder).
   drainAtBoundary(shell, bag);
+  bag.flushPendingAskWake?.();
 }
 
 function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent): void {
@@ -913,16 +929,24 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
   // Fleet liveness owns no transcript row state, so it is handled before the
   // open-row machinery — a lane terminalizing mid-parent-stream must not
   // close the assistant row the parent's own deltas are growing.
-  if (event.type === "fleet") {
+  if (event.type === "fleet" || event.type === "agent-ask") {
     // Idle-with-fleet bookkeeping. A transition to zero while the parent is
     // already idle releases the hold: that moment is true session-idle, so
     // queued follow-ups drain now. While the parent is still working the
     // count just updates — the ordinary turn settle does the draining.
-    bag.liveFleet = event.running;
-    if (event.running === 0 && !bag.turn.isProcessing) {
-      settleRunToIdle(shell, bag);
+    if (event.type === "fleet") {
+      bag.liveFleet = event.running;
+      if (event.running === 0 && !bag.turn.isProcessing) {
+        settleRunToIdle(shell, bag);
+      }
+      paintChrome(shell);
+      return;
     }
-    paintChrome(shell);
+    // Parked ask_director questions: stash keyed by session (repeat store
+    // notifications overwrite rather than duplicate), then deliver now when
+    // the parent is free — otherwise they wait for settle or gate close.
+    for (const ask of event.asks) bag.pendingAskWake.set(ask.sessionId, ask);
+    bag.flushPendingAskWake?.();
     return;
   }
 
@@ -1011,6 +1035,8 @@ export function attachSessionBridge(
     disposed: false,
     turn: initialTurnState(now()),
     liveFleet: 0,
+    pendingAskWake: new Map(),
+    flushPendingAskWake: null,
     lastSentMessage: "",
     quotaFired: false,
     now,
@@ -1306,6 +1332,21 @@ export function attachSessionBridge(
     paintChrome(shell);
   };
 
+  /**
+   * Deliver stashed ask wakes as one turn, but only when the parent can act:
+   * never mid-cycle, and never while an operator gate holds the run. The
+   * gate-closed path flushes explicitly — a gate's `isProcessing` lingers by
+   * design, so the ordinary idle condition would never fire there.
+   */
+  const flushPendingAskWake = (force = false): void => {
+    if (bag.pendingAskWake.size === 0) return;
+    if (!force && (bag.turn.isProcessing || bag.turn.blockedGateCount > 0)) return;
+    const asks = [...bag.pendingAskWake.values()];
+    bag.pendingAskWake.clear();
+    submit(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"), "immediate");
+  };
+  bag.flushPendingAskWake = () => flushPendingAskWake();
+
   const doInterrupt = (): void => {
     if (bag.disposed) return;
     closeOpenRow(shell, bag);
@@ -1333,6 +1374,7 @@ export function attachSessionBridge(
     shell.session = createSessionQueue("idle");
     bag.pendingEchoes.length = 0;
     bag.liveFleet = 0;
+    bag.pendingAskWake.clear();
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
@@ -1353,6 +1395,10 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     bag.turn = turnStateGateClosed(bag.turn, now());
     paintPhase();
+    // Flush a wake stashed while the gate held the run — but only at true
+    // session-idle. A gate closing over a still-live parent cycle must not
+    // inject mid-cycle; that cycle's own settle flushes the stash instead.
+    flushPendingAskWake(bag.turn.blockedGateCount === 0 && shell.session.run === "idle");
   };
 
   const tick = (): void => {
