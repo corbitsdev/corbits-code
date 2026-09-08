@@ -23,6 +23,16 @@ const fold = (
     initialTurnState(startMs),
   );
 
+test("an idle worker gate does not manufacture parent processing", () => {
+  const opened = turnStateGateOpened(initialTurnState(0));
+  expect(opened.isProcessing).toBe(false);
+  expect(opened.status).toBe("blocked");
+  expect(turnStateGateClosed(opened, 1).status).toBe("idle");
+  const started = turnStateFromEvent(opened, { type: "inference.start" }, 2);
+  expect(started.isProcessing).toBe(true);
+  expect(turnStateGateClosed(started, 3).status).toBe("running");
+});
+
 describe("turnStateFromEvent", () => {
   test("start awaits the first token", () => {
     const s = fold([{ type: "inference.start" }]);

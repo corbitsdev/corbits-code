@@ -238,6 +238,7 @@ export interface RunnerState {
   ) => Promise<void>;
   shutdownRuntime?: () => Promise<void>;
   stopFleetReporting?: () => void;
+  withFleetPublicationSuspended?: (reset: () => void) => void;
 }
 
 export function recordRunError(state: RunnerState, err: unknown): void {

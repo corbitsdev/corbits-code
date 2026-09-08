@@ -122,9 +122,8 @@ export function liveFleetCount(lanes: readonly FleetLane[]): number {
 }
 
 /**
- * One parked ask_director question worth waking the parent for. `sessionId`
- * and `agentId` differ only in namespace; the wake message and send_input
- * both speak `agentId`.
+ * One parked ask_director question. Replies target the unique `sessionId`;
+ * `agentId` is only the descriptive catalog identity shared by workers.
  */
 export interface PendingAskWake {
   readonly sessionId: string;
@@ -134,43 +133,17 @@ export interface PendingAskWake {
   readonly questionId: string;
 }
 
-/** QuestionIds already woken, per lane. The caller keeps and hands it back. */
-export interface PendingAskWatch {
-  readonly questionIds: ReadonlyMap<string, string>;
-}
-
-export function createPendingAskWatch(): PendingAskWatch {
-  return { questionIds: new Map() };
-}
-
-/**
- * Which parked asks are new since the last observation. Only top-level
- * workers (no `parentSessionId`) wake the root — a nested orchestrator owns
- * its own children's questions. A resolved ask drops from the watch, so a
- * re-ask with a fresh questionId wakes again while repeat notifications for
- * the same questionId stay silent.
- */
-export function observePendingAsks(
-  previous: PendingAskWatch,
+/** Nested orchestrators own their children's questions; only root workers wake the TUI. */
+export function pendingAskSnapshot(
   lanes: readonly FleetLane[],
   peekAsk: (sessionId: string) => { question: string; questionId: string } | undefined,
-): { watch: PendingAskWatch; wakes: readonly PendingAskWake[] } {
-  const questionIds = new Map(previous.questionIds);
-  const wakes: PendingAskWake[] = [];
+): readonly PendingAskWake[] {
+  const asks: PendingAskWake[] = [];
   for (const lane of lanes) {
-    if (lane.parentSessionId !== undefined) continue;
-    if (lane.status !== "running") {
-      questionIds.delete(lane.id);
-      continue;
-    }
+    if (lane.parentSessionId !== undefined || lane.status !== "running") continue;
     const ask = peekAsk(lane.id);
-    if (ask === undefined) {
-      questionIds.delete(lane.id);
-      continue;
-    }
-    if (questionIds.get(lane.id) === ask.questionId) continue;
-    questionIds.set(lane.id, ask.questionId);
-    wakes.push({
+    if (ask === undefined) continue;
+    asks.push({
       sessionId: lane.id,
       agentId: lane.agentId ?? lane.id,
       description: lane.description,
@@ -178,7 +151,7 @@ export function observePendingAsks(
       questionId: ask.questionId,
     });
   }
-  return { watch: { questionIds }, wakes };
+  return asks;
 }
 
 /**
@@ -192,7 +165,7 @@ export function pendingAskWakeText(wake: PendingAskWake): string {
     "",
     wake.question,
     "",
-    `The worker — not the operator — raised this. Answer it with send_input (soft) targeting agent_id ${wake.agentId}; do not relay to the operator unless it genuinely needs them.`,
+    `The worker — not the operator — raised this. Answer it with send_input (soft) targeting agent_id ${wake.sessionId}; do not relay to the operator unless it genuinely needs them.`,
   ].join("\n");
 }
 

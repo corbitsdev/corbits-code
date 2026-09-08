@@ -39,6 +39,23 @@ import {
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
+export function resetSessionForRotation(
+  state: Pick<RunnerState, "withFleetPublicationSuspended">,
+  services: Pick<RunnerServices, "deliveryGeneration" | "emitter" | "subAgentSessions">,
+): void {
+  const reset = (): void => {
+    services.deliveryGeneration.bump();
+    cancelFeedbackCapture();
+    services.emitter.emit("session.clear");
+    services.subAgentSessions.cancelAll("Session cleared");
+  };
+  if (state.withFleetPublicationSuspended === undefined) {
+    reset();
+  } else {
+    state.withFleetPublicationSuspended(reset);
+  }
+}
+
 export interface ResolveExitCodeArgs {
   runError: string | undefined;
   sinkError: string | undefined;
@@ -427,15 +444,7 @@ export async function createRunLifecycle(
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
-    services.deliveryGeneration.bump();
-    cancelFeedbackCapture();
-    // Wipe the painted transcript immediately. The product host listens for
-    // session.clear; the Ink App used to clear its own stream unconditionally
-    // and that path never moved to OpenTUI.
-    services.emitter.emit("session.clear");
-    // Cancel live workers before rotation so /clear does not leave orphaned
-    // child reactors burning tokens under the old session id.
-    services.subAgentSessions.cancelAll("Session cleared");
+    resetSessionForRotation(state, services);
     // Backend rotation is always enqueued regardless of contention; the queue
     // serialises it behind any in-progress op. Sub-agents nest under the new
     // session automatically because getWorkdirBase reads the live sessionId.
