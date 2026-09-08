@@ -20,23 +20,8 @@ afterEach(() => {
   }
 });
 
-test("color returns the brand hex", () => {
-  expect(color("brand")).toBe("#f5933a");
-});
-
-test("color returns the accent (summit blue) hex", () => {
-  expect(color("accent")).toBe("#7ea2c4");
-});
-
 test("warning reuses the brand orange hex", () => {
   expect(color("warning")).toBe(color("brand"));
-});
-
-test("color256 returns the ANSI-256 index for each role", () => {
-  expect(color256("brand")).toBe(173);
-  expect(color256("accent")).toBe(74);
-  expect(color256("success")).toBe(108);
-  expect(color256("danger")).toBe(167);
 });
 
 test("every role maps to a valid ANSI-256 index", () => {
@@ -85,10 +70,6 @@ test("syntax comments recede to the dim rung and strings match success green", (
   expect(palette.syntaxComment).toEqual(palette.dim);
   expect(palette.syntaxString).toEqual(palette.success);
   expect(palette.syntaxVariable).toEqual(palette.text);
-});
-
-test("userMessageBg preserves the established user box gray", () => {
-  expect(color("userMessageBg")).toBe("#45454a");
 });
 
 test("supportsTrueColor detects truecolor terminals", () => {

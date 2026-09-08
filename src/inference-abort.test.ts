@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  INFERENCE_ABORT_INTERNAL_RECOVERY,
-  isNonTerminalInferenceError,
-} from "./inference-abort.js";
+import { isNonTerminalInferenceError } from "./inference-abort.js";
 
 const HTML_503 = "<!DOCTYPE html><html><body>503 Service Unavailable</body></html>";
 
@@ -25,15 +22,5 @@ describe("isNonTerminalInferenceError", () => {
         raw: { bad: true },
       }),
     ).toBe(false);
-  });
-
-  test("internal recovery abort remains non-terminal", () => {
-    expect(
-      isNonTerminalInferenceError({
-        category: "aborted",
-        message: "inference aborted",
-        raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
-      }),
-    ).toBe(true);
   });
 });

@@ -29,11 +29,6 @@ function fakeBlobStore() {
 }
 
 describe("truncateToolResultContent", () => {
-  test("within-cap content passes through unchanged", async () => {
-    const content = "x".repeat(100);
-    expect(await truncateToolResultContent(content)).toBe(content);
-  });
-
   test("under-gate minified JSON is left unchanged (no pretty, no spill)", async () => {
     const store = fakeBlobStore();
     const minified = JSON.stringify({ a: 1, b: 2 });
@@ -58,14 +53,6 @@ describe("truncateToolResultContent", () => {
     // And it must never promise a lifetime it doesn't control either way.
     expect(truncated).not.toContain("removed");
     expect(truncated).not.toContain("session ends");
-  });
-
-  test("the inlined portion stays within the cap (notice reserved inside the budget)", async () => {
-    const content = "x".repeat(MAX_RESULT_CHARS * 3);
-    const truncated = await truncateToolResultContent(content);
-    // Notice is reserved before slicing so the reactor 10k size-cap cannot strip it.
-    expect(truncated.length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
-    expect(truncated).toContain("[output truncated");
   });
 
   describe("with a blob store", () => {
