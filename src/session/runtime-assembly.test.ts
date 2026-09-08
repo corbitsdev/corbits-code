@@ -319,6 +319,7 @@ describe("createApprovalPersist", () => {
         persist,
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         providerName: "openai",
         model: "gpt-5",
       });

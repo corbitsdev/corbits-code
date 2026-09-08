@@ -24,6 +24,7 @@ describe("integration — reactor empty turn", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
     });
 

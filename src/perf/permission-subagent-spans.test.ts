@@ -38,6 +38,7 @@ describe("permission.wait spans", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => ({ allow: true }),
     });
 
@@ -54,6 +55,7 @@ describe("permission.wait spans", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => ({ allow: false, message: "nope" }),
     });
 
@@ -76,6 +78,7 @@ describe("permission.wait spans", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => ({ allow: false, message: freeText }),
     });
 
@@ -114,6 +117,7 @@ describe("permission.wait spans", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => ({ allow: true }),
     });
 
@@ -134,6 +138,7 @@ describe("permission.wait spans", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => {
         throw new Error("ui aborted");
       },
@@ -163,6 +168,7 @@ describe("permission.wait spans", () => {
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => {
         asked += 1;
         return { allow: true };
@@ -197,6 +203,7 @@ describe("permission.wait spans", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => ({ allow: true }),
     });
     await gate.evaluate(shellCall("curl x"));

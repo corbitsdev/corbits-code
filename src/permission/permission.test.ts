@@ -573,6 +573,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
@@ -591,6 +592,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
@@ -607,6 +609,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("# worktree"));
     expect(verdict.allowed).toBe(true);
@@ -623,6 +626,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("# a\n# b\n\n# c"));
     expect(verdict.allowed).toBe(true);
@@ -640,6 +644,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
@@ -657,6 +662,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
@@ -674,6 +680,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("npm test || true"));
     expect(verdict.allowed).toBe(true);
@@ -690,6 +697,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("true"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("false"))).allowed).toBe(true);
@@ -707,6 +715,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     for (const word of ["do", "done", "fi", "then", "else", "elif", "esac", "continue", "break"]) {
       expect((await gate.evaluate(shellCall(word))).allowed).toBe(true);
@@ -734,6 +743,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const first = await gate.evaluate(shellCall(script));
     expect(first.allowed).toBe(true);
@@ -756,6 +766,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(script));
     expect(verdict.allowed).toBe(true);
@@ -773,6 +784,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(script));
     expect(verdict.allowed).toBe(true);
@@ -790,6 +802,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(script));
     expect(verdict.allowed).toBe(false);
@@ -811,6 +824,7 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("echo ok && sudo rm -rf /etc"));
     expect(verdict.allowed).toBe(false);
@@ -831,6 +845,7 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("git show HEAD:file | rg -n foo"));
     expect(verdict.allowed).toBe(true);
@@ -848,6 +863,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "a" } });
     expect(verdict.allowed).toBe(true);
@@ -855,7 +871,12 @@ describe("createPermissionGate", () => {
   });
 
   test("skipPermissions auto-allows consequential tools", async () => {
-    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
     expect((await gate.evaluate(shellCall("curl x"))).allowed).toBe(true);
   });
 
@@ -873,6 +894,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: true,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate({
       id: "c",
@@ -895,6 +917,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: true,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(
       shellCall("git clone https://example.com/org/repo.git /tmp/repo"),
@@ -908,6 +931,7 @@ describe("createPermissionGate", () => {
       approvals: [],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("curl x"));
     expect(verdict.allowed).toBe(false);
@@ -923,6 +947,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
     expect(asked).toBe(0);
@@ -944,6 +969,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     // Seeded persisted approval passes without asking.
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
@@ -976,6 +1002,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true, persist: sessionScope }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     await gate.evaluate(shellCall("curl x"));
     expect(gate.getSessionApprovals()).toEqual([{ tool: "run_shell", pattern: "curl *" }]);
@@ -998,6 +1025,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true, persist: sessionScope }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     await gate.evaluate(shellCall("curl x"));
     gate.setSeededApprovals([{ tool: "write_file", pattern: "src/*" }]);
@@ -1026,6 +1054,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(true);
@@ -1039,6 +1068,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: false }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("curl x"));
     expect(verdict.allowed).toBe(false);
@@ -1055,6 +1085,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
@@ -1073,6 +1104,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
@@ -1090,6 +1122,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const writeVerdict = await gate.evaluate({
@@ -1134,6 +1167,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate({ id: "c", name: "manage_tasks", arguments: {} });
     expect(verdict.allowed).toBe(true);
@@ -1150,6 +1184,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -1171,6 +1206,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({ id: "c", name: "remove_service", arguments: {} });
@@ -1188,6 +1224,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -1209,6 +1246,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: false,
     });
     expect(gate.getAuto()).toBe(false);
@@ -1241,6 +1279,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: false,
     });
     expect(gate.getSkipPermissions()).toBe(false);
@@ -1283,6 +1322,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("npm test"));
@@ -1301,6 +1341,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
       cwd,
       rootsProvider: () => [],
@@ -1323,6 +1364,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
       cwd,
       rootsProvider: () => [],
@@ -1369,6 +1411,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
       cwd,
       rootsProvider: () => [realpathSync(otherRoot)],
@@ -1414,6 +1457,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
         cwd,
         rootsProvider: () => [],
@@ -1429,6 +1473,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const cases = [
@@ -1475,6 +1520,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
       });
       const verdict = await gate.evaluate(shellCall(command));
@@ -1489,6 +1535,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: false }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("npm install lodash"));
@@ -1505,6 +1552,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of [
@@ -1529,6 +1577,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("rm -f stale.log"));
@@ -1541,6 +1590,7 @@ describe("createPermissionGate", () => {
       approvals: [],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("rm -rf ./scratch"));
@@ -1552,6 +1602,7 @@ describe("createPermissionGate", () => {
       approvals: [],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("npm install"));
@@ -1568,6 +1619,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of [
@@ -1588,6 +1640,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of ["npm test", "git status", "bun run build 2>&1", "ls -la > /dev/null"]) {
@@ -1610,6 +1663,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of [
@@ -1634,6 +1688,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const install = await gate.evaluate(shellCall("{ npm install; }"));
@@ -1665,6 +1720,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
       });
       const verdict = await gate.evaluate(shellCall(command));
@@ -1679,6 +1735,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of [
@@ -1709,6 +1766,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
       });
       const verdict = await gate.evaluate(shellCall(command));
@@ -1727,6 +1785,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of ["echo build | xargs rm -rf", "printf '%s\\n' tmp | xargs -n1 rm -rf"]) {
@@ -1754,6 +1813,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
       });
       const verdict = await gate.evaluate(shellCall(command));
@@ -1774,6 +1834,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("echo build | xargs -I{} bash -c 'rm -rf {}'"));
@@ -1793,6 +1854,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
         cwd,
         rootsProvider: () => [],
@@ -1811,6 +1873,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
         cwd,
         rootsProvider: () => [],
@@ -1837,6 +1900,7 @@ describe("createPermissionGate", () => {
         },
         interactive: true,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
       });
       const verdict = await gate.evaluate(shellCall(command));
@@ -1855,6 +1919,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     for (const command of ["bash -c 'echo hello'", 'sh -c "git status"', "bash -c 'npm test'"]) {
@@ -1878,6 +1943,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: true,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("rm -rf /"));
     expect(verdict.allowed).toBe(true);
@@ -1893,6 +1959,7 @@ describe("createPermissionGate", () => {
       approvals: [],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate({
       id: "c",
@@ -1916,6 +1983,7 @@ describe("createPermissionGate", () => {
       },
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("curl x"));
     expect(verdict.allowed).toBe(false);
@@ -1938,6 +2006,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
 
@@ -1974,6 +2043,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     await gate.evaluate(shellCall("curl x"));
     // Evaluate same command again — now pre-approved, persist should not fire again.
@@ -1996,6 +2066,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     await gate.evaluate(shellCall("curl x"));
     expect(persisted).toHaveLength(0);
@@ -2020,6 +2091,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
@@ -2039,6 +2111,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
@@ -2061,6 +2134,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
@@ -2078,6 +2152,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(false);
     expect(seen).toEqual([full]);
@@ -2114,6 +2189,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
@@ -2135,6 +2211,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await replay.evaluate(shellCall("bash -c 'touch PWNED'"))).allowed).toBe(true);
     expect(asked).toBe(1);
@@ -2154,6 +2231,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
@@ -2175,6 +2253,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
@@ -2206,6 +2285,7 @@ describe("createPermissionGate", () => {
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
@@ -2238,6 +2318,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("a"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("a && b"))).allowed).toBe(true);
@@ -2263,6 +2344,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("a && b"))).allowed).toBe(true);
     expect(asked).toBe(1);
@@ -2288,6 +2370,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("a && b && c"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("c && a && b"))).allowed).toBe(true);
@@ -2308,6 +2391,7 @@ describe("createPermissionGate", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall('bash -c "granted && ungranted"'));
     expect(verdict.allowed).toBe(true);
@@ -2327,6 +2411,7 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true, persist: persistScope }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
     // Caller's seed array is untouched...
@@ -2343,12 +2428,14 @@ describe("createPermissionGate", () => {
       requestApproval: async () => ({ allow: true, persist: scope }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const gate2 = createPermissionGate({
       approvals: seed,
       requestApproval: async () => ({ allow: false }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     await gate1.evaluate(shellCall("npm test"));
     // gate2 shares only the initial seed, not gate1's later grants.
@@ -2374,6 +2461,7 @@ describe("scoped grants", () => {
       persist: (approval, scope) => routed.push({ approval, scope }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     await gate.evaluate(shellCall("npm test"));
     expect(routed).toHaveLength(1);
@@ -2389,6 +2477,7 @@ describe("scoped grants", () => {
       persist: (approval) => routed.push(approval),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       providerName: "openai",
       model: "gpt-5",
     });
@@ -2410,6 +2499,7 @@ describe("scoped grants", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       providerName: "openai",
       model: "gpt-5",
     });
@@ -2425,6 +2515,7 @@ describe("scoped grants", () => {
       persist: (approval) => routed.push(approval),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       providerName: "openai",
       model: "gpt-5",
     });
@@ -2492,6 +2583,7 @@ describe("isAutoAllowedShellCall", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("find . -name x"));
     expect(verdict.allowed).toBe(false);
@@ -2508,6 +2600,7 @@ describe("isAutoAllowedShellCall", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("head -n 5 file.txt"))).allowed).toBe(true);
     expect(asked).toBe(0);
@@ -2528,6 +2621,7 @@ describe("createPermissionGate restricted paths", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
   test("reading a normal source file stays allow-tier", async () => {
@@ -2589,6 +2683,7 @@ describe("createPermissionGate restricted paths", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2607,6 +2702,7 @@ describe("createPermissionGate restricted paths", () => {
       requestApproval: async () => ({ allow: false }),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate({
       id: "c",
@@ -2676,6 +2772,7 @@ describe("createPermissionGate restricted paths", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("cat /etc/passwd"));
     expect(verdict.allowed).toBe(true);
@@ -2693,6 +2790,7 @@ describe("createPermissionGate restricted paths", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("cat `/etc/passwd`"));
     expect(verdict.allowed).toBe(true);
@@ -2710,6 +2808,7 @@ describe("createPermissionGate restricted paths", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall('cat "`/etc/passwd`"'));
     expect(verdict.allowed).toBe(true);
@@ -2728,6 +2827,7 @@ describe("createPermissionGate restricted paths", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(command));
     expect(verdict.allowed).toBe(true);
@@ -2749,6 +2849,7 @@ describe("read-only tools in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2774,6 +2875,7 @@ describe("read-only tools in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2796,6 +2898,7 @@ describe("read-only tools in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2818,6 +2921,7 @@ describe("read-only tools in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     expect(
@@ -2851,6 +2955,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2875,6 +2980,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2897,6 +3003,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2922,6 +3029,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2951,6 +3059,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -2978,6 +3087,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3003,6 +3113,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3032,6 +3143,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3054,6 +3166,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3076,6 +3189,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3098,6 +3212,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3152,6 +3267,7 @@ describe("listWorktreeRoots", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3239,6 +3355,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const worktree = join(repo, "..", "secondary");
@@ -3266,6 +3383,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate({
@@ -3342,6 +3460,7 @@ describe("comment-insensitive shell grants", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       persist: (a) => persisted.push(a),
       requestApproval: async (request) => {
         const scope = request.scopes[0];
@@ -3359,6 +3478,7 @@ describe("comment-insensitive shell grants", () => {
       approvals: persisted,
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => {
         throw new Error("replay must not re-prompt the operator");
       },
@@ -3455,6 +3575,7 @@ describe("sub-agent identity on permission requests", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: "/repo",
     });
     await gate.evaluate(shellCall("npm test"));
@@ -3473,6 +3594,7 @@ describe("sub-agent identity on permission requests", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: "/repo",
     });
     await runWithSubAgentIdentity({ description: "Fix flaky test", cwd: "/repo" }, () =>
@@ -3493,6 +3615,7 @@ describe("sub-agent identity on permission requests", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: "/repo",
     });
     await Promise.all([
@@ -3520,6 +3643,7 @@ describe("sub-agent identity on permission requests", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: "/repo",
     });
     await Promise.all([
@@ -3574,6 +3698,7 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     // First call, from the session root, mints the project grant.
@@ -3611,6 +3736,7 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     const first = await gate.evaluate(shellCall("npm test"));
@@ -3652,6 +3778,7 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     const first = await gate.evaluate({ id: "a", name: "write_file", arguments: { path: target } });
@@ -3688,6 +3815,7 @@ describe("sub-agent auto-allow uses the process cwd, not the session cwd", () =>
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: sessionCwd,
     });
     const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
@@ -3720,6 +3848,7 @@ describe("sub-agent auto-allow uses the process cwd, not the session cwd", () =>
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: sessionCwd,
     });
     const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");

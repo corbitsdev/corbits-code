@@ -32,6 +32,7 @@ async function makeApplyPatch(
     approvals: [],
     interactive: false,
     skipPermissions: options.skipPermissions ?? true,
+    reactorGated: false,
     auto: false,
     cwd,
   });

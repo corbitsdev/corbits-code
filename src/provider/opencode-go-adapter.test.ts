@@ -44,18 +44,31 @@ describe("OpenCode Go adapter", () => {
     expect(() => adapter.parseResponse(malformedChunk)).toThrow(ProtocolMismatchError);
   });
 
-  test("delegates request construction to the OpenAI-compatible adapter", () => {
+  test("delegates request construction and adds the OpenCode session header", () => {
     const adapter = createOpenCodeGoAdapter(source);
     const request = adapter.buildRequest(
       [{ role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] }],
       "corbits",
-      { providerOptions: { reasoning_effort: "high" } } as InferenceOptions,
+      {
+        providerOptions: { reasoning_effort: "high", opencodeSessionId: "sess-1" },
+      } as InferenceOptions,
     );
 
+    expect(request.headers["x-opencode-session"]).toBe("sess-1");
     expect(JSON.parse(request.body)).toMatchObject({
       model: "corbits",
       reasoning_effort: "high",
       stream: true,
     });
+    expect(JSON.parse(request.body)).not.toHaveProperty("opencodeSessionId");
+  });
+
+  test("omits the session header without an OpenCode session", () => {
+    const request = createOpenCodeGoAdapter(source).buildRequest(
+      [{ role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] }],
+      "corbits",
+      {},
+    );
+    expect(request.headers["x-opencode-session"]).toBeUndefined();
   });
 });

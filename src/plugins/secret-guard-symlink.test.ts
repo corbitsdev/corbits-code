@@ -54,6 +54,7 @@ function runner(cwd: string, skipPermissions: boolean) {
     approvals: [],
     interactive: false,
     skipPermissions,
+    reactorGated: false,
     auto: false,
     cwd,
   });

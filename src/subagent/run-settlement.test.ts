@@ -13,6 +13,7 @@ const permissionGate = createPermissionGate({
   approvals: [],
   interactive: false,
   skipPermissions: true,
+  reactorGated: false,
 });
 
 test("rejected workers settle prior rollups with the latest observed model", async () => {

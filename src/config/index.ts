@@ -43,7 +43,9 @@ import { selectableGoModelIds } from "../provider/opencode-go-models.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,
+  OPENCODE_SESSION_ID_OPTION,
 } from "../provider/openai-responses-adapter.js";
+import { OPENCODE_GO_MESSAGES_PROVIDER } from "../provider/opencode-go-anthropic-adapter.js";
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
   OPENCODE_GO_BASE_URL,
@@ -356,12 +358,19 @@ export function buildGoSource(fields: {
   const apiKey =
     fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY;
   if (endpoint.adapter === "anthropic") {
-    return buildAnthropicSource({
+    return {
       id: fields.id,
+      provider: OPENCODE_GO_MESSAGES_PROVIDER,
       baseURL: endpoint.baseURL,
       apiKey,
       model: fields.model,
-    });
+      defaults: {
+        maxTokens: SOURCE_MAX_TOKENS,
+        ...(fields.sessionId !== undefined
+          ? { providerOptions: { [OPENCODE_SESSION_ID_OPTION]: fields.sessionId } }
+          : {}),
+      },
+    };
   }
   if (endpoint.adapter === "openai-responses") {
     return {
@@ -373,21 +382,38 @@ export function buildGoSource(fields: {
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
         ...(fields.sessionId !== undefined
-          ? { providerOptions: { [OPENAI_SESSION_ID_OPTION]: fields.sessionId } }
+          ? {
+              providerOptions: {
+                [OPENAI_SESSION_ID_OPTION]: fields.sessionId,
+                [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+              },
+            }
           : {}),
       },
     };
   }
   // chat-completions (default)
+  const source = buildOpenAISource({
+    id: fields.id,
+    baseURL: endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
+    apiKey,
+    model: fields.model,
+    ...(fields.reasoningEffort !== undefined ? { reasoningEffort: fields.reasoningEffort } : {}),
+  });
   return {
-    ...buildOpenAISource({
-      id: fields.id,
-      baseURL: endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
-      apiKey,
-      model: fields.model,
-      ...(fields.reasoningEffort !== undefined ? { reasoningEffort: fields.reasoningEffort } : {}),
-    }),
+    ...source,
     provider: OPENCODE_GO_PROVIDER_ID,
+    defaults: {
+      ...source.defaults,
+      ...(fields.sessionId !== undefined
+        ? {
+            providerOptions: {
+              ...(source.defaults?.providerOptions ?? {}),
+              [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+            },
+          }
+        : {}),
+    },
   };
 }
 

@@ -126,7 +126,12 @@ function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
 describe("mcpClientToAgentTools (production gated path)", () => {
   test("namespaces tools as mcp__<server>__<tool>", () => {
     const client = makeFakeClient("acme", ["list_issues", "create_issue"]);
-    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
     gate.registerMcpClient(client);
     const tools = mcpClientToAgentTools(client, gate);
     expect(tools.map((t) => t.definition.name)).toEqual([
@@ -137,7 +142,12 @@ describe("mcpClientToAgentTools (production gated path)", () => {
 
   test("prefixes description with server name", () => {
     const client = makeFakeClient("github", ["search_repos"]);
-    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
     const tools = mcpClientToAgentTools(client, gate);
     expect(tools[0]!.definition.description).toBe("[github] search_repos tool");
   });
@@ -157,7 +167,12 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       async close() {},
     };
 
-    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
     const tool = mcpClientToAgentTools(client, gate)[0]!;
     const result = await tool.handler(
       { id: "c1", name: "mcp__myserver__do_thing", arguments: { x: 1 } },
@@ -181,7 +196,12 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       async close() {},
     };
 
-    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
     const tool = mcpClientToAgentTools(client, gate)[0]!;
     const result = await tool.handler(
       { id: "c1", name: "mcp__srv__fail", arguments: {} },
@@ -199,6 +219,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       requestApproval: async () => {
         asked++;
         return { allow: false };

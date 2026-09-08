@@ -97,6 +97,7 @@ test('permission_prompt buckets an MCP tool to "mcp" and never ships the server 
     approvals: [],
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
     requestApproval: async () => ({ allow: true }),
     telemetry,
   });
@@ -121,6 +122,7 @@ test('permission_prompt buckets an unrecognised tool id to "custom"', async () =
     approvals: [],
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
     requestApproval: async () => ({ allow: false }),
     telemetry,
   });
@@ -249,7 +251,12 @@ test("plugin_loaded emits once per plugin identity in-process", async () => {
 test('subagent events bucket a project-defined profile id to "custom"', async () => {
   const { telemetry, wire, events } = harness();
   const cwd = await tempDir("corbits-agent-");
-  const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: false,
+    skipPermissions: true,
+    reactorGated: false,
+  });
 
   const sessions = createSubAgentSessionStore();
   const fleetRecords = createFleetMailbox(sessions);
@@ -323,7 +330,12 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
 test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last completed turn", async () => {
   const { telemetry, events } = harness();
   const cwd = await tempDir("corbits-parent-trace-");
-  const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: false,
+    skipPermissions: true,
+    reactorGated: false,
+  });
 
   // Completed turn 0 is already "last" — spawn happens during turn 1.
   noteLastTurnTraceId("sess:turn:0");

@@ -16,6 +16,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - ChatGPT Codex uses the Corbits system prompt as Responses `instructions`, without fetching or injecting the official GPT-5 Codex prompt.
+- Main-session permission approvals ride the reactor's approval-suspend primitive: an ask-tier call parks as a PendingOperation and the operator's decision resumes it (previously held open through the middleware gate). Ask denials now surface as `denied by approver: <reason>`, and the model responds to the reason; policy hard-denies remain plain tool errors the model adapts to. Late decisions arriving after the approval timed out are dropped instead of being injected into the conversation, and gate deny reasons are written to the structured authz log.
+- Builder now bakes compact Ponytail guidance with default lite mode and uses a smaller native-runtime skill instead of the broad native-integration and TypeScript bodies by default.
 
 ## [0.3.17] - 2026-09-05
 

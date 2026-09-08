@@ -215,6 +215,8 @@ import {
   resolveLiveSessionSources,
   type LiveSessionSources,
 } from "../session/assemble-runtime.js";
+import { createApprovalResume } from "../session/approval-resume.js";
+import { createReactorAuthorize } from "../permission/reactor-authorize.js";
 import {
   buildCompactionContinuationMessage,
   createLiveSubAgentSources,
@@ -739,7 +741,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       interactive: true,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
+      // Main session: gating rides the reactor's approval-suspend seam.
+      reactorGated: true,
       onGrant: (approval, covers) => emitter.emit("permission.grant", { approval, covers }),
+    });
+    const approvalResume = createApprovalResume({
+      getAgent: () => currentAgent,
+      gate: permissionGate,
     });
 
     const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
@@ -1047,6 +1055,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         reloadIfIdle();
       },
       getWorkdir: () => workdir,
+      authorize: createReactorAuthorize(permissionGate),
       inferenceDeps,
       getSources: () => (liveSources.length > 0 ? liveSources : [liveSource]),
       getDefaultSource: () => (liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id),
@@ -1440,6 +1449,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           );
           workdir = sessionContextDir(config.cwd, sessionId);
           await initSessionDir(config.cwd, sessionId);
+          const rotatedBundle = buildSessionSources();
+          liveSources = rotatedBundle.sources;
+          liveDefaultSource = rotatedBundle.defaultSource;
+          liveSource = rotatedBundle.selected;
           permissionGate.reset();
           runSink.reset();
           sessionCost.reset();
@@ -1663,7 +1676,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const attempt = currentAttemptIdentity();
       const providerFailure = providerFailureAttempts.begin(attempt);
       try {
-        await agentProxy.send(message);
+        const result = await agentProxy.send(message);
+        // An ask-tier call parked on the reactor's approval gate settles the
+        // send early; resolve the operator surface here and deliver the
+        // decision on the correlationId signal channel so the parked run
+        // resumes.
+        await approvalResume.handle(result);
       } catch (error) {
         handleSendFailure(error, attempt, providerFailure);
       } finally {

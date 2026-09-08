@@ -171,6 +171,16 @@ export type OutboundMessage = {
   /** Message-ID of the message being replied to. */
   inReplyTo?: string;
 
+  /**
+   * The RFC 5322 References chain for a threaded reply: the parent's own
+   * References plus the parent's Message-ID, in order. When present the
+   * transport ships it verbatim (after appending `inReplyTo` if it is not
+   * already the tail) rather than deriving a single-element `[inReplyTo]`
+   * chain, so a reply carries the full conversational ancestry. Absent for a
+   * non-reply or a reply whose parent could not be located.
+   */
+  references?: string[];
+
   /** Correlation ID linking this message to a pending async request. */
   correlationId?: string;
 
@@ -238,13 +248,102 @@ export const SignatureStatus = type.enumerated(
 export type SignatureStatus = typeof SignatureStatus.infer;
 
 /**
- * A parsed MIME part returned by `fetchPart()`.
+ * A parsed MIME part. `content` is the DECODED bytes in memory (the
+ * transfer-encoding has already been undone). `filename` and `disposition` are
+ * surfaced from the part's `Content-Disposition` / `Content-Type` so a consumer
+ * can distinguish an inline part from a named attachment without re-parsing
+ * headers.
  */
 export type MessagePart = {
   contentType: string;
   content: Uint8Array;
+  filename?: string;
+  disposition?: "inline" | "attachment";
+  /**
+   * Original Content-Transfer-Encoding, when a producer chooses to record it.
+   * Not set for a decoded mail part -- `content` is already decoded, so the
+   * wire encoding is spent transport metadata.
+   */
   encoding?: string;
 };
+
+/**
+ * A single part of a persisted `Mail`. The bytes live in the durable store;
+ * this descriptor carries the part's metadata plus an opaque, relocation-stable
+ * `ref` a `MailPartReader` resolves to the part's bytes. Small UTF-8 text parts
+ * also carry their decoded `text` inline so a selector can read them without
+ * resolving.
+ */
+export type MailPart = {
+  contentType: string;
+  filename?: string;
+  disposition?: "inline" | "attachment";
+  ref: string;
+  text?: string;
+};
+
+/**
+ * The single, environment-agnostic interface for reading a persisted mail
+ * part's bytes. Modeled on `BlobReader`: a consumer -- a workflow step, an
+ * agent tool, the agent's content-block projection -- resolves a
+ * `MailPart.ref` to its bytes without knowing or caring where the bytes live
+ * (a committed file on the sidecar, a blob in a browser runtime). The `ref`
+ * is opaque; the reader owns its scheme. Threaded to consumers through the
+ * runtime so a browser runtime can supply its own implementation.
+ */
+export interface MailPartReader {
+  /** Resolve a `MailPart.ref` to the part's decoded bytes. Throws if the ref
+   * is unrecognized or its bytes are missing. */
+  read(ref: string): Promise<Uint8Array>;
+}
+
+/**
+ * A fully decoded mail message: every header (both the typed, ergonomic subset
+ * and a raw catch-all with nothing dropped) plus the flat list of decoded leaf
+ * parts. This is the lossless representation a deployed workflow receives as
+ * its trigger input; a workflow programs against it directly (select headers,
+ * walk parts, route on content type), and an agent step projects the parts into
+ * model content blocks. It is JSON-safe: each part carries a `ref` (not raw
+ * bytes), so binary content never enters the event log; the runtime resolves a
+ * `ref` into a loadable `MessagePart` on demand.
+ */
+export type Mail = {
+  headers: MessageHeaders;
+  /** Every header, lowercased name to its ordered values; nothing dropped. */
+  rawHeaders: Record<string, string[]>;
+  parts: MailPart[];
+};
+
+const MailShape = type({
+  // Require the header fields a consumer dereferences unconditionally (the
+  // sender/recipient a projection reads); other header fields stay optional
+  // and are carried losslessly in `rawHeaders`.
+  headers: {
+    from: "string",
+    to: "string[]",
+  },
+  rawHeaders: "object",
+  parts: type({
+    contentType: "string",
+    ref: "string",
+    "filename?": "string",
+    "disposition?": "'inline' | 'attachment'",
+    "text?": "string",
+  })
+    .onUndeclaredKey("reject")
+    .array(),
+}).onUndeclaredKey("reject");
+
+/**
+ * Narrow an opaque value (a workflow step input) to a `Mail`. Used at the
+ * `agent.send` boundary to decide whether the input is a mail-derived message
+ * whose parts must be projected into content blocks, or an arbitrary value
+ * delivered as synthesized text. The strict undeclared-key rejection keeps an
+ * arbitrary step value that merely carries a `parts` field from matching.
+ */
+export function isMail(value: unknown): value is Mail {
+  return !(MailShape(value) instanceof type.errors);
+}
 
 /**
  * MIME tree metadata returned by `fetchStructure()`. Describes content types,
@@ -475,7 +574,15 @@ export interface MessageTransport {
 
   copy(ref: MessageRef, toMailbox: string, signal?: AbortSignal): Promise<void>;
 
-  expunge(mailbox: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * Permanently remove every `\Deleted` message from the mailbox. Returns the
+   * uids that were expunged, so a caller can report how many messages it
+   * consumed and which ones.
+   */
+  expunge(
+    mailbox: string,
+    signal?: AbortSignal,
+  ): Promise<{ expungedUids: number[] }>;
 
   // --- Real-time notification ---
 
@@ -1649,8 +1756,11 @@ export type InferenceEvent =
        *
        * `error.kind` is documented as one of
        * `"inference_error" | "tool_error" | "reactor_fatal" |
-       * "harness_aborted"` initially, extensible as new failure
-       * categories surface.
+       * "harness_aborted" | "doom_loop"` initially, extensible as new
+       * failure categories surface. `"doom_loop"` marks a protective
+       * break the reactor took on the agent's behalf when the agent
+       * repeated an identical tool batch past the configured threshold;
+       * unlike `"reactor_fatal"` it is not an internal fault.
        */
       type: "message.run.ended";
       seq: number;

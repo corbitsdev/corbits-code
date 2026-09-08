@@ -13,6 +13,7 @@ function permissionGate() {
     approvals: [],
     interactive: false,
     skipPermissions: true,
+    reactorGated: false,
   });
 }
 

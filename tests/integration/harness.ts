@@ -20,6 +20,7 @@ import {
   type Agent,
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import type { AuthzCallResult } from "@intx/inference";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setupHarness, type Harness } from "@intx/inference-testing";
 import type { ContextTransform, InferenceSource } from "@intx/types/runtime";
@@ -51,6 +52,8 @@ export interface IntegrationSession {
 
 export interface OpenIntegrationSessionOpts {
   permissionGate: PermissionGate;
+  /** Reactor authorization override (defaults to permissive). */
+  authorize?: (resource: string, action: string, context: unknown) => Promise<AuthzCallResult>;
   systemPrompt?: string;
   /** Pre-inference transforms, delivered the production way: riding deps. */
   contextTransforms?: ContextTransform[];
@@ -112,7 +115,9 @@ export async function openIntegrationSession(
         : {}),
     },
     audit: noopAuditStore(),
-    authorize: permissiveAuthorize(),
+    ...(opts.authorize !== undefined
+      ? { authorize: opts.authorize }
+      : { authorize: permissiveAuthorize() }),
     directors: createDirectorRegistry({
       factories: [chatDirectorDef.factory],
       defaultId: `${ID_PREFIX}/chat`,
@@ -173,4 +178,65 @@ export function toolDoneEvents(
   return events.filter(
     (e): e is Extract<ReactorEmittedEvent, { type: "tool.done" }> => e.type === "tool.done",
   );
+}
+
+export type SendOutcome = Awaited<ReturnType<Agent["send"]>>;
+
+export interface SuspendedTurn {
+  /** All events seen on the stream so far (including the suspension). */
+  events: ReactorEmittedEvent[];
+  result: SendOutcome;
+  /** Resolves with the resumed cycle's reply text. */
+  reply: () => Promise<string>;
+  /** Events accumulated at call time. */
+  waitSettled: () => Promise<void>;
+}
+
+/**
+ * One user turn driven under a single harness pump. The turn is expected to
+ * park on the reactor's approval gate; the caller resolves the approval and
+ * then awaits `reply()` for the resumed cycle's answer.
+ */
+export async function runUntilSuspended(
+  session: IntegrationSession,
+  message: string,
+): Promise<SuspendedTurn> {
+  const events: ReactorEmittedEvent[] = [];
+  let resolveReply: (text: string) => void = () => {};
+  const replyPromise = new Promise<string>((resolve) => {
+    resolveReply = resolve;
+  });
+  const stream = session.agent.stream();
+  const settled = (async () => {
+    for await (const event of stream) {
+      events.push(event);
+      if (event.type === "connector.reply") resolveReply(event.data.content);
+    }
+  })().catch(() => undefined);
+  void session.harness.run({ wallClockBudgetMs: 30_000 }).catch(() => undefined);
+
+  const result = await session.agent.send(message);
+  return { events, result, reply: () => replyPromise, waitSettled: () => settled };
+}
+
+/** Deliver an approval decision on the correlationId signal channel. */
+export function deliverDecision(
+  session: IntegrationSession,
+  correlationId: string,
+  outcome: "approved" | "rejected",
+  message?: string,
+): void {
+  session.agent.deliver({
+    ref: { uid: 0, mailbox: "approval" },
+    headers: {
+      from: "approval@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `approval-${correlationId}`,
+      interchangeCorrelationId: correlationId,
+    },
+    flags: [],
+    content: JSON.stringify(message !== undefined ? { outcome, message } : { outcome }),
+    signatureStatus: "missing",
+  });
 }
