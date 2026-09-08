@@ -64,6 +64,7 @@ function createStubAgent(opts?: { hangFromSend?: number }) {
           : setTimeout(
               () =>
                 resolve({
+                  type: "reply" as const,
                   reply: `reply #${sendLog.length}`,
                   turn: { role: "assistant", content: [] },
                 }),

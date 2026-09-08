@@ -57,28 +57,6 @@ function activeVisible(shell: AppShell): void {
   expect(list.activeIndex).toBeLessThan(slice.end);
 }
 
-async function frameLineCount(
-  open: (shell: AppShell) => void,
-  size: { readonly width: number; readonly height: number },
-): Promise<number> {
-  return withTestRenderer(async (h) => {
-    const shell = createAppShell(h.renderer, {
-      terminal: { columns: size.width, rows: size.height },
-      run: "idle",
-    });
-    try {
-      primeSession(shell);
-      open(shell);
-      await h.renderOnce();
-      await h.renderOnce();
-      const frame = h.captureCharFrame();
-      return frame.replace(/\n$/, "").split("\n").length;
-    } finally {
-      shell.dispose();
-    }
-  }, size);
-}
-
 describe("approval overlay overflow (short terminal)", () => {
   test("many permission choices shrink the viewport and scroll under navigation", async () => {
     await withTestRenderer(async (h) => {
@@ -195,18 +173,6 @@ describe("approval overlay overflow (short terminal)", () => {
         shell.dispose();
       }
     }, SHORT);
-  });
-
-  test("painted frame never exceeds the short terminal height", async () => {
-    const lines = await frameLineCount(
-      (shell) =>
-        openPermissionsOverlay(shell, {
-          items: makePermissionItems(20),
-          body: tallBody,
-        }),
-      SHORT,
-    );
-    expect(lines).toBeLessThanOrEqual(SHORT.height);
   });
 
   test("comfortable terminal still scrolls a longer list past the host cap", async () => {

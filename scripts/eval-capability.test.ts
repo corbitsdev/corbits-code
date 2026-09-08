@@ -307,18 +307,21 @@ describe("initEvalGitRepo", () => {
 });
 
 describe("buildEvalDiagnostics", () => {
-  test("non-Codex provider gets a null instructions hash and the default orchestrator tool list", async () => {
+  test("non-Codex provider gets the default orchestrator tool list", async () => {
     const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "openai" }));
-    expect(diagnostics.codexInstructionsHash).toBeNull();
     expect(diagnostics.advertisedTools).toContain("read_file");
     expect(diagnostics.advertisedTools).toContain("run_shell");
     expect(diagnostics.reasoningEffort).toBeNull();
   });
 
-  test("Codex provider gets a non-null instructions hash", async () => {
-    const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "codex/default" }));
-    expect(diagnostics.codexInstructionsHash).toMatch(/^[0-9a-f]{12}$/);
-  });
+  test.each(["openai", "codex/default"])(
+    "%s diagnostics omit the removed instructions hash",
+    async (providerName) => {
+      const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName }));
+      expect(diagnostics).not.toHaveProperty("codexInstructionsHash");
+      expect(diagnostics.advertisedTools).toContain("read_file");
+    },
+  );
 
   test("echoes back the configured reasoning effort", async () => {
     const diagnostics = await buildEvalDiagnostics(sampleConfig({ reasoningEffort: "high" }));

@@ -131,16 +131,10 @@ import {
   page as pageList,
   setCount as setListCount,
   setHeight as setListHeight,
-  visibleSlice,
   type ListViewportState,
 } from "./list-viewport.js";
 import { evictedRowsNotice, trimRetainedLog } from "./long-log.js";
-import {
-  filterPaletteCommands,
-  formatPaletteRows,
-  paletteLabels,
-  type PaletteCommand,
-} from "./command-catalog.js";
+import { filterPaletteCommands, paletteLabels, type PaletteCommand } from "./command-catalog.js";
 import { helpItems } from "./keybindings.js";
 import { destroySubtree } from "./teardown.js";
 import { filterMentionSuggestions, splitMentionToken } from "./mention-filter.js";
@@ -192,14 +186,19 @@ import {
   type StyledBodyLine,
 } from "./stream.js";
 import { UI } from "./theme.js";
-import { middleEllipsis } from "./command-display.js";
+import {
+  createOverlayView,
+  isDecisionOverlay,
+  overlayRowWidth,
+  overlayRowsPerItem,
+  overlayTitleRows,
+  overlayChromeRows,
+  overlayMinHostRows,
+  OVERLAY_HOST_BORDER_ROWS,
+} from "./overlay-view.js";
 import {
   composeDecisionBody,
-  decisionChoiceRows,
-  decisionChoiceRowCount,
   decisionContextBudget,
-  describeZoneLines,
-  DESCRIPTION_ZONE_LINES,
   overlayChoiceText,
   overlayKindWord,
   wrapOverlayText,
@@ -573,6 +572,7 @@ export interface AppShell {
   /** One row per rendered agents-panel line; rebuilt whenever the line count changes. */
   readonly agentsBox: BoxRenderable;
   readonly transcript: ScrollBoxRenderable;
+  readonly overlayView: ReturnType<typeof createOverlayView>;
   readonly overlayHost: BoxRenderable;
   readonly overlayTitle: TextRenderable;
   readonly overlayBody: BoxRenderable;
@@ -1141,31 +1141,6 @@ export function toggleShellFocus(shell: AppShell): void {
   }
 }
 
-function clearOverlayBody(shell: AppShell): void {
-  const body = shell.overlayBody;
-  const kids = [...body.getChildren()];
-  for (const child of kids) {
-    body.remove(child);
-    destroySubtree(child);
-  }
-}
-
-/**
- * Rows the overlay host spends on itself before any list row: the bordered box
- * costs a top and bottom rule, plus the title line and the wrapped body lines.
- * Omitting the border here hands the list two rows the host cannot render, and
- * flex then stacks the surplus rows onto cells the prompt border already owns.
- */
-const OVERLAY_HOST_BORDER_ROWS = 2;
-
-/** Rule row plus the fixed two content lines — charged whenever `describe` is set. */
-const DESCRIPTION_ZONE_ROWS = 1 + DESCRIPTION_ZONE_LINES;
-
-/** Rows the open overlay's description zone spends, or 0 when it has none. */
-function overlayZoneRows(shell: AppShell): number {
-  return internals.get(shell)?.overlayDescribe ? DESCRIPTION_ZONE_ROWS : 0;
-}
-
 /**
  * Free-text answer field an overlay can offer alongside (or instead of) its
  * choices. `active` is whether keystrokes are going into it rather than into
@@ -1180,31 +1155,6 @@ interface OverlayAnswerState {
 
 function overlayAnswerState(shell: AppShell): OverlayAnswerState | null {
   return internals.get(shell)?.overlayAnswer ?? null;
-}
-
-/** The answer field costs one row of host chrome whenever it is offered. */
-function overlayAnswerRows(shell: AppShell): number {
-  return overlayAnswerState(shell) === null ? 0 : 1;
-}
-
-/**
- * Every other list overlay spends a row on a title rule (`─ permission ─...`);
- * the palette drops it — the box already reads as the palette, and the filter
- * row underneath says what's typed, so the rule was a second header for the
- * same fact.
- */
-function overlayTitleRows(kind: PrimaryOverlayKind | null): number {
-  return kind === "palette" ? 0 : 1;
-}
-
-function overlayChromeRows(shell: AppShell, bodyLineCount: number): number {
-  return (
-    OVERLAY_HOST_BORDER_ROWS +
-    overlayTitleRows(shell.overlayKind) +
-    bodyLineCount +
-    overlayZoneRows(shell) +
-    overlayAnswerRows(shell)
-  );
 }
 
 /**
@@ -1251,51 +1201,6 @@ function floatOverlayHost(shell: AppShell, floating: boolean, top: number): void
   host.zIndex = OVERLAY_FLOAT_Z;
 }
 
-/** Total host rows needed to show `listRows` list rows under `bodyLineCount` body lines. */
-function overlayHostRows(shell: AppShell, bodyLineCount: number, listRows: number): number {
-  return overlayChromeRows(shell, bodyLineCount) + listRows;
-}
-
-/**
- * Smallest host rows the open overlay can render into without spilling past
- * its own box: fixed chrome (border, title, body lines) plus one row of the
- * list when it has anything to show. Below this the resolver must give ground
- * elsewhere (transcript floor) rather than starve the overlay itself.
- */
-function overlayMinHostRows(shell: AppShell, bodyLineCount: number, hasItems: boolean): number {
-  const perItem = overlayRowsPerItem(shell);
-  return overlayChromeRows(shell, bodyLineCount) + (hasItems ? perItem : 0);
-}
-
-function addOverlayRow(shell: AppShell, content: string, fg: string, bg?: string): void {
-  shell.overlayBody.add(
-    new TextRenderable(shell.renderer as CliRenderer, {
-      content,
-      fg,
-      ...(bg !== undefined ? { bg } : {}),
-      height: 1,
-      // Without this, a body taller than its host makes flex shrink every row
-      // toward zero and paint several of them into the same terminal cells.
-      flexShrink: 0,
-    }),
-  );
-}
-
-/**
- * Overlays that ask a human to authorize something. They get the shaped,
- * spaced treatment from overlay-body.ts; every other list overlay stays a
- * plain one-row-per-item list.
- */
-function isDecisionOverlay(kind: PrimaryOverlayKind | null): boolean {
-  return kind === "permissions" || kind === "operator";
-}
-
-/** Display rows one list item occupies for the open overlay. */
-function overlayRowsPerItem(shell: AppShell): number {
-  if (!isDecisionOverlay(shell.overlayKind)) return 1;
-  return decisionChoiceRowCount(shell.overlayItems, overlayRowWidth(shell));
-}
-
 /**
  * Recompute the overlay host's row budget from the current item count and
  * relayout into it. Callers that refresh an already-open overlay's items in
@@ -1304,9 +1209,19 @@ function overlayRowsPerItem(shell: AppShell): number {
  * whatever size it first opened at.
  */
 function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
-  const perItem = overlayRowsPerItem(shell);
-  const hostRows = overlayHostRows(shell, shell.overlayBodyLines.length, itemCount * perItem);
-  const minHostRows = overlayMinHostRows(shell, shell.overlayBodyLines.length, itemCount > 0);
+  const perItem = overlayRowsPerItem(
+    shell.overlayKind,
+    shell.overlayItems,
+    shell.layout.contentWidth,
+  );
+  const chrome = overlayChromeRows(
+    shell.overlayKind,
+    shell.overlayBodyLines.length,
+    !!internals.get(shell)?.primaryBindings.describe,
+    overlayAnswerState(shell) !== null,
+  );
+  const hostRows = chrome + itemCount * perItem;
+  const minHostRows = overlayMinHostRows(chrome, perItem, itemCount > 0);
   relayout(shell, {
     overlayMode: "inset",
     overlayBodyRows: hostRows,
@@ -1314,246 +1229,52 @@ function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   });
 }
 
-/** Columns a body/choice row may paint into, inside border and leading space. */
-function overlayRowWidth(shell: AppShell): number {
-  return Math.max(8, Math.max(20, shell.layout.contentWidth) - 4);
-}
-
-/**
- * Title row for the overlay host, fitted to the box interior. The title
- * renderable is one row in the host's chrome budget, so a line that wrapped at
- * a narrow width would spend a row nothing accounted for.
- */
-function overlayTitleLine(
-  title: string,
-  interior: number,
-  hints: readonly string[] = DEFAULT_OVERLAY_HINTS,
-): string {
-  const trimmed = title.trim();
-  // Empty/blank title: paint hints alone — no leading " · " from a missing title.
-  if (trimmed.length === 0) {
-    for (const hint of hints) {
-      const line = ` ${hint}`;
-      if (line.length <= interior) return line;
-    }
-    return " ";
-  }
-  const suffixes = [...hints.map((h) => ` · ${h}`), ""];
-  for (const suffix of suffixes) {
-    const line = ` ${trimmed}${suffix}`;
-    if (line.length <= interior) return line;
-  }
-  return ` ${middleEllipsis(trimmed, Math.max(1, interior - 1))}`;
-}
-
-const DEFAULT_OVERLAY_HINTS = ["Esc cancel · Enter choose", "Esc · Enter"] as const;
-
-/**
- * Key hints for the open overlay, longest first — the title line falls back to
- * shorter ones as the terminal narrows.
- *
- * Never promises "Enter choose" when there is nothing to choose: an overlay
- * with no rows says what the operator can actually do instead.
- */
-/** Model picker only: same three-tier fallback shape as DEFAULT_OVERLAY_HINTS. */
-const MODEL_PICKER_HINTS = [
-  "Esc cancel · Enter choose · Alt+A /connect add provider",
-  "Esc · Enter · Alt+A /connect",
-  "Esc · Enter",
-] as const;
-
-/** Permissions only: name `/yolo` so skip-prompts is discoverable at the ask. */
-const PERMISSIONS_HINTS = [
-  "Esc cancel · Enter choose · /yolo skip prompts",
-  "Esc · Enter · /yolo",
-  "Esc · Enter",
-] as const;
-
-/** /plugins: longest-first how-to, same fallback shape as the model picker. */
-const PLUGINS_HINTS = [
-  "Esc cancel · Enter toggle · Alt+A add path · Alt+X remove",
-  "Esc · Enter · Alt+A add · Alt+X remove",
-  "Esc · Enter · Alt+A · Alt+X",
-  "Esc · Enter",
-] as const;
-
-const MCP_MANAGE_HINTS_WITH_ADD = [
-  "Esc cancel · Enter choose · Alt+A add · Alt+D disable · Alt+R remove",
-  "Esc · Enter · Alt+A add · Alt+D · Alt+R",
-  "Esc · Enter · Alt+A · Alt+D · Alt+R",
-  "Esc · Enter",
-] as const;
-
-const MCP_MANAGE_HINTS_WITHOUT_ADD = [
-  "Esc cancel · Enter choose · Alt+D disable · Alt+R remove",
-  "Esc · Enter · Alt+D · Alt+R",
-  "Esc · Enter",
-] as const;
-
-function overlayHints(shell: AppShell): readonly string[] {
-  const answer = overlayAnswerState(shell);
-  const hasChoices = shell.overlayItems.length > 0;
-  if (answer === null) {
-    if (!hasChoices) return ["Esc dismiss"];
-    if (shell.overlayKind === "model_picker") {
-      const bag = internals.get(shell);
-      const addProvider = bag?.overlayAddProviderHint === true;
-      const setDefault = bag?.overlaySetDefaultHint === true;
-      if (addProvider && setDefault) {
-        return [
-          "Esc cancel · Enter choose · Alt+A /connect add provider · Alt+D set default",
-          "Esc · Enter · Alt+A /connect · Alt+D default",
-          "Esc · Enter · Alt+A · Alt+D",
-          "Esc · Enter",
-        ];
-      }
-      if (addProvider) return MODEL_PICKER_HINTS;
-      if (setDefault) {
-        return [
-          "Esc cancel · Enter choose · Alt+D set default",
-          "Esc · Enter · Alt+D default",
-          "Esc · Enter",
-        ];
-      }
-    }
-    if (shell.overlayKind === "permissions") return PERMISSIONS_HINTS;
-    if (shell.overlayKind === "plugins") return PLUGINS_HINTS;
-    if (shell.overlayKind === "mcp") {
-      const mcpBag = internals.get(shell);
-      if (mcpBag?.overlayMcpManageHint === true) {
-        return mcpBag.overlayMcpAddHint === true
-          ? MCP_MANAGE_HINTS_WITH_ADD
-          : MCP_MANAGE_HINTS_WITHOUT_ADD;
-      }
-    }
-    return DEFAULT_OVERLAY_HINTS;
-  }
-  if (answer.active) {
-    return hasChoices
-      ? ["Esc back to choices · Enter send", "Esc back · Enter send"]
-      : ["Esc cancel · Enter send", "Esc · Enter"];
-  }
-  return [
-    "Esc cancel · Enter choose · Tab type an answer",
-    "Esc · Enter · Tab type",
-    "Esc · Enter",
-  ];
-}
-
-/** Re-compose the open overlay's title line for the current hints and width. */
 function refreshOverlayTitle(shell: AppShell): void {
   const bag = internals.get(shell);
   if (!bag) return;
-  shell.overlayTitle.visible = true;
-  shell.overlayTitle.content = overlayTitleLine(
-    bag.overlayTitleText,
-    overlayInteriorWidth(shell),
-    overlayHints(shell),
+  shell.overlayView.paintTitle(
+    {
+      title: bag.overlayTitleText,
+      kind: shell.overlayKind,
+      hasChoices: shell.overlayItems.length > 0,
+      answer: overlayAnswerState(shell),
+      addProviderHint: bag.primaryBindings.addProviderHint,
+      setDefaultHint: bag.primaryBindings.setDefaultHint,
+      mcpManageHint: bag.primaryBindings.mcpManageHint,
+      mcpAddHint: bag.primaryBindings.mcpAddHint,
+    },
+    shell.layout.contentWidth,
   );
-}
-
-/** Interior columns of the overlay box, inside its border. */
-function overlayInteriorWidth(shell: AppShell): number {
-  return overlayRowWidth(shell) + 2;
-}
-
-/**
- * Selection is a text colour, not a marker or a filled band: the highlighted
- * row already stands out by sitting under the cursor, so a leading `>` and a
- * grey block would both be saying the same thing twice.
- */
-function paintPaletteList(shell: AppShell, list: ListViewportState): void {
-  const interior = overlayInteriorWidth(shell);
-  const lines = formatPaletteRows(
-    shell.paletteCommands.map((cmd) => cmd.label),
-    Math.max(4, interior - 1),
-  );
-  const slice = visibleSlice(list);
-  for (let i = slice.start; i < slice.end; i++) {
-    const line = lines[i] ?? "";
-    const active = i === list.activeIndex;
-    const content = ` ${line}`.padEnd(interior);
-    addOverlayRow(shell, content, active ? UI.text : UI.textDim);
-  }
 }
 
 /** Stable id for the focused row: `itemIds[index]` when supplied, else its label. */
 function activeOverlayItemId(shell: AppShell, list: ListViewportState): string {
   const bag = internals.get(shell);
   return (
-    bag?.overlayItemIds[list.activeIndex] ??
+    bag?.primaryBindings.itemIds[list.activeIndex] ??
     shell.overlayItems[list.activeIndex] ??
     String(list.activeIndex)
   );
 }
 
-/** Paint the fixed rule + two-line description zone under the list, when `describe` is set. */
-function paintDescriptionZone(shell: AppShell, list: ListViewportState): void {
-  const describe = internals.get(shell)?.overlayDescribe;
-  if (!describe) return;
-  const width = overlayRowWidth(shell);
-  const desc = describe(activeOverlayItemId(shell, list));
-  addOverlayRow(shell, ` ${"─".repeat(Math.max(0, width))}`, UI.textFaint);
-  const { lines, fgs } = describeZoneLines(desc, width);
-  lines.forEach((line, i) => {
-    addOverlayRow(shell, line.length > 0 ? ` ${line}` : "", fgs[i] ?? UI.textFaint);
-  });
-}
-
 function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList;
-  clearOverlayBody(shell);
-  if (!list) return;
-
-  shell.overlayBodyLines.forEach((line, i) => {
-    addOverlayRow(shell, ` ${line}`, shell.overlayBodyFgs[i] ?? UI.text);
-  });
-
-  if (shell.overlayKind === "palette" && shell.paletteCommands.length > 0) {
-    paintPaletteList(shell, list);
-    paintDescriptionZone(shell, list);
-    return;
-  }
-
-  const decision = isDecisionOverlay(shell.overlayKind);
-  const width = overlayRowWidth(shell);
-  const perItem = overlayRowsPerItem(shell);
-  const slice = visibleSlice(list);
-  for (let i = slice.start; i < slice.end; i++) {
-    const label = shell.overlayItems[i] ?? `item ${i}`;
-    const active = i === list.activeIndex;
-    if (!decision) {
-      addOverlayRow(shell, ` ${active ? ">" : " "} ${label}`, active ? UI.text : UI.textDim);
-      continue;
-    }
-    for (const row of decisionChoiceRows(label, active, width, perItem)) {
-      addOverlayRow(shell, ` ${row.text}`, row.fg);
-    }
-  }
-  paintAnswerRow(shell);
-  paintDescriptionZone(shell, list);
-}
-
-/** Cursor cell shown at the end of the answer field while it has the keys. */
-const ANSWER_CURSOR = "▌";
-
-/**
- * Paint the free-text answer field, when the open overlay offers one. Always
- * on screen so "you may type instead of picking" is visible rather than folk
- * knowledge; dim and labelled with its key until it is taking keystrokes.
- */
-function paintAnswerRow(shell: AppShell): void {
-  const answer = overlayAnswerState(shell);
-  if (answer === null) return;
-  const width = overlayRowWidth(shell);
-  if (!answer.active) {
-    addOverlayRow(shell, ` Tab  type your own answer`, UI.textDim);
-    return;
-  }
-  const label = "answer> ";
-  const room = Math.max(1, width - label.length - ANSWER_CURSOR.length);
-  const tail = answer.text.length > room ? answer.text.slice(-room) : answer.text;
-  addOverlayRow(shell, ` ${label}${tail}${ANSWER_CURSOR}`, UI.text);
+  shell.overlayView.paintList(
+    {
+      kind: shell.overlayKind,
+      items: shell.overlayItems,
+      paletteCommands: shell.paletteCommands,
+      viewport: list,
+      bodyLines: shell.overlayBodyLines,
+      bodyFgs: shell.overlayBodyFgs,
+      answer: overlayAnswerState(shell),
+      describe: () => {
+        const describe = internals.get(shell)?.primaryBindings.describe;
+        return describe && list ? describe(activeOverlayItemId(shell, list)) : undefined;
+      },
+    },
+    shell.layout.contentWidth,
+  );
 }
 
 /**
@@ -1836,11 +1557,20 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.overlayHost.height = hostH > 0 ? hostH : 1;
   shell.overlayHost.visible = hostH > 0;
   if (hostH > 0 && shell.overlayList) {
-    const chrome = overlayChromeRows(shell, shell.overlayBodyLines.length);
+    const chrome = overlayChromeRows(
+      shell.overlayKind,
+      shell.overlayBodyLines.length,
+      !!bag?.primaryBindings.describe,
+      overlayAnswerState(shell) !== null,
+    );
     const bodyH = Math.max(1, hostH - chrome);
     // The viewport counts items, not rows; a decision overlay spends several
     // rows per item, so the row budget has to be divided back down.
-    const perItem = overlayRowsPerItem(shell);
+    const perItem = overlayRowsPerItem(
+      shell.overlayKind,
+      shell.overlayItems,
+      shell.layout.contentWidth,
+    );
     shell.overlayList = setListHeight(shell.overlayList, Math.max(1, Math.floor(bodyH / perItem)));
     paintOverlayList(shell);
   }
@@ -1937,6 +1667,65 @@ export interface RelayoutOpts {
   readonly overlayMinBodyRows?: number;
 }
 
+interface PrimaryOverlayBindings {
+  /** Optional stable ids aligned with overlayItems for the open primary. */
+  itemIds: readonly string[];
+  /** Optional plain chosen values aligned with overlayItems for the open primary. */
+  itemValues: readonly (string | undefined)[];
+  /** Per-open accept callback; cleared on close without invoke (Esc path). */
+  onAccept: ((selection: OverlaySelection) => void) | null;
+  /** Per-open expand/collapse hook for the open primary overlay. */
+  onToggleExpand: (() => void) | null;
+  /** Per-open ← → cycle hook for the open primary overlay (settings inline cycling). */
+  onCycle: ((itemId: string, direction: -1 | 1) => void) | null;
+  /** Per-open description-zone source; null keeps the zone off (no rows charged). */
+  describe: ((itemId: string) => ItemDescription | null) | null;
+  /** Per-open bare-key claim for the open primary overlay. */
+  onAction: ((itemId: string, key: KeyEvent) => boolean) | null;
+  /** Per-open bracketed-paste owner for synthetic text panes. */
+  onPaste: ((text: string) => void) | null;
+  /**
+   * Per-open dismiss hook for promise-backed overlays (permissions, operator).
+   * Esc/closeInsetOverlay invokes this instead of silently dropping the
+   * pending promise the way palette/mentions/copy overlays correctly do.
+   */
+  onCancel: (() => void) | null;
+  /**
+   * Per-open cleanup for a replaced or dismissed overlay (MCP unsubscribe).
+   * closeReplaceableOverlay still runs this; it skips onCancel so
+   * Esc-only navigation (add-provider back to models) does not fire.
+   */
+  onDispose: (() => void) | null;
+  /** True while the open primary is a decision gate that must not be replaced. */
+  isGate: boolean;
+  /** Whether the open primary advertises Alt+A and yields å/Å from type-to-filter. */
+  addProviderHint: boolean;
+  /** Whether the open primary advertises Alt+D in the footer hints. */
+  setDefaultHint: boolean;
+  /** Whether the open `/mcp` list advertises Alt+D / Alt+R. */
+  mcpManageHint: boolean;
+  /** Whether the open `/mcp` list advertises Alt+A add. */
+  mcpAddHint: boolean;
+}
+
+const EMPTY_PRIMARY_BINDINGS: Readonly<PrimaryOverlayBindings> = {
+  itemIds: [],
+  itemValues: [],
+  onAccept: null,
+  onToggleExpand: null,
+  onCycle: null,
+  describe: null,
+  onAction: null,
+  onPaste: null,
+  onCancel: null,
+  onDispose: null,
+  isGate: false,
+  addProviderHint: false,
+  setDefaultHint: false,
+  mcpManageHint: false,
+  mcpAddHint: false,
+};
+
 interface PriorOverlaySnapshot {
   readonly kind: PrimaryOverlayKind | null;
   readonly items: readonly string[];
@@ -1945,23 +1734,9 @@ interface PriorOverlaySnapshot {
   readonly list: ListViewportState;
   readonly title: string;
   readonly paletteCommands: readonly PaletteCommand[];
-  readonly itemIds: readonly string[];
-  readonly itemValues: readonly (string | undefined)[];
-  readonly onAccept: ((selection: OverlaySelection) => void) | null;
-  readonly onToggleExpand: (() => void) | null;
-  readonly onCycle: ((itemId: string, direction: -1 | 1) => void) | null;
-  readonly describe: ((itemId: string) => ItemDescription | null) | null;
-  readonly onAction: ((itemId: string, key: KeyEvent) => boolean) | null;
-  readonly onPaste: ((text: string) => void) | null;
+  readonly primaryBindings: Readonly<PrimaryOverlayBindings>;
   readonly answer: OverlayAnswerState | null;
   readonly titleText: string;
-  readonly onCancel: (() => void) | null;
-  readonly onDispose: (() => void) | null;
-  readonly isGate: boolean;
-  readonly addProviderHint: boolean;
-  readonly setDefaultHint: boolean;
-  readonly mcpManageHint: boolean;
-  readonly mcpAddHint: boolean;
 }
 
 interface ShellInternals {
@@ -1980,32 +1755,9 @@ interface ShellInternals {
   priorOverlay: PriorOverlaySnapshot | null;
   /** Advances on a new overlay taking the host, and when the host empties. */
   overlayGeneration: number;
-  /** Optional stable ids aligned with overlayItems for the open primary. */
-  overlayItemIds: readonly string[];
-  /** Optional plain chosen values aligned with overlayItems for the open primary. */
-  overlayItemValues: readonly (string | undefined)[];
-  /** Per-open accept callback; cleared on close without invoke (Esc path). */
-  overlayOnAccept: ((selection: OverlaySelection) => void) | null;
+  primaryBindings: PrimaryOverlayBindings;
   /** False while an overlay that reports its own outcome is open. */
   overlayEchoChoice: boolean;
-  /** Per-open expand/collapse hook for the open primary overlay. */
-  overlayOnToggleExpand: (() => void) | null;
-  /** Per-open ← → cycle hook for the open primary overlay (settings inline cycling). */
-  overlayOnCycle: ((itemId: string, direction: -1 | 1) => void) | null;
-  /** Per-open description-zone source; null keeps the zone off (no rows charged). */
-  overlayDescribe: ((itemId: string) => ItemDescription | null) | null;
-  /** Per-open bare-key claim for the open primary overlay. */
-  overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null;
-  /** Per-open bracketed-paste owner for synthetic text panes. */
-  overlayOnPaste: ((text: string) => void) | null;
-  /** Whether the open primary advertises Alt+A and yields å/Å from type-to-filter. */
-  overlayAddProviderHint: boolean;
-  /** Whether the open primary advertises Alt+D in the footer hints. */
-  overlaySetDefaultHint: boolean;
-  /** Whether the open `/mcp` list advertises Alt+D / Alt+R. */
-  overlayMcpManageHint: boolean;
-  /** Whether the open `/mcp` list advertises Alt+A add. */
-  overlayMcpAddHint: boolean;
   /**
    * While true the shell ignores its own key/paste/submit handlers. Set for
    * the lifetime of a full-screen surface (inline provider connect) that
@@ -2017,20 +1769,6 @@ interface ShellInternals {
   overlayAnswer: OverlayAnswerState | null;
   /** Bare title of the open overlay, so its key hints can be re-composed. */
   overlayTitleText: string;
-  /**
-   * Per-open dismiss hook for promise-backed overlays (permissions, operator).
-   * Esc/closeInsetOverlay invokes this instead of silently dropping the
-   * pending promise the way palette/mentions/copy overlays correctly do.
-   */
-  overlayOnCancel: (() => void) | null;
-  /**
-   * Per-open cleanup for a replaced or dismissed overlay (MCP unsubscribe).
-   * closeReplaceableOverlay still runs this; it skips overlayOnCancel so
-   * Esc-only navigation (add-provider back to models) does not fire.
-   */
-  overlayOnDispose: (() => void) | null;
-  /** True while the open primary is a decision gate that must not be replaced. */
-  overlayIsGate: boolean;
   /** Fired once the overlay host is idle, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>;
   /**
@@ -3315,7 +3053,7 @@ function applyOverlayBodyText(
   maxLines: number,
   terminalHeight = shell.renderer.height,
 ): void {
-  const width = overlayRowWidth(shell);
+  const width = overlayRowWidth(shell.layout.contentWidth);
   const bag = internals.get(shell);
   // Scoped to decision overlays: a palette stacked over an open approval
   // calls this too, with its own (usually empty) body text. Caching that
@@ -3337,7 +3075,11 @@ function applyOverlayBodyText(
       width,
       decisionContextBudget({
         terminalHeight,
-        overlayRowsPerItem: overlayRowsPerItem(shell),
+        overlayRowsPerItem: overlayRowsPerItem(
+          shell.overlayKind,
+          shell.overlayItems,
+          shell.layout.contentWidth,
+        ),
         overlayTitleRows: overlayTitleRows(shell.overlayKind),
         overlayHostBorderRows: OVERLAY_HOST_BORDER_ROWS,
         overlayMaxFraction: OVERLAY_MAX_FRACTION,
@@ -3514,23 +3256,9 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
           list: shell.overlayList,
           title: String(shell.overlayTitle.content),
           paletteCommands: shell.paletteCommands,
-          itemIds: bag.overlayItemIds,
-          itemValues: bag.overlayItemValues,
-          onAccept: bag.overlayOnAccept,
-          onToggleExpand: bag.overlayOnToggleExpand,
-          onCycle: bag.overlayOnCycle,
-          describe: bag.overlayDescribe,
-          onAction: bag.overlayOnAction,
-          onPaste: bag.overlayOnPaste,
+          primaryBindings: { ...bag.primaryBindings },
           answer: bag.overlayAnswer,
           titleText: bag.overlayTitleText,
-          onCancel: bag.overlayOnCancel,
-          onDispose: bag.overlayOnDispose,
-          isGate: bag.overlayIsGate,
-          addProviderHint: bag.overlayAddProviderHint,
-          setDefaultHint: bag.overlaySetDefaultHint,
-          mcpManageHint: bag.overlayMcpManageHint,
-          mcpAddHint: bag.overlayMcpAddHint,
         };
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -3551,27 +3279,29 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
   const bag = internals.get(shell);
   if (bag) {
     bag.overlayGeneration += 1;
-    // Palette open does not own primary accept; leave prior snapshot's callback.
-    if (!isPalette) {
-      bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : [];
-      bag.overlayItemValues = opts?.itemValues ? [...opts.itemValues] : [];
-      bag.overlayOnAccept = opts?.onAccept ?? null;
+    // A stacked palette borrows the primary bindings until restoration.
+    if (!isPalette || !bag.priorOverlay) {
+      bag.primaryBindings = {
+        itemIds: opts?.itemIds ? [...opts.itemIds] : [],
+        itemValues: opts?.itemValues ? [...opts.itemValues] : [],
+        onAccept: opts?.onAccept ?? null,
+        onToggleExpand: opts?.onToggleExpand ?? null,
+        onCycle: opts?.onCycle ?? null,
+        describe: opts?.describe ?? null,
+        onAction: opts?.onAction ?? null,
+        onPaste: opts?.onPaste ?? null,
+        onCancel: opts?.onCancel ?? null,
+        onDispose: opts?.onDispose ?? null,
+        isGate: opts?.isGate === true,
+        addProviderHint: opts?.addProviderHint ?? false,
+        setDefaultHint: opts?.setDefaultHint ?? false,
+        mcpManageHint: opts?.mcpManageHint ?? false,
+        mcpAddHint: opts?.mcpAddHint ?? false,
+      };
       bag.overlayEchoChoice = opts?.echoChoice ?? true;
-      bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null;
-      bag.overlayOnCycle = opts?.onCycle ?? null;
-      bag.overlayDescribe = opts?.describe ?? null;
-      bag.overlayOnAction = opts?.onAction ?? null;
-      bag.overlayOnPaste = opts?.onPaste ?? null;
-      bag.overlayOnCancel = opts?.onCancel ?? null;
-      bag.overlayOnDispose = opts?.onDispose ?? null;
-      bag.overlayIsGate = opts?.isGate === true;
-      bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
-      bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
-      bag.overlayMcpManageHint = opts?.mcpManageHint ?? false;
-      bag.overlayMcpAddHint = opts?.mcpAddHint ?? false;
       // Capture the full unfiltered set so typing can re-narrow in place.
       bag.listFilter =
-        opts?.typeToFilter === true
+        !isPalette && opts?.typeToFilter === true
           ? {
               query: "",
               allItems: [...labels],
@@ -3579,25 +3309,6 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
               allItemValues: opts?.itemValues ? [...opts.itemValues] : [],
             }
           : null;
-    } else if (!bag.priorOverlay) {
-      // Bare palette (no primary under it): no accept payload.
-      bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : [];
-      bag.overlayItemValues = opts?.itemValues ? [...opts.itemValues] : [];
-      bag.overlayOnAccept = opts?.onAccept ?? null;
-      bag.overlayEchoChoice = opts?.echoChoice ?? true;
-      bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null;
-      bag.overlayOnCycle = opts?.onCycle ?? null;
-      bag.overlayDescribe = opts?.describe ?? null;
-      bag.overlayOnAction = opts?.onAction ?? null;
-      bag.overlayOnPaste = opts?.onPaste ?? null;
-      bag.overlayOnCancel = opts?.onCancel ?? null;
-      bag.overlayOnDispose = opts?.onDispose ?? null;
-      bag.overlayIsGate = opts?.isGate === true;
-      bag.overlayAddProviderHint = opts?.addProviderHint ?? false;
-      bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false;
-      bag.overlayMcpManageHint = opts?.mcpManageHint ?? false;
-      bag.overlayMcpAddHint = opts?.mcpAddHint ?? false;
-      bag.listFilter = null;
     }
     if (!isPalette) {
       bag.overlayAnswer =
@@ -3825,10 +3536,10 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
   if (shell.overlayKind === "palette") return false;
   if (key.ctrl || key.meta || key.option) return false;
 
-  // overlayAddProviderHint also gates this filter-bypass so composed Option+A
+  // addProviderHint also gates this filter-bypass so composed Option+A
   // (å/Å) reaches runOverlayAction instead of type-to-filter.
   if (
-    bag?.overlayAddProviderHint === true &&
+    bag?.primaryBindings.addProviderHint === true &&
     shell.overlayKind === "model_picker" &&
     isAddProviderShortcutKey(key)
   ) {
@@ -3935,7 +3646,7 @@ export function handleOverlayAnswerKey(shell: AppShell, key: KeyEvent): boolean 
     }
     // Deliberate submit, not a dismiss — closeInsetOverlay must not also fire
     // the Esc/cancel path.
-    if (bag) bag.overlayOnCancel = null;
+    if (bag) bag.primaryBindings.onCancel = null;
     closeInsetOverlay(shell);
     submit(text);
     return true;
@@ -4009,8 +3720,8 @@ export function closeInsetOverlay(shell: AppShell): void {
   // A primary overlay that registers onCancel owns cleanup for every dismiss
   // path. A palette stacked over another overlay restores that prior frame
   // instead, so its callback must remain untouched.
-  const onCancel = !prior ? (bag?.overlayOnCancel ?? null) : null;
-  const onDispose = !prior ? (bag?.overlayOnDispose ?? null) : null;
+  const onCancel = !prior ? (bag?.primaryBindings.onCancel ?? null) : null;
+  const onDispose = !prior ? (bag?.primaryBindings.onDispose ?? null) : null;
 
   shell.overlayList = null;
   shell.overlayKind = null;
@@ -4018,26 +3729,12 @@ export function closeInsetOverlay(shell: AppShell): void {
   shell.overlayBodyFgs = [];
   shell.paletteCommands = [];
   shell.copyTargets = null;
-  clearOverlayBody(shell);
+  shell.overlayView.clearBody();
   // Esc / dismiss: drop accept path without invoking it (onCancel above is
   // captured before this clears, and is invoked separately once state settles).
   if (bag && !prior) {
-    bag.overlayItemIds = [];
-    bag.overlayItemValues = [];
-    bag.overlayOnAccept = null;
-    bag.overlayOnToggleExpand = null;
-    bag.overlayOnCycle = null;
-    bag.overlayDescribe = null;
-    bag.overlayOnAction = null;
-    bag.overlayOnPaste = null;
-    bag.overlayAddProviderHint = false;
-    bag.overlaySetDefaultHint = false;
-    bag.overlayMcpManageHint = false;
-    bag.overlayMcpAddHint = false;
+    bag.primaryBindings = { ...EMPTY_PRIMARY_BINDINGS };
     bag.overlayAnswer = null;
-    bag.overlayOnCancel = null;
-    bag.overlayOnDispose = null;
-    bag.overlayIsGate = false;
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -4056,23 +3753,9 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.paletteCommands = prior.paletteCommands;
     shell.overlayTitle.visible = true;
     shell.overlayTitle.content = prior.title;
-    bag.overlayItemIds = prior.itemIds;
-    bag.overlayItemValues = prior.itemValues;
-    bag.overlayOnAccept = prior.onAccept;
-    bag.overlayOnToggleExpand = prior.onToggleExpand;
-    bag.overlayOnCycle = prior.onCycle;
-    bag.overlayDescribe = prior.describe;
-    bag.overlayOnAction = prior.onAction;
-    bag.overlayOnPaste = prior.onPaste;
+    bag.primaryBindings = { ...prior.primaryBindings };
     bag.overlayAnswer = prior.answer;
     bag.overlayTitleText = prior.titleText;
-    bag.overlayOnCancel = prior.onCancel;
-    bag.overlayOnDispose = prior.onDispose;
-    bag.overlayIsGate = prior.isGate;
-    bag.overlayAddProviderHint = prior.addProviderHint;
-    bag.overlaySetDefaultHint = prior.setDefaultHint;
-    bag.overlayMcpManageHint = prior.mcpManageHint;
-    bag.overlayMcpAddHint = prior.mcpAddHint;
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -4080,14 +3763,7 @@ export function closeInsetOverlay(shell: AppShell): void {
         scrollOwner: "overlay",
       });
     }
-    const listRows = prior.list.count * overlayRowsPerItem(shell);
-    const hostRows = overlayHostRows(shell, prior.bodyLines.length, listRows);
-    const minHostRows = overlayMinHostRows(shell, prior.bodyLines.length, prior.list.count > 0);
-    relayout(shell, {
-      overlayMode: "inset",
-      overlayBodyRows: hostRows,
-      overlayMinBodyRows: minHostRows,
-    });
+    relayoutOverlayHost(shell, prior.list.count);
     applyFocus(shell);
     paintOverlayList(shell);
     return;
@@ -4124,8 +3800,8 @@ export function closeInsetOverlay(shell: AppShell): void {
  */
 export function closeReplaceableOverlay(shell: AppShell): void {
   const bag = internals.get(shell);
-  if (bag?.overlayIsGate === true) return;
-  if (bag) bag.overlayOnCancel = null;
+  if (bag?.primaryBindings.isGate === true) return;
+  if (bag) bag.primaryBindings.onCancel = null;
   closeInsetOverlay(shell);
 }
 
@@ -4306,16 +3982,19 @@ export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): voi
   // Ask for the whole list again, not the height it currently has: a body that
   // shrank should hand its rows back to the choices rather than leave the
   // viewport stuck at the size an earlier, taller body forced it to.
-  const hostRows = overlayHostRows(
-    shell,
-    shell.overlayBodyLines.length,
-    Math.max(1, shell.overlayItems.length) * overlayRowsPerItem(shell),
+  const perItem = overlayRowsPerItem(
+    shell.overlayKind,
+    shell.overlayItems,
+    shell.layout.contentWidth,
   );
-  const minHostRows = overlayMinHostRows(
-    shell,
+  const chrome = overlayChromeRows(
+    shell.overlayKind,
     shell.overlayBodyLines.length,
-    shell.overlayItems.length > 0,
+    !!internals.get(shell)?.primaryBindings.describe,
+    overlayAnswerState(shell) !== null,
   );
+  const hostRows = chrome + Math.max(1, shell.overlayItems.length) * perItem;
+  const minHostRows = overlayMinHostRows(chrome, perItem, shell.overlayItems.length > 0);
   relayout(shell, {
     overlayMode: "inset",
     overlayBodyRows: hostRows,
@@ -4364,7 +4043,7 @@ export function setOwnedOverlayItems(
 
   if (shell.overlayKind === kind && shell.overlayList !== null) {
     const previousCount = shell.overlayItems.length;
-    const activeId = bag.overlayItemIds[shell.overlayList.activeIndex];
+    const activeId = bag.primaryBindings.itemIds[shell.overlayList.activeIndex];
     const filter = bag.listFilter;
     if (filter) {
       bag.listFilter = {
@@ -4378,7 +4057,7 @@ export function setOwnedOverlayItems(
       setOverlayItems(shell, items, itemIds);
     }
     const displayedCount = shell.overlayItems.length;
-    const activeIndex = activeId === undefined ? -1 : bag.overlayItemIds.indexOf(activeId);
+    const activeIndex = activeId === undefined ? -1 : bag.primaryBindings.itemIds.indexOf(activeId);
     if (activeIndex >= 0 && shell.overlayList.activeIndex !== activeIndex) {
       shell.overlayList = createListViewport({
         count: displayedCount,
@@ -4399,12 +4078,12 @@ export function setOwnedOverlayItems(
 
   const prior = bag.priorOverlay;
   if (prior?.kind !== kind) return false;
-  const activeId = prior.itemIds[prior.list.activeIndex];
+  const activeId = prior.primaryBindings.itemIds[prior.list.activeIndex];
   const activeIndex = activeId === undefined ? -1 : itemIds.indexOf(activeId);
   bag.priorOverlay = {
     ...prior,
     items: [...items],
-    itemIds: [...itemIds],
+    primaryBindings: { ...prior.primaryBindings, itemIds: [...itemIds] },
     list: createListViewport({
       count: items.length,
       height: prior.list.height,
@@ -4430,8 +4109,8 @@ export function setOverlayItems(
   if (!shell.overlayList) return;
   shell.overlayItems = items;
   const bag = internals.get(shell);
-  if (bag && itemIds) bag.overlayItemIds = [...itemIds];
-  if (bag && itemValues) bag.overlayItemValues = [...itemValues];
+  if (bag && itemIds) bag.primaryBindings.itemIds = [...itemIds];
+  if (bag && itemValues) bag.primaryBindings.itemValues = [...itemValues];
   // Most callers (mention/model-picker filtering) keep the operator's current
   // selection as the list narrows. The `/` popup instead resets to the top
   // row on every keystroke, matching pre-refresh behavior where each filter
@@ -4449,7 +4128,7 @@ export function setOverlayItems(
 /** Run the open overlay's expand/collapse hook; true when one was bound. */
 export function toggleOverlayExpand(shell: AppShell): boolean {
   if (!shell.overlayList) return false;
-  const hook = internals.get(shell)?.overlayOnToggleExpand ?? null;
+  const hook = internals.get(shell)?.primaryBindings.onToggleExpand ?? null;
   if (!hook) return false;
   hook();
   return true;
@@ -4470,7 +4149,7 @@ export function moveOverlaySelection(shell: AppShell, delta: number): void {
 export function cycleOverlaySelection(shell: AppShell, direction: -1 | 1): boolean {
   const list = shell.overlayList;
   if (!list) return false;
-  const onCycle = internals.get(shell)?.overlayOnCycle;
+  const onCycle = internals.get(shell)?.primaryBindings.onCycle;
   if (!onCycle) return false;
   onCycle(activeOverlayItemId(shell, list), direction);
   return true;
@@ -4484,7 +4163,7 @@ export function cycleOverlaySelection(shell: AppShell, direction: -1 | 1): boole
 export function runOverlayAction(shell: AppShell, key: KeyEvent): boolean {
   const list = shell.overlayList;
   if (!list) return false;
-  const onAction = internals.get(shell)?.overlayOnAction;
+  const onAction = internals.get(shell)?.primaryBindings.onAction;
   if (!onAction) return false;
   return onAction(activeOverlayItemId(shell, list), key);
 }
@@ -4539,10 +4218,10 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return;
   }
 
-  const id = bag?.overlayItemIds[idx];
+  const id = bag?.primaryBindings.itemIds[idx];
   // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
   if (id === "") return;
-  const value = bag?.overlayItemValues[idx];
+  const value = bag?.primaryBindings.itemValues[idx];
   const selection: OverlaySelection = {
     kind,
     index: idx,
@@ -4551,10 +4230,10 @@ export function acceptOverlaySelection(shell: AppShell): void {
     ...(value !== undefined ? { value } : {}),
   };
   // Capture before close clears per-open state.
-  const perOpen = bag?.overlayOnAccept ?? null;
+  const perOpen = bag?.primaryBindings.onAccept ?? null;
   // This is a deliberate accept, not a dismiss — closeInsetOverlay must not
   // also fire the Esc/cancel path below.
-  if (bag) bag.overlayOnCancel = null;
+  if (bag) bag.primaryBindings.onCancel = null;
 
   if (bag?.overlayEchoChoice !== false) {
     appendStreamRow(shell, {
@@ -5361,7 +5040,7 @@ function refreshSlashPopupInPlace(shell: AppShell, matches: readonly PaletteComm
       catalog: matches,
       typeToFilter: false,
     };
-    bag.overlayDescribe = (id) => {
+    bag.primaryBindings.describe = (id) => {
       const cmd = matches.find((c) => c.id === id);
       const what = cmd?.description?.trim();
       return what ? { what } : null;
@@ -5654,35 +5333,8 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   });
   const landingBelow = createLandingBelow(ctx, landingBelowState);
 
-  const overlayHost = new BoxRenderable(ctx, {
-    id: "shell-overlay-host",
-    width: "100%",
-    height: 1,
-    flexShrink: 0,
-    flexDirection: "column",
-    // A short terminal can leave the host fewer rows than its body wants. Rows
-    // that do not fit are clipped rather than painted over the chrome below,
-    // which would leave a half-overlay the operator cannot dismiss.
-    overflow: "hidden",
-    border: true,
-    borderColor: UI.textDim,
-    backgroundColor: UI.ground,
-    visible: false,
-  });
-  const overlayTitle = new TextRenderable(ctx, {
-    id: "shell-overlay-title",
-    content: " overlay",
-    fg: UI.textDim,
-  });
-  const overlayBody = new BoxRenderable(ctx, {
-    id: "shell-overlay-body",
-    width: "100%",
-    flexGrow: 1,
-    flexDirection: "column",
-    backgroundColor: UI.ground,
-  });
-  overlayHost.add(overlayTitle);
-  overlayHost.add(overlayBody);
+  const overlayView = createOverlayView(ctx);
+  const { host: overlayHost, title: overlayTitle, body: overlayBody } = overlayView;
 
   // Transient only: the resolver gives it a row when paintChrome asks for one.
   const notice = new TextRenderable(ctx, {
@@ -5785,9 +5437,9 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     const bag = internals.get(shell);
     if (bag?.inputSuspended === true) return;
     sawBracketedPaste = true;
-    if (shell.overlayList !== null && bag?.overlayOnPaste) {
+    if (shell.overlayList !== null && bag?.primaryBindings.onPaste) {
       event.preventDefault();
-      bag.overlayOnPaste(new TextDecoder().decode(event.bytes));
+      bag.primaryBindings.onPaste(new TextDecoder().decode(event.bytes));
     }
   };
 
@@ -6307,6 +5959,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     taskBox,
     agentsBox,
     transcript,
+    overlayView,
     overlayHost,
     overlayTitle,
     overlayBody,
@@ -6399,25 +6052,11 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayRawBodyText: "",
     priorOverlay: null,
     overlayGeneration: 0,
-    overlayItemIds: [],
-    overlayItemValues: [],
-    overlayOnAccept: null,
+    primaryBindings: { ...EMPTY_PRIMARY_BINDINGS },
     overlayEchoChoice: true,
-    overlayOnToggleExpand: null,
-    overlayOnCycle: null,
-    overlayDescribe: null,
-    overlayOnAction: null,
-    overlayOnPaste: null,
-    overlayAddProviderHint: false,
-    overlaySetDefaultHint: false,
-    overlayMcpManageHint: false,
-    overlayMcpAddHint: false,
     inputSuspended: false,
     overlayAnswer: null,
     overlayTitleText: "",
-    overlayOnCancel: null,
-    overlayOnDispose: null,
-    overlayIsGate: false,
     overlayClosedListeners: new Set(),
     deferredCommandOverlay: null,
     deferredFlushScheduled: false,

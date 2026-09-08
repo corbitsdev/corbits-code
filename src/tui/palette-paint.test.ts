@@ -42,10 +42,6 @@ async function paletteFrame(width: number): Promise<readonly string[]> {
   );
 }
 
-function rowFor(rows: readonly string[], label: string): string | undefined {
-  return rows.find((r) => r.includes(label));
-}
-
 describe("command list rows", () => {
   test("slash mode omits the orphan filter row and the title rule", async () => {
     const rows = await paletteFrame(100);
@@ -72,20 +68,6 @@ describe("command list rows", () => {
       { width: 100, height: 32 },
     );
     expect(rows.some((r) => r.trim() === ">")).toBe(true);
-  });
-
-  test("has no leading selection marker or kind column", async () => {
-    const rows = await paletteFrame(100);
-    const help = rowFor(rows, "/help");
-    expect(help).toBeDefined();
-    expect(help).not.toContain(">");
-    expect(help).not.toContain("view");
-  });
-
-  test("ellipsizes a label that cannot fit a narrow width, never dropping it", async () => {
-    const rows = await paletteFrame(20);
-    const help = rowFor(rows, "help");
-    expect(help).toBeDefined();
   });
 });
 

@@ -392,6 +392,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
 
   const toolsFactory = defineTool({
     id: wiring.toolsId,
+    definitions: [],
     factory: () => wiring.getDynamicRunner(),
   });
 

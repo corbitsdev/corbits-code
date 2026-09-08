@@ -346,14 +346,14 @@ comment and `annotateCurrent` in `src/tui/product-host.ts`).
 The `/` command list specifically (`src/tui/command-catalog.ts`,
 `shell.ts:openPalette`/`repaintPalette`): width matches the prompt box — both
 are painted at the geometry resolver's shared `contentWidth`
-(`geometry/resolve.ts:assignRects`, `shell.ts:overlayRowWidth`). There is no
+(`geometry/resolve.ts:assignRects`, `overlay-view.ts:overlayRowWidth`). There is no
 leading marker column and no per-row kind column; the selected row is marked
-by text color only (`paintPaletteList` in `shell.ts`: "the highlighted row
+by text color only (`paintPaletteList` in `overlay-view.ts`: "the highlighted row
 already stands out by sitting under the cursor, so a leading `>` and a grey
 block would both be saying the same thing twice"). Rows stay name-only
 (`/help`, `/model`); the focused command's registry description paints in the
 shared two-line description zone under the list (`openListOverlay({ describe })`,
-`paintDescriptionZone` in `shell.ts`). A missing or blank `description` still
+`paintDescriptionZone` in `overlay-view.ts`). A missing or blank `description` still
 reserves the zone (rule plus two blank lines); it does not collapse. Built-ins
 have copy; this is the empty-description edge. The list also paints with no
 title rule — slash-popup query lives in the prompt, so an orphan `>` filter

@@ -89,9 +89,9 @@ including nested Bun package layouts such as
 `node_modules/.bun/@intx+agent@…/node_modules/@intx/types` — at the
 vendored tree. That is the runtime and install-time story.
 
-TypeScript needs a second pin. Published packages such as `@intx/agent@0.2.2`
+TypeScript needs a second pin. Published packages such as `@intx/agent@0.3.0`
 ship `dist/*.d.ts` that import `@intx/types/runtime`. When a stale or
-partial install leaves a nested published `@intx/types@0.2.2` (with its
+partial install leaves a nested published `@intx/types@0.3.0` (with its
 older `dist/` shapes, missing fields such as `PendingOperation.kind`),
 `tsc` treats that nested copy as a second type identity: first-party
 code and vendored inference resolve the vendor source, while agent
@@ -144,9 +144,11 @@ the old root export had, so this is an import-path change, not a
 behavioral one. The package also picked up two new dependencies
 (`@isomorphic-git/lightning-fs`, `buffer`, both used only by the new
 `./browser` runtime, which nothing here imports) and a new
-`@intx/crypto` dev dependency for its own test suite, pinned to `0.2.2`
-like the existing `@intx/mime` dev dependency on `@intx/inference` — the
-same "stay on published npm for a package we don't vendor" pattern.
+`@intx/crypto` dev dependency for its own test suite, pinned to `0.2.2` —
+the same "stay on published npm for a package we don't vendor" pattern as the
+`@intx/log` and `@intx/mime` dependencies on the other vendored packages,
+which are kept aligned with the root's published `0.3.0` pins so the
+lockfile never nests duplicate copies.
 
 One new upstream test, `browser-bundle.test.ts`, is excluded via
 `bunfig.toml`'s `pathIgnorePatterns`. It bundles `browser.ts` with
