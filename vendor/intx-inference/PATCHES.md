@@ -66,7 +66,9 @@ vendored package directly). **Removal path:** Upstream PR to `@intx/agent` to
 forward `contextTransforms` explicitly; then delete both this patch and
 `harness-ts-context-transforms`.
 **Obligation:** both `contextTransforms` patches have live consumers today —
-`src/session/assemble-runtime.ts:423` and `src/subagent/run.ts:880` — so they
+the `contextTransforms` entry in the `deps` argument to
+`createAgentWithLiveToolDispatch` in `src/session/assemble-runtime.ts` and in
+`src/subagent/run.ts` — so they
 must be re-carried on every sync until upstream exposes the field; only then
 can they be killed.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts (upstream touched
@@ -97,9 +99,10 @@ type. No kill date until upstream ships it.
 **Disposition:** Kill candidate — pair with `assembly-ts-deps-context-transforms`.
 **Removal path:** Upstream PR to `@intx/agent` exposing `contextTransforms`
 explicitly. Ships out together with the assembly patch.
-**Obligation:** live consumers at `src/session/assemble-runtime.ts:423` and
-`src/subagent/run.ts:880` — re-carry until upstream exposes the field, then
-kill.
+**Obligation:** live consumers at the `contextTransforms` entries in the
+`deps` argument to `createAgentWithLiveToolDispatch` in
+`src/session/assemble-runtime.ts` and `src/subagent/run.ts` — re-carry until
+upstream exposes the field, then kill.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk.
 
 ## harness-ts-inactivity-on-semantic-progress
