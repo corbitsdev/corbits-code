@@ -126,6 +126,52 @@ describe("createOptimizedContextStore load", () => {
     expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
 
+  // A small session never rolls over, so the active segment is turns.jsonl
+  // itself and the torn line sits in the base the isogit store parses first.
+  test("recovers from a torn final line in the base segment with no extras", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a"), turn("b")]) + '{"role":"user","content":[{"type":"te',
+    );
+
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
+  });
+
+  test("keeps extra segments when the torn line is in the base segment", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te');
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("b"), turn("c")]),
+    );
+
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  test("the next write heals a torn base tail so reload is stable", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te');
+
+    const recovered = await store.load();
+    await store.writeTurns(recovered.turns);
+    const reloaded = await store.load();
+    expect(reloaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a"]);
+    expect(fs.readFileSync(path.join(dir, TURNS_FILE), "utf8")).toBe(jsonl([turn("a")]));
+  });
+
   test("recovers usable turns when turns.jsonl has a mid-file null-byte hole", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
