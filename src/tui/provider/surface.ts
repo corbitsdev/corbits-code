@@ -9,7 +9,6 @@ import {
   InputRenderable,
   InputRenderableEvents,
   TextRenderable,
-  type CliRenderer,
   type KeyEvent,
 } from "@opentui/core";
 
@@ -35,6 +34,7 @@ import {
   LOGIN_WAITING_LABEL,
 } from "./oauth.js";
 import { accountNamePrompt, CUSTOM_STEPS, STEP_PROMPTS } from "./steps.js";
+import { PROVIDER_LIST_ROWS_MAX } from "./choices.js";
 import type {
   DiscoveryFlows,
   LoginFlow,
@@ -47,10 +47,6 @@ import type {
 const SUMMARY_SLOTS = CUSTOM_STEPS.length;
 /** Wrapped rows reserved for the authorize URL and its instruction. */
 const LOGIN_ROWS = 4;
-// The whole first-class catalog plus the custom row fits without scrolling on a
-// standard terminal: a first run should see every option it could pick.
-const LIST_ROWS_MAX = 10;
-const LIST_ROWS_MIN = 3;
 const TELEMETRY_ROWS = 3;
 /**
  * Input capacity. The renderable defaults to 1000 characters and truncates a
@@ -109,22 +105,6 @@ export function teardownSurface(
       // already destroyed
     }
   }
-}
-
-/**
- * List height budget. This budget is a guess, not a derivation: it runs
- * before layout, so there has been no layout pass yet and nothing in OpenTUI
- * to measure — Renderable.height and scrollHeight only reflect the last
- * completed layout, populated post-mount. -14 is a hand count of the chrome
- * rows above and below the list (header, intro, step, instruction, summary,
- * statusLine, guidance, footer, and padding) with slack for a wrapped label;
- * it goes stale if that chrome changes and nothing here will catch it. A
- * shared, derived chrome budget for this and shell.ts's picker is tracked
- * separately.
- */
-export function providerListHeight(renderer: CliRenderer): number {
-  const rows = renderer.height || 24;
-  return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - 14));
 }
 
 export function createSurface(state: SetupState, selectors: SetupSelectors): Surface {
@@ -200,7 +180,7 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
     backgroundColor: UI.ground,
   });
   const listSlots = Array.from(
-    { length: LIST_ROWS_MAX },
+    { length: PROVIDER_LIST_ROWS_MAX },
     (_, i) =>
       new TextRenderable(renderer, {
         id: `provider-setup-list-${String(i)}`,

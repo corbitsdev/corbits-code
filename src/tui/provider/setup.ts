@@ -35,6 +35,7 @@ import {
   modelFromRowId,
   providerChoiceRows,
   providerChoices,
+  providerListHeight,
   TYPE_MODEL_ID,
 } from "./choices.js";
 import { createDiscoveryFlows } from "./discovery.js";
@@ -46,13 +47,7 @@ import {
   defaultProfileLister,
   LOGIN_TIMEOUT_MS,
 } from "./oauth.js";
-import {
-  createSurface,
-  providerListHeight,
-  RAMP_TICK_MS,
-  stopRamp,
-  teardownSurface,
-} from "./surface.js";
+import { createSurface, RAMP_TICK_MS, stopRamp, teardownSurface } from "./surface.js";
 import { stepsFor, type ProviderField, type SetupStep } from "./steps.js";
 import type {
   ProviderPreset,

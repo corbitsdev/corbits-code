@@ -6,7 +6,6 @@
 import { EventEmitter } from "node:events";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 
-import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
 import type { OperatorResult } from "../agent/tools.js";
 import { createLiveSessionPort } from "./live-session-port.js";
 import { checkWidthContract, widthContractNotice } from "./width-contract.js";
@@ -223,37 +222,6 @@ export interface ProductHost {
     models: readonly ProductHostModelOption[],
     describeModel?: (itemId: string) => ItemDescription | null,
   ) => void;
-}
-
-/** Build permission overlay rows + ApprovalOutcome table (pure; testable). */
-export function permissionChoices(request: PermissionRequest): {
-  items: string[];
-  itemIds: string[];
-  outcomes: ApprovalOutcome[];
-} {
-  const items: string[] = [];
-  const itemIds: string[] = [];
-  const outcomes: ApprovalOutcome[] = [];
-
-  items.push("Reject");
-  itemIds.push("__deny__");
-  outcomes.push({ allow: false });
-
-  items.push("Accept once");
-  itemIds.push("__once__");
-  outcomes.push({ allow: true });
-
-  for (const scope of request.scopes) {
-    const label = scope.hint ? `${scope.label} (${scope.hint})` : scope.label;
-    items.push(label);
-    itemIds.push(scope.id);
-    outcomes.push({
-      allow: true,
-      ...(scope.pattern !== null ? { persist: scope as ApprovalScope } : {}),
-    });
-  }
-
-  return { items, itemIds, outcomes };
 }
 
 /**

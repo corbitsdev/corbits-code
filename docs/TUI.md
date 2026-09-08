@@ -316,17 +316,22 @@ transcript, because that text would otherwise be unreachable before
 approval. That dump carries no gutter label.
 
 The decision surfaces (permission approval, operator question) are the one
-framed content in the shell, and they are shaped rather than merely listed
-(`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
-subject in the action color — the only Breakthrough Orange on the card.
-The overlay host border and title use calm dim chrome (`UI.textDim`);
-consequence impact in the description zone paints `UI.warning` (sand), not
-orange. A blank row separates the subject from context. Choices wrap on word
-boundaries — never middle-ellipsized — to a shared row count at the current
-width (minimum two rows so short labels still breathe; a taller wrap raises
-every choice to the same height so list paging stays a simple multiple). The
-active choice is marked by a solid block (`█`) rather than a background fill
-(cream text, not orange).
+framed content in the shell, and their body is shaped rather than merely
+listed (`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
+subject in the action color — the only Breakthrough Orange on the card. The
+overlay host border and title use calm dim chrome (`UI.textDim`); consequence
+impact in the description zone paints `UI.warning` (sand), not orange. A
+blank row separates the subject from context. Choices are deliberately small:
+each one is a bare, single-line action name (`Reject`, `Accept once`, the
+scope's label) with no consequence text folded into the row. A scope's hint
+paints instead as a body message above the choice list
+(`permissionBodyFromRequest` in `src/tui/gate-wire.ts`), and the expand key
+reveals the full body — collapsed payloads and hints alike — in the overlay
+and, whole, in the transcript. Every choice reserves the same fixed two rows
+(label plus a row of air) so list paging stays a simple multiple. The active
+choice is marked by text color alone — cream (`UI.text`) against the dim rows
+— with no leading marker, block, or background fill (`createOverlayList` in
+`src/tui/shell/overlay-list.ts`).
 
 ## How selectors should work
 

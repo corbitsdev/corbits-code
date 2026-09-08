@@ -7,8 +7,8 @@
 
 import { createOverlayList } from "../shell/overlay-list.js";
 import type { CliRenderer } from "@opentui/core";
-import { modelChoiceRows, TYPE_MODEL_ID } from "./choices.js";
-import { RAMP_TICK_MS, providerListHeight, stopRamp } from "./surface.js";
+import { modelChoiceRows, providerListHeight, TYPE_MODEL_ID } from "./choices.js";
+import { RAMP_TICK_MS, stopRamp } from "./surface.js";
 import type { DiscoveryFlows, SetupSelectors, SetupState, Surface } from "./types.js";
 
 export function createDiscoveryFlows(

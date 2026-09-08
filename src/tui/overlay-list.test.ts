@@ -53,6 +53,56 @@ describe("page / jump", () => {
       expect(list.activeIndex).toBe(9);
     });
   });
+
+  test("empty-list navigation is a no-op", async () => {
+    await withList({ count: 0, items: 5 }, (list) => {
+      list.move(1);
+      list.move(-1);
+      list.page(1);
+      list.page(-1);
+      expect(list.activeIndex).toBe(0);
+      expect(list.offset).toBe(0);
+      expect(list.visibleRange()).toEqual({ start: 0, end: 0 });
+    });
+  });
+
+  test("move clamps at both ends", async () => {
+    await withList({ count: 5, items: 3 }, (list) => {
+      list.move(-10);
+      expect(list.activeIndex).toBe(0);
+      list.move(100);
+      expect(list.activeIndex).toBe(4);
+      activeVisible(list);
+    });
+  });
+
+  test("height 1 pages by one row", async () => {
+    await withList({ count: 10, items: 1 }, (list) => {
+      list.page(1);
+      expect(list.activeIndex).toBe(1);
+      expect(list.offset).toBe(1);
+      activeVisible(list);
+    });
+  });
+
+  test("the visible window is end-exclusive and never past the count", async () => {
+    await withList({ count: 10, items: 3 }, (list) => {
+      const { start, end } = list.visibleRange();
+      expect(end - start).toBe(3);
+      expect(windowOf(list)).toEqual([0, 1, 2]);
+      list.jump(9);
+      const last = list.visibleRange();
+      expect(last.end).toBe(10);
+      expect(last.start).toBeLessThanOrEqual(9);
+    });
+  });
+
+  test("a short list's window ends at the count", async () => {
+    await withList({ count: 2, items: 8 }, (list) => {
+      expect(list.visibleRange()).toEqual({ start: 0, end: 2 });
+      expect(windowOf(list)).toEqual([0, 1]);
+    });
+  });
 });
 
 describe("setCount / setHeight", () => {

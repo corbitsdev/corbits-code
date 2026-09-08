@@ -22,7 +22,7 @@ import { wrapLanding } from "./landing.js";
 import { lockupWidth } from "./lockup.js";
 import type { RampPhase } from "./ramp.js";
 import { formatPaletteRows } from "./command-catalog.js";
-import { composeDecisionBody, decisionChoiceRows, wrapWords } from "./overlay-body.js";
+import { composeDecisionBody, wrapWords } from "./overlay-body.js";
 import { thinkingLivePreviewLines, thinkingSettledLine } from "./thinking.js";
 
 const CJK = "検索結果を確認する";
@@ -98,20 +98,6 @@ describe("the decision body", () => {
   test("every row of a wide-character approval fits the frame", () => {
     const body = composeDecisionBody(`run_shell ${CJK}\ngrep — ${CJK} → ${CJK}\n… more`, 36, 8);
     for (const row of body) expect(stringWidth(row.text)).toBeLessThanOrEqual(36);
-  });
-
-  test("a choice label wraps by columns, not code units", () => {
-    const rows = decisionChoiceRows(`Allow ${CJK} always`, true, 20);
-    for (const row of rows) expect(stringWidth(row.text)).toBeLessThanOrEqual(20);
-    const joined = rows.map((r) => r.text).join("");
-    expect(joined).not.toContain("...");
-    expect(joined).not.toContain("…");
-  });
-
-  test("a label that fits in columns is not truncated", () => {
-    const label = `Accept — ${AMBIGUOUS}`;
-    const [row] = decisionChoiceRows(label, false, 40);
-    expect(row?.text).toBe(`  ${label}`);
   });
 });
 

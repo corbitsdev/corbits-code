@@ -1,13 +1,18 @@
 /**
- * Regression: decision overlays fold each choice into the fixed name +
- * description pair SelectRenderable paints. A description longer than that
- * one row must end in an ellipsis, and the reserved row budget must equal the
- * painted rows so no blank band trails the list.
+ * Decision overlays paint bare, single-line choice rows. Labels carry no
+ * consequence text — scope hints paint in the body above the list and ride
+ * the expand dump — so nothing ever ellipsizes inside a choice, and the fixed
+ * two-row budget (label row + row of air) always matches what the list paints.
  */
+import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import { SelectRenderable } from "@opentui/core";
+import type { PermissionRequest } from "../permission/types.js";
 import { withTestRenderer } from "./harness";
+import { createAppShell } from "./shell/index.js";
+import { toggleOverlayExpand } from "./shell/overlay-list.js";
 import { createOverlayList } from "./shell/overlay-list";
+import { wireGates } from "./gate-wire.js";
 import { DECISION_CHOICE_ROWS } from "./overlay-body";
 import {
   createOverlayView,
@@ -15,8 +20,21 @@ import {
   type OverlayListPresentation,
 } from "./overlay-view";
 
-const LONG_CHOICE =
-  "Allow bash(rm -rf build) in the workspace root always (deletes generated output before the next build starts and cannot be undone)";
+const HINT = "runs rm -rf in the workspace root without asking again";
+
+const hintRequest: PermissionRequest = {
+  tool: "run_shell",
+  action: "Run shell command",
+  subject: 'git commit -m "line one\nline two\nline three"',
+  scopes: [
+    {
+      id: "always",
+      label: "Allow always",
+      pattern: "rm -rf *",
+      hint: HINT,
+    },
+  ],
+};
 
 function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderable {
   const found = view.body.getChildren().find((row) => row instanceof SelectRenderable);
@@ -24,8 +42,8 @@ function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderabl
   return found;
 }
 
-describe("decision truncation visibility", () => {
-  test("a 3-line wrap clips with an ellipsis and the budget matches painted rows", async () => {
+describe("decision choice rendering", () => {
+  test("choices paint bare names with no ellipsis and the budget matches the pair", async () => {
     await withTestRenderer(async (h) => {
       const contentWidth = 60;
       const list = createOverlayList(h.renderer, { count: 1, items: 4 });
@@ -35,7 +53,7 @@ describe("decision truncation visibility", () => {
       view.paintList(
         {
           kind: "permissions",
-          items: [LONG_CHOICE],
+          items: ["Reject", "Accept once", "Allow always"],
           paletteCommands: [],
           list,
           bodyLines: [],
@@ -47,11 +65,15 @@ describe("decision truncation visibility", () => {
       );
 
       const select = bodySelect(view);
-      const description = select.options[0]?.description ?? "";
-      expect(description.length).toBeGreaterThan(0);
-      expect(description.endsWith("…")).toBe(true);
-      // The full wrap is longer than what the description row shows.
-      expect(description.length).toBeLessThan(LONG_CHOICE.length);
+      expect(select.options.map((option) => option.name)).toEqual([
+        "Reject",
+        "Accept once",
+        "Allow always",
+      ]);
+      for (const option of select.options) {
+        expect(option.description).toBe("");
+        expect(option.name.endsWith("…")).toBe(false);
+      }
 
       // Reserved rows equal painted rows: the pair, not a growing budget.
       const perItem = overlayRowsPerItem("permissions");
@@ -60,27 +82,37 @@ describe("decision truncation visibility", () => {
     });
   });
 
-  test("a short choice does not grow an ellipsis", async () => {
+  test("hint text renders above the list and is included in the expand dump", async () => {
     await withTestRenderer(async (h) => {
-      const contentWidth = 80;
-      const list = createOverlayList(h.renderer, { count: 1, items: 4 });
-      const view = createOverlayView(h.renderer);
-      h.renderer.root.add(view.host);
-      view.host.visible = true;
-      view.paintList(
-        {
-          kind: "permissions",
-          items: ["Allow once"],
-          paletteCommands: [],
-          list,
-          bodyLines: [],
-          bodyFgs: [],
-          answer: null,
-          describe: () => undefined,
-        } satisfies Omit<OverlayListPresentation, "list"> & { list: typeof list },
-        contentWidth,
-      );
-      expect(bodySelect(view).options[0]?.description).toBe("");
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      emitter.emit("permission.gate", {
+        request: hintRequest,
+        resolve: () => {},
+      });
+
+      try {
+        // Choices are bare action names.
+        expect(shell.overlayItems).toEqual(["Reject", "Accept once", "Allow always"]);
+
+        // The scope hint paints as a body message above the choice list.
+        const bodyText = shell.overlayBodyLines.join("\n");
+        expect(bodyText).toContain("Allow always:");
+        expect(bodyText).toContain("without asking again");
+
+        // The expand key dumps the body — hint included — to the transcript.
+        expect(toggleOverlayExpand(shell)).toBe(true);
+        const dump = shell.streamLog.at(-1);
+        expect(dump?.role).toBe("system");
+        expect(dump?.text).toContain(`Allow always: ${HINT}`);
+      } finally {
+        dispose();
+        shell.dispose();
+      }
     });
   });
 });

@@ -4,11 +4,8 @@ import { OVERLAY_MAX_FRACTION, PROMPT_BASE_ROWS } from "./geometry/index.js";
 import { withTestRenderer } from "./harness.js";
 import {
   composeDecisionBody,
-  decisionChoiceRows,
   decisionContextBudget,
   describeZoneLines,
-  DECISION_ACTIVE_MARK,
-  DECISION_CHOICE_ROWS,
   DECISION_DITHER,
   overlayChoiceText,
   overlayKindWord,
@@ -18,7 +15,6 @@ import {
 import { createAppShell } from "./shell/index.js";
 import { openListOverlay } from "./shell/overlay-host.js";
 import { UI } from "./theme.js";
-import { stringWidth } from "./view/height.js";
 
 const WIDTHS = [72, 60, 48, 40, 24] as const;
 
@@ -139,50 +135,6 @@ describe("composeDecisionBody", () => {
   }
 });
 
-describe("decisionChoiceRows", () => {
-  const LABEL = "Always allow run_shell in /Users/someone/abklabs/corbits-code (session grant)";
-
-  test("the active choice is marked, and short labels pad to two rows", () => {
-    const rows = decisionChoiceRows("Reject", true, 60);
-    expect(rows[0]?.text).toBe(`${DECISION_ACTIVE_MARK} Reject`);
-    expect(rows[0]?.fg).toBe(UI.text);
-    expect(rows).toHaveLength(DECISION_CHOICE_ROWS);
-    expect(rows[1]?.text).toBe("");
-    expect(rows[1]?.fg).toBe(UI.textDim);
-  });
-
-  test("an inactive choice is dim and unmarked", () => {
-    const rows = decisionChoiceRows("Reject", false, 60);
-    expect(rows[0]?.text).toBe("  Reject");
-    expect(rows[0]?.fg).toBe(UI.textDim);
-  });
-
-  test("a long label wraps on word boundaries and never ellipsizes", () => {
-    for (const width of [40, 48, 60, 80] as const) {
-      const rows = decisionChoiceRows(LABEL, false, width);
-      const joined = rows
-        .map((r) => r.text)
-        .join(" ")
-        .replace(/\s+/g, " ");
-      expect(joined).not.toContain("...");
-      expect(joined).not.toContain("…");
-      expect(joined).toContain("session grant");
-      expect(rows.length).toBeGreaterThan(1);
-      for (const row of rows) {
-        expect(stringWidth(row.text)).toBeLessThanOrEqual(width);
-      }
-    }
-  });
-
-  for (const width of WIDTHS) {
-    test(`a long label stays inside ${width} columns`, () => {
-      const rows = decisionChoiceRows(LABEL, false, width);
-      for (const row of rows) expect(stringWidth(row.text)).toBeLessThanOrEqual(width);
-      expect(rows[0]?.text.endsWith("-")).toBe(false);
-    });
-  }
-});
-
 describe("decision overlay paints at narrow widths", () => {
   for (const width of [40, 48, 60, 80]) {
     test(`permission overlay rows stay inside the box at ${width} columns`, async () => {
@@ -192,11 +144,9 @@ describe("decision overlay paints at narrow widths", () => {
           openListOverlay(shell, {
             kind: "permissions",
             title: "permission",
-            items: [
-              "Always allow run_shell in this workspace (session grant)",
-              "Reject",
-              "Accept once",
-            ],
+            // Bare action names: labels carry no consequence text, so they
+            // paint whole at any of these widths.
+            items: ["Reject", "Accept once", "Always allow"],
             body: `run_shell\nRun shell command\n1) npm install ${LONG_URL}\ne expand 1 collapsed payload`,
           });
           await h.renderOnce();
@@ -227,15 +177,12 @@ describe("decision overlay paints at narrow widths", () => {
         .join(" ")
         .replace(/[│┌┐└┘─]/g, " ")
         .replace(/\s+/g, " ");
-      expect(interior).toContain("session grant");
-      expect(interior).toContain("Always allow");
+      // The first choice is always on screen; how many of the rest fit is a
+      // height question (the fraction cap + this deliberately tall body), not
+      // a width one — reachability under clipping is overlay-overflow's file.
+      expect(interior).toContain("Reject");
       const choiceLines = lines.filter(
-        (l) =>
-          l.includes("Always allow") ||
-          l.includes("session") ||
-          l.includes("grant") ||
-          l.includes("Accept once") ||
-          l.includes("Reject"),
+        (l) => l.includes("Reject") || l.includes("Accept once") || l.includes("Always allow"),
       );
       expect(choiceLines.length).toBeGreaterThan(0);
       for (const line of choiceLines) {
