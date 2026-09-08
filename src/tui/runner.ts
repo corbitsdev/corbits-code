@@ -1449,6 +1449,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           );
           workdir = sessionContextDir(config.cwd, sessionId);
           await initSessionDir(config.cwd, sessionId);
+          const rotatedBundle = buildSessionSources();
+          liveSources = rotatedBundle.sources;
+          liveDefaultSource = rotatedBundle.defaultSource;
+          liveSource = rotatedBundle.selected;
           permissionGate.reset();
           runSink.reset();
           sessionCost.reset();

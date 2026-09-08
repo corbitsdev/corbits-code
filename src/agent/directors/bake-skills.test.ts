@@ -22,11 +22,28 @@ const philosophyOnDisk = stripFrontmatter(
     "utf8",
   ),
 );
+const ponytailOnDisk = stripFrontmatter(
+  readFileSync(
+    join(import.meta.dirname, "../../../plugins/corbits-skills/skills/ponytail/SKILL.md"),
+    "utf8",
+  ),
+);
+const nativeRuntimeOnDisk = stripFrontmatter(
+  readFileSync(
+    join(import.meta.dirname, "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md"),
+    "utf8",
+  ),
+);
 
 describe("loadBakedSkillBody", () => {
   test("returns first-party style and philosophy bodies matching SKILL.md", () => {
     expect(loadBakedSkillBody("style")).toBe(styleOnDisk);
     expect(loadBakedSkillBody("philosophy")).toBe(philosophyOnDisk);
+  });
+
+  test("returns first-party ponytail and native-runtime bodies matching SKILL.md", () => {
+    expect(loadBakedSkillBody("ponytail")).toBe(ponytailOnDisk);
+    expect(loadBakedSkillBody("native-runtime")).toBe(nativeRuntimeOnDisk);
   });
 
   test("returns undefined for unknown skill names", () => {
@@ -43,6 +60,15 @@ describe("formatBakedOptionalSkills", () => {
     expect(text).toContain(styleOnDisk);
     expect(text).toContain(philosophyOnDisk);
     expect(text).toContain("use_skill is not mounted on workers");
+  });
+
+  test("formats ponytail and native-runtime under Baked skill guidance", () => {
+    const text = formatBakedOptionalSkills(["ponytail", "native-runtime"]);
+    expect(text).toContain("# Baked skill guidance");
+    expect(text).toContain("### ponytail");
+    expect(text).toContain("### native-runtime");
+    expect(text).toContain(ponytailOnDisk);
+    expect(text).toContain(nativeRuntimeOnDisk);
   });
 
   test("skips missing names without inventing content", () => {
