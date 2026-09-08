@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { normalizeInferenceErrorForTerminal } from "./inference-gateway-error.js";
 import {
   inferenceErrorMessage,
   terminalProviderFailureMessage,
@@ -209,6 +210,25 @@ describe("terminalProviderFailureMessage", () => {
     ).toBe(
       'Codex Provider failed (fatal): service rejected the request. Try again or switch models with "/model".',
     );
+  });
+
+  test("terminal Codex short-429 failure does not claim to still be retrying", () => {
+    const normalized = normalizeInferenceErrorForTerminal(
+      { category: "quota_exhausted", message: "Too Many Requests", statusCode: 429 },
+      "codex/default",
+    );
+    const message = terminalProviderFailureMessage("codex/default", normalized);
+    expect(message.toLowerCase()).toMatch(/rate limit/);
+    expect(message.toLowerCase()).not.toContain("retrying");
+  });
+
+  test("retryable 429 guidance asks the operator to wait before trying again", () => {
+    const message = terminalProviderFailureMessage("codex/default", {
+      category: "retryable",
+      message: "Rate limited",
+      statusCode: 429,
+    });
+    expect(message).toContain("Wait a moment and try again.");
   });
 
   test("uses a safe label when the provider id contains only control sequences", () => {

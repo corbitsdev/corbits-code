@@ -63,6 +63,13 @@ describe("createCodexResponsesAdapter", () => {
     const adapter = createCodexResponsesAdapter(source);
     expect(adapter.isStreamTerminal).toBe(isResponsesStreamTerminal);
   });
+
+  test("extracts Retry-After pacing from response headers", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after": "7" }))).toBe(7_000);
+    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" }))).toBe(1_500);
+    expect(adapter.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
+  });
 });
 
 describe("createCodexResponsesAdapter usage parsing", () => {

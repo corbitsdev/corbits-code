@@ -130,6 +130,11 @@ export function terminalProviderFailureMessage(
 function terminalProviderFailureGuidance(error: InferenceErrorLike, category: string): string {
   if (category === "credential_failure") return CREDENTIAL_FAILURE_USER_MESSAGE;
   if (category === "context_overflow") return "Try /clear to start fresh.";
+  // A 429 that survived the harness's paced retries is a wait-it-out rate
+  // limit, not a generic flake: say so instead of the bare "Try again."
+  if (category === "retryable" && error.statusCode === 429) {
+    return "Wait a moment and try again.";
+  }
   if (
     category === "retryable" ||
     (error.statusCode !== undefined && error.statusCode >= 500 && error.statusCode <= 599)

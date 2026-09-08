@@ -49,6 +49,16 @@ export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): R
       const pauseMs = Math.min(error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS, MAX_BLIND_WAIT_MS);
       const provider = withProvider.providerId ?? stampedProviderId ?? "unknown";
       admission.notePressure(provider, now() + pauseMs);
+      // The vendored default retries `retryable` on a fixed 500/1000ms
+      // schedule and ignores Retry-After. A 429 carries the server's pacing
+      // instruction: honor it (capped at the blind-wait ceiling like the
+      // quota path) so a short rate limit waits itself out instead of
+      // burning all three attempts in ~1.5s and aborting. The 3-attempt cap
+      // mirrors the vendored MAX_ATTEMPTS in retry-policy.ts.
+      if (error.retryAfterMs !== undefined) {
+        if (situation.attempt >= 3) return { kind: "abort" };
+        return { kind: "retry", delayMs: pauseMs };
+      }
     }
     if (
       error.category === "quota_exhausted" &&

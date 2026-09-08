@@ -635,6 +635,27 @@ export function isResponsesStreamTerminal(sseData: string): boolean {
   return typeof eventType === "string" && RESPONSES_TERMINAL_EVENTS.has(eventType);
 }
 
+// Responses backends (Codex, Grok, OpenAI) signal 429 pacing with the same
+// `retry-after` / `retry-after-ms` headers the Chat Completions adapter
+// already reads. The shared Responses adapters never extracted them, so
+// every 429 arrived with retryAfterMs undefined and the retry policy fell
+// back to blind fixed backoff instead of waiting out the server's window.
+export function extractResponsesRetryAfterMs(headers: Headers): number | undefined {
+  const retryMs = headers.get("retry-after-ms");
+  if (retryMs !== null) {
+    const ms = Number(retryMs);
+    if (Number.isFinite(ms) && ms > 0) return Math.ceil(ms);
+  }
+  const raw = headers.get("retry-after");
+  if (raw !== null) {
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.ceil(seconds * 1000);
+    }
+  }
+  return undefined;
+}
+
 export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAdapter {
   // Re-created per request in buildRequest, not just once here — otherwise
   // block indices accumulate across every request the adapter instance ever
@@ -648,5 +669,6 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
     parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,
+    extractRetryAfterMs: extractResponsesRetryAfterMs,
   };
 }

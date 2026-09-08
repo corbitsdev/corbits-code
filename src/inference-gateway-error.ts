@@ -49,8 +49,12 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 /** User-visible line while the harness retries a transient gateway overload. */
 export const GATEWAY_OVERLOAD_USER_MESSAGE = "Inference gateway overloaded — retrying…";
 
-/** User-visible line while the harness retries a short known-provider HTTP 429. */
-export const RATE_LIMIT_USER_MESSAGE = "Rate limited — retrying…";
+/**
+ * User-visible line for a short known-provider HTTP 429. Worded without
+ * "retrying": this message also surfaces terminally after the harness has
+ * exhausted its retries, where claiming an ongoing retry is wrong.
+ */
+export const RATE_LIMIT_USER_MESSAGE = "Rate limited";
 
 /** Body markers that mean a real usage/quota window, not a short rate limit. */
 const XAI_QUOTA_BODY_MARKERS = [

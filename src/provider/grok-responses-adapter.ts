@@ -19,6 +19,7 @@ import {
 import {
   RESPONSES_TOOL_NAME_LIMIT,
   createResponsesBlockIndexer,
+  extractResponsesRetryAfterMs,
   parseJSONResponse,
   parseResponse,
   signatureForModel,
@@ -251,5 +252,6 @@ export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAda
     },
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
     parseJSONResponse,
+    extractRetryAfterMs: extractResponsesRetryAfterMs,
   };
 }
