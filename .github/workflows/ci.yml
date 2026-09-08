@@ -11,10 +11,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
-  # Prettier and eslint run un-cached in CI: restored result caches can mark
-  # files clean against a stale tool version or config, masking real failures.
-  # The --cache flags in the package.json lint script remain for local speed.
-  prettier:
+  # Prettier, eslint, and typecheck share one runner: one checkout and one
+  # install instead of three of each. Prettier and eslint still run un-cached
+  # in CI: restored result caches can mark files clean against a stale tool
+  # version or config, masking real failures. The --cache flags in the
+  # package.json lint script remain for local speed.
+  static-analysis:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,7 +31,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
+          # The exact key keeps hits honest: only a cache built from this
+          # bun.lock restores. restore-keys falls back to the newest cache
+          # when the lockfile changed, so a dependency bump reinstalls the
+          # delta instead of cold-installing on every job at once. bun
+          # install --frozen-lockfile reconciles a stale tree to the new
+          # lockfile, so a partial hit never leaves wrong deps behind.
           key: bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -37,53 +47,16 @@ jobs:
       - name: Prettier
         run: bunx prettier --check .
 
-  eslint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: bun-${{ hashFiles('bun.lock') }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
       - name: ESLint
         run: bunx eslint .
-
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: bun-${{ hashFiles('bun.lock') }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
 
       - name: Typecheck
         run: bun run typecheck
 
-  build-and-test:
+  # Build runs beside the suite instead of before it: tests import ./src
+  # directly and never read ./dist, so serializing build ahead of test put
+  # build time on the critical path for no dependency reason.
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -104,11 +77,8 @@ jobs:
         with:
           path: node_modules
           key: bun-${{ hashFiles('bun.lock') }}
-
-      # The runner image has no ripgrep, so the grep plugin silently exercised
-      # its fallback walker and left the ripgrep path untested.
-      - name: Install ripgrep
-        run: sudo apt-get install -y ripgrep
+          restore-keys: |
+            bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -116,12 +86,63 @@ jobs:
       - name: Build
         run: bun run build
 
-      # Same script the local `bun run check` gate runs: the projects-dir
-      # guard wraps `bun run test`, which is the seeded, randomized suite
-      # (bun test ./src ./tests ./evals --randomize --seed 424242) defined
-      # once in package.json. Randomized order catches tests that only pass
-      # in the default file order (shared module-level state, an unrestored
-      # global mock, a leaked env var); the seed is fixed so a failure here
-      # reproduces locally with `bun run test`.
+  # The suite is sharded so the slowest slice, not the whole suite, sets the
+  # wall clock. Every shard still goes through check:projects-dir-guard: the
+  # guard forwards these path filters to the suite it wraps, and the union of
+  # the shards' filters is exactly ./src ./tests ./evals, so the gate covers
+  # the same tests as before, all of them sandboxed.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # A red shard must not cancel the other; both results are the signal.
+      fail-fast: false
+      matrix:
+        shard:
+          - name: src
+            paths: ./src
+          - name: tests-and-evals
+            paths: ./tests ./evals
+    name: test (${{ matrix.shard.name }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # The runner image has no ripgrep, so the grep plugin silently exercised
+      # its fallback walker and left the ripgrep path untested.
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The same script the local `bun run check` gate runs, with the shard's
+      # path filters forwarded through the guard to the suite. The guard
+      # routes a filtered run through test:paths, which carries the same
+      # seeded flags as the `test` script; bun test filters are additive, so
+      # appending filters to `bun run test` could not narrow it. Randomized
+      # order catches tests that only pass in the default file order (shared
+      # module-level state, an unrestored global mock, a leaked env var).
+      # The seed stays 424242 in every shard rather than varying per shard:
+      # the shards already run disjoint file sets, and a fixed seed keeps
+      # any failure reproducible locally with the same
+      # `bun run test:paths <paths>`.
       - name: Test
-        run: bun run check:projects-dir-guard
+        run: bun run check:projects-dir-guard ${{ matrix.shard.paths }}

@@ -45,7 +45,18 @@ async function main(): Promise<void> {
   const runTmpDir = join(tmpdir(), `corbits-test-guard-${runId}`);
   await mkdir(runTmpDir, { recursive: true });
 
-  const child = spawn("bun", ["run", "test"], {
+  // CI test shards pass bun-test path filters here (e.g. ./src) so each
+  // shard runs only its slice of the suite and still runs sandboxed. bun
+  // test filters are additive, so filters cannot be appended to
+  // `bun run test` (its own filters would widen the run back to the full
+  // suite), so a sharded run goes through test:paths, which carries the
+  // same seeded flags as `test` and takes the shard's filters. With no
+  // arguments the full default suite runs via `bun run test`, so `bun run
+  // check` behavior is unchanged.
+  const shardArgs = process.argv.slice(2);
+  const testCommand = shardArgs.length > 0 ? ["run", "test:paths", ...shardArgs] : ["run", "test"];
+
+  const child = spawn("bun", testCommand, {
     stdio: "inherit",
     env: { ...process.env, TMPDIR: runTmpDir, TMP: runTmpDir, TEMP: runTmpDir },
   });
