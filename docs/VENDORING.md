@@ -138,7 +138,7 @@ the old root export had, so this is an import-path change, not a
 behavioral one. The package also picked up two new dependencies
 (`@isomorphic-git/lightning-fs`, `buffer`, both used only by the new
 `./browser` runtime, which nothing here imports) and a new
-`@intx/crypto` dev dependency for its own test suite, pinned to `0.2.2` —
+`@intx/crypto` dev dependency for its own test suite, pinned to `0.3.0` —
 the same "stay on published npm for a package we don't vendor" pattern as the
 `@intx/log` and `@intx/mime` dependencies on the other vendored packages,
 which are kept aligned with the root's published `0.3.0` pins so the
