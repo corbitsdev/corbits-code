@@ -28,6 +28,7 @@ export const OPENAI_RESPONSES_PROVIDER = "openai-responses";
 
 // Key the source stashes in defaults.providerOptions for this adapter.
 export const OPENAI_SESSION_ID_OPTION = "openaiSessionId";
+export const OPENCODE_SESSION_ID_OPTION = "opencodeSessionId";
 
 type ResponsesInputContentPart =
   { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
@@ -148,7 +149,7 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   }));
 }
 
-function optionString(options: InferenceOptions, key: string): string | undefined {
+export function optionString(options: InferenceOptions, key: string): string | undefined {
   const value = options.providerOptions?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -207,6 +208,7 @@ function buildRequest(
   // inference thread's session id keeps every request on the same cache shard.
   const sessionId = optionString(options, OPENAI_SESSION_ID_OPTION);
   if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
+  const opencodeSessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
 
   return {
     url: "/responses",
@@ -214,6 +216,7 @@ function buildRequest(
       "content-type": "application/json",
       accept: "text/event-stream",
       authorization: BEARER_CREDENTIAL_SENTINEL,
+      ...(opencodeSessionId !== undefined ? { "x-opencode-session": opencodeSessionId } : {}),
     },
     body: JSON.stringify(body),
   };

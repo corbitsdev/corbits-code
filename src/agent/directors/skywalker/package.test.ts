@@ -66,6 +66,13 @@ describe("skywalkerPackage", () => {
     ]);
   });
 
+  test("systemPrompt has no Ponytail routing or mode internals", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).not.toMatch(/ponytail/i);
+    expect(p).not.toContain("Default to `lite`");
+    expect(p).not.toContain("Escalation ladder");
+  });
+
   test("primaryIntent and outOfLane", () => {
     expect(skywalkerPackage.primaryIntent).toBe(
       "Orchestrate; DIY tiny/bounded product edits; spawn for substantial work",

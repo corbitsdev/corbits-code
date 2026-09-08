@@ -14,7 +14,9 @@ const SKILL_DIRS = [
   "style",
   "philosophy",
   "native-integration",
+  "native-runtime",
   "typescript",
+  "ponytail",
   "interview",
   "git-rebase",
   "git-worktrees",
@@ -35,6 +37,7 @@ const USE_SKILL_ONLY = [
   "philosophy",
   "native-integration",
   "typescript",
+  "ponytail",
   "opsh",
 ] as const;
 
@@ -42,7 +45,7 @@ const USE_SKILL_ONLY = [
 const BACKGROUND_ONLY = ["git-worktrees"] as const;
 
 /** Bake source only: no slash, no use_skill listing; workers load via bake-skills. */
-const BAKE_ONLY = ["idiot-proof"] as const;
+const BAKE_ONLY = ["idiot-proof", "native-runtime"] as const;
 
 const SLASH_SKILLS = [
   "implement",
@@ -90,8 +93,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 18 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(18);
+test("corbits-skills catalog lists 20 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(20);
   const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
@@ -116,6 +119,39 @@ test("idiot-proof is a bake-only less-is-more bar", async () => {
   expect(skill).toContain("files you already touch");
   expect(skill).toContain("Read the target");
   expect(skill).toContain("Do not fix");
+});
+
+test("ponytail is compact use_skill-only Builder mode guidance", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/ponytail/SKILL.md")).text();
+  const body = skill.slice(skill.indexOf("---", 3) + 3).trim();
+  const words = body.match(/\b[\w'-]+\b/g) ?? [];
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+  expect(words.length).toBeGreaterThanOrEqual(150);
+  expect(words.length).toBeLessThanOrEqual(250);
+  expect(body).toContain("`lite`");
+  expect(body).toContain("`off`");
+  expect(body).toContain("`full`");
+  expect(body).toContain("`ultra`");
+  expect(body).toMatch(/Escalation ladder/i);
+  expect(body).toMatch(/Safety precedence/i);
+  expect(body).toMatch(/correctness.*validation.*security.*accessibility.*data integrity.*tests/is);
+  expect(body).toMatch(/mode never weakens/i);
+  expect(body).toMatch(/critic, neckbeard, or primary/i);
+  expect(body).not.toMatch(
+    /benchmark|marketing|Claude Code|opencode|upstream example|long command|command docs/i,
+  );
+});
+
+test("native-runtime is compact bake-only Corbits worker invariants", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/native-runtime/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain(DISABLE_MODEL_INVOCATION);
+  expect(skill).toContain("Corbits tool names");
+  expect(skill).toContain("ask_director");
+  expect(skill).toMatch(/Never use shell\s+redirects/);
+  expect(skill).toMatch(/Report every exact command with\s+outcome and exit status/);
+  expect(skill).toContain("Summary`");
 });
 
 test("typescript skill is 1:1 with GaaS typescript", async () => {
@@ -396,7 +432,13 @@ test("slash skills do not set user-invocable: false", async () => {
 });
 
 test("Corbits-only skills do not contain GaaS tool names", async () => {
-  const corbitsOnly = ["plan", "git-worktrees", "idiot-proof"] as const;
+  const corbitsOnly = [
+    "plan",
+    "git-worktrees",
+    "idiot-proof",
+    "ponytail",
+    "native-runtime",
+  ] as const;
   for (const name of corbitsOnly) {
     const files = await listFilesRecursive(join(pluginRoot, "skills", name));
     for (const file of files) {
