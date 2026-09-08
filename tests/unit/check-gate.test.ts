@@ -43,4 +43,16 @@ describe("check gate", () => {
     expect(ci).not.toMatch(/^\s*run: bun test(\s|$)/m);
     expect(ci).not.toMatch(/^\s*run: bun run test(\s|$)/m);
   });
+
+  test("CI test shards cover exactly the suite's paths", () => {
+    // Sharding must never silently drop part of the suite: the union of the
+    // matrix shards has to equal the unsharded `test` script's paths.
+    const shardPaths = [...ci.matchAll(/^\s+paths: (.+)$/gm)]
+      .flatMap((match) => match[1]?.trim().split(/\s+/) ?? [])
+      .sort();
+    const suitePaths = TEST_SUITE.split(" ")
+      .filter((part) => part.startsWith("./"))
+      .sort();
+    expect(shardPaths).toEqual(suitePaths);
+  });
 });
