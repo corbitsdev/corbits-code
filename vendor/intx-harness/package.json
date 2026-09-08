@@ -1,0 +1,24 @@
+{
+  "name": "@intx/harness",
+  "version": "0.2.2",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@intx/agent": "workspace:*",
+    "@intx/authz": "workspace:*",
+    "@intx/log": "workspace:*",
+    "@intx/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@intx/inference-testing": "0.3.0",
+    "@intx/mime": "workspace:*",
+    "@intx/storage-isogit": "workspace:*",
+    "arktype": "catalog:"
+  }
+}
