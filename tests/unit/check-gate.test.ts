@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 // Guard against the gate drifting apart again (CL-7300): `bun run check` and
-// CI's test job must resolve to the same seeded suite, and the projects-dir
-// guard must delegate to the `test` script rather than duplicate its command.
+// CI's test jobs must resolve to the same seeded suite, and the projects-dir
+// guard must delegate to the `test` script (or `test:paths` for shard filters)
+// rather than duplicate its command.
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
@@ -19,6 +20,13 @@ const TEST_SUITE = "bun test ./src ./tests ./evals --randomize --seed 424242";
 describe("check gate", () => {
   test("`test` is the seeded, randomized suite CI runs", () => {
     expect(pkg.scripts.test).toBe(TEST_SUITE);
+  });
+
+  test("`test:paths` is the seeded suite accepting CI shard path filters", () => {
+    // Same seed as `test`; the guard passes shard filters as arguments, which
+    // cannot be appended to `bun run test` because bun's filters are additive.
+    expect(pkg.scripts["test:paths"]).toBe("bun test --randomize --seed 424242");
+    expect(guardSource).toContain('"run", "test:paths"');
   });
 
   test("`check` runs the suite through the projects-dir guard", () => {
