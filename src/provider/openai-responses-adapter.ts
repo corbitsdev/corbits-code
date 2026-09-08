@@ -149,7 +149,7 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   }));
 }
 
-function optionString(options: InferenceOptions, key: string): string | undefined {
+export function optionString(options: InferenceOptions, key: string): string | undefined {
   const value = options.providerOptions?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -208,6 +208,7 @@ function buildRequest(
   // inference thread's session id keeps every request on the same cache shard.
   const sessionId = optionString(options, OPENAI_SESSION_ID_OPTION);
   if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
+  const opencodeSessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
 
   return {
     url: "/responses",
@@ -215,7 +216,7 @@ function buildRequest(
       "content-type": "application/json",
       accept: "text/event-stream",
       authorization: BEARER_CREDENTIAL_SENTINEL,
-      ...(sessionId !== undefined ? { "x-opencode-session": sessionId } : {}),
+      ...(opencodeSessionId !== undefined ? { "x-opencode-session": opencodeSessionId } : {}),
     },
     body: JSON.stringify(body),
   };

@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   createOpenAIResponsesAdapter,
   OPENAI_SESSION_ID_OPTION,
+  OPENCODE_SESSION_ID_OPTION,
 } from "../../src/provider/openai-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
@@ -62,5 +63,29 @@ describe("openai-responses buildRequest", () => {
       adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {}).body,
     ) as Record<string, unknown>;
     expect(body).not.toHaveProperty("prompt_cache_key");
+  });
+});
+
+describe("openai-responses x-opencode-session header", () => {
+  test("sets the header from the opencode session id without leaking it into the body", () => {
+    const req = adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {
+      providerOptions: { [OPENCODE_SESSION_ID_OPTION]: "sess-1" },
+    });
+    expect(req.headers["x-opencode-session"]).toBe("sess-1");
+    const body = JSON.parse(req.body) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("opencodeSessionId");
+    expect(body).not.toHaveProperty("prompt_cache_key");
+  });
+
+  test("omits the header when no opencode session id is present", () => {
+    const req = adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {
+      providerOptions: { [OPENAI_SESSION_ID_OPTION]: "sess-1" },
+    });
+    expect(req.headers["x-opencode-session"]).toBeUndefined();
+  });
+
+  test("omits the header when no options are present", () => {
+    const req = adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {});
+    expect(req.headers["x-opencode-session"]).toBeUndefined();
   });
 });

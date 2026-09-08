@@ -17,7 +17,8 @@ import { OPENCODE_GO_MESSAGES_PROVIDER } from "./opencode-go-anthropic-adapter.j
 
 // Corbits Code ships first-party adapters on top of the built-in provider set:
 // openai-compatible and OpenCode Go chat-completions adapters, Codex/Grok
-// responses, Bifrost, and generic openai-responses (OpenCode Go gpt-* Luna family).
+// responses, Bifrost, generic openai-responses (OpenCode Go gpt-* Luna family),
+// and the OpenCode Go Anthropic messages adapter.
 const manifest: AdapterManifest = [
   {
     provider: "openai-compatible",

@@ -1,6 +1,6 @@
 import type { BuiltRequest, ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
-import { OPENCODE_SESSION_ID_OPTION } from "./openai-responses-adapter.js";
+import { OPENCODE_SESSION_ID_OPTION, optionString } from "./openai-responses-adapter.js";
 
 type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 
@@ -38,8 +38,8 @@ export function createOpenCodeGoAdapter(source: AdapterSource, quirks?: unknown)
   const base = createOpenAICompatibleAdapter(source, quirks);
   const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
     const built = base.buildRequest(messages, model, options);
-    const sessionId = options.providerOptions?.[OPENCODE_SESSION_ID_OPTION];
-    if (typeof sessionId !== "string" || sessionId.length === 0) return built;
+    const sessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
+    if (sessionId === undefined) return built;
     const { [OPENCODE_SESSION_ID_OPTION]: _sessionId, ...body } = JSON.parse(built.body) as Record<
       string,
       unknown
