@@ -30,8 +30,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   smaller native-runtime skill instead of broad native-integration and
   TypeScript guidance by default.
 - The TUI shell, provider setup, and runner are split into focused modules.
-  OpenTUI services replace custom list and clipboard plumbing, while row and
-  chrome updates are coalesced to renderer cadence. Clipboard failures no
+  OpenTUI services replace custom list and clipboard plumbing. Row updates are
+  coalesced to renderer cadence, while chrome recomposes only when inputs
+  change. Clipboard failures no
   longer crash the interface, overlay selection survives resize, permission
   choices stay compact with full context above them, and stale or over-frequent
   row repaints are prevented.
