@@ -83,6 +83,7 @@ describe("approval-log wiring through the permission gate", () => {
       approvals: [],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
       cwd,
       approvalLog: createApprovalLog(dir),
@@ -108,6 +109,7 @@ describe("approval-log wiring through the permission gate", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async (request) => {
@@ -136,6 +138,7 @@ describe("approval-log wiring through the permission gate", () => {
       approvals: [],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
       cwd,
       approvalLog: createApprovalLog(dir),
     });
@@ -164,6 +167,7 @@ describe("approval-log wiring through the permission gate", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async (request) => {

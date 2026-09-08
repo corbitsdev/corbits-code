@@ -57,6 +57,7 @@ function createProductionSwitch() {
     persist,
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
     auto: false,
     providerName: identity.providerName,
     model: identity.model,

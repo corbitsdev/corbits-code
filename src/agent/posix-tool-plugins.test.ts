@@ -39,6 +39,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: false,
+        reactorGated: false,
         auto: false,
         cwd,
       });
@@ -58,6 +59,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const allowedRunner = createPosixTools({
@@ -88,6 +90,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const runner = createPosixTools({
@@ -116,6 +119,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
         cwd,
       });
@@ -145,6 +149,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: false,
+        reactorGated: false,
         auto: true,
         cwd,
       });
@@ -187,6 +192,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const runner = createPosixTools({
@@ -234,6 +240,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const runner = createPosixTools({
@@ -299,6 +306,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const plugins = buildCorePosixToolPlugins({ cwd, permissionGate: gate });
@@ -324,6 +332,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const runner = createPosixTools({
@@ -403,6 +412,7 @@ describe("buildCorePosixToolPlugins", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
         cwd,
       });
       const runner = createPosixTools({
@@ -455,6 +465,7 @@ describe("buildCorePosixToolPlugins", () => {
       approvals: [],
       interactive: false,
       skipPermissions: true,
+      reactorGated: false,
       cwd: "/tmp",
     });
     const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
@@ -511,6 +522,7 @@ describe("buildCorePosixToolPlugins", () => {
       approvals: [],
       interactive: false,
       skipPermissions: true,
+      reactorGated: false,
       cwd: "/tmp",
     });
     const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });

@@ -29,6 +29,7 @@ const testPermissionGate = createPermissionGate({
   approvals: [],
   interactive: false,
   skipPermissions: true,
+  reactorGated: false,
 });
 
 async function tmpCwd(): Promise<string> {

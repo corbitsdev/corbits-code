@@ -224,7 +224,7 @@ export interface SessionGateArgs {
   skipPermissions: boolean;
   auto?: boolean | undefined;
   /** Route this gate's decisions through the reactor authz seam (main session). */
-  reactorGated?: boolean | undefined;
+  reactorGated: boolean;
   onGrant?: PermissionGateOptions["onGrant"] | undefined;
 }
 

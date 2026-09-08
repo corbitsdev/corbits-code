@@ -24,6 +24,7 @@ describe("critique permission lane", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: false,
     });
     const v = await gate.evaluate(shellCall("grep --file=.env foo"));
@@ -36,6 +37,7 @@ describe("critique permission lane", () => {
       approvals: [],
       interactive: false,
       skipPermissions: true,
+      reactorGated: false,
     });
     const v = await gate.evaluate(shellCall("cat .env"));
     expect(v).toEqual({ allowed: true });

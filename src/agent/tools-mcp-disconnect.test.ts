@@ -60,7 +60,12 @@ const { createAgentToolset } = await import("./tools.js");
 const { resolveMcpServers } = await import("../config/index.js");
 
 function permissionGate() {
-  return createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+  return createPermissionGate({
+    approvals: [],
+    interactive: false,
+    skipPermissions: true,
+    reactorGated: false,
+  });
 }
 
 async function makeToolset() {

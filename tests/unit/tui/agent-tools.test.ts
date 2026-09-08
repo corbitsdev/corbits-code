@@ -239,6 +239,7 @@ test("selecting Reject does not mint a shell grant even when command is declared
     approvals: [],
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
   });
   const toolset = await createAgentToolset({
     cwd: "/fake",
@@ -261,6 +262,7 @@ test("clarification choices do not mint shell grants", async () => {
     approvals: [],
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
   });
   const toolset = await createAgentToolset({
     cwd: "/fake",

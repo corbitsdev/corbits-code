@@ -816,6 +816,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
       onOperatorGate: async () => ({ kind: "cancel" }),
     });
@@ -899,6 +900,7 @@ describe("submit_output workflow handler", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
       onOperatorGate: async () => ({ kind: "cancel" }),
       isWorkflowActive: opts.isWorkflowActive,

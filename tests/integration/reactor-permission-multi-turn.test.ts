@@ -18,6 +18,7 @@ describe("integration — reactor permission + multi-turn", () => {
           approvals: [],
           interactive: true,
           skipPermissions: false,
+          reactorGated: false,
           requestApproval: async () => {
             asked++;
             return { allow: false };
@@ -74,6 +75,7 @@ describe("integration — reactor permission + multi-turn", () => {
           approvals: [],
           interactive: true,
           skipPermissions: false,
+          reactorGated: false,
           auto: false,
           requestApproval: async () => {
             asked++;
@@ -123,6 +125,7 @@ describe("integration — reactor permission + multi-turn", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
     });
 
