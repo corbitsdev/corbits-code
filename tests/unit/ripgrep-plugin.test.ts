@@ -189,6 +189,7 @@ async function grepThroughRealChain(dir: string): Promise<string> {
     approvals: [],
     interactive: false,
     skipPermissions: true,
+    reactorGated: false,
     cwd: dir,
   });
   const runner = createPosixTools({

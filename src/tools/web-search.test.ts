@@ -51,6 +51,7 @@ async function connectConfiguredMCP(mcpServers?: ResolvedMCPServerConfig[]): Pro
       approvals: [],
       interactive: false,
       skipPermissions: true,
+      reactorGated: false,
     }),
     onOperatorGate: async () => ({ kind: "cancel" }),
     ...(mcpServers !== undefined ? { mcpServers } : {}),

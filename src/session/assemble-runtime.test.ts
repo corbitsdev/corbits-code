@@ -152,6 +152,7 @@ describe("assembleChatAgent", () => {
               toolsId: "test/tools",
               agentId: "test/agent",
               systemPrompt: "prompt",
+              authorize: async () => ({ effect: "allow", matchingGrants: [], resolvedBy: null }),
               getDynamicRunner: () => {
                 throw new Error("getDynamicRunner should not run at assemble or mocked build");
               },

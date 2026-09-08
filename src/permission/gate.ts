@@ -23,6 +23,7 @@ import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./aut
 import { splitChainedCommand, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
+import { OPERATOR_DECLINED_PREFIX } from "./decline-markers.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
 
@@ -293,6 +294,12 @@ export interface PermissionGateOptions {
   // than read from the process-wide handle so a gate built without one is
   // silent by construction.
   telemetry?: Telemetry | undefined;
+  // This gate's decisions are consumed by the reactor's before-tool authz
+  // seam (env.authorize) instead of the tool-runner middleware. Set for the
+  // main session so approved re-dispatches skip the middleware gate; kept
+  // false for sub-agents, which still gate in the middleware. Required so a
+  // caller cannot silently fall back to middleware gating by omitting it.
+  reactorGated: boolean;
   // Ask/settle event log (see approval-log.ts): one record per consequential
   // decision, auto or interactive. Defaults to a no-op so nothing depends on
   // logging being wired.
@@ -301,6 +308,23 @@ export interface PermissionGateOptions {
 
 export interface PermissionGate {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
+  // Reactor-path policy: the same decision evaluate() makes, as the effect the
+  // vendored before-tool authz hook consumes (see authorizeCall above).
+  authorizeCall: (
+    call: ToolCall,
+  ) => Promise<
+    | { effect: "allow" }
+    | { effect: "deny"; reason: string }
+    | { effect: "ask"; request: PermissionRequest }
+  >;
+  // Resolve a suspended reactor approval against the operator (and mint the
+  // outcome's grant). Returns undefined when no outcome arrived.
+  resolveSuspended: (request: PermissionRequest) => Promise<ApprovalOutcome | undefined>;
+  // True when this gate's decisions are consumed by the reactor's authz seam
+  // (env.authorize) rather than by the tool-runner middleware. Tool-runner
+  // gating (gateToolCall) is bypassed under reactor gating so an approved
+  // re-dispatch runs without a second prompt.
+  isReactorGated: () => boolean;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
   // Forget every remembered approval so a fresh session re-prompts from scratch.
@@ -349,6 +373,7 @@ function canSafelyMintPerSegment(pattern: string): boolean {
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, providerName, model, cwd } = options;
+  const reactorGated = options.reactorGated;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const approvalLog = options.approvalLog ?? NOOP_APPROVAL_LOG;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
@@ -459,8 +484,25 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       .settle(outcome);
   };
 
-  const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
-    if (skipPermissions) return { allowed: true };
+  // Non-blocking policy decision for one tool call: everything the gate owns —
+  // tier pre-filter, auto rules, pre-grant guards, grants, headless denial —
+  // resolved WITHOUT waiting on an operator. `ask` carries the fully-built
+  // request so the two consumers need no re-derivation: evaluate() (the
+  // middleware path) resolves it inline against requestApproval, and
+  // authorizeCall() maps it onto the reactor authz seam, whose `ask` effect
+  // suspends the call as a PendingOperation keyed by correlationId.
+  type GateDecision =
+    | { kind: "allow" }
+    | { kind: "deny"; reason: string }
+    | {
+        kind: "ask";
+        request: PermissionRequest;
+        anySecret: boolean;
+        segmentCount: number;
+      };
+
+  const decide = async (call: ToolCall): Promise<GateDecision> => {
+    if (skipPermissions) return { kind: "allow" };
     // Sub-agent tool calls run under ALS identity (identity-context.ts). The
     // process cwd is the worktree (or session when no identity is set); every
     // relative-path judgment below must use it so auto-allow and restriction
@@ -485,14 +527,14 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     const shellReferencesSecret =
       shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
-      return { allowed: true };
+      return { kind: "allow" };
     }
     if (
       !restricted &&
       !shellReferencesSecret &&
       isAutoAllowedShellCall(call, effectiveCwd, rootsProvider)
     ) {
-      return { allowed: true };
+      return { kind: "allow" };
     }
     if (auto) {
       if (call.name === "run_shell") {
@@ -504,15 +546,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
         if (shellRule?.effect === "deny") {
           recordAutoDecision(call.name, shellRule.name, "auto-deny");
-          return { allowed: false, reason: shellRule.reason };
+          return { kind: "deny", reason: shellRule.reason };
         }
         if (shellRule === undefined) {
           recordAutoDecision(call.name, undefined, "auto-allow");
-          return { allowed: true };
+          return { kind: "allow" };
         }
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
         recordAutoDecision(call.name, "auto-allowed-tool", "auto-allow");
-        return { allowed: true };
+        return { kind: "allow" };
       }
       // Any other tool in auto mode (MCP or unknown built-in) is not
       // blanket-allowed; fall through to the operator prompt below.
@@ -548,7 +590,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // past the check that would otherwise deny it (see preGrantGuardReason).
         const blockReason = runShellAuthzBlockReason(fullCommand);
         if (blockReason !== undefined) {
-          return { allowed: false, reason: blockReason };
+          return { kind: "deny", reason: blockReason };
         }
 
         let needsOperator = false;
@@ -592,7 +634,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         if (!interactive || requestApproval === undefined) {
           recordAutoDecision(request.tool, askRule ?? "non-interactive", "deny");
           return {
-            allowed: false,
+            kind: "deny",
             reason: anySecret
               ? `${request.action} references a sensitive path and requires operator approval, which is unavailable in a non-interactive run.`
               : `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
@@ -602,39 +644,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // Secret-path shell must never mint a stored grant — even an exact match
         // would be misleading because future secret-path shell always re-asks.
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
-        const ask = approvalLog.ask({
-          tool: request.tool,
-          mode: "interactive",
-          ...(askRule !== undefined ? { rule: askRule } : {}),
-          segments: segments.length,
-        });
-        requestForOperator.markDisplayed = ask.markDisplayed;
-        const turnId = currentTurnId();
-        const waitSpanId = start("permission.wait", {
-          ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
-          tags: { tool_id: request.tool },
-        });
-        let outcome: ApprovalOutcome | undefined;
-        try {
-          outcome = await requestApproval(requestForOperator);
-        } finally {
-          finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
-          ask.settle(classifyOutcome(outcome));
-        }
-        if (outcome === undefined || !outcome.allow) {
-          const suffix =
-            outcome?.message !== undefined && outcome.message.length > 0
-              ? ` — ${outcome.message}`
-              : "";
-          return {
-            allowed: false,
-            reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
-          };
-        }
-        if (!anySecret) {
-          mintGrant(request.tool, outcome);
-        }
-        continue;
+        return {
+          kind: "ask",
+          request: requestForOperator,
+          anySecret,
+          segmentCount: segments.length,
+        };
       }
 
       // Path-arg tools already drop to ask via callTargetsRestricted; grants
@@ -654,41 +669,111 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       if (!interactive || requestApproval === undefined) {
         recordAutoDecision(request.tool, "non-interactive", "deny");
         return {
-          allowed: false,
+          kind: "deny",
           reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
         };
       }
 
-      const ask = approvalLog.ask({
-        tool: request.tool,
-        mode: "interactive",
-      });
-      request.markDisplayed = ask.markDisplayed;
-      const turnId = currentTurnId();
-      const waitSpanId = start("permission.wait", {
-        ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
-        tags: { tool_id: request.tool },
-      });
-      let outcome: ApprovalOutcome | undefined;
-      try {
-        outcome = await requestApproval(request);
-      } finally {
-        finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
-        ask.settle(classifyOutcome(outcome));
-      }
-      if (outcome === undefined || !outcome.allow) {
-        const suffix =
-          outcome?.message !== undefined && outcome.message.length > 0
-            ? ` — ${outcome.message}`
-            : "";
-        return {
-          allowed: false,
-          reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
-        };
-      }
+      return { kind: "ask", request, anySecret: false, segmentCount: 0 };
+    }
+    return { kind: "allow" };
+  };
+
+  // Resolve an `ask` decision against the operator: log the ask, open the wait
+  // span, await the requestApproval seam, settle the log/span, and mint any
+  // grant the outcome carries (never for secret-path shell). Returns undefined
+  // when no outcome arrived (timeout/abort auto-deny paths).
+  const resolveInteractiveAsk = async (decision: Extract<GateDecision, { kind: "ask" }>) => {
+    const { request, anySecret, segmentCount } = decision;
+    const askRule = anySecret ? "sensitive-path" : undefined;
+    const ask = approvalLog.ask({
+      tool: request.tool,
+      mode: "interactive",
+      ...(askRule !== undefined ? { rule: askRule } : {}),
+      ...(request.tool === "run_shell" ? { segments: segmentCount } : {}),
+    });
+    request.markDisplayed = ask.markDisplayed;
+    const turnId = currentTurnId();
+    const waitSpanId = start("permission.wait", {
+      ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+      tags: { tool_id: request.tool },
+    });
+    let outcome: ApprovalOutcome | undefined;
+    const prompt = requestApproval;
+    if (prompt === undefined) {
+      // Unreachable: an ask decision is only produced when a prompt seam is
+      // wired (decide returns deny in headless mode before reaching here).
+      throw new Error("ask decision resolved without requestApproval wiring");
+    }
+    try {
+      outcome = await prompt(request);
+    } finally {
+      finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
+      ask.settle(classifyOutcome(outcome));
+    }
+    if (outcome !== undefined && outcome.allow && !anySecret) {
       mintGrant(request.tool, outcome);
     }
+    return outcome;
+  };
+
+  // Middleware path: blocking evaluation used by tool-runner consumers whose
+  // calls never pass through the reactor (sub-agents, late MCP wrappers).
+  // When the gate is reactor-gated this is bypassed entirely — the reactor's
+  // before-tool authz hook owns the decision (see authorizeCall / gateToolCall).
+  const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
+    const decision = await decide(call);
+    if (decision.kind === "allow") return { allowed: true };
+    if (decision.kind === "deny") return { allowed: false, reason: decision.reason };
+    const outcome = await resolveInteractiveAsk(decision);
+    if (outcome === undefined || !outcome.allow) {
+      const suffix =
+        outcome?.message !== undefined && outcome.message.length > 0 ? ` — ${outcome.message}` : "";
+      return {
+        allowed: false,
+        reason: `${OPERATOR_DECLINED_PREFIX}${decision.request.action} (${decision.request.subject})${suffix}`,
+      };
+    }
     return { allowed: true };
+  };
+
+  // Reactor path: the same policy as evaluate(), expressed as the effect the
+  // vendored before-tool authz hook consumes. `allow` proceeds, `deny` becomes
+  // an upstream `block`, and `ask` suspends the call as a PendingOperation
+  // keyed by the hook-minted correlationId — no resolve closure is held here.
+  const authorizeCall = async (
+    call: ToolCall,
+  ): Promise<
+    | { effect: "allow" }
+    | { effect: "deny"; reason: string }
+    | { effect: "ask"; request: PermissionRequest }
+  > => {
+    const decision = await decide(call);
+    switch (decision.kind) {
+      case "allow":
+        return { effect: "allow" };
+      case "deny":
+        return { effect: "deny", reason: decision.reason };
+      case "ask":
+        return { effect: "ask", request: decision.request };
+    }
+  };
+
+  // Resolve a suspended reactor approval once the operator answers. The
+  // request is the one authorizeCall built at decision time, so the ask log,
+  // wait span, and grant minting are identical to the middleware path.
+  const resolveSuspended = (request: PermissionRequest) => {
+    const anySecret =
+      request.tool === "run_shell" && commandReferencesSensitivePath(request.subject) !== undefined;
+    return resolveInteractiveAsk({
+      kind: "ask",
+      request,
+      anySecret,
+      segmentCount:
+        request.tool === "run_shell"
+          ? splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s)).length
+          : 0,
+    });
   };
 
   const reset = (): void => {
@@ -728,6 +813,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   return {
     evaluate,
+    authorizeCall,
+    resolveSuspended,
+    isReactorGated: () => reactorGated,
     getApprovals: () => approvals,
     reset,
     getSessionApprovals,

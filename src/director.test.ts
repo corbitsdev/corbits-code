@@ -114,6 +114,69 @@ describe("operator declined tool calls", () => {
     expect(hasDone(actions)).toBe(false);
     expect(hasInfer(actions)).toBe(false);
   });
+
+  // Reactor path: a reason-bearing approver rejection must re-infer so the
+  // model can respond to the reason — never the canned decline.
+  test("reason-bearing approver rejection re-infers on the reason", async () => {
+    const director = createChatDirector("", [], { onTasksChange: () => {} });
+    const actions = actionsArray(
+      await director.decide(
+        makeToolErrorEvent("c", "denied by approver: never touch /etc"),
+        mockState,
+        mockCapabilities,
+      ),
+    );
+    expect(hasInfer(actions)).toBe(true);
+    expect(hasDeclineReply(actions)).toBe(false);
+    expect(hasCheckpoint(actions)).toBe(false);
+  });
+
+  test("middleware rejection with a reason re-infers on the reason", async () => {
+    const director = createChatDirector("", [], { onTasksChange: () => {} });
+    const actions = actionsArray(
+      await director.decide(
+        makeToolErrorEvent("c", `${declined} — only run it in the build sandbox`),
+        mockState,
+        mockCapabilities,
+      ),
+    );
+    expect(hasInfer(actions)).toBe(true);
+    expect(hasDeclineReply(actions)).toBe(false);
+    expect(hasCheckpoint(actions)).toBe(false);
+  });
+
+  // Reactor path: a reason-less approver rejection has nothing for the model
+  // to respond to; the canned reply stands.
+  test("reason-less approver rejection takes the canned path", async () => {
+    const director = createChatDirector("", [], { onTasksChange: () => {} });
+    const actions = actionsArray(
+      await director.decide(
+        makeToolErrorEvent("c", "denied by approver"),
+        mockState,
+        mockCapabilities,
+      ),
+    );
+    expect(hasCheckpoint(actions)).toBe(true);
+    expect(hasDeclineReply(actions)).toBe(true);
+    expect(hasInfer(actions)).toBe(false);
+  });
+
+  // Policy denies and no-grant blocks are not operator decisions: the model
+  // adapts to the deny text like any tool error.
+  test("policy deny is not classified as an operator decline", async () => {
+    const director = createChatDirector("", [], { onTasksChange: () => {} });
+    for (const content of [
+      "Denied by policy: tool:run_shell/invoke",
+      "No matching grants for tool:run_shell/invoke",
+    ]) {
+      const actions = actionsArray(
+        await director.decide(makeToolErrorEvent("c", content), mockState, mockCapabilities),
+      );
+      expect(hasInfer(actions)).toBe(true);
+      expect(hasDeclineReply(actions)).toBe(false);
+      expect(hasCheckpoint(actions)).toBe(false);
+    }
+  });
 });
 
 describe("open-task termination guard", () => {
@@ -753,6 +816,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
       onOperatorGate: async () => ({ kind: "cancel" }),
     });
@@ -836,6 +900,7 @@ describe("submit_output workflow handler", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
       onOperatorGate: async () => ({ kind: "cancel" }),
       isWorkflowActive: opts.isWorkflowActive,
