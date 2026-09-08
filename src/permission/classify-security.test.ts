@@ -294,6 +294,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(
       shellCall("bun --env-file=../../.env.staging run bin/publish.ts"),
@@ -312,6 +313,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("cat .env"));
@@ -329,6 +331,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("cat .env"));
     expect(verdict.allowed).toBe(true);
@@ -345,6 +348,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("cat README.md"));
     expect(verdict.allowed).toBe(true);
@@ -361,6 +365,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("cat .env"));
@@ -373,6 +378,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       approvals: [{ tool: "run_shell", pattern: "cat *" }],
       interactive: false,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("cat .env"));
     expect(verdict.allowed).toBe(false);
@@ -394,6 +400,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("echo x > .env"));
@@ -411,6 +418,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall("cat .env"));
     expect(verdict.allowed).toBe(true);
@@ -427,6 +435,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       providerName: "openai",
       model: "gpt-4o",
     });
@@ -446,6 +455,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
@@ -464,6 +474,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
@@ -493,6 +504,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("cat .env"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("cat .env"))).allowed).toBe(true);
@@ -512,6 +524,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       auto: true,
     });
     const verdict = await gate.evaluate(shellCall("echo x > .env"));

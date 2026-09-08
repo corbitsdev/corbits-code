@@ -36,6 +36,7 @@ function skipGate() {
     approvals: [],
     interactive: false,
     skipPermissions: true,
+    reactorGated: false,
     cwd: process.cwd(),
   });
 }

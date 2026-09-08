@@ -65,6 +65,7 @@ describe("integration — vendored feature carry", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
       contextTransforms: [markerTransform()],
     });

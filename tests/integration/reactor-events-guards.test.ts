@@ -25,6 +25,7 @@ describe("integration — reactor-events guards", () => {
         approvals: [],
         interactive: false,
         skipPermissions: true,
+        reactorGated: false,
       }),
     });
 

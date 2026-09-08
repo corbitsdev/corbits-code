@@ -54,6 +54,8 @@ import {
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
+import { createApprovalResume } from "../session/approval-resume.js";
+import { createReactorAuthorize } from "../permission/reactor-authorize.js";
 import {
   assembleChatAgent,
   assembleInferenceBase,
@@ -404,6 +406,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
+      // Main session: gating rides the reactor's approval-suspend seam. In
+      // exec (headless) an ask resolves to a deny effect, so the hook blocks
+      // — the same policy the middleware path applied.
+      reactorGated: true,
     });
 
     const liveSubAgentProvider: { current: SubAgentProvider } = {
@@ -561,6 +567,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
       getProvider: () => config,
       getWorkdir: () => workdir,
+      authorize: createReactorAuthorize(permissionGate),
       inferenceDeps,
       getSources: () => {
         const sources = liveSources.length > 0 ? liveSources : [liveSource];
@@ -688,7 +695,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
       // Stream stays open for multi-turn chat until close() — close first, then
       // drain, or streamPromise never settles.
-      await activeAgent.send(operatorTaskMessage(task));
+      const sendResult = await activeAgent.send(operatorTaskMessage(task));
+      // A suspension must not park silently in exec: the approval resume owns
+      // the terminal prompt flow and delivers the decision to the reactor.
+      await createApprovalResume({
+        getAgent: () => activeAgent,
+        gate: permissionGate,
+      }).handle(sendResult);
       sendCompleted = true;
       runError = runSink.getRunError();
       sinkStatus = runSink.getStatus();

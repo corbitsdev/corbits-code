@@ -142,6 +142,9 @@ const { createAgentToolset, ASK_OPERATOR_OPTION_MAX_CHARS, ASK_OPERATOR_QUESTION
 
 const fakePermissionGate: PermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
+  authorizeCall: mock(async () => ({ effect: "allow" as const })),
+  resolveSuspended: mock(async () => undefined),
+  isReactorGated: () => false,
   getApprovals: () => [],
   reset: () => {},
   getSessionApprovals: () => [],
@@ -236,6 +239,7 @@ test("selecting Reject does not mint a shell grant even when command is declared
     approvals: [],
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
   });
   const toolset = await createAgentToolset({
     cwd: "/fake",
@@ -258,6 +262,7 @@ test("clarification choices do not mint shell grants", async () => {
     approvals: [],
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
   });
   const toolset = await createAgentToolset({
     cwd: "/fake",

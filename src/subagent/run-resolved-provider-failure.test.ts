@@ -31,6 +31,7 @@ const testPermissionGate = createPermissionGate({
   approvals: [],
   interactive: false,
   skipPermissions: true,
+  reactorGated: false,
 });
 
 type Run = (params: RunSubAgentParams) => Promise<RunSubAgentResult>;

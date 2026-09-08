@@ -111,6 +111,7 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBeGreaterThan(0);
@@ -128,6 +129,7 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBeGreaterThan(0);
@@ -146,6 +148,7 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(0);
@@ -176,6 +179,7 @@ describe("legacy whole-string chain grants are explicitly rejected", () => {
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
@@ -263,6 +267,7 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
@@ -305,6 +310,7 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
       },
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
     });
 
     expect((await gate.evaluate(shellCall("npm i"))).allowed).toBe(true);

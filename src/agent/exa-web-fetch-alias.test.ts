@@ -96,7 +96,12 @@ const { resolveMcpServers } = await import("../config/index.js");
 const { coreSubAgentWebTools } = await import("../subagent/run.js");
 
 function permissionGate() {
-  return createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+  return createPermissionGate({
+    approvals: [],
+    interactive: false,
+    skipPermissions: true,
+    reactorGated: false,
+  });
 }
 
 async function makeToolset(
