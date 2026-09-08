@@ -72,6 +72,61 @@ function isRecoverableAuthError(err: unknown): boolean {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
+export const MAX_BROWSER_AUTH_ATTEMPTS = 3;
+export const BROWSER_AUTH_COOLDOWN_MS = 5 * 60_000;
+
+interface BrowserAuthAttempts {
+  count: number;
+  cooldownUntil?: number | undefined;
+}
+// Keyed by server identity, not provider instance, so the cap survives the
+// provider re-creation that every reconnect performs.
+const browserAuthAttempts = new Map<string, BrowserAuthAttempts>();
+
+export function resetBrowserAuthState(): void {
+  browserAuthAttempts.clear();
+}
+
+function browserAuthCapError(serverName: string): Error {
+  const minutes = Math.round(BROWSER_AUTH_COOLDOWN_MS / 60_000);
+  return new Error(
+    `MCP authorization for ${serverName} failed after ${MAX_BROWSER_AUTH_ATTEMPTS} attempts; ` +
+      `retrying paused for ${minutes} minutes. Reconnect the server to try again.`,
+  );
+}
+
+function beginBrowserAuth(context: HTTPAuthContext): { clear(): void } {
+  const key = `${context.serverName}|${context.url.toString()}`;
+  const entry = browserAuthAttempts.get(key) ?? { count: 0 };
+  const now = Date.now();
+  if (entry.cooldownUntil !== undefined) {
+    if (now < entry.cooldownUntil) throw browserAuthCapError(context.serverName);
+    entry.cooldownUntil = undefined;
+    entry.count = 0;
+  }
+  if (entry.count >= MAX_BROWSER_AUTH_ATTEMPTS) {
+    entry.cooldownUntil = now + BROWSER_AUTH_COOLDOWN_MS;
+    throw browserAuthCapError(context.serverName);
+  }
+  entry.count += 1;
+  browserAuthAttempts.set(key, entry);
+  return {
+    clear: () => browserAuthAttempts.delete(key),
+  };
+}
+
+async function tryTokenRefresh(context: HTTPAuthContext): Promise<boolean> {
+  const refreshToken = (await context.authProvider.tokens?.())?.refresh_token;
+  if (refreshToken === undefined) return false;
+  try {
+    const tokens = await context.authProvider.refreshToken?.(refreshToken);
+    return tokens !== undefined;
+  } catch {
+    // Refresh failure is auth-invalid; the browser flow remains the fallback.
+    return false;
+  }
+}
+
 /**
  * Fetch that always attaches the connect AbortSignal. SDK 403 upscoping calls
  * `auth()` with raw `_fetch` (no `requestInit.signal`); `_fetchWithInit` still
@@ -137,16 +192,32 @@ async function recoverHTTPAuthorization<T>(
 ): Promise<T> {
   if (context === undefined || !isRecoverableAuthError(err)) throw err;
   let lastErr: unknown = err;
+  let refreshAttempted = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (lastErr instanceof OAuthError) await context.authProvider.resetAuthorization();
     if (lastErr instanceof UnauthorizedError) {
-      return retryAfterInteractiveAuth(
+      if (!refreshAttempted) {
+        refreshAttempted = true;
+        if (await tryTokenRefresh(context)) {
+          try {
+            return await operation();
+          } catch (nextErr) {
+            if (!isRecoverableAuthError(nextErr)) throw nextErr;
+            lastErr = nextErr;
+            continue;
+          }
+        }
+      }
+      const guard = beginBrowserAuth(context);
+      const value = await retryAfterInteractiveAuth(
         () => completeInteractiveAuth(context),
         operation,
         context.onAuthorized === undefined
           ? undefined
           : () => context.onAuthorized?.(context.serverName),
       );
+      guard.clear();
+      return value;
     }
     try {
       return await operation();

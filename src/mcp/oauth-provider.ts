@@ -1,7 +1,13 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  discoverAuthorizationServerMetadata,
+  refreshAuthorization,
+  UnauthorizedError,
+  type OAuthClientProvider,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
+  AuthorizationServerMetadata,
   OAuthClientInformationFull,
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -24,7 +30,10 @@ export interface OAuthProviderOptions {
   onAuthorizationState?: (state: string) => void;
   home?: string;
 }
-export type CorbitsOAuthProvider = OAuthClientProvider & { resetAuthorization(): Promise<void> };
+export type CorbitsOAuthProvider = OAuthClientProvider & {
+  resetAuthorization(): Promise<void>;
+  refreshToken(refreshToken: string): Promise<OAuthTokens>;
+};
 
 function redirectUrisInclude(
   info: OAuthClientInformationFull | undefined,
@@ -144,6 +153,33 @@ export async function createOAuthProvider(
   };
 
   let oauthState: string | undefined;
+  // The SDK consults provider.refreshToken? only in newer versions; 1.30.0 never
+  // does, so client.ts calls this before any browser re-auth. Discovery runs
+  // once per provider; failures are auth-invalid, not refresh-retryable.
+  let authorizationServerMetadata: AuthorizationServerMetadata | undefined;
+  const refreshToken = async (refreshToken: string): Promise<OAuthTokens> => {
+    try {
+      authorizationServerMetadata ??=
+        (await discoverAuthorizationServerMetadata(opts.serverURL)) ?? undefined;
+      if (authorizationServerMetadata === undefined)
+        throw new Error("authorization server metadata unavailable");
+      const clientInformation = stored.clientInformation;
+      if (clientInformation === undefined) throw new Error("no client registration to refresh");
+      const tokens = await refreshAuthorization(opts.serverURL, {
+        metadata: authorizationServerMetadata,
+        clientInformation,
+        refreshToken,
+      });
+      await apply((state) => {
+        state.tokens = tokens;
+      });
+      return tokens;
+    } catch (err) {
+      throw new UnauthorizedError(
+        `Token refresh failed for ${opts.serverName}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
   return {
     get redirectUrl(): string {
       return opts.redirectUrl;
@@ -208,5 +244,6 @@ export async function createOAuthProvider(
       });
       delete stored.codeVerifier;
     },
+    refreshToken,
   };
 }
