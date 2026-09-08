@@ -20,19 +20,34 @@ confirm every hunk still maps to an entry here (or, if upstream has since
 absorbed the same fix, drop the entry and its markers — verify by reading
 the new upstream code, not by assuming).
 
-**Vocabulary:** this ledger's disposition labels map onto the CL-7302
-ticket taxonomy as follows — "Promotion candidate" = Upstreamable,
-"Long-lived" = Re-carryable, "Kill candidate" = Droppable, and "Companion"
-entries are Re-carryable but ride their primary patch's disposition (they
-ship out or die with it).
+**Vocabulary:** the disposition labels map onto the three-way review
+taxonomy as follows — "Promotion candidate" = Upstreamable, "Long-lived" =
+Re-carryable, "Kill candidate" = Droppable, and "Companion" entries are
+Re-carryable but ride their primary patch's disposition (they ship out or
+die with it).
 
-**Re-carry status (CL-5697):** at the sync to upstream HEAD `0205b07b`,
-all 17 entries below were re-carried via three-way merge with zero
-conflicts. Upstream moved only `reactor.ts` (new doom-loop detection:
-`doomLoopThreshold`, `toolBatchSignature`, run-scoped accounting, fatal
-break) and `assembly.ts` (passthrough change). Every entry now carries a
-re-carry note stating the merge cost and the survivability risk going
-into the next sync.
+### 2026-09-07 re-sync (upstream `0205b07b`)
+
+Every entry below was re-carried against the new pin; none was dropped as
+upstream-absorbed. The sync also dropped one divergence that was **not**
+ledgered at the time: `claude-fable-5-1` in `providers/anthropic.ts`'s
+`ADAPTIVE_THINKING_MODELS` and its "adaptive thinking request shape" suite in
+`providers/anthropic.test.ts`. It is recovered post-sync as
+`providers-ts-anthropic-adaptive-fable-5-1` below. Upstream changes in the
+pinned range touched exactly two
+patched files: `reactor.ts` (doom-loop detection: `doomLoopThreshold`
+config, `toolBatchSignature`, run-scoped repeat accounting in `executeTools`,
+and a fatal break in the action loop) and `assembly.ts` (a
+`doomLoopThreshold` passthrough). Both were three-way merged against the
+prior patch set with no conflicts and no rewrites: the patches'
+`try/finally` in `tryCorrelate`, the `commitCycle()` call in `executeTools`,
+and the `resolvedContextTransforms` resolution all sit alongside the new
+upstream code unchanged. New upstream code paths added inside the
+`tryCorrelate` critical section (none in this range) or after
+`executeTools`' history append (the doom-loop check) compose correctly with
+the carried patches. No entry's disposition changed. Every entry below
+carries a **Re-carry:** note recording the merge cost and the survivability
+risk going into the next sync.
 
 ## adapter-ts-stream-terminal-detector
 
@@ -332,6 +347,23 @@ overwhelmingly dominant author of every upstream file these patches touch
 `providers/google-genai-files.ts`, `packages/inference/src/assembly.ts`),
 so he is the named contact for every row. Next action per row: file the
 upstream issue and replace the ledger tracking reference.
+
+## providers-ts-anthropic-adaptive-fable-5-1
+
+`providers/anthropic.ts` — Adds `claude-fable-5-1` to
+`ADAPTIVE_THINKING_MODELS`, so the adapter sends the
+`thinking:{type:"adaptive"}` + `output_config.effort` wire shape the model
+requires instead of the `thinking:{type:"enabled",budget_tokens}` shape
+adaptive-only models reject. Upstream's list lacks the model. Consumed by the
+`first-class-providers` registry (`claude-fable-5-1` is a shipped, selectable
+anthropic and zen model; CHANGELOG 0.3.17 advertises adaptive thinking for
+Fable 5) and guarded by the "adaptive thinking request shape" suite in
+`providers/anthropic.test.ts`.
+
+**Disposition:** Re-carryable — a one-line list addition that survives sync
+trivially; the guard suite re-applies verbatim. Risk: upstream may grow its
+own adaptive-models list; reconcile the two on next sync. **Removal path:**
+Upstream adding `claude-fable-5-1` to its own `ADAPTIVE_THINKING_MODELS`.
 
 ---
 

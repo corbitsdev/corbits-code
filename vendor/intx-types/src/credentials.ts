@@ -30,7 +30,7 @@ const CredType = type.enumerated(...credentialTypes);
 const CredStatus = type.enumerated(...credentialStatuses);
 const CredentialSourceType = type.enumerated(...credentialRequirementSources);
 
-// A credential binding on an agent definition maps a tool package's declared
+// A credential binding on a workflow definition maps a tool package's declared
 // credential handle -- keyed `(package, handle)` against the tool-package
 // declaration -- to a concrete credential resolved fresh at launch. `locator`
 // is which credential namespace the name is resolved in; today only `tenant`
@@ -126,7 +126,7 @@ export const CredentialRequirement = type({
   providerName: "string",
   "scopes?": "string[]",
   source: CredentialSourceType.describe(
-    "Whose credential satisfies this requirement at launch: `tenant` (a credential owned by the tenant), `creator` (the definition author's), or `invoker` (whoever launched the agent).",
+    "Whose credential satisfies this requirement at launch: `tenant` (a credential owned by the tenant), `creator` (the definition author's), or `invoker` (whoever launched the workflow run).",
   ),
   "name?": "string",
 });

@@ -8,12 +8,14 @@
 // set the build path emits, otherwise a freshly-packed builtin would
 // be rejected for shape reasons the build did not anticipate.
 
+import path from "node:path";
+
 import { type } from "arktype";
 
 /**
  * A tool package's static declaration of one provider-backed credential it
  * needs: an abstract handle plus optional scopes. Advisory only -- a request
- * the agent definition later binds to a concrete credential and the launch-time
+ * the workflow definition later binds to a concrete credential and the launch-time
  * grant gate authorizes; a declaration consents to nothing on its own. The
  * handle is the key the binding and the runtime delivery use.
  */
@@ -52,8 +54,11 @@ export type ToolCredentialDeclarationArray =
  * interchange packages: `tools` names the sidecar-bundle entry, `credentials`
  * statically declares the provider-backed credentials the package's tools may
  * need, `workflow` names the module whose evaluation produces a workflow
- * package's `WorkflowDefinition`, and `directors` names the module whose
- * exports are the package's custom `defineDirector` factories.
+ * package's `WorkflowDefinition`, `directors` names the module whose exports
+ * are the package's custom `defineDirector` factories, `loops` names the module
+ * whose exports are the package's `loop` `while`/`carry` functions, and
+ * `actions` names the module whose exports are the package's `action` handlers.
+ * `loops` and `actions` refs are resolved by export name at establish.
  * `onUndeclaredKey("ignore")` lets the arbitrary upstream npm fields pass
  * through without listing them.
  */
@@ -65,6 +70,29 @@ export const PackageJSON = type({
     "credentials?": ToolCredentialDeclarationArray,
     "workflow?": "string",
     "directors?": "string",
+    "loops?": "string",
+    "actions?": "string",
   }).onUndeclaredKey("ignore"),
 }).onUndeclaredKey("ignore");
 export type PackageJSON = typeof PackageJSON.infer;
+
+/**
+ * True when `entry` -- an `interchange.workflow`/`interchange.directors`
+ * module path relative to its package -- stays inside the package directory.
+ * An absolute path or a `..` traversal escapes and returns false.
+ *
+ * This is the string-level half of the loader's containment rule. The
+ * load-time loader (`resolveContainedEntry`) pairs it with a realpath-based
+ * symlink-escape check that only a materialized directory can run; the
+ * push-time asset validator, which has no filesystem, relies on this string
+ * half alone. Both boundaries call this one predicate so they cannot diverge
+ * on what "contained" means. The check uses POSIX path semantics so the
+ * result does not depend on the host's separator or cwd.
+ */
+export function isContainedEntryPath(entry: string): boolean {
+  if (path.posix.isAbsolute(entry)) {
+    return false;
+  }
+  const normalized = path.posix.normalize(entry);
+  return normalized !== ".." && !normalized.startsWith(`..${path.posix.sep}`);
+}
