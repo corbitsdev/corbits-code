@@ -49,6 +49,7 @@ import { resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
 import { createRunSummary } from "../session/hooks.js";
 import {
   buildCompactionContinuationMessage,
+  buildShellBackgroundMessage,
   buildSubAgentProvider,
   createSessionPruningCompactor,
   loadSessionChatPrompt,
@@ -441,6 +442,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
       getBlobWriter: () => currentStorage?.writeBlob,
       getContextDir: () => workdir,
+      // Background run_shell completions re-enter the reactor on a later turn.
+      onBackgroundShellExit: (exit) => {
+        currentAgent?.deliver(buildShellBackgroundMessage(exit));
+      },
       getBlobReader: () => {
         if (currentAgent === null) {
           throw new Error("blob reader requested before agent init");

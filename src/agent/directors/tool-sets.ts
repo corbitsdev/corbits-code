@@ -12,6 +12,7 @@ export const READ_TOOLS = [
   "list_dir",
   "lsp",
   "run_shell",
+  "shell_collect",
   "web_fetch",
   "web_search",
 ] as const;
@@ -49,7 +50,7 @@ export const BUILD_TOOLS = [
  * dependency, so it is not excluded alongside `shell`).
  */
 export const DOCS_TOOLS = [
-  ...READ_TOOLS.filter((t) => t !== "run_shell"),
+  ...READ_TOOLS.filter((t) => t !== "run_shell" && t !== "shell_collect"),
   ...PRODUCT_WRITE_TOOLS,
   "apply_patch",
   "update_plan",

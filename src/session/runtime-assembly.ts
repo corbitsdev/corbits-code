@@ -401,3 +401,49 @@ export function buildFleetDryContinuationMessage(text: string): InboundMessage {
     signatureStatus: "missing",
   };
 }
+
+// Preview cap for a background shell's inline output; the full output stays in
+// the registry (shell_collect) and, when truncated, in the spill blob.
+const BACKGROUND_SHELL_PREVIEW_CHARS = 2_000;
+
+/**
+ * Content-bearing inbound the host delivers when a background run_shell process
+ * exits. Mailbox "system" and empty flags: loop protection treats it as
+ * system-originated, so it re-enters the reactor without counting as operator
+ * input (see message-provenance.ts).
+ */
+export function buildShellBackgroundMessage(exit: {
+  id: string;
+  command: string;
+  exitCode: number;
+  timedOut: boolean;
+  output: string;
+  spillUri?: string;
+}): InboundMessage {
+  const status = exit.timedOut
+    ? `timed out and was killed (exit code ${exit.exitCode})`
+    : `exit code ${exit.exitCode}`;
+  const lines = [`Background shell ${exit.id} finished: ${status}.`, `command: ${exit.command}`];
+  if (exit.output.length > 0) {
+    const preview =
+      exit.output.length > BACKGROUND_SHELL_PREVIEW_CHARS
+        ? `${exit.output.slice(0, BACKGROUND_SHELL_PREVIEW_CHARS)}\n[...preview truncated]`
+        : exit.output;
+    lines.push(`output:\n${preview}`);
+  }
+  if (exit.spillUri !== undefined) {
+    lines.push(`Full output was spilled to ${exit.spillUri} (readable via read_file).`);
+  }
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `bg-shell-${exit.id}@local`,
+    },
+    flags: [],
+    content: lines.join("\n"),
+    signatureStatus: "missing",
+  };
+}

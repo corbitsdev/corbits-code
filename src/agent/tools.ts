@@ -69,6 +69,14 @@ import {
   createSendInputTool,
 } from "../subagent/lifecycle-tools.js";
 import { parseManageTasksArgs } from "./tasks.js";
+import {
+  createShellCollectTool,
+  createSpillingBackgroundShellExitNotifier,
+} from "./background-shell-tool.js";
+import {
+  createBackgroundShellRegistry,
+  type BackgroundShellExit,
+} from "../shell/background-shell.js";
 import { createListDirTool } from "../util/list-dir.js";
 import { createExaMCPWebFetchTool, createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-search.js";
@@ -158,6 +166,10 @@ export interface AgentToolsetArgs {
   getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
+  // Called when a background run_shell (background: true) process exits. Hosts
+  // deliver the exit as a system message so the reactor re-enters on a later
+  // turn; omit it and background runs still start/collect but never notify.
+  onBackgroundShellExit?: (exit: BackgroundShellExit) => void;
   // Whether a workflow is currently running. submit_output rides the wire
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
@@ -282,6 +294,19 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     toolAvailability = { languageServerAvailable: true },
   } = args;
   let mcpServersSource = args.mcpServersSource ?? "none";
+  // One registry per toolset: run_shell background:true starts here, the
+  // shell_collect tool and dispose read the same instance.
+  const backgroundShells = createBackgroundShellRegistry({
+    ...(args.onBackgroundShellExit !== undefined
+      ? {
+          onExit: createSpillingBackgroundShellExitNotifier({
+            ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
+            notify: args.onBackgroundShellExit,
+          }),
+        }
+      : {}),
+  });
+  const shellCollect = createShellCollectTool(backgroundShells);
   const sessionBlobReader =
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
@@ -343,6 +368,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
       ...(getContextDir !== undefined ? { getContextDir } : {}),
       ...(shellEnv !== undefined ? { shellEnv } : {}),
+      getBackgroundShellRegistry: () => backgroundShells,
     }),
   });
 
@@ -458,6 +484,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       : createWebFetchTool(),
     createWebSearchTool(),
     ...orchestratorTools,
+    stringTool({
+      definition: shellCollect.definition,
+      handler: shellCollect.handler,
+    }),
     stringTool({
       definition: manageTasksDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -966,6 +996,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         [...connectedClients.values()].map((client) => client.close().catch(() => undefined)),
       );
       connectedClients.clear();
+      // Kill every live background process group before the posix teardown so
+      // /clear, interrupt, and reload cannot leave orphans behind.
+      backgroundShells.disposeAll("session closed");
       await posixTools.dispose();
       await disposeWebSearchClients();
     })();

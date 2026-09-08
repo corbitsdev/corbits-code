@@ -43,15 +43,20 @@ export const SEARCH_QUERY_TOOLS: ReadonlySet<string> = new Set(["grep", "search_
  * Tools that never need an approval prompt because they cannot change the
  * workspace: the director's read surface minus run_shell/web_fetch/web_search
  * (which get their own, narrower auto-allow rules — see
- * isAutoAllowedShellCommand and the webfetch/websearch permission classes),
- * plus manage_tasks (side-effect-free by the time the tool executes — see
- * classify.ts). SECURITY-RELEVANT: this gates auto-allow. A tool added here
- * is auto-approved everywhere; get it wrong in either direction deliberately,
- * not by accident.
+ * isAutoAllowedShellCommand and the webfetch/websearch permission classes)
+ * and minus shell_collect (ungated by design at its handler: cancel only
+ * kills the session's own background child), plus manage_tasks (side-effect-free
+ * by the time the tool executes — see classify.ts). SECURITY-RELEVANT: this
+ * gates auto-allow. A tool added here is auto-approved everywhere; get it
+ * wrong in either direction deliberately, not by accident.
  */
 export const AUTO_ALLOW_READ_TOOLS: ReadonlySet<string> = new Set([
   ...DIRECTOR_READ_TOOLS.filter(
-    (tool) => tool !== "run_shell" && tool !== "web_fetch" && tool !== "web_search",
+    (tool) =>
+      tool !== "run_shell" &&
+      tool !== "web_fetch" &&
+      tool !== "web_search" &&
+      tool !== "shell_collect",
   ),
   "manage_tasks",
 ]);

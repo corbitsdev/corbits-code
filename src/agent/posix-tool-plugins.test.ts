@@ -29,6 +29,41 @@ function findMiddlewareIndex(
 }
 
 describe("buildCorePosixToolPlugins", () => {
+  test("a permission-denied background run_shell spawns nothing", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-bg-deny-"));
+    try {
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: false,
+        reactorGated: false,
+        auto: false,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+      const markerPath = join(cwd, "spawned.txt");
+      const denied = await runner.run(
+        {
+          id: "bg-deny",
+          name: "run_shell",
+          arguments: {
+            command: `touch ${JSON.stringify(markerPath)}`,
+            background: true,
+          },
+        },
+        new AbortController().signal,
+      );
+      expect(denied.isError).toBe(true);
+      // Nothing spawned: the marker file the command would have created is absent.
+      await expect(readFile(markerPath)).rejects.toThrow();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("applies permission gate and result truncation like the main agent stack", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
     try {

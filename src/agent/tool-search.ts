@@ -29,6 +29,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "delete_file",
   "lsp",
   "run_shell",
+  "shell_collect",
   "ask_operator",
   "manage_tasks",
   "tool_search",

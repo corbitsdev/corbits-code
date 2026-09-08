@@ -63,8 +63,14 @@ import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normal
 
 import {
   buildCompactionContinuationMessage,
+  buildShellBackgroundMessage,
   createSessionPruningCompactor,
 } from "../session/runtime-assembly.js";
+import {
+  createBackgroundShellRegistry,
+  type BackgroundShellExit,
+} from "../shell/background-shell.js";
+import { createShellCollectTool } from "../agent/background-shell-tool.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
@@ -456,6 +462,12 @@ async function runSubAgentInner(
   const submitResultState = createSubmitResultState();
   const askDirectorState = createAskDirectorState();
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
+  // Assigned inside the try once the agent handle exists; before that (or after
+  // close) a completion is dropped, matching the continuation contract.
+  let backgroundExitSink: ((exit: BackgroundShellExit) => void) | null = null;
+  const backgroundShells = createBackgroundShellRegistry({
+    onExit: (exit) => backgroundExitSink?.(exit),
+  });
   // Child tools resolve spills against the child's own store first, then
   // the parent's: parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
@@ -470,6 +482,7 @@ async function runSubAgentInner(
       ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
+      getBackgroundShellRegistry: () => backgroundShells,
       extraToolPlugins: [...(params.extraToolPlugins ?? []), spawnRegistry.plugin],
     }),
   });
@@ -525,7 +538,11 @@ async function runSubAgentInner(
     }));
 
     const inherited = params.inheritMcpTools?.() ?? [];
-    tools = [...tools, ...coreSubAgentWebTools(inherited)];
+    tools = [
+      ...tools,
+      ...coreSubAgentWebTools(inherited),
+      stringTool(createShellCollectTool(backgroundShells)),
+    ];
 
     if (inherited.length > 0) {
       tools = [...tools, ...inherited];
@@ -933,6 +950,13 @@ async function runSubAgentInner(
     // resolve without dropping the parent fallback.
     childBlobReader = agent.blobReader;
     agentHandle = agent;
+    backgroundExitSink = (exit) => {
+      try {
+        agentHandle?.deliver(buildShellBackgroundMessage(exit));
+      } catch {
+        // Agent may be closing; a dropped completion is harmless.
+      }
+    };
 
     // Collect tool activity for the parent-facing report, and optionally forward
     // progress without dumping the full sub-agent event stream into the chat
@@ -1080,6 +1104,7 @@ async function runSubAgentInner(
           // close is idempotent; ignore races with disposeSubAgentSession.
         }
         try {
+          backgroundShells.disposeAll("sub-agent closed");
           await posixTools.dispose();
         } catch {
           // ignore
@@ -1317,6 +1342,7 @@ async function runSubAgentInner(
     // stays open until close_agent (or a later failed/aborted run) tears it
     // down.
     if (!persisting) {
+      backgroundShells.disposeAll("sub-agent closed");
       await disposeSubAgentSession({
         signal: runController.signal,
         ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),

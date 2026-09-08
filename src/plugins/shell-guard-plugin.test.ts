@@ -8,6 +8,7 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import { createBackgroundShellRegistry } from "../shell/background-shell.js";
 import {
   BoundedShellOutput,
   MAX_SHELL_OUTPUT_BYTES,
@@ -196,6 +197,79 @@ describe("resolveShellTimeoutMs", () => {
   });
 });
 
+describe("background run_shell (shellGuardPlugin)", () => {
+  const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+    callId: call.id,
+    content: "FALLBACK",
+  });
+
+  function handlerWith(registry?: ReturnType<typeof createBackgroundShellRegistry>) {
+    return shellGuardPlugin(process.cwd(), undefined, undefined, {
+      ...(registry !== undefined ? { getBackgroundShellRegistry: () => registry } : {}),
+    }).middleware!(fallback);
+  }
+
+  function runWith(registry: ReturnType<typeof createBackgroundShellRegistry>, call: ToolCall) {
+    return handlerWith(registry)(call, neverAbort());
+  }
+
+  test("background:true returns a running handle immediately", async () => {
+    const registry = createBackgroundShellRegistry();
+    const start = Date.now();
+    const result = await runWith(registry, {
+      id: "bg1",
+      name: "run_shell",
+      arguments: { command: "sleep 0.5; echo finished", background: true },
+    });
+    expect(result.isError).toBeUndefined();
+    const parsed = JSON.parse(String(result.content)) as { shell_id: string; status: string };
+    expect(parsed.status).toBe("running");
+    expect(parsed.shell_id.length).toBeGreaterThan(0);
+    // The START call resolved while the child was still sleeping.
+    expect(Date.now() - start).toBeLessThan(400);
+    const snapshot = await registry.collect(parsed.shell_id, 5_000);
+    expect(snapshot.state).toBe("completed");
+    registry.disposeAll("test done");
+  });
+
+  test("without a registry wired, background fails closed and spawns nothing", async () => {
+    const result = await handlerWith(undefined)(
+      { id: "bg2", name: "run_shell", arguments: { command: "echo hi", background: true } },
+      neverAbort(),
+    );
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("not available");
+  });
+
+  test("a background cd does not mutate the retained foreground shell cwd", async () => {
+    const registry = createBackgroundShellRegistry();
+    const handler = handlerWith(registry);
+    await handler(
+      { id: "bg3", name: "run_shell", arguments: { command: "cd /", background: true } },
+      neverAbort(),
+    );
+    const after = await handler(
+      { id: "bg4", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(String(after.content).trim()).toBe(process.cwd());
+    registry.disposeAll("test done");
+  });
+
+  test("foreground run_shell is unchanged when background is unset", async () => {
+    const registry = createBackgroundShellRegistry();
+    const result = await runWith(registry, {
+      id: "fg1",
+      name: "run_shell",
+      arguments: { command: "echo direct" },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(String(result.content)).toContain("direct");
+    expect(registry.runningCount()).toBe(0);
+    registry.disposeAll("test done");
+  });
+});
+
 describe("advertiseShellGuardTimeout", () => {
   test("rewrites run_shell timeout description when a settings default is set", () => {
     const rewritten = advertiseShellGuardTimeout(
@@ -254,6 +328,24 @@ describe("advertiseShellGuardTimeout", () => {
       inputSchema: { type: "object", properties: {} },
     };
     expect(advertiseShellGuardTimeout(def)).toBe(def);
+  });
+
+  test("advertises background:true with collect/cancel guidance", () => {
+    const rewritten = advertiseShellGuardTimeout({
+      name: "run_shell",
+      description: "Execute a shell command",
+      inputSchema: {
+        type: "object",
+        properties: { command: { type: "string" } },
+        required: ["command"],
+      },
+    });
+    const background = (
+      rewritten.inputSchema["properties"] as Record<string, { description: string }>
+    )["background"];
+    expect(background).toBeDefined();
+    expect(background?.description).toContain("shell_collect");
+    expect(background?.description).toMatch(/does not change the retained shell cwd/i);
   });
 });
 

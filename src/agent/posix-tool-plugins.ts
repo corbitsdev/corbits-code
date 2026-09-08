@@ -17,6 +17,7 @@ import {
 } from "../plugins/result-truncation-plugin.js";
 import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
 import { shellGuardPlugin, type ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
+import type { BackgroundShellRegistry } from "../shell/background-shell.js";
 import {
   readFileGuardPlugin,
   type ReadFileGuardPluginOptions,
@@ -37,6 +38,9 @@ export interface CorePosixToolPluginsArgs {
   getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell spawn environment.
   shellEnv?: Record<string, string>;
+  // Live getter for the background-shell registry (run_shell background:true).
+  // Omitted makes background runs fail closed in shell-guard.
+  getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -71,6 +75,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     getBlobWriter,
     getContextDir,
     shellEnv,
+    getBackgroundShellRegistry,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
   // cwd are not hard-denied after the gate already auto-allows. Pass a live
@@ -94,7 +99,10 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     secretGuardPlugin(),
     authzPlugin(),
     permissionPlugin(permissionGate),
-    shellGuardPlugin(cwd, shellTimeout, shellEnv, { allowOutsideCwd: allowOutside }),
+    shellGuardPlugin(cwd, shellTimeout, shellEnv, {
+      allowOutsideCwd: allowOutside,
+      ...(getBackgroundShellRegistry !== undefined ? { getBackgroundShellRegistry } : {}),
+    }),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
     // Verify wraps the line-range short-circuit (composeMiddleware runs plugins

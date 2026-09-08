@@ -50,6 +50,7 @@ import { createApprovalResume } from "../../session/approval-resume.js";
 import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
   buildCompactionContinuationMessage,
+  buildShellBackgroundMessage,
   createLiveSubAgentSources,
   createSessionPruningCompactor,
   loadSessionChatPrompt,
@@ -262,6 +263,13 @@ export async function assembleTUISession(
     getBlobReader: () => liveAgent(state).blobReader,
     getBlobWriter: () => state.currentStorage?.writeBlob,
     getContextDir: () => state.workdir,
+    // A background run_shell completion re-enters the reactor on a later turn,
+    // so queued steers are not blocked by a long foreground run.
+    onBackgroundShellExit: (exit) => {
+      state.enqueueAgentDeliver?.(() =>
+        liveAgent(state).deliver(buildShellBackgroundMessage(exit)),
+      );
+    },
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     completeWorkflowStep: (stepId) =>
       workflowControllerHolder.instance?.complete(stepId) ?? "not-current",
