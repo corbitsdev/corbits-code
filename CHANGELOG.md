@@ -11,13 +11,37 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.3.18] - 2026-09-08
+
+### Added
+
+- OpenCode Go forwards the active Corbits session ID on Chat, Responses, and
+  Messages requests, including after `/clear` and `/new`, so Go Console can
+  associate requests with the current session.
 
 ### Changed
 
-- ChatGPT Codex uses the Corbits system prompt as Responses `instructions`, without fetching or injecting the official GPT-5 Codex prompt.
-- Main-session permission approvals ride the reactor's approval-suspend primitive: an ask-tier call parks as a PendingOperation and the operator's decision resumes it (previously held open through the middleware gate). Ask denials now surface as `denied by approver: <reason>`, and the model responds to the reason; policy hard-denies remain plain tool errors the model adapts to. Late decisions arriving after the approval timed out are dropped instead of being injected into the conversation, and gate deny reasons are written to the structured authz log.
-- Builder now bakes compact Ponytail guidance with default lite mode and uses a smaller native-runtime skill instead of the broad native-integration and TypeScript bodies by default.
+- ChatGPT Codex uses the Corbits system prompt as Responses `instructions`,
+  without fetching or injecting the official GPT-5 Codex prompt.
+- Main-session permission approvals use the reactor approval-suspend primitive.
+  Operator denials reach the model with their reason, hard policy denials remain
+  tool errors, and expired late decisions are discarded.
+- Builder bakes compact Ponytail guidance with default lite mode and uses the
+  smaller native-runtime skill instead of broad native-integration and
+  TypeScript guidance by default.
+- The TUI shell, provider setup, and runner are split into focused modules.
+  OpenTUI services replace custom list and clipboard plumbing. Row updates are
+  coalesced to renderer cadence, while chrome recomposes only when inputs
+  change. Clipboard failures no
+  longer crash the interface, overlay selection survives resize, permission
+  choices stay compact with full context above them, and stale or over-frequent
+  row repaints are prevented.
+- Corbits moves to the Interchange 0.3.x baseline by migrating the 0.3.0 APIs,
+  vendoring required packages from one upstream revision, retaining published
+  packages where their APIs suffice, reapplying and recording inference
+  patches, and documenting provenance and removal conditions.
+- Arktype is updated to 2.2.3 with compatible dependency resolutions while
+  retaining one Arktype instance across Corbits and Interchange packages.
 
 ## [0.3.17] - 2026-09-05
 
