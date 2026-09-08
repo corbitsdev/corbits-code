@@ -68,7 +68,7 @@ already carries the primitive:
 
 - The before-tool authz hook returns, for an `ask` effect,
   `{ type: "suspend", gate: { type: "approval", gateId, correlationId,
-  timeoutAt }, pendingOp }` (`authz-extension.ts:263-267` upstream; the
+timeoutAt }, pendingOp }` (`authz-extension.ts:263-267` upstream; the
   reactor persists `pendingOp`, minting `correlationId` at :223 and
   `gateId = pending-${correlationId}` at :226).
 - `DEFAULT_APPROVAL_TIMEOUT_MS = 3_600_000` (:36) — one hour.
@@ -110,7 +110,7 @@ pending approvals is **not delivered and remains out of CL-5699 scope**.
 `src/permission/queue.ts` is an in-memory `Map` and
 `src/permission/store.ts` persists grants only, so a crashed session
 still loses the pending approval. The mapping above is what makes
-recovery *possible later* (the persisted `pendingOperations` plus
+recovery _possible later_ (the persisted `pendingOperations` plus
 `correlationId`-addressed resume), but wiring snapshot-and-restore is
 separate work and is not claimed by CL-5699.
 
@@ -140,7 +140,7 @@ only reacts to events.
 ### (c) classify.ts tiering stays a pre-filter above authz grants
 
 **Decision:** `src/permission/classify.ts`'s allow/ask `Tier`
-(`classify.ts:69`) remains a pre-filter that decides *whether and how*
+(`classify.ts:69`) remains a pre-filter that decides _whether and how_
 the authz path is consulted; it does not become authz policy. Read-only
 tools classify `allow` and short-circuit; everything else classifies
 `ask` and flows through the authz grant path, where grants, denies, and
@@ -176,7 +176,7 @@ supports (`{ type: "block", reason }` is a first-class hook return in
   effect in the hook rather than gate-internal bookkeeping.
 
 Neither path has an upstream equivalent, so both are ours to carry; the
-decision is only *where* they live. Putting them in the hook means the
+decision is only _where_ they live. Putting them in the hook means the
 gate's `ask` path is the only path that can suspend, and denial never
 needs a parked operation, a correlation id, or a resume.
 
