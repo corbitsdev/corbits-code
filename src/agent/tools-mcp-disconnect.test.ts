@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 import { createExaMCPServerConfig, type ResolvedMCPServerConfig } from "../mcp/exa.js";
-import type { MCPConnectOptions } from "../mcp/client.js";
+import type { MCPConnectOptions, MCPTool } from "../mcp/client.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { MCPServerState } from "./tools.js";
 
@@ -15,6 +15,9 @@ let connectGeneration = 0;
 let connectOptions: MCPConnectOptions[] = [];
 let releaseDeferredConnect: (() => void) | undefined;
 let connectMode: "success" | "deferred" = "success";
+// Reconnect tests repoint this to simulate a server whose tool set drifted
+// between generations; the default matches the original static payload.
+let connectedTools: MCPTool[] = [{ name: "list", description: "List", inputSchema: {} }];
 
 function tempCwd(): string {
   const dir = mkdtempSync(join(tmpdir(), "corbits-mcp-disconnect-"));
@@ -44,7 +47,7 @@ await withMockedModule(
         ok: true as const,
         client: {
           serverName: config.name,
-          tools: [{ name: "list", description: "List", inputSchema: {} }],
+          tools: connectedTools,
           call: async () => "ok",
           close: async () => {
             closedClients.push(config.name);
@@ -105,6 +108,7 @@ beforeEach(() => {
   connectOptions = [];
   releaseDeferredConnect = undefined;
   connectMode = "success";
+  connectedTools = [{ name: "list", description: "List", inputSchema: {} }];
 });
 
 async function waitForConnectStart(timeoutMs = 1000): Promise<void> {
@@ -170,6 +174,47 @@ describe("disconnectMCPServer", () => {
       );
       expect(toolset.hasMCPServer("acme")).toBe(true);
       expect(states.some((s) => s.state === "failed")).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("reconnect after the server's tools drift swaps the mounted set", async () => {
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    const announced: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>[] = [];
+    try {
+      await toolset.connectMCPServer(acme, callbacks(states));
+      const acmeNames = (defs: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>) =>
+        defs.map((d) => d.name).filter((name) => name.startsWith("mcp__acme__"));
+      expect(acmeNames(toolset.dynamicRunner.currentDefinitions())).toEqual(["mcp__acme__list"]);
+
+      // The server redeployed mid-session: same tool name, new schema, plus a
+      // new tool. Reconnect must mount exactly the drifted set.
+      connectedTools = [
+        { name: "list", description: "List v2", inputSchema: { type: "object", required: ["q"] } },
+        { name: "search", description: "Search", inputSchema: {} },
+      ];
+      await toolset.disconnectMCPServer("acme", callbacks(states));
+      await toolset.connectMCPServer(acme, {
+        ...callbacks(states),
+        onToolsChanged: (definitions) => announced.push(definitions),
+      });
+
+      const names = acmeNames(toolset.dynamicRunner.currentDefinitions());
+      expect(names).toContain("mcp__acme__list");
+      expect(names).toContain("mcp__acme__search");
+      expect(names.filter((name) => name === "mcp__acme__list")).toHaveLength(1);
+
+      const list = toolset.dynamicRunner
+        .currentDefinitions()
+        .find((d) => d.name === "mcp__acme__list");
+      expect(list?.description).toBe("[acme] List v2");
+      expect(list?.inputSchema).toEqual({ type: "object", required: ["q"] });
+
+      // The stale generation's client was closed and the drift was announced.
+      expect(closedGenerations).toContain(1);
+      expect(acmeNames(announced.at(-1) ?? [])).toContain("mcp__acme__search");
     } finally {
       await toolset.dispose();
     }
