@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import noContentPinTests from "./scripts/eslint-rules/no-content-pin-tests.ts";
 
 export default tseslint.config(
   {
@@ -75,6 +76,19 @@ export default tseslint.config(
             "Use withMockedModule/withMockedModuleDuring from tests/helpers/mock-module.ts instead of bare mock.module — an un-restored mock.module leaks into every test file that runs after this one.",
         },
       ],
+    },
+  },
+  {
+    // Content-pin tests — assertions that pin literal document wording, brand
+    // hex values, or palette indexes — fail on copy/design edits and catch no
+    // behavior regression. The rule is a heuristic shape match; see its header
+    // for what it covers and what it deliberately does not.
+    files: ["**/*.test.ts"],
+    plugins: {
+      corbits: { rules: { "no-content-pin-tests": noContentPinTests } },
+    },
+    rules: {
+      "corbits/no-content-pin-tests": "error",
     },
   },
 );
