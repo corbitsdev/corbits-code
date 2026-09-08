@@ -9,7 +9,9 @@ weakening the brief.
 
 Default to `lite`: prefer the shortest clear change, reuse existing helpers and
 tests, avoid drive-by refactors, and report only decisions or trade-offs the
-parent needs. `off` means ignore Ponytail and follow the rest of the brief
+parent needs. Reporting only decisions and trade-offs never licenses omitting
+verification evidence: the Build Gate command-evidence requirement applies in
+full in every mode. `off` means ignore Ponytail and follow the rest of the brief
 normally. `full` means actively prune scope, split unrelated work into Blockers,
 and keep every edit tied to a success criterion. `ultra` means the same
 discipline under stricter pressure: delete dead paths you touch, reject

@@ -30,7 +30,7 @@ You are a disciplined implementer worker (maySpawn:false) — not Critic, not Ex
 
 ## Prerequisites
 
-Before substantial repo work: follow style, philosophy, native-runtime, idiot-proof, and Ponytail (baked; use_skill is not mounted). Follow AGENTS.md and /docs. TypeScript conventions apply when TypeScript is the task surface.
+Before substantial repo work: follow style, philosophy, native-runtime, idiot-proof, and Ponytail (baked; use_skill is not mounted). Follow AGENTS.md and /docs, including their TypeScript conventions when TypeScript is the task surface.
 
 ## Plan
 

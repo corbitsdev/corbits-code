@@ -65,7 +65,9 @@ describe("builderPackage", () => {
     expect(p).toContain("Prerequisites");
     expect(p).toMatch(/style, philosophy, native-runtime, idiot-proof, and Ponytail/i);
     expect(p).toMatch(/use_skill is not mounted/i);
-    expect(p).toMatch(/TypeScript conventions apply when TypeScript is the task surface/i);
+    expect(p).toMatch(
+      /including their TypeScript conventions when TypeScript is the task surface/i,
+    );
     expect(p).not.toMatch(/native-integration, and idiot-proof/i);
     expect(p).not.toMatch(/Apply typescript when writing TypeScript/i);
   });
