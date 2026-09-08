@@ -8,7 +8,8 @@
 ## Summary
 
 The current permission gate parks tool calls on in-memory `resolve()`
-closures (`src/tui/gate-events.ts:23-39`) held open by the gate-wire
+closures (the `resolve` field of `PermissionGateEvent` in
+`src/tui/gate-events.ts`) held open by the gate-wire
 overlay. This RFC decides how Corbits Code adopts the upstream reactor's
 approval-suspend primitive instead: a before-tool authz hook that returns
 a `suspend` effect carrying an approval gate and a persisted
@@ -24,8 +25,10 @@ This RFC resolves the four decisions CL-5683 requires:
   `src/session/optimized-context-store.ts` — no parallel queue.
 - **(b)** Director ask-handling consumes the reactor's suspend action and
   `gate.cleared` resume dispatch; the director stops owning approval
-  queues. The wiring seam is `requestApproval` at
-  `src/session/assemble-runtime.ts:218,248`, not the director.
+  queues. The wiring seam is the `requestApproval` field of
+  `SessionGateArgs` and its pass into `createPermissionGate` in
+  `assembleSessionGate` (`src/session/assemble-runtime.ts`),
+  not the director.
 - **(c)** `src/permission/classify.ts` allow/ask tiering stays a
   pre-filter above authz grants; it is not authz policy.
 - **(d)** Headless denial and the stricter chained-command deny are
@@ -39,17 +42,18 @@ CL-5699.
 
 ### Current architecture
 
-- `PermissionGateEvent` (`src/tui/gate-events.ts:23-39`) carries a
+- `PermissionGateEvent` (`src/tui/gate-events.ts`) carries a
   `PermissionRequest`, a `resolve(outcome)` callback, optional
   `timeoutMs`, and an `AbortSignal`.
-- `OperatorGateEvent` (`src/tui/gate-events.ts:4-21`) is the question
+- `OperatorGateEvent` (`src/tui/gate-events.ts`) is the question
   analogue.
 - The gate-wire overlay (`src/tui/gate-wire.ts`) connects these events to
   the TUI and holds `resolve()` open until the operator interacts; it also
   owns the pending-display overlay that serializes what the operator sees
-  (`src/tui/gate-wire.ts:235-273`).
+  (`wireGates` in `src/tui/gate-wire.ts`).
 - `src/permission/queue.ts` is an in-memory `Map` of concurrent pending
-  entries keyed by id (`src/permission/queue.ts:38-41`) used to reconcile
+  entries keyed by id (`createPermissionRequestQueue` in
+  `src/permission/queue.ts`) used to reconcile
   grants through the approval store; `src/permission/store.ts` persists
   grants only, not pending requests.
 
@@ -99,7 +103,8 @@ signal channel, not by holding a callback.
 
 Rationale: today `src/session/optimized-context-store.ts` already
 persists `PendingOperation[]` from `@intx/types/runtime`
-(`optimized-context-store.ts:9,178`), and upstream persists the operation
+(the `pendingOperations` field of its `SessionMetadata`), and upstream
+persists the operation
 precisely so the id survives a restart (comment at
 `authz-extension.ts:219-221`). Using that existing surface means the
 gate's bookkeeping collapses into one identity and one store instead of a
@@ -119,12 +124,14 @@ separate work and is not claimed by CL-5699.
 **Decision:** director ask-handling consumes the reactor's suspend action
 and the `gate.cleared`-driven resume dispatch, and stops managing its own
 approval queue. The `requestApproval` hook stays wired where it is today
-— `src/session/assemble-runtime.ts:218` (the dependency declaration) and
-`:248` (the wiring into the approval persist/log plumbing) — and its job
+— declared on `SessionGateArgs` and passed into `createPermissionGate`
+by `assembleSessionGate` (both in `src/session/assemble-runtime.ts`) —
+and its job
 narrows to feeding the operator-facing surface. The director never sees
 the gate itself; it sees outcomes only as tool-result text today
-(`src/agent/director.ts:276` matches "Blocked by permission policy:
-Operator declined:") and, after adoption, additionally sees the suspend
+(`isOperatorDeclinedToolResult` in `src/agent/director.ts` matches
+"Blocked by permission policy: Operator declined:") and, after adoption,
+additionally sees the suspend
 as a parked tool call and the clear as a `reactor.gate.cleared` event it
 decides on.
 
@@ -140,7 +147,7 @@ only reacts to events.
 ### (c) classify.ts tiering stays a pre-filter above authz grants
 
 **Decision:** `src/permission/classify.ts`'s allow/ask `Tier`
-(`classify.ts:69`) remains a pre-filter that decides _whether and how_
+remains a pre-filter that decides _whether and how_
 the authz path is consulted; it does not become authz policy. Read-only
 tools classify `allow` and short-circuit; everything else classifies
 `ask` and flows through the authz grant path, where grants, denies, and
@@ -163,14 +170,15 @@ extension's before-tool hook as `block` effects, which upstream already
 supports (`{ type: "block", reason }` is a first-class hook return in
 `authz-extension.ts:205-208`):
 
-- **Headless denial** — today in `src/permission/gate.ts:592-600` and
-  `654-660` (note: `gate.ts` is 750 lines; the ticket's 625-line figure
-  is stale). When the run is non-interactive there is no operator to
+- **Headless denial** — today in the two `!interactive` deny branches of
+  `evaluate` in `src/permission/gate.ts`. When the run is non-interactive
+  there is no operator to
   approve, so instead of reaching the `ask` effect the hook returns
   `block` with the existing denial reasons.
-- **Stricter chained-command deny** — today
-  `src/permission/gate.ts:549-552`, owned by `preGrantGuardReason`
-  (`gate.ts:137-163`), which hard-denies chained shell commands whose
+- **Stricter chained-command deny** — today the
+  `runShellAuthzBlockReason` check in `evaluate`, owned by
+  `preGrantGuardReason` (both in `src/permission/gate.ts`), which
+  hard-denies chained shell commands whose
   segments target restricted or sensitive paths even when a grant
   exists. This stays a pre-grant guard but is expressed as a `block`
   effect in the hook rather than gate-internal bookkeeping.
@@ -200,13 +208,15 @@ The real mechanisms are:
   is the one we adopt: gate clears are delivered by enqueueing a signal
   on the correlation-id channel, and the reactor's existing resume
   dispatch does the rest.
-- **Ours:** the TUI-side runtime channels (`src/tui/runtime-channels`)
-  are EventEmitter-based — a display-plane mechanism, suited to
+- **Ours:** the TUI gate wire (`src/tui/gate-wire.ts` and
+  `src/tui/gate-events.ts`, exercised end to end by the harness modules
+  under `tests/integration/`) is EventEmitter-based — a display-plane
+  mechanism, suited to
   surfacing the pending operation to the operator, not to resuming a
   parked reactor step.
 
 Decision: resume transport is the upstream signal channel (it is what
-the reactor dispatches on); the EventEmitter runtime channels stay on
+the reactor dispatches on); the EventEmitter gate-wire events stay on
 the display plane and carry the approval snapshot to the overlay. No new
 message type is introduced.
 
@@ -224,7 +234,8 @@ message type is introduced.
 
 3. **Serialize the full `PermissionRequest` into the store "because the
    queue can reconstruct it."** Rejected as stated: the queue is an
-   in-memory `Map` (`src/permission/queue.ts:38-41`), so after process
+   in-memory `Map` (`createPermissionRequestQueue` in
+   `src/permission/queue.ts`), so after process
    death there are no pending entries to reconstruct from, and
    `src/permission/store.ts` persists grants only. Snapshot/restore of
    pending operations is real future work, decided out of scope in (a).
