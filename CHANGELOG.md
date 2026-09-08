@@ -16,6 +16,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Changed
 
 - ChatGPT Codex uses the Corbits system prompt as Responses `instructions`, without fetching or injecting the official GPT-5 Codex prompt.
+- Builder now bakes compact Ponytail guidance with default lite mode and uses a smaller native-runtime skill instead of the broad native-integration and TypeScript bodies by default.
 
 ## [0.3.17] - 2026-09-05
 
