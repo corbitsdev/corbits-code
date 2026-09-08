@@ -145,11 +145,11 @@ describe("createOptimizedContextStore load", () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
 
-    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te');
     fs.writeFileSync(
-      path.join(dir, segmentFileName(TURNS_FILE, 1)),
-      jsonl([turn("b"), turn("c")]),
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te',
     );
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 1)), jsonl([turn("b"), turn("c")]));
 
     const loaded = await store.load();
     expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
@@ -163,7 +163,10 @@ describe("createOptimizedContextStore load", () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
 
-    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te');
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te',
+    );
 
     const recovered = await store.load();
     await store.writeTurns(recovered.turns);

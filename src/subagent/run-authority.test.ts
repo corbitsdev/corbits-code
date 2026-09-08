@@ -54,9 +54,7 @@ function baseParams(
 // per-test timeouts below only absorb machine-load spikes during the
 // full-runtime construction these probes perform; assertions are
 // timing-independent.
-async function runWithFailingInference(
-  run: (baseURL: string) => Promise<unknown>,
-): Promise<void> {
+async function runWithFailingInference(run: (baseURL: string) => Promise<unknown>): Promise<void> {
   const server = Bun.serve({
     port: 0,
     fetch: () =>

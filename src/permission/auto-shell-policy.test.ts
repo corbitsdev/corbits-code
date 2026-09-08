@@ -60,7 +60,7 @@ describe("git-global-config ask survives shell wrappers", () => {
       "git-global-config",
     );
     expect(
-      autoShellRuleForCall(shellCall('sh -c \'git "config" --global user.name foo\''))?.name,
+      autoShellRuleForCall(shellCall("sh -c 'git \"config\" --global user.name foo'"))?.name,
     ).toBe("git-global-config");
   });
 });
