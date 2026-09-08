@@ -19,6 +19,7 @@ import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import { buildRequests } from "../permission/classify.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { PermissionRequest } from "../permission/types.js";
@@ -64,9 +65,9 @@ export function requestFromApprovalSnapshot(
 }
 
 // The reactor's approval timeout answers the parked call with this exact
-// upstream text (vendored reactor.ts) before removing the correlation, so its
-// presence after the suspension watermark marks the correlation as settled.
-const APPROVAL_TIMEOUT_RESULT_TEXT = "approval timed out";
+// upstream text (see permission/decline-markers.ts) before removing the
+// correlation, so its presence after the suspension watermark marks the
+// correlation as settled.
 
 function settledAfterSuspend(
   turns: Awaited<ReturnType<Agent["history"]>>,

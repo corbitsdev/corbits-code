@@ -21,6 +21,12 @@ import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
+import {
+  APPROVER_REJECTION_MARKER,
+  DENIED_BY_POLICY_MARKER,
+  NO_MATCHING_GRANTS_MARKER,
+  OPERATOR_DECLINED_MARKER,
+} from "../permission/decline-markers.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
@@ -270,19 +276,19 @@ export const submitOutputDefinition: ToolDefinition = {
 };
 
 // Classification of a failed tool call's model-facing text. Two flows produce
-// these texts: the middleware path ("Blocked by permission policy: Operator
-// declined: …", still used by sub-agents) and the reactor path, where a
-// rejected approval decision answers the parked call with upstream's
-// "denied by approver…" error result and a deny/no-grant effect arrives as a
-// block ("Denied by policy: …" / "No matching grants for …"). A policy deny is
-// not an operator decision at all — the model adapts to the deny text as it
-// would to any tool error — while an approver rejection either carries a
-// reason the model should respond to or doesn't (canned reply stands).
+// these texts: the middleware path (permission-plugin prefixing the gate's
+// "Operator declined: …" reason, still used by sub-agents) and the reactor
+// path, where a rejected approval decision answers the parked call with
+// upstream's "denied by approver…" error result and a deny/no-grant effect
+// arrives as a block ("Denied by policy: …" / "No matching grants for …"). A
+// policy deny is not an operator decision at all — the model adapts to the
+// deny text as it would to any tool error — while an approver rejection
+// either carries a reason the model should respond to or doesn't (canned
+// reply stands). The marker strings themselves live in
+// permission/decline-markers.ts alongside their producing seams.
 type DeclinedToolResult = { kind: "approver-rejection"; reason?: string } | { kind: "policy-deny" };
 
-const POLICY_DENY_MARKERS = ["Denied by policy:", "No matching grants for "] as const;
-const OPERATOR_DECLINED_MARKER = "Blocked by permission policy: Operator declined:";
-const APPROVER_REJECTION_MARKER = "denied by approver";
+const POLICY_DENY_MARKERS = [DENIED_BY_POLICY_MARKER, NO_MATCHING_GRANTS_MARKER] as const;
 
 function isPolicyDeny(content: string): boolean {
   return POLICY_DENY_MARKERS.some((marker) => content.includes(marker));
@@ -292,7 +298,7 @@ function isPolicyDeny(content: string): boolean {
 // reactor path after "denied by approver: ". Both are undefined when the
 // operator declined without a reason.
 function approverRejectionReason(content: string): string | undefined {
-  const reactor = content.match(/denied by approver: (.+)/);
+  const reactor = content.match(new RegExp(`${APPROVER_REJECTION_MARKER}: (.+)`));
   if (reactor !== null) return reactor[1];
   if (content.includes(OPERATOR_DECLINED_MARKER)) {
     const separator = content.indexOf(" — ");

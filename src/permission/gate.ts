@@ -23,6 +23,7 @@ import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./aut
 import { splitChainedCommand, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
+import { OPERATOR_DECLINED_PREFIX } from "./decline-markers.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
 
@@ -296,8 +297,9 @@ export interface PermissionGateOptions {
   // This gate's decisions are consumed by the reactor's before-tool authz
   // seam (env.authorize) instead of the tool-runner middleware. Set for the
   // main session so approved re-dispatches skip the middleware gate; kept
-  // false for sub-agents, which still gate in the middleware.
-  reactorGated?: boolean | undefined;
+  // false for sub-agents, which still gate in the middleware. Required so a
+  // caller cannot silently fall back to middleware gating by omitting it.
+  reactorGated: boolean;
   // Ask/settle event log (see approval-log.ts): one record per consequential
   // decision, auto or interactive. Defaults to a no-op so nothing depends on
   // logging being wired.
@@ -371,7 +373,7 @@ function canSafelyMintPerSegment(pattern: string): boolean {
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, providerName, model, cwd } = options;
-  const reactorGated = options.reactorGated === true;
+  const reactorGated = options.reactorGated;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const approvalLog = options.approvalLog ?? NOOP_APPROVAL_LOG;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
@@ -729,7 +731,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         outcome?.message !== undefined && outcome.message.length > 0 ? ` — ${outcome.message}` : "";
       return {
         allowed: false,
-        reason: `Operator declined: ${decision.request.action} (${decision.request.subject})${suffix}`,
+        reason: `${OPERATOR_DECLINED_PREFIX}${decision.request.action} (${decision.request.subject})${suffix}`,
       };
     }
     return { allowed: true };
@@ -813,7 +815,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     evaluate,
     authorizeCall,
     resolveSuspended,
-    isReactorGated: () => reactorGated === true,
+    isReactorGated: () => reactorGated,
     getApprovals: () => approvals,
     reset,
     getSessionApprovals,

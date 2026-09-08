@@ -1,5 +1,6 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { BLOCKED_BY_POLICY_PREFIX } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
 
 // Run a tool call past the gate, invoking `next` only if it is allowed. Shared by
@@ -24,7 +25,7 @@ export async function gateToolCall(
   if (!verdict.allowed) {
     return {
       callId: call.id,
-      content: `Blocked by permission policy: ${verdict.reason}`,
+      content: `${BLOCKED_BY_POLICY_PREFIX}${verdict.reason}`,
       isError: true,
     };
   }
