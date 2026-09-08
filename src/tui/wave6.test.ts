@@ -8,25 +8,26 @@ import { withTestRenderer } from "./harness";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log";
 import { openPermissionsOverlay } from "./overlays";
 import {
-  acceptOverlaySelection,
   appendStreamRow,
-  closeInsetOverlay,
-  confirmCopySelection,
-  createAppShell,
-  enterCopyMode,
-  enterSubagentObserve,
-  moveOverlaySelection,
-  openInsetOverlay,
-  openPalette,
   replaceStreamRowAt,
   setChromeZones,
-  setEffortCycleHandler,
   setStatusFlash,
   shellFocusPrompt,
-  streamRowAt,
-  streamRowCount,
   toggleTasksPanel,
-} from "./shell";
+} from "./shell/chrome";
+import { enterCopyMode } from "./shell/copy";
+import { createAppShell } from "./shell/index";
+import { setEffortCycleHandler } from "./shell/internals";
+import { enterSubagentObserve } from "./shell/observe";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+  confirmCopySelection,
+  openInsetOverlay,
+} from "./shell/overlay-host";
+import { moveOverlaySelection } from "./shell/overlay-list";
+import { openPalette } from "./shell/palette";
+import { streamRowAt, streamRowCount } from "./shell/transcript";
 import { createRecordingClipboard } from "./copy-path";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 import { stringWidth } from "./view/height";

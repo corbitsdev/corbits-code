@@ -5,28 +5,24 @@ import { describe, expect, test } from "bun:test";
 import { rgbToHex, type KeyEvent } from "@opentui/core";
 import { IDLE_TRANSCRIPT_FLOOR, OVERLAY_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
-import { withTestRenderer } from "./harness";
 import {
   makePermissionItems,
-  openModelPickerOverlay,
-  openOperatorOverlay,
-  openPermissionsOverlay,
-  wrapOverlayBody,
-} from "./overlays";
+  makeModelPickerItems,
+  makeOperatorQuestion,
+  withTestRenderer,
+} from "./harness";
+import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays";
+import { wrapOverlayText } from "./overlay-body";
+import { relayout } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import {
-  acceptOverlaySelection,
   clearShellOverlayHooks,
-  closeInsetOverlay,
-  createAppShell,
-  handleListFilterKey,
-  moveOverlaySelection,
-  openListOverlay,
-  pageOverlaySelection,
-  relayout,
   setShellOverlayHooks,
   type OverlaySelection,
-} from "./shell";
-import { visibleSlice } from "./list-viewport";
+} from "./shell/internals";
+import { acceptOverlaySelection, closeInsetOverlay, openListOverlay } from "./shell/overlay-host";
+import { moveOverlaySelection, pageOverlaySelection } from "./shell/overlay-list";
+import { handleListFilterKey } from "./shell/palette";
 import { UI } from "./theme";
 
 function colorHex(c: unknown): string {
@@ -48,7 +44,7 @@ describe("overlay host chrome", () => {
           expect(colorHex(shell.overlayHost.borderColor)).toBe(UI.textDim);
           expect(colorHex(shell.overlayTitle.fg)).toBe(UI.textDim);
 
-          openOperatorOverlay(shell);
+          openOperatorOverlay(shell, makeOperatorQuestion());
           expect(colorHex(shell.overlayHost.borderColor)).toBe(UI.textDim);
           expect(colorHex(shell.overlayTitle.fg)).toBe(UI.textDim);
         } finally {
@@ -60,14 +56,14 @@ describe("overlay host chrome", () => {
   });
 });
 
-describe("wrapOverlayBody", () => {
+describe("wrapOverlayText", () => {
   test("splits long lines and caps", () => {
-    const lines = wrapOverlayBody("abcdefghij", 4, 3);
+    const lines = wrapOverlayText("abcdefghij", 4, 3);
     expect(lines).toEqual(["abcd", "efgh", "ij"]);
   });
 
   test("preserves blank lines from newlines", () => {
-    const lines = wrapOverlayBody("a\n\nb", 40, 8);
+    const lines = wrapOverlayText("a\n\nb", 40, 8);
     expect(lines).toEqual(["a", "", "b"]);
   });
 });
@@ -109,7 +105,7 @@ describe("permissions overlay", () => {
             moveOverlaySelection(shell, 1);
           }
           expect(shell.overlayList!.activeIndex).toBe(listH + 5);
-          const slice = visibleSlice(shell.overlayList!);
+          const slice = shell.overlayList!.visibleRange();
           expect(shell.overlayList!.activeIndex).toBeGreaterThanOrEqual(slice.start);
           expect(shell.overlayList!.activeIndex).toBeLessThan(slice.end);
 
@@ -192,7 +188,7 @@ describe("permissions overlay", () => {
           const before = shell.overlayList!.activeIndex;
           pageOverlaySelection(shell, 1);
           expect(shell.overlayList!.activeIndex).toBeGreaterThan(before);
-          const slice = visibleSlice(shell.overlayList!);
+          const slice = shell.overlayList!.visibleRange();
           expect(shell.overlayList!.activeIndex).toBeGreaterThanOrEqual(slice.start);
           expect(shell.overlayList!.activeIndex).toBeLessThan(slice.end);
         } finally {
@@ -214,7 +210,7 @@ describe("operator question overlay", () => {
           run: "idle",
         });
         try {
-          openOperatorOverlay(shell);
+          openOperatorOverlay(shell, makeOperatorQuestion());
           expect(shell.overlayKind).toBe("operator");
           expect(shell.layout.overlayMode).toBe("inset");
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
@@ -261,7 +257,7 @@ describe("model / provider picker", () => {
           run: "idle",
         });
         try {
-          openModelPickerOverlay(shell);
+          openModelPickerOverlay(shell, { items: makeModelPickerItems() });
           expect(shell.overlayKind).toBe("model_picker");
           expect(shell.overlayItems.length).toBeGreaterThanOrEqual(5);
           expect(focusOwner(shell.focus)).toBe("overlay");
@@ -616,7 +612,7 @@ describe("echoChoice defaults to on for callers with no gate policy", () => {
           wireKeys: false,
         });
         try {
-          openOperatorOverlay(shell, { choices: ["A", "B"] });
+          openOperatorOverlay(shell, { body: "pick one", choices: ["A", "B"] });
           const before = shell.streamLog.length;
           acceptOverlaySelection(shell);
           expect(shell.streamLog.length - before).toBe(1);

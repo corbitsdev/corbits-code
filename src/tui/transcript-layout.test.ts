@@ -5,7 +5,9 @@
 import { describe, expect, test } from "bun:test";
 import { resolveSideMargin } from "./geometry/margins";
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, createAppShell, type AppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
 import type { StreamRow } from "./stream";
 import { toolCallRow } from "./diff";
 import { toolResultRow } from "./mcp-view";

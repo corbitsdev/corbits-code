@@ -22,18 +22,11 @@ import {
 import type { ObserveSession } from "./residuals.js";
 import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import { formatChromeZones } from "./chrome-state.js";
-import {
-  appendStreamRow,
-  createAppShell,
-  enterSubagentObserve,
-  openHelpOverlay,
-  openListOverlay,
-  openMentionsOverlay,
-  openSettingsOverlay,
-  paintChrome,
-  setChromeZones,
-  setShellRunState,
-} from "./shell.js";
+import { appendStreamRow, paintChrome, setChromeZones, setShellRunState } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import { enterSubagentObserve } from "./shell/observe.js";
+import { openListOverlay } from "./shell/overlay-host.js";
+import { openHelpOverlay, openMentionsOverlay, openSettingsOverlay } from "./shell/palette.js";
 
 /** Demo-only rows: never shipped, just something to look at in `s`/`l`/`e`/`n`. */
 const DEMO_SETTINGS_ITEMS: readonly string[] = [
@@ -41,6 +34,29 @@ const DEMO_SETTINGS_ITEMS: readonly string[] = [
   "Compaction — summarize vs drop",
   "Session mode — auto / ask / plan",
   "Close settings",
+];
+
+const DEMO_PERMISSION_ITEMS: readonly string[] = [
+  "Allow once",
+  "Allow session",
+  "Always allow this tool",
+  "Deny",
+];
+
+const DEMO_OPERATOR_BODY =
+  "The agent wants to run a destructive command on the working tree.\n\nProposed: git reset --hard origin/main && rm -rf node_modules";
+
+const DEMO_OPERATOR_CHOICES: readonly string[] = [
+  "Cancel — keep working tree",
+  "Allow this once",
+  "Open diff first",
+];
+
+const DEMO_MODEL_ITEMS: readonly string[] = [
+  "claude-sonnet-4 * [anthropic]",
+  "gpt-5 * [openai]",
+  "gemini-2.5-pro * [google]",
+  "grok-3 * [xai]",
 ];
 
 const DEMO_PLUGINS_ITEMS: readonly string[] = [
@@ -208,17 +224,17 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   }
 
   if (key.name === "p" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
-    openPermissionsOverlay(shell);
+    openPermissionsOverlay(shell, { items: DEMO_PERMISSION_ITEMS });
     return;
   }
 
   if (key.name === "o" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
-    openOperatorOverlay(shell);
+    openOperatorOverlay(shell, { body: DEMO_OPERATOR_BODY, choices: DEMO_OPERATOR_CHOICES });
     return;
   }
 
   if (key.name === "m" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
-    openModelPickerOverlay(shell);
+    openModelPickerOverlay(shell, { items: DEMO_MODEL_ITEMS });
     return;
   }
 

@@ -4,18 +4,19 @@
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
 import {
-  createAppShell,
   noticeText,
+  setMcpNeedsAuth,
+  setPluginNeedsAttention,
+  setStatusFlash,
+} from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { setShellBridgeHooks, setShellExitHandler } from "./shell/internals";
+import {
   setPromptCostContext,
   setPromptModelLabel,
   setPromptWorkspace,
-  setMcpNeedsAuth,
-  setPluginNeedsAttention,
-  setShellBridgeHooks,
-  setShellExitHandler,
-  setStatusFlash,
   submitPrompt,
-} from "./shell";
+} from "./shell/prompt";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 import { UI } from "./theme";
 

@@ -84,7 +84,7 @@ authorization (`/mcp` is the surface that names them), painted in
 not spent on these standing marks. The brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
-`src/tui/shell.ts`). Context occupancy rides that bottom rule as a percent:
+`src/tui/shell/internals.ts`). Context occupancy rides that bottom rule as a percent:
 0–60 `UI.textDim`, 61–80 `UI.warning`, 81–100 `UI.error`; an optional cost
 suffix stays dim. Both rules cost zero transcript rows because they
 ride the prompt box's own border.
@@ -265,7 +265,7 @@ for `/status` or an operator question mid-run.
 A blocking surface (permissions, an operator question, the model/provider
 picker, help) occupies the shell's **single overlay host**
 (`src/tui/geometry/resolve.ts`,
-`src/tui/shell.ts:openListOverlay`). A second command surface replaces a
+`src/tui/shell/overlay-host.ts:openListOverlay`). A second command surface replaces a
 non-gate list on that host, or waits with a system line while a live
 gate holds it. Palette may stack over a primary; Escape always walks
 back along a single path to the prompt.
@@ -316,17 +316,23 @@ transcript, because that text would otherwise be unreachable before
 approval. That dump carries no gutter label.
 
 The decision surfaces (permission approval, operator question) are the one
-framed content in the shell, and they are shaped rather than merely listed
-(`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
-subject in the action color — the only Breakthrough Orange on the card.
-The overlay host border and title use calm dim chrome (`UI.textDim`);
-consequence impact in the description zone paints `UI.warning` (sand), not
-orange. A blank row separates the subject from context. Choices wrap on word
-boundaries — never middle-ellipsized — to a shared row count at the current
-width (minimum two rows so short labels still breathe; a taller wrap raises
-every choice to the same height so list paging stays a simple multiple). The
-active choice is marked by a solid block (`█`) rather than a background fill
-(cream text, not orange).
+framed content in the shell, and their body is shaped rather than merely
+listed (`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
+subject in the action color — the only Breakthrough Orange on the card. The
+overlay host border and title use calm dim chrome (`UI.textDim`); consequence
+impact in the description zone paints `UI.warning` (sand), not orange. A
+blank row separates the subject from context. Choices are deliberately small:
+each one is a bare, single-line action name (`Reject`, `Accept once`, the
+scope's label) with no consequence text folded into the row. A scope's hint
+paints instead as a body message above the choice list
+(`permissionBodyFromRequest` in `src/tui/gate-wire.ts`), and the expand key,
+which binds only when the subject carries collapsed payloads, reveals the
+full body — collapsed payloads and hints alike — in the overlay
+and, whole, in the transcript. Every choice reserves the same fixed two rows
+(label plus a row of air) so list paging stays a simple multiple. The active
+choice is marked by text color alone — cream (`UI.text`) against the dim rows
+— with no leading marker, block, or background fill (`createOverlayList` in
+`src/tui/shell/overlay-list.ts`).
 
 ## How selectors should work
 
@@ -344,7 +350,7 @@ explicit pick and can go stale (`ProductHostConfig.activeModelId`'s doc
 comment and `annotateCurrent` in `src/tui/product-host.ts`).
 
 The `/` command list specifically (`src/tui/command-catalog.ts`,
-`shell.ts:openPalette`/`repaintPalette`): width matches the prompt box — both
+`src/tui/shell/palette.ts:openPalette`/`repaintPalette`): width matches the prompt box — both
 are painted at the geometry resolver's shared `contentWidth`
 (`geometry/resolve.ts:assignRects`, `overlay-view.ts:overlayRowWidth`). There is no
 leading marker column and no per-row kind column; the selected row is marked
@@ -378,14 +384,14 @@ queued gate); Enter then dismisses and leaves the prompt as typed (`/z`).
 Every entry is backed by the live command registry
 (`src/tui/command-catalog.ts:commandItemsFromRegistry`) — there is no
 separate palette overlay and no shell-owned action outside the registry. The
-overlay this reuses is still internally called `"palette"` (`shell.ts`'s
+overlay this reuses is still internally called `"palette"` (`src/tui/shell/internals.ts`'s
 `PrimaryOverlayKind`), a naming leftover from when a Ctrl+O command palette
 also opened it; that chord is gone (see keybindings.ts), and the identifier
 stayed because renaming an internal overlay tag has no user-facing effect.
 
 `?` no longer binds anything — it is a literal character everywhere, prompt
 or transcript. The shortcut list it used to open is still reachable, as
-`/help` (`src/tui/commands/built-in.ts`, routed to `shell.ts:openHelpOverlay`
+`/help` (`src/tui/commands/built-in.ts`, routed to `src/tui/shell/palette.ts:openHelpOverlay`
 via `openCommandSurface`'s `"help"` case, `command-surfaces.ts`); the `/` row
 in `SHELL_SHORTCUTS` documents that in place of a dedicated `?` row.
 
@@ -408,7 +414,7 @@ permissions. An 80-column terminal still seats the compact mark next to
 them; when the terminal is too narrow, the hints win and the mark drops.
 
 The running build version is chrome, not part of the landing composition:
-`shell.ts`'s `versionRow`/`versionBadge`, a dedicated row pinned to the
+`src/tui/shell/index.ts`'s `versionRow`/`versionBadge`, a dedicated row pinned to the
 terminal's last line and right-aligned, distinct from `landing.ts`'s hero and
 below sections. It only reserves that row while the landing screen is
 showing (`relayout`'s `versionReserved`/`terminalForGeometry`) — once there
@@ -427,7 +433,7 @@ runs — sees one row fewer than the real terminal. The badge does not sit in
 way the task or agents panel is. An operator composing a long prompt on the
 landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
 known, accepted cost of the badge rather than an oversight — see
-`terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
+`terminalForGeometry`'s doc comment in `src/tui/shell/layout.ts` for the exact mechanism.
 
 While the landing is mounted, a mount-scoped 125ms timer advances snow
 across a frozen mountain. It is cancelled on the first real transcript
@@ -586,13 +592,13 @@ Up/Down are caret motion first inside a multi-line buffer. History recall
 only fires when the caret is already at the first or last wrapped row of the
 buffer — i.e., has nowhere further to go
 (`promptCaretAtFirstRow`/`promptCaretAtLastRow` in `prompt-input.ts`,
-consumed in `shell.ts`'s key handler). This is deliberate, not incidental:
+consumed in `src/tui/shell/keys.ts`'s key handler). This is deliberate, not incidental:
 with DEC mouse reporting on, a terminal translates a wheel tick into the same
 arrow-key byte sequence as a real keypress, so scroll and history navigation
 cannot both be arrow-driven at the same time without one shadowing the
 other. That is also why the main shell routes the mouse wheel to the
 transcript rather than the prompt even when the wheel event hits the prompt's
-own hit-tested region (`routePromptWheelToTranscript`, `shell.ts`) — arrow
+own hit-tested region (`routePromptWheelToTranscript`, `src/tui/shell/keys.ts`) — arrow
 keys stay history/caret, wheel stays transcript scroll, and the two never
 collide.
 
@@ -602,17 +608,17 @@ paste replayed as raw keystrokes on a terminal that never sends a real
 `paste` event, so pasted multi-line text does not get split into multiple
 sent messages. Once a real `paste` event has fired even once, the fallback
 heuristic is permanently skipped for the rest of the session
-(`shell.ts`, the `sawBracketedPaste` guard).
+(`src/tui/shell/keys.ts`, the `sawBracketedPaste` guard).
 
 Ctrl+V and Ctrl+P attach a PNG from the macOS clipboard
-(`attachClipboardImage` in `shell.ts` → `readClipboardImage` in
+(`attachClipboardImage` in `src/tui/shell/prompt.ts` → `readClipboardImage` in
 `image-attachments.ts`).
 Cmd+V stays text (bracketed paste above). Clipboard image attach is
 macOS-only; Linux/Windows bitmap clipboard paste is not supported.
 `/paste-image` is the same attach path.
 
 @-mention path completion opens a popup keyed off the `@token` under the
-cursor (`openAtMentionSuggestions`, `src/tui/shell.ts`); every keystroke re-queries,
+cursor (`openAtMentionSuggestions`, `src/tui/shell/internals.ts`); every keystroke re-queries,
 and a generation counter discards a slower, stale query's results if a newer
 one already landed. Accept is refused unless that generation is still current
 and a live `@` token is under the cursor (the same `@` the lookup started on).
@@ -631,7 +637,7 @@ Consecutive kills in the same direction accumulate into one ring entry the
 way readline does, so a `Ctrl+K Ctrl+K … Ctrl+Y` sequence restores the whole
 killed run in original order.
 
-The prompt repaints on every keystroke (`onFrame` in `shell.ts` calls
+The prompt repaints on every keystroke (`onFrame` in `src/tui/shell/index.ts` calls
 `syncPromptRows`/`syncTranscriptSpacer`/`syncNoticeAfterLayout` every frame,
 not on a debounce) — anything added to the prompt's paint path must stay
 cheap, because it runs at typing speed.
@@ -642,7 +648,7 @@ attachments. Clearing prompt text arms a 2-second quit window
 Ctrl+C while the window is open quits — this
 replaced an Ink-era yes/no exit-confirm modal with the same intent (an
 explicit second confirmation) without adding a modal (`handleCtrlC`,
-`shell.ts`). See "Soft steer vs. follow-up" above for the two
+`src/tui/shell/prompt.ts`). See "Soft steer vs. follow-up" above for the two
 mid-run gestures and what interrupting does to fleet-agent lanes. The interrupt
 keeps whatever is sitting in the queue rather than discarding it — the
 operator typed those messages meaning them delivered, not meaning "cancel
@@ -671,7 +677,7 @@ running its own selection. Two chords cover remaining copy needs:
   `ttlMs: RUNTIME_FLASH_MS` so they clear themselves; omit TTL only for
   live conditions that stay true until replaced (stall notice, landing hold).
 - **Alt+M** toggles DEC mouse reporting off and back on
-  (`toggleMouseCapture`, `shell.ts`). Off, the terminal's own drag-select
+  (`toggleMouseCapture`, `src/tui/shell/copy.ts`). Off, the terminal's own drag-select
   and copy work exactly as in any other terminal program; the status flash
   names the trade both ways ("Mouse released · drag to select and copy as
   usual · Alt+M to click rows" / "Mouse captured · drag text to copy ·

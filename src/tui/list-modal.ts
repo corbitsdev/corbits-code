@@ -12,12 +12,10 @@ import {
   residualListFromCatalog,
   type ResidualCatalogEntry,
 } from "./residuals.js";
-import {
-  appendStreamRow,
-  createAppShell,
-  openListOverlay,
-  type PrimaryOverlayKind,
-} from "./shell.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import type { PrimaryOverlayKind } from "./shell/internals.js";
+import { openListOverlay } from "./shell/overlay-host.js";
 
 export interface ListModalConfig {
   /** Overlay title (also the shell header base title). */

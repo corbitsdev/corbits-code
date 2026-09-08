@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { resolveLocalSettingsPath } from "../config/settings.js";
-import { resolveExitCode } from "./runner.js";
+import { resolveExitCode } from "./runner/exit.js";
 
 describe("resolveExitCode", () => {
   test("returns 0 when run completes successfully with no errors", () => {

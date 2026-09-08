@@ -19,37 +19,38 @@ import { describe, expect, test } from "bun:test";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
 import { helpItems, SHELL_SHORTCUTS } from "./keybindings.js";
 import { createHarness, withTestRenderer, type Harness } from "./harness.js";
-import { mountRunnerHost } from "./runner-host.js";
+import { mountRunnerHost } from "./runner/host.js";
 import { openCommandSurface } from "./command-surfaces.js";
 import { focusOwner } from "./focus/focus-state.js";
-import { setChromeZones } from "./shell.js";
 import {
-  addPendingAttachment,
+  setChromeZones,
   appendStreamRow,
-  applyShellInterrupt,
-  createAppShell,
+  setShellRunState,
+  shellFocusPrompt,
+  shellFocusTranscript,
+  truncateStreamRows,
+} from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import {
   isSlashPopupOpen,
-  leaveSubagentObserve,
-  openHelpOverlay,
   setMentionSuggestionSource,
-  setPaletteCatalog,
   setPaletteOnObserveRequest,
   setPromptImageSource,
-  setSentMessageHistory,
   setShellBridgeHooks,
   setShellExitHandler,
   setEffortCycleHandler,
   clearShellBridgeHooks,
-  setShellRunState,
-  shellFocusPrompt,
-  shellFocusTranscript,
-  streamRowAt,
-  streamRowCount,
-  submitPrompt,
-  truncateStreamRows,
   type AppShell,
-} from "./shell.js";
-
+} from "./shell/internals.js";
+import { leaveSubagentObserve } from "./shell/observe.js";
+import { openHelpOverlay, setPaletteCatalog } from "./shell/palette.js";
+import {
+  addPendingAttachment,
+  applyShellInterrupt,
+  setSentMessageHistory,
+  submitPrompt,
+} from "./shell/prompt.js";
+import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 /* --------------------------------------------------------------------- */
 /* Chord string → the bytes a terminal actually writes                     */
 /* --------------------------------------------------------------------- */

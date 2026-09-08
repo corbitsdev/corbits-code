@@ -5,7 +5,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, createAppShell, replaceStreamRowAt, streamRowCount } from "./shell";
+import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { streamRowCount } from "./shell/transcript";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log";
 
 async function settle(h: { renderOnce: () => Promise<void> }): Promise<void> {

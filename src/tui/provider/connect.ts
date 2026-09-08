@@ -5,12 +5,10 @@
  * implemented there) — reused via `initialProviderId`, not reimplemented.
  */
 
-import type { Settings } from "../config/settings.js";
-import {
-  buildProviderSubmitHandler,
-  type PersistProviderSettings,
-} from "./provider-setup-submit.js";
-import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js";
+import type { Settings } from "../../config/settings.js";
+import { runProviderSetup } from "./setup.js";
+import type { ProviderSetupConfig } from "./types.js";
+import { buildProviderSubmitHandler, type PersistProviderSettings } from "./submit.js";
 
 export interface ConnectProviderInput {
   readonly providerId: string;

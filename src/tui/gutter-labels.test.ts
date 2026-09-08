@@ -7,13 +7,9 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness.js";
 import { overlayKindWord } from "./overlay-body.js";
-import {
-  acceptOverlaySelection,
-  createAppShell,
-  openListOverlay,
-  type AppShell,
-  type PrimaryOverlayKind,
-} from "./shell.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell, PrimaryOverlayKind } from "./shell/internals.js";
+import { acceptOverlaySelection, openListOverlay } from "./shell/overlay-host.js";
 import { streamRowGutter, type RowLayout } from "./stream.js";
 
 const OVERLAY_KIND_GUTTER = {

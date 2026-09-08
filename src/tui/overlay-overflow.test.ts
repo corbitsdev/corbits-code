@@ -10,15 +10,13 @@ import { describe, expect, test } from "bun:test";
 import type { PermissionRequest } from "../permission/types.js";
 import { withTestRenderer } from "./harness.js";
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js";
-import {
-  acceptOverlaySelection,
-  appendStreamRow,
-  createAppShell,
-  moveOverlaySelection,
-  type AppShell,
-} from "./shell.js";
-import { visibleSlice } from "./list-viewport.js";
-import { makePermissionItems, openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell } from "./shell/internals.js";
+import { acceptOverlaySelection } from "./shell/overlay-host.js";
+import { moveOverlaySelection } from "./shell/overlay-list.js";
+import { makePermissionItems } from "./harness.js";
+import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import {
   operatorChoicesFromOptions,
   permissionBodyFromRequest,
@@ -52,7 +50,7 @@ function activeVisible(shell: AppShell): void {
   const list = shell.overlayList;
   expect(list).not.toBeNull();
   if (!list) return;
-  const slice = visibleSlice(list);
+  const slice = list.visibleRange();
   expect(list.activeIndex).toBeGreaterThanOrEqual(slice.start);
   expect(list.activeIndex).toBeLessThan(slice.end);
 }

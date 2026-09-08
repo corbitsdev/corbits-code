@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { getLogger } from "@intx/log";
 
 import { installFileLogSink } from "../logging/sink.js";
-import { createAppShell } from "./shell.js";
+import { createAppShell } from "./shell/index.js";
 import { withTestRenderer } from "./harness.js";
 
 describe("log sink during a live TUI session", () => {

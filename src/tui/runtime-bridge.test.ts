@@ -7,7 +7,9 @@ import {
   type TaskProgressSession,
 } from "./runtime-bridge";
 import { DEFAULT_STALL_MS } from "./agent-progress";
-import { appendStreamRow, createAppShell, paintChrome, streamRowCount } from "./shell";
+import { appendStreamRow, paintChrome } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import { withTestRenderer } from "./harness";
 import { badgeCount } from "./session-queue";
@@ -616,6 +618,9 @@ describe("attachSessionBridge", () => {
             type: "inference.text.delta",
             data: { token: "the answer." },
           });
+          // Deltas coalesce: the accumulated text lands at the next renderer
+          // frame, not per token.
+          await h.renderOnce();
 
           const assistant = shell.streamLog.filter((r) => r.role === "assistant");
           expect(assistant).toHaveLength(1);
@@ -1416,11 +1421,8 @@ describe("syncAgentProgress", () => {
           wireKeys: false,
           run: "busy",
         });
-        // Padding rows ahead of the dispatch: proves churn stays bounded by
-        // outstanding task calls, not by transcript length.
-        for (let i = 0; i < 40; i++) {
+        for (let i = 0; i < 40; i++)
           appendStreamRow(shell, { role: "assistant", text: `filler ${i}` });
-        }
         let nowMs = 0;
         const bridge = attachSessionBridge(shell, createRecordingPort(), {
           now: () => nowMs,
@@ -1443,9 +1445,9 @@ describe("syncAgentProgress", () => {
           bridge.syncAgentProgress([
             taskSession({ currentToolName: "grep", lastActivityAt: nowMs }),
           ]);
+          await h.renderOnce();
 
           expect(streamRowCount(shell)).toBe(rowCountBefore);
-          // One rewrite per changed tick, never proportional to the 40 padding rows.
           expect(removeSpy.mock.calls.length).toBeLessThanOrEqual(2);
 
           const row = shell.streamLog[rowCountBefore - 1]!;
@@ -1457,6 +1459,7 @@ describe("syncAgentProgress", () => {
           bridge.syncAgentProgress([
             taskSession({ currentToolName: "grep", lastActivityAt: 42_000 }),
           ]);
+          await h.renderOnce();
           const stalledRow = shell.streamLog[rowCountBefore - 1]!;
           expect(stalledRow.agentWorking).toBe(false);
 
@@ -1542,6 +1545,7 @@ describe("syncAgentProgress", () => {
           const index = shell.streamLog.length - 1;
           nowMs = 42_000;
           bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })]);
+          await h.renderOnce();
           const row = shell.streamLog[index]!;
           expect(row.agentWorking).toBe(true);
           expect(row.stat).toContain("grep");
@@ -1586,6 +1590,7 @@ describe("in-flight tool row elapsed time", () => {
 
           nowMs = 65_000;
           tick?.();
+          await h.renderOnce();
           expect(shell.streamLog[index]!.stat).toBe("1:05");
 
           bridge.handle({

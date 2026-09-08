@@ -10,19 +10,11 @@ import { join } from "node:path";
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import type { PendingImageAttachment } from "./image-attachments.js";
-import {
-  CTRL_C_EXIT_WINDOW_MS,
-  addPendingAttachment,
-  clearPendingAttachments,
-  createAppShell,
-  handleCtrlC,
-  isSlashPopupOpen,
-  noticeText,
-  setShellExitHandler,
-  setShellRunState,
-  setStatusFlash,
-  type AppShell,
-} from "./shell";
+import { noticeText, setShellRunState, setStatusFlash } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import { isSlashPopupOpen, setShellExitHandler, type AppShell } from "./shell/internals";
+import { CTRL_C_EXIT_WINDOW_MS, handleCtrlC } from "./shell/keys";
+import { addPendingAttachment, clearPendingAttachments } from "./shell/prompt";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 
 const CATALOG: readonly PaletteCommand[] = [

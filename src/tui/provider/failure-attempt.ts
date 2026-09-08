@@ -1,4 +1,4 @@
-import type { InferenceErrorLike } from "../inference-gateway-error.js";
+import type { InferenceErrorLike } from "../../inference-gateway-error.js";
 
 export interface ProviderFailureAttempt {
   observed: boolean;

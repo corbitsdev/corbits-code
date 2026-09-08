@@ -1,15 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { CliRenderEvents } from "@opentui/core";
 import { createHarness, type Harness } from "./harness";
-import {
-  appendStreamRow,
-  confirmCopySelection,
-  copyAllTargets,
-  createAppShell,
-  enterCopyMode,
-  toggleMouseCapture,
-  type FlashSchedule,
-} from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { enterCopyMode, toggleMouseCapture } from "./shell/copy";
+import { createAppShell } from "./shell/index";
+import type { FlashSchedule } from "./shell/internals";
+import { confirmCopySelection, copyAllTargets } from "./shell/overlay-host";
 import { createRecordingClipboard } from "./copy-path";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 

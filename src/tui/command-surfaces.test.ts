@@ -23,17 +23,15 @@ import type { KeyEvent } from "@opentui/core";
 import { focusOwner } from "./focus/index.js";
 import { withTestRenderer, type Harness } from "./harness";
 import { projectPluginsRoot, userPluginsRoot } from "../plugins/uninstall.js";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
+import { acceptOverlaySelection, closeInsetOverlay, openListOverlay } from "./shell/overlay-host";
 import {
-  acceptOverlaySelection,
-  closeInsetOverlay,
-  createAppShell,
   cycleOverlaySelection,
   moveOverlaySelection,
-  openListOverlay,
-  openPalette,
   runOverlayAction,
-  type AppShell,
-} from "./shell";
+} from "./shell/overlay-list";
+import { openPalette } from "./shell/palette";
 
 function baseSnapshot(): SettingsSnapshot {
   return {

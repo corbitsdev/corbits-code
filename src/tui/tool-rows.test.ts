@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { toolCallRow } from "./diff";
 import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
-import { createAppShell } from "./shell";
+import { createAppShell } from "./shell/index";
 import {
   isCollapsibleRow,
   paintStreamRow,
@@ -297,8 +297,7 @@ describe("a live turn", () => {
         const bridge = attachSessionBridge(shell, createRecordingPort());
         try {
           const ids = ["c1", "c2", "c3", "c4"];
-          // Every call is dispatched before any answer lands, which is what an
-          // ordinary parallel batch looks like on the wire.
+          // Every call is dispatched before any answer lands (a parallel batch).
           bridge.play(
             ids.map((callId) => ({
               type: "inference.tool_call.end",
@@ -309,6 +308,7 @@ describe("a live turn", () => {
               },
             })),
           );
+          await h.renderOnce();
           expect(shell.streamLog.length).toBe(1);
           expect(shell.streamLog[0]?.coalesced).toBe(true);
           expect(shell.streamLog[0]?.pending).toBe(true);

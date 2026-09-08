@@ -9,14 +9,14 @@ import type { OperatorResult } from "../agent/tools.js";
 import { formatCommandForApproval } from "./command-display.js";
 import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
 import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
-import type { AppShell, OverlaySelection } from "./shell.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import type { AppShell, OverlaySelection } from "./shell/internals.js";
 import {
-  appendStreamRow,
   closeInsetOverlay,
   isOverlayHostIdle,
   onOverlayClosed,
   setOverlayBody,
-} from "./shell.js";
+} from "./shell/overlay-host.js";
 import { EXPAND_KEY } from "./stream.js";
 import type { OperatorGateEvent, PermissionGateEvent } from "./gate-events.js";
 import {
@@ -52,7 +52,10 @@ export interface GateSelection {
 
 /**
  * Build permission overlay rows from a live PermissionRequest.
- * Order: Reject → Accept once → request.scopes (label + optional hint).
+ * Order: Reject → Accept once → request.scopes. Labels are bare so the choice
+ * list stays short action names; each scope's hint paints in the body above
+ * the list (see permissionBodyFromRequest) instead of being truncated inside
+ * a choice row.
  */
 export function permissionChoicesFromRequest(request: PermissionRequest): PermissionGateChoices {
   const items: string[] = [];
@@ -68,8 +71,7 @@ export function permissionChoicesFromRequest(request: PermissionRequest): Permis
   outcomes.push({ allow: true });
 
   for (const scope of request.scopes) {
-    const label = scope.hint ? `${scope.label} (${scope.hint})` : scope.label;
-    items.push(label);
+    items.push(scope.label);
     itemIds.push(scope.id);
     outcomes.push({
       allow: true,
@@ -109,6 +111,10 @@ export interface PermissionBodyOpts {
  * The subject is rendered through the approval formatter so a chained command
  * shows one numbered line per segment and bulk payloads collapse to a
  * placeholder the operator can expand before approving.
+ *
+ * Scope hints ride here, above the choice list: the choices stay bare action
+ * names, and the expand key dumps this body whole, so the consequence text is
+ * reachable even when the overlay's context budget clips it.
  */
 export function permissionBodyFromRequest(
   request: PermissionRequest,
@@ -127,6 +133,7 @@ export function permissionBodyFromRequest(
     request.tool,
     request.action,
     ...display.lines,
+    ...request.scopes.flatMap((scope) => (scope.hint ? [`${scope.label}: ${scope.hint}`] : [])),
     request.agentLabel ? `agent: ${request.agentLabel}` : "",
     request.notice ?? "",
     hint,

@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 const { runListModal } = await import("./list-modal.js");
-const { runProviderSetup } = await import("./provider-setup.js");
+const { runProviderSetup } = await import("./provider/setup.js");
 
 async function waitForMount(): Promise<void> {
   for (let i = 0; i < 100 && capturedOptions.length === 0; i++) {

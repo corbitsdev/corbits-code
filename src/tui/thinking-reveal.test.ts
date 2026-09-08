@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { advanceRevealChars, LIVE_THINKING_MAX_LINES, thinkingLivePreviewLines } from "./thinking";
 import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
-import { createAppShell } from "./shell";
+import { createAppShell } from "./shell/index";
 
 function fakeMonitor(): {
   readonly monitor: {

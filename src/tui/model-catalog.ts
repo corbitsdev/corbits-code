@@ -14,7 +14,7 @@ import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { lookupModelPricing, type PricingCache } from "../cost/pricing-fetcher.js";
 import { contextWindowFor, hasContextWindowFor } from "../provider/context-window.js";
 import { modelReasoningCapability } from "../provider/reasoning-effort.js";
-import type { ItemDescription } from "./shell.js";
+import type { ItemDescription } from "./shell/internals.js";
 
 export type ModelCatalogSection = "recent" | "favorites" | "provider";
 

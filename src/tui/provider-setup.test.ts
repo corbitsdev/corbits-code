@@ -18,34 +18,40 @@ import {
   addProviderSelectorChoices,
   connectedAccountCount,
   CUSTOM_CHOICE_ID,
-  failureGuidance,
   instanceSlugsForKind,
-  LOGIN_CANCELLED_MESSAGE,
-  LOGIN_TIMEOUT_MESSAGE,
-  maskEcho,
-  maskSecret,
   modelChoiceRows,
   modelFromRowId,
   providerChoiceById,
   providerChoiceRows,
   providerChoices,
   resolveApiKeyInstanceName,
-  runProviderSetup,
+  TYPE_MODEL_ID,
+} from "./provider/choices.js";
+import {
+  failureGuidance,
+  maskEcho,
+  maskSecret,
   secretFromMaskedEdit,
   stepHeadline,
   stepReady,
-  stepsFor,
-  suggestOAuthProfileSlug,
   summaryRows,
-  TYPE_MODEL_ID,
+} from "./provider/form.js";
+import {
+  LOGIN_CANCELLED_MESSAGE,
+  LOGIN_TIMEOUT_MESSAGE,
+  suggestOAuthProfileSlug,
   validateOAuthProfileSlug,
-  type OAuthLoginStart,
-  type OAuthLoginStarter,
-  type OAuthProfileLister,
-  type ProviderFormValues,
-  type ProviderSetupSubmit,
-  type SubmitOpts,
-} from "./provider-setup.js";
+} from "./provider/oauth.js";
+import { runProviderSetup } from "./provider/setup.js";
+import { stepsFor } from "./provider/steps.js";
+import type {
+  OAuthLoginStart,
+  OAuthLoginStarter,
+  OAuthProfileLister,
+  ProviderFormValues,
+  ProviderSetupSubmit,
+  SubmitOpts,
+} from "./provider/types.js";
 
 const EMPTY: ProviderFormValues = {
   name: "",

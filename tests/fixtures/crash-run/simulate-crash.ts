@@ -7,7 +7,7 @@ import { installCrashHandlers } from "../../../src/index.js";
 import { setActiveRun, setTestWriteGate } from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { finalizeRunState, saveState } from "../../../src/session/state.js";
-import { clearsActiveRun } from "../../../src/tui/runner.js";
+import { clearsActiveRun } from "../../../src/tui/runner/exit.js";
 
 const cwd = process.cwd();
 const sessionId = process.env["CRASH_TEST_SESSION_ID"];

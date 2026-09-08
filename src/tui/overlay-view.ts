@@ -1,14 +1,13 @@
 import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
 import { middleEllipsis } from "./command-display.js";
 import { formatPaletteRows, type PaletteCommand } from "./command-catalog.js";
-import { visibleSlice, type ListViewportState } from "./list-viewport.js";
-import {
-  decisionChoiceRows,
-  decisionChoiceRowCount,
-  describeZoneLines,
-  DESCRIPTION_ZONE_LINES,
-} from "./overlay-body.js";
-import type { ItemDescription, OpenListOverlayOpts, PrimaryOverlayKind } from "./shell.js";
+import type {
+  OverlayList,
+  ItemDescription,
+  OpenListOverlayOpts,
+  PrimaryOverlayKind,
+} from "./shell/internals.js";
+import { DECISION_CHOICE_ROWS, describeZoneLines, DESCRIPTION_ZONE_LINES } from "./overlay-body.js";
 import { destroySubtree } from "./teardown.js";
 import { UI } from "./theme.js";
 
@@ -26,7 +25,7 @@ export interface OverlayListPresentation {
   readonly kind: PrimaryOverlayKind | null;
   readonly items: readonly string[];
   readonly paletteCommands: readonly Pick<PaletteCommand, "label">[];
-  readonly viewport: ListViewportState | null;
+  readonly list: OverlayList | null;
   readonly bodyLines: readonly string[];
   readonly bodyFgs: readonly string[];
   readonly answer: { readonly text: string; readonly active: boolean } | null;
@@ -65,13 +64,10 @@ export function isDecisionOverlay(kind: PrimaryOverlayKind | null): boolean {
 }
 
 /** Display rows one list item occupies for the open overlay. */
-export function overlayRowsPerItem(
-  kind: PrimaryOverlayKind | null,
-  items: readonly string[],
-  contentWidth: number,
-): number {
-  if (!isDecisionOverlay(kind)) return 1;
-  return decisionChoiceRowCount(items, overlayRowWidth(contentWidth));
+export function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
+  // Decision rows paint SelectRenderable's fixed name + description pair, so
+  // the reservation is that pair — a growing budget leaves a blank band.
+  return isDecisionOverlay(kind) ? DECISION_CHOICE_ROWS : 1;
 }
 
 /**
@@ -281,11 +277,12 @@ export function createOverlayView(ctx: RenderContext) {
   /**
    * Selection is a text colour, not a marker or a filled band: the highlighted
    * row already stands out by sitting under the cursor, so a leading `>` and a
-   * grey block would both be saying the same thing twice.
+   * grey block would both be saying the same thing twice. The palette keeps
+   * even the indicator glyph off — its rows are aligned columns.
    */
   function paintPaletteList(
     commands: OverlayListPresentation["paletteCommands"],
-    list: ListViewportState,
+    list: OverlayList,
     contentWidth: number,
   ): void {
     const interior = overlayInteriorWidth(contentWidth);
@@ -293,13 +290,10 @@ export function createOverlayView(ctx: RenderContext) {
       commands.map((command) => command.label),
       Math.max(4, interior - 1),
     );
-    const slice = visibleSlice(list);
-    for (let i = slice.start; i < slice.end; i++) {
-      const line = lines[i] ?? "";
-      const active = i === list.activeIndex;
-      const content = ` ${line}`.padEnd(interior);
-      addOverlayRow(content, active ? UI.text : UI.textDim);
-    }
+    list.setHeight(list.height, 1);
+    list.select.showSelectionIndicator = false;
+    list.select.options = lines.map((line) => ({ name: line, description: "" }));
+    body.add(list.select);
   }
 
   /** Paint the fixed rule + two-line description zone under the list, when `describe` is set. */
@@ -335,8 +329,17 @@ export function createOverlayView(ctx: RenderContext) {
     addOverlayRow(` ${label}${tail}${ANSWER_CURSOR}`, UI.text);
   }
 
+  /**
+   * Detach the SelectRenderable before `clearBody` destroys the body's
+   * children — the list owns it across paints, it only re-homes.
+   */
+  function detachList(list: OverlayList): void {
+    if (list.select.parent === body) body.remove(list.select);
+  }
+
   function paintList(presentation: OverlayListPresentation, contentWidth: number): void {
-    const list = presentation.viewport;
+    const list = presentation.list;
+    if (list) detachList(list);
     clearBody();
     if (!list) return;
     presentation.bodyLines.forEach((line, i) => {
@@ -348,20 +351,19 @@ export function createOverlayView(ctx: RenderContext) {
       return;
     }
     const decision = isDecisionOverlay(presentation.kind);
-    const width = overlayRowWidth(contentWidth);
-    const perItem = overlayRowsPerItem(presentation.kind, presentation.items, contentWidth);
-    const slice = visibleSlice(list);
-    for (let i = slice.start; i < slice.end; i++) {
-      const label = presentation.items[i] ?? `item ${i}`;
-      const active = i === list.activeIndex;
-      if (!decision) {
-        addOverlayRow(` ${active ? ">" : " "} ${label}`, active ? UI.text : UI.textDim);
-        continue;
-      }
-      for (const row of decisionChoiceRows(label, active, width, perItem)) {
-        addOverlayRow(` ${row.text}`, row.fg);
-      }
-    }
+    // Choice labels are bare action names (scope hints paint in the body
+    // above), so each one paints SelectRenderable's name row plus its reserved
+    // second row of air — nothing wraps, nothing clips.
+    list.setHeight(list.height, decision ? DECISION_CHOICE_ROWS : 1);
+    list.select.showSelectionIndicator = true;
+    list.select.options = presentation.items.map((label) => ({
+      name: label,
+      description: "",
+    }));
+    // An empty list renders nothing — the renderable would still claim a row
+    // for its background, spending layout budget a chooser with no choices did
+    // not reserve.
+    if (presentation.items.length > 0) body.add(list.select);
     paintAnswerRow(presentation.answer, contentWidth);
     paintDescriptionZone(presentation.describe, contentWidth);
   }

@@ -8,16 +8,12 @@ import type { KeyEvent } from "@opentui/core";
 import type { PermissionRequest } from "../permission/types.js";
 import { AGENTS_PANEL_LINGER_MS } from "./chrome-state.js";
 import { createHarness } from "./harness.js";
-import {
-  acceptOverlaySelection,
-  handleListFilterKey,
-  moveOverlaySelection,
-  runOverlayAction,
-} from "./shell.js";
+import { acceptOverlaySelection } from "./shell/overlay-host.js";
+import { moveOverlaySelection, runOverlayAction } from "./shell/overlay-list.js";
+import { handleListFilterKey } from "./shell/palette.js";
 import {
   mountProductHost,
   operatorResultFromSelection,
-  permissionChoices,
   type ProductHostConfig,
 } from "./product-host.js";
 import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
@@ -78,66 +74,6 @@ async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promis
     captureCharFrame: harness.captureCharFrame,
   };
 }
-
-function makeRequest(scopes: PermissionRequest["scopes"] = []): PermissionRequest {
-  return {
-    tool: "bash",
-    action: "run",
-    subject: "ls -la",
-    scopes,
-  };
-}
-
-describe("permissionChoices", () => {
-  test("always offers Reject + Accept once with stable itemIds", () => {
-    const { items, itemIds, outcomes } = permissionChoices(makeRequest());
-    expect(items).toEqual(["Reject", "Accept once"]);
-    expect(itemIds).toEqual(["__deny__", "__once__"]);
-    expect(outcomes).toEqual([{ allow: false }, { allow: true }]);
-    expect(items).toHaveLength(itemIds.length);
-    expect(items).toHaveLength(outcomes.length);
-  });
-
-  test("appends scopes with hint labels and persist when pattern set", () => {
-    const scope = {
-      id: "session-bash",
-      label: "Allow bash for session",
-      pattern: "bash:*",
-      hint: "session",
-      grant: "session" as const,
-    };
-    const { items, itemIds, outcomes } = permissionChoices(makeRequest([scope]));
-    expect(items[2]).toBe("Allow bash for session (session)");
-    expect(itemIds[2]).toBe("session-bash");
-    expect(outcomes[2]).toEqual({ allow: true, persist: scope });
-  });
-
-  test("scope with null pattern allows without persist", () => {
-    const scope = {
-      id: "once-path",
-      label: "This path only",
-      pattern: null,
-    };
-    const { outcomes, itemIds } = permissionChoices(makeRequest([scope]));
-    expect(itemIds[2]).toBe("once-path");
-    expect(outcomes[2]).toEqual({ allow: true });
-    expect("persist" in (outcomes[2] ?? {})).toBe(false);
-  });
-
-  test("selection index maps to correct outcome (deny / once / scope)", () => {
-    const scope = {
-      id: "proj",
-      label: "Project",
-      pattern: "read:*",
-    };
-    const { outcomes } = permissionChoices(makeRequest([scope]));
-    expect(outcomes[0]).toEqual({ allow: false });
-    expect(outcomes[1]).toEqual({ allow: true });
-    expect(outcomes[2]).toEqual({ allow: true, persist: scope });
-    // out-of-range fallback used by host
-    expect(outcomes[99] ?? { allow: false }).toEqual({ allow: false });
-  });
-});
 
 describe("operatorResultFromSelection", () => {
   test("valid index → { kind: option, index }", () => {

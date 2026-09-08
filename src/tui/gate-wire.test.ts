@@ -7,17 +7,16 @@ import type { PermissionRequest } from "../permission/types.js";
 import type { KeyEvent } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness.js";
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell } from "./shell/internals.js";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
-  createAppShell,
   exitOverlayAnswerMode,
   handleOverlayAnswerKey,
-  moveOverlaySelection,
   setOverlayAnswerActive,
-  toggleOverlayExpand,
-  type AppShell,
-} from "./shell.js";
+} from "./shell/overlay-host.js";
+import { moveOverlaySelection, toggleOverlayExpand } from "./shell/overlay-list.js";
 import { streamRowGutter } from "./stream.js";
 import {
   approvalOutcomeFromSelection,
@@ -48,7 +47,7 @@ describe("permissionChoicesFromRequest", () => {
     expect(choices.outcomes).toEqual([{ allow: false }, { allow: true }]);
   });
 
-  test("appends scopes with optional hint; persist only when pattern set", () => {
+  test("appends scopes as bare labels; persist only when pattern set", () => {
     const scopeWithPattern = {
       id: "session-git",
       label: "Allow git *",
@@ -66,12 +65,7 @@ describe("permissionChoicesFromRequest", () => {
         scopes: [scopeWithPattern, onceScope],
       }),
     );
-    expect(choices.items).toEqual([
-      "Reject",
-      "Accept once",
-      "Allow git * (family)",
-      "Allow this path",
-    ]);
+    expect(choices.items).toEqual(["Reject", "Accept once", "Allow git *", "Allow this path"]);
     expect(choices.itemIds).toEqual([
       PERMISSION_DENY_ID,
       PERMISSION_ONCE_ID,
@@ -152,6 +146,24 @@ describe("permissionBodyFromRequest", () => {
         }),
       ),
     ).toBe("run_shell\nRun shell command\nbun test\nagent: explorer\nmega-chain");
+  });
+
+  test("scope hints paint in the body above the choices, collapsed and expanded", () => {
+    const request = baseRequest({
+      scopes: [
+        {
+          id: "always",
+          label: "Allow always",
+          pattern: "rm -rf *",
+          hint: "deletes generated output before the next build starts",
+        },
+        { id: "once", label: "Allow once", pattern: null },
+      ],
+    });
+    for (const opts of [{}, { expanded: true } as const]) {
+      const body = permissionBodyFromRequest(request, opts);
+      expect(body).toContain("Allow always: deletes generated output before the next build starts");
+    }
   });
 
   test("a chained command stays visibly chained, one numbered line per segment", () => {

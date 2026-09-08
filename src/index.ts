@@ -13,7 +13,7 @@ import { classifyErrorClass } from "./telemetry/classify.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import { runExec } from "./exec/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
-import { runTUI } from "./tui/runner.js";
+import { runTUI } from "./tui/runner/index.js";
 
 export interface Runners {
   runTUI: (config: import("./config/index.js").Config) => Promise<number>;

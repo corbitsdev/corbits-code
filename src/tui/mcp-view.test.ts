@@ -9,7 +9,8 @@ import { extractMcpRecord, extractMcpRecords } from "./mcp-result-format.js";
 import { toolCallRow } from "./diff";
 import { withTestRenderer, type Harness } from "./harness";
 import { mcpStructuredView, toolResultRow } from "./mcp-view";
-import { appendStreamRow, createAppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
 import { isCollapsibleRow, isMarkdownRow, isStructuredRow, type StreamRow } from "./stream";
 
 const WIDE = { width: 100, height: 24 } as const;

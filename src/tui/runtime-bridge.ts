@@ -18,19 +18,16 @@ import {
 } from "./session-queue.js";
 import {
   appendStreamRow,
-  applyShellInterrupt,
-  clearShellBridgeHooks,
   paintChrome,
   paintLanding,
   replaceStreamRowAt,
   setLockupFrame,
-  setShellBridgeHooks,
   setStatusFlash,
-  streamRowAt,
-  streamRowCount,
   truncateStreamRows,
-  type AppShell,
-} from "./shell.js";
+} from "./shell/chrome.js";
+import { clearShellBridgeHooks, setShellBridgeHooks, type AppShell } from "./shell/internals.js";
+import { applyShellInterrupt } from "./shell/prompt.js";
+import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { resolveRampPhase, resolveTurnLabel, sendFailureText } from "./session-chrome.js";
@@ -61,6 +58,7 @@ import { userRowText, type PendingImageAttachment } from "./image-attachments.js
 import { toolCallRow } from "./diff.js";
 import { toolResultRow } from "./mcp-view.js";
 import { canCoalesceCall, coalesceCallRows, mergeToolRows } from "./tool-rows.js";
+import * as rowUpdates from "./row-update-queue.js";
 import type { StreamRow } from "./stream.js";
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js";
 import {
@@ -336,7 +334,7 @@ interface TurnThinking {
 /** Blank line between the fragments a turn thought at different moments. */
 const THINKING_FRAGMENT_SEPARATOR = "\n\n";
 
-interface BridgeBag {
+export interface BridgeBag {
   port: SessionPort;
   openRow: OpenStreamRow | null;
   /**
@@ -409,6 +407,13 @@ interface BridgeBag {
    * Last-hop routing (routeQueuedDelivery) reads this when deliver runs.
    */
   liveSteerInject: boolean;
+  /**
+   * The open row has accumulated deltas since its last paint; the retext
+   * happens once per renderer frame or at the next close/settle seam.
+   */
+  dirtyOpenRow: boolean;
+  /** Tool-row repaints waiting for the frame flush (row-update-queue.ts). */
+  pendingRowUpdates: rowUpdates.PendingRowUpdates;
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>();
@@ -495,6 +500,7 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   const open = bag.openRow;
   if (open === null) return;
   bag.openRow = null;
+  bag.dirtyOpenRow = false;
   // Reasoning stops scrolling and keeps its opening line; the elapsed time and
   // the full chain of thought stay on the row, behind the expand key.
   const thought = open.kind === "thinking" ? thoughtOf(bag, open) : undefined;
@@ -512,9 +518,8 @@ function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: s
   const open = bag.openRow;
   if (open !== null && open.kind === kind) {
     open.text += text;
-    if (open.folded) paintFoldedRow(shell, bag, open);
-    else if (kind === "thinking") advanceOpenReveal(shell, open, bag.now());
-    else replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true));
+    // One repaint per renderer frame, not one per token (see flushOpenRow).
+    bag.dirtyOpenRow = true;
     return;
   }
   closeOpenRow(shell, bag);
@@ -553,11 +558,16 @@ function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: s
 
 /**
  * Advance a "thinking" row's reveal position at the bounded rate and repaint
- * if it moved. Called on every delta and on the animation tick, so the line
- * both grows with new tokens and keeps crawling through buffered text during
- * a pause in arrival — capped either way by what has actually arrived.
+ * if it moved. Called from the coalesced frame flush and the animation tick,
+ * so the line both grows with new tokens and keeps crawling through buffered
+ * text during a pause in arrival — capped either way by what has arrived.
  */
-function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number): void {
+function advanceOpenReveal(
+  shell: AppShell,
+  bag: BridgeBag,
+  open: OpenStreamRow,
+  nowMs: number,
+): void {
   // A folded row is settled text above the turn's tool rows; it has no scroll
   // line to advance.
   if (open.folded) return;
@@ -566,6 +576,7 @@ function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number):
   open.revealAt = nowMs;
   if (revealed === open.revealChars) return;
   open.revealChars = revealed;
+  bag.dirtyOpenRow = false;
   replaceStreamRowAt(
     shell,
     open.index,
@@ -574,9 +585,44 @@ function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number):
 }
 
 /**
+ * Apply the coalesced open-row paint. Deltas only accumulate text and mark the
+ * row dirty; this is the single retext — once per renderer frame (via
+ * `flushStreamRowUpdates` on the shell's frame hook) or at the next
+ * close/settle seam, whichever comes first.
+ */
+function flushOpenRow(shell: AppShell, bag: BridgeBag): void {
+  const open = bag.openRow;
+  if (open === null || !bag.dirtyOpenRow) return;
+  if (open.folded) {
+    bag.dirtyOpenRow = false;
+    paintFoldedRow(shell, bag, open);
+    return;
+  }
+  if (open.kind === "thinking") {
+    // Repaints iff the reveal position moved; a no-op leaves the row dirty so
+    // the next tick/frame retries, and closeOpenRow always applies the tail.
+    advanceOpenReveal(shell, bag, open, bag.now());
+    return;
+  }
+  bag.dirtyOpenRow = false;
+  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, true));
+}
+
+/**
+ * Flush the shell's dirty rows — the open streaming row (J1) and coalesced
+ * tool-row repaints (J3) — once per renderer frame from the shell's frame
+ * hook, so each coalesces to one application per frame.
+ */
+export function flushStreamRowUpdates(shell: AppShell): void {
+  const bag = bridges.get(shell);
+  if (bag === undefined || bag.disposed) return;
+  flushOpenRow(shell, bag);
+  rowUpdates.applyPendingRowUpdates(shell, bag);
+}
+
+/**
  * Paint a tool call. A repeat of the call the previous row already painted
- * collapses onto that row instead of opening a new one — a model that asks the
- * same question sixteen times should cost the transcript one line, not sixteen.
+ * collapses onto that row instead of opening a new one.
  */
 function applyToolCall(
   shell: AppShell,
@@ -598,7 +644,9 @@ function applyToolCall(
   const tail = streamRowAt(shell, count - 1);
   const index = canCoalesceCall(tail, row) ? count - 1 : count;
   if (tail !== undefined && index < count) {
-    replaceStreamRowAt(shell, index, coalesceCallRows(tail, row));
+    // Frame-coalesced: repeat calls fold onto the pending snapshot.
+    const effective = bag.pendingRowUpdates.get(index) ?? tail;
+    rowUpdates.scheduleRowUpdate(bag, index, coalesceCallRows(effective, row));
   } else {
     appendStreamRow(shell, row);
   }
@@ -653,7 +701,8 @@ function applyToolResult(
   }
   if (bag.toolRows.size === 0) shell.inFlightTool = null;
   const index = tracked ?? bag.lastToolRow;
-  const rawCall = streamRowAt(shell, index);
+  // A close seam: apply any coalesced update first so the merge reads it.
+  const rawCall = rowUpdates.takePendingRowUpdate(bag, index) ?? streamRowAt(shell, index);
   const call = clockOwned && rawCall !== undefined ? omitStat(rawCall) : rawCall;
   if (call === undefined || call.pending !== true) {
     appendStreamRow(shell, result);
@@ -664,11 +713,8 @@ function applyToolResult(
 
 /**
  * Refresh every tracked `spawn_agent` row with its worker's live progress —
- * elapsed time, current tool, and whether it has gone quiet. Tracking lasts
- * the worker lifetime, not the immediate spawn_agent tool_result. Rewrites
- * each row in place through `replaceStreamRowAt`; a session that finished,
- * or is missing from `sessions`, leaves its row untouched rather than
- * reverting to a bare pending mark.
+ * elapsed time, current tool, and whether it has gone quiet — for the worker
+ * lifetime, not just the spawn_agent tool_result. Repaints are frame-coalesced.
  */
 function syncAgentProgress(
   shell: AppShell,
@@ -698,9 +744,10 @@ function syncAgentProgress(
       bag.spawnProgressRows.delete(callId);
       continue;
     }
-    if (row.stat === progress.stat && row.agentWorking === progress.working) continue;
-    replaceStreamRowAt(shell, index, {
-      ...row,
+    const current = bag.pendingRowUpdates.get(index) ?? row;
+    if (current.stat === progress.stat && current.agentWorking === progress.working) continue;
+    rowUpdates.scheduleRowUpdate(bag, index, {
+      ...current,
       stat: progress.stat,
       agentWorking: progress.working,
     });
@@ -715,11 +762,8 @@ function omitStat(row: StreamRow): StreamRow {
 
 /**
  * Refresh every plain in-flight tool call's row with how long it has been
- * running. A `spawn_agent` dispatch already gets this (and more) from
- * `syncAgentProgress`, so those calls are skipped here rather than double
- * painted. Without a live clock an ordinary call's row sits on a static
- * pending mark for however long the tool takes — indistinguishable from a
- * hung turn once that stretches past a few seconds.
+ * running, frame-coalesced. `spawn_agent` dispatches already get this (and
+ * more) from `syncAgentProgress`, so they are skipped here.
  */
 function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   if (bag.toolCallStartedAt.size === 0) return;
@@ -735,9 +779,10 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
       bag.toolCallStartedAt.delete(callId);
       continue;
     }
+    const current = bag.pendingRowUpdates.get(index) ?? row;
     const stat = clockLabel(nowMs - startedAt);
-    if (row.stat === stat) continue;
-    replaceStreamRowAt(shell, index, { ...row, stat });
+    if (current.stat === stat) continue;
+    rowUpdates.scheduleRowUpdate(bag, index, { ...current, stat });
   }
 }
 
@@ -765,6 +810,7 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
     streamRowAt(shell, boundary + i),
   ).filter((row): row is StreamRow => row !== undefined && isLocallyQueuedUserRow(row));
   truncateStreamRows(shell, boundary);
+  rowUpdates.dropPendingRowUpdatesFrom(bag, boundary);
   for (const row of localRows) appendStreamRow(shell, row);
   for (const [callId, index] of [...bag.toolRows]) {
     if (index >= boundary) {
@@ -843,6 +889,10 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
  */
 function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   if (shell.session.run !== "busy") return;
+  // The turn is settling: whatever the open row accumulated must be on it
+  // before the settle paints, even if no renderer frame ran between the last
+  // delta and here.
+  flushOpenRow(shell, bag);
   bag.turnThinking = null;
   shell.inFlightTool = null;
   if (bag.liveFleet > 0) {
@@ -974,6 +1024,8 @@ export function attachSessionBridge(
     attemptRow: null,
     turnThinking: null,
     liveSteerInject: false,
+    dirtyOpenRow: false,
+    pendingRowUpdates: new Map(),
   };
   bridges.set(shell, bag);
 
@@ -1053,7 +1105,7 @@ export function attachSessionBridge(
     // mark: it needs to keep crawling through already-arrived text even when
     // no new delta has landed this tick.
     if (bag.openRow !== null && bag.openRow.kind === "thinking") {
-      advanceOpenReveal(shell, bag.openRow, nowMs);
+      advanceOpenReveal(shell, bag, bag.openRow, nowMs);
     }
     syncToolElapsed(shell, bag, nowMs);
     const input = {
@@ -1276,12 +1328,12 @@ export function attachSessionBridge(
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
   };
-
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
     shell.session = createSessionQueue("idle");
     bag.pendingEchoes.length = 0;
     bag.liveFleet = 0;
+    bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
 
@@ -1421,6 +1473,7 @@ export function attachSessionBridge(
       }
     },
     dispose: () => {
+      flushOpenRow(shell, bag);
       bag.disposed = true;
       applyCadence(null);
       clearShellBridgeHooks(shell);

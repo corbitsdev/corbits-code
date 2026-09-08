@@ -3,10 +3,11 @@
  * operator question.
  *
  * This is the one framed surface in the shell and the moment a human is asked
- * to authorize something, so it is shaped rather than listed: a dithered header
- * carrying the subject, air between the subject and the choices, and two rows
- * per choice so a long label wraps instead of clipping and short labels get
- * breathing room.
+ * to authorize something, so its body is shaped rather than listed: a dithered
+ * header carrying the subject, air between the subject and the context rows,
+ * and a trailing blank row so the choices never abut the question. Choices
+ * themselves are bare single-line action names painted by the overlay list —
+ * all consequence text lives in the body above them.
  *
  * Wrapping is on word boundaries. A token longer than the line (a path, a URL)
  * is broken deliberately — preferring a separator the reader already parses as
@@ -19,13 +20,9 @@ import { UI } from "./theme.js";
 /** House ordered-dither ramp, sparsest-first, leading the header. */
 export const DECISION_DITHER = "░▒▓";
 
-/** Marker on the active choice. Solid: the densest cell of the same ramp. */
-export const DECISION_ACTIVE_MARK = "█";
-
 /**
- * Display rows every choice occupies at least, wrapped or not. Short labels
- * pad to this so the list still breathes; a wrap taller than this raises
- * every choice to the same height so list index arithmetic stays a simple
+ * Display rows every choice occupies, wrapped or not: one label row plus one
+ * row of air, so the list breathes and list index arithmetic stays a simple
  * multiple.
  */
 export const DECISION_CHOICE_ROWS = 2;
@@ -34,7 +31,6 @@ export const DECISION_CHOICE_ROWS = 2;
 const MIN_WRAP_WIDTH = 4;
 
 const HEADER_PREFIX = `${DECISION_DITHER} `;
-const CHOICE_INDENT = "  ";
 
 /** Hanging indent on a wrapped continuation row. */
 const CONTINUATION = "  ";
@@ -205,57 +201,6 @@ export function composeDecisionBody(
     }
   }
   rows.push({ text: "", fg: UI.textDim });
-  return rows;
-}
-
-/**
- * Wrap one choice label at the inner width (box minus the marker/indent).
- * Continuation hanging indent is applied by `decisionChoiceRows`, not here.
- */
-function choiceWrapLines(label: string, width: number): string[] {
-  const inner = Math.max(1, width - stringWidth(CHOICE_INDENT));
-  return wrapWords(label, inner);
-}
-
-/**
- * Shared row count for every choice at `width`: at least
- * `DECISION_CHOICE_ROWS`, raised to the tallest wrap so nothing is clipped.
- */
-export function decisionChoiceRowCount(labels: readonly string[], width: number): number {
-  let rows = DECISION_CHOICE_ROWS;
-  for (const label of labels) {
-    rows = Math.max(rows, choiceWrapLines(label, width).length);
-  }
-  return rows;
-}
-
-/**
- * Shape one choice into a fixed-height block: the label, marked when active,
- * wrapped on word boundaries with a hanging indent. `rowCount` pads shorter
- * wraps with empty dim rows so every choice occupies the same height.
- */
-export function decisionChoiceRows(
-  label: string,
-  active: boolean,
-  width: number,
-  rowCount?: number,
-): OverlayBodyRow[] {
-  const fg = active ? UI.text : UI.textDim;
-  const prefix = active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT;
-  const parts = choiceWrapLines(label, width);
-  const height = Math.max(DECISION_CHOICE_ROWS, parts.length, rowCount ?? 0);
-  const rows: OverlayBodyRow[] = [];
-  for (let i = 0; i < height; i++) {
-    const part = parts[i];
-    if (part === undefined) {
-      rows.push({ text: "", fg: UI.textDim });
-      continue;
-    }
-    rows.push({
-      text: i === 0 ? `${prefix}${part}` : `${CONTINUATION}${part}`,
-      fg,
-    });
-  }
   return rows;
 }
 

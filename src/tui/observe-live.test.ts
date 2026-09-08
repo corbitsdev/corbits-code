@@ -14,15 +14,10 @@ import {
 import type { ObserveSession } from "./residuals.js";
 import type { StreamRow } from "./stream.js";
 import { createStreamMapContext } from "./stream-event-map.js";
-import {
-  appendObserveStreamRow,
-  appendStreamRow,
-  createAppShell,
-  enterSubagentObserve,
-  getPaletteOnObserveRequest,
-  leaveSubagentObserve,
-  setPaletteOnObserveRequest,
-} from "./shell.js";
+import { appendObserveStreamRow, appendStreamRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import { getPaletteOnObserveRequest, setPaletteOnObserveRequest } from "./shell/internals.js";
+import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe.js";
 
 function liveChildSession(
   lines: readonly StreamRow[],

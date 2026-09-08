@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { suppressProviderFailurePresentation } from "./provider-failure-attempt.js";
+import { suppressProviderFailurePresentation } from "./provider/failure-attempt.js";
 import {
   createStreamMapContext,
   mapProductionEvent,

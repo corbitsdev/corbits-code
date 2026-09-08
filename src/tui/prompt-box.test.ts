@@ -9,13 +9,10 @@ import { withTestRenderer, type Harness } from "./harness";
 import { PROMPT_BASE_ROWS, PROMPT_CAP_FRACTION, PROMPT_IDLE_ROWS } from "./geometry/index.js";
 import { focusOwner } from "./focus/index.js";
 import { promptCaretRow, promptRowCount } from "./prompt-input.js";
-import {
-  appendStreamRow,
-  closeInsetOverlay,
-  createAppShell,
-  toggleShellFocus,
-  type AppShell,
-} from "./shell";
+import { appendStreamRow, toggleShellFocus } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
+import { closeInsetOverlay } from "./shell/overlay-host";
 import { openPermissionsOverlay } from "./overlays";
 
 function withShell(
@@ -225,7 +222,7 @@ describe("openers toggle their surface shut", () => {
 
   test("an opener cannot dismiss an approval overlay", async () => {
     await withShell({ columns: 80, rows: 30 }, (shell, h) => {
-      openPermissionsOverlay(shell);
+      openPermissionsOverlay(shell, { items: ["Allow once", "Deny"] });
       expect(shell.overlayKind).toBe("permissions");
 
       // A decision surface leaves by a choice or Esc, never because some other

@@ -6,7 +6,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, createAppShell, type AppShell } from "./shell";
+import { appendStreamRow } from "./shell/chrome";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
 
 /** Index of the first line whose trimmed content starts with `needle`. */
 function lineIndex(frame: string, needle: string): number {

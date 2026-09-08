@@ -8,14 +8,11 @@ import type { KeyEvent } from "@opentui/core";
 
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
-import {
-  acceptOverlaySelection,
-  createAppShell,
-  handlePaletteFilterKey,
-  moveOverlaySelection,
-  openPalette,
-  type AppShell,
-} from "./shell";
+import { createAppShell } from "./shell/index";
+import type { AppShell } from "./shell/internals";
+import { acceptOverlaySelection } from "./shell/overlay-host";
+import { moveOverlaySelection } from "./shell/overlay-list";
+import { handlePaletteFilterKey, openPalette } from "./shell/palette";
 
 const CATALOG: readonly PaletteCommand[] = [
   { id: "help", label: "/help", keywords: ["help", "show keymap help"] },

@@ -36,6 +36,60 @@ export interface HarnessOptions {
   readonly exitOnCtrlC?: boolean;
 }
 
+/** Fixture: permission choices for overlay suites (moved out of overlays.ts). */
+export function makePermissionItems(count = 30): readonly string[] {
+  const n = Math.max(1, Math.floor(count));
+  return Array.from({ length: n }, (_, i) => {
+    if (i === 0) return "Allow once";
+    if (i === 1) return "Allow session";
+    if (i === 2) return "Always allow this tool";
+    if (i === 3) return "Deny";
+    return `Allow tool call #${i - 3}`;
+  });
+}
+
+/** Fixture: long operator question + many choices for overlay suites. */
+export function makeOperatorQuestion(): {
+  readonly body: string;
+  readonly choices: readonly string[];
+} {
+  const body = [
+    "The agent wants to run a destructive command on the working tree.",
+    "Review the plan carefully — this cannot be undone from the TUI.",
+    "",
+    "Proposed: git reset --hard origin/main && rm -rf node_modules",
+    "Files at risk: 128 modified, 12 untracked.",
+    "Continue only if you accept discarding local work.",
+  ].join("\n");
+  const choices = [
+    "Cancel — keep working tree",
+    "Allow this once",
+    "Allow for this session",
+    "Always allow git reset",
+    "Open diff first",
+    "Ask again later",
+    "Switch to dry-run",
+    "Abort agent run",
+  ];
+  return { body, choices };
+}
+
+/** Fixture: model/provider picker list for overlay suites. */
+export function makeModelPickerItems(): readonly string[] {
+  return [
+    "claude-sonnet-4 * [anthropic]",
+    "claude-opus-4 * [anthropic]",
+    "gpt-5 * [openai]",
+    "gpt-5-mini * [openai]",
+    "gemini-2.5-pro * [google]",
+    "gemini-2.5-flash * [google]",
+    "grok-3 * [xai]",
+    "ollama-llama3.3 * [local]",
+    "o3 * [codex]",
+    "o4-mini * [codex]",
+  ];
+}
+
 export interface KeyModifiers {
   readonly shift?: boolean;
   readonly ctrl?: boolean;

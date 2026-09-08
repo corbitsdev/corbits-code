@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { setUpCommandRegistry } from "./runner.js";
+import { setUpCommandRegistry } from "./runner/commands.js";
 import { getCommand, listCommands } from "./commands/registry.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginModule } from "../plugins/loader.js";

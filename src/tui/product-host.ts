@@ -6,7 +6,6 @@
 import { EventEmitter } from "node:events";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 
-import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
 import type { OperatorResult } from "../agent/tools.js";
 import { createLiveSessionPort } from "./live-session-port.js";
 import { checkWidthContract, widthContractNotice } from "./width-contract.js";
@@ -41,22 +40,23 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   clearTranscript,
-  createAppShell,
-  isAddProviderShortcutKey,
   paintChrome,
   setChromeZones,
   setHeader,
-  setPaletteCatalog,
-  setPaletteOnCommand,
   setMcpNeedsAuth,
-  setOwnedOverlayItems,
   setStatusFlash,
-  surfaceSystemNotice,
+} from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
+import {
+  setPaletteOnCommand,
   type AppShell,
   type ItemDescription,
   type OverlaySelection,
   type PaletteOnObserveRequest,
-} from "./shell.js";
+} from "./shell/internals.js";
+import { setOwnedOverlayItems } from "./shell/overlay-host.js";
+import { isAddProviderShortcutKey, setPaletteCatalog } from "./shell/palette.js";
+import { surfaceSystemNotice } from "./shell/prompt.js";
 import type { QueueKind } from "./session-queue.js";
 import { hydrateHistoryRows } from "./history-hydrate.js";
 import type { StreamRow } from "./stream.js";
@@ -224,37 +224,6 @@ export interface ProductHost {
   ) => void;
 }
 
-/** Build permission overlay rows + ApprovalOutcome table (pure; testable). */
-export function permissionChoices(request: PermissionRequest): {
-  items: string[];
-  itemIds: string[];
-  outcomes: ApprovalOutcome[];
-} {
-  const items: string[] = [];
-  const itemIds: string[] = [];
-  const outcomes: ApprovalOutcome[] = [];
-
-  items.push("Reject");
-  itemIds.push("__deny__");
-  outcomes.push({ allow: false });
-
-  items.push("Accept once");
-  itemIds.push("__once__");
-  outcomes.push({ allow: true });
-
-  for (const scope of request.scopes) {
-    const label = scope.hint ? `${scope.label} (${scope.hint})` : scope.label;
-    items.push(label);
-    itemIds.push(scope.id);
-    outcomes.push({
-      allow: true,
-      ...(scope.pattern !== null ? { persist: scope as ApprovalScope } : {}),
-    });
-  }
-
-  return { items, itemIds, outcomes };
-}
-
 /**
  * Map an overlay accept selection to OperatorResult.
  * Out-of-range index → cancel (Esc-equivalent / bad selection).
@@ -304,7 +273,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
 
   const shell = createAppShell(renderer, {
     title: config.title,
-    clipboard: createSystemClipboard(),
+    clipboard: createSystemClipboard(renderer),
     mouseCapture: {
       get: () => renderer.useMouse,
       set: (enabled: boolean) => {
@@ -375,9 +344,15 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   const stickyPoll = setInterval(() => {
     if (disposed) return;
     try {
-      paintChrome(shell);
+      // The poll's own state is sticky alone: paintChrome's compose gate makes
+      // an unchanged pass free, but do not even schedule it while idle — the
+      // whole point of the poll is the strip, not the chrome. True→false and
+      // false→true edges both paint via the stickyWasNeeded latch below.
       const stickyNeeded =
         chromeState !== null && agentsChromeNeedsSticky(chromeState.agents, Date.now());
+      if (stickyNeeded || stickyWasNeeded) {
+        paintChrome(shell);
+      }
       // While the agents strip owns live clocks / linger, skip transcript
       // syncAgentProgress rewrites — spawn/final/fail anchors still arrive via
       // event paths; only the sticky clock tick is frozen here.

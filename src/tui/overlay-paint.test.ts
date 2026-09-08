@@ -8,18 +8,18 @@
 import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness.js";
+import { appendStreamRow } from "./shell/chrome.js";
+import { enterCopyMode } from "./shell/copy.js";
+import { createAppShell } from "./shell/index.js";
+import type { AppShell } from "./shell/internals.js";
+import { openListOverlay } from "./shell/overlay-host.js";
 import {
-  appendStreamRow,
-  createAppShell,
-  enterCopyMode,
   openHelpOverlay,
-  openListOverlay,
   openMentionsOverlay,
   openPalette,
   openSettingsOverlay,
-  setPromptModelLabel,
-  type AppShell,
-} from "./shell.js";
+} from "./shell/palette.js";
+import { setPromptModelLabel } from "./shell/prompt.js";
 
 const MODEL_LABEL = "xai/thegreataxios · grok-4.5";
 
@@ -108,13 +108,13 @@ describe("overlay host never shares cells with the prompt border", () => {
 
       const expected = [
         " model · Esc cancel · Enter choose · Alt+A /connect add provider",
-        ` > ${ITEMS[0]}`,
+        ` ▶ ${ITEMS[0]}`,
         ...ITEMS.slice(1).map((i) => `   ${i}`),
       ];
       expectCleanInterior(interior, expected);
 
       // The selected row must be intact, not overwritten by the model label.
-      expect(interior).toContain(` > ${ITEMS[0]}`);
+      expect(interior).toContain(` ▶ ${ITEMS[0]}`);
       for (const row of interior) {
         expect(row.includes(MODEL_LABEL)).toBe(false);
         expect(row.includes("thegreataxios")).toBe(false);
