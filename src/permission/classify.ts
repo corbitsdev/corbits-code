@@ -68,6 +68,13 @@ function isWriteTool(toolName: string): boolean {
 
 export type Tier = "allow" | "ask";
 
+// The tier is a pre-filter ABOVE the authz grant path, not authz policy itself
+// (RFC-ask-authz-suspend decision (c)). It encodes Corbits' tool-level
+// defaults — knowledge upstream authz cannot express — and decides whether and
+// how the grant path is consulted: `allow` short-circuits, `ask` flows through
+// grants, where deny and the reactor's suspend effect live. Collapsing the two
+// would push tool defaults into grant-matching or force the grant store to
+// re-implement tiering.
 export function classifyTool(toolName: string, mcpTiers?: McpToolPermissionRegistry): Tier {
   if (READ_ONLY_TOOLS.has(toolName)) return "allow";
   if (isMcpToolName(toolName)) {

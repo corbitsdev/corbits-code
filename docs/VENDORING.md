@@ -205,11 +205,12 @@ the old root export had, so this is an import-path change, not a
 behavioral one. The package also picked up two new dependencies
 (`@isomorphic-git/lightning-fs`, `buffer`, both used only by the new
 `./browser` runtime, which nothing here imports) and a new
-`@intx/crypto` dev dependency for its own test suite, pinned to `0.2.2` —
+`@intx/crypto` dev dependency for its own test suite, pinned to `0.3.0` —
 the same "stay on published npm for a package we don't vendor" pattern as
-the `@intx/log` dependency on the other vendored packages; `@intx/mime`
-joined the vendored set in the 2026-09-07 step-1 pass, and its consumers
-now resolve it through the root `workspace:*` override.
+the `@intx/log` dependency on the other vendored packages, kept aligned
+with the root's published `0.3.0` pin so the lockfile never nests duplicate
+copies; `@intx/mime` joined the vendored set in the 2026-09-07 step-1 pass,
+and its consumers now resolve it through the root `workspace:*` override.
 
 One new upstream test, `browser-bundle.test.ts`, is excluded via
 `bunfig.toml`'s `pathIgnorePatterns`. It bundles `browser.ts` with

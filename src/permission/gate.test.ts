@@ -78,6 +78,7 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
         approvals: [{ tool: "run_shell", pattern: command }],
         interactive: false,
         skipPermissions: false,
+        reactorGated: false,
         cwd,
       });
       const verdict = await gate.evaluate(shellCall(command));
@@ -162,6 +163,35 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
   });
 });
 
+// reactorGated is required, not defaulted: an omitted flag used to silently
+// route the gate back to middleware gating, double-prompting approved
+// re-dispatches on the reactor path. The compiler now rejects omission, and
+// this pins the wiring for both explicit values.
+describe("reactorGated is a required, explicit decision", () => {
+  test("isReactorGated reports the value the gate was built with", () => {
+    const build = (reactorGated: boolean) =>
+      createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        reactorGated,
+      });
+    expect(build(true).isReactorGated()).toBe(true);
+    expect(build(false).isReactorGated()).toBe(false);
+  });
+
+  test("middleware evaluate() still blocks under reactor gating for re-dispatch bypass", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      reactorGated: true,
+    });
+    const verdict = await gate.evaluate(shellCall("curl https://example.com"));
+    expect(verdict.allowed).toBe(false);
+  });
+});
+
 // CL-5638: an Always-allow grant minted for `git worktree *` must cover a later
 // worktree command whose destination is a sibling directory the operator has
 // already implicitly approved under that pattern, without a second prompt.
@@ -181,6 +211,7 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
       approvals: [],
       interactive: true,
       skipPermissions: false,
+      reactorGated: false,
       cwd: sessionCwd,
       requestApproval: async () => {
         prompts += 1;

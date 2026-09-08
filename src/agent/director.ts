@@ -21,6 +21,12 @@ import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
+import {
+  APPROVER_REJECTION_MARKER,
+  DENIED_BY_POLICY_MARKER,
+  NO_MATCHING_GRANTS_MARKER,
+  OPERATOR_DECLINED_MARKER,
+} from "../permission/decline-markers.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
@@ -269,16 +275,52 @@ export const submitOutputDefinition: ToolDefinition = {
   },
 };
 
-function isOperatorDeclinedToolResult(result: { content: unknown; isError?: boolean }): boolean {
-  return (
-    result.isError === true &&
-    typeof result.content === "string" &&
-    result.content.includes("Blocked by permission policy: Operator declined:")
-  );
+// Classification of a failed tool call's model-facing text. Two flows produce
+// these texts: the middleware path (permission-plugin prefixing the gate's
+// "Operator declined: …" reason, still used by sub-agents) and the reactor
+// path, where a rejected approval decision answers the parked call with
+// upstream's "denied by approver…" error result and a deny/no-grant effect
+// arrives as a block ("Denied by policy: …" / "No matching grants for …"). A
+// policy deny is not an operator decision at all — the model adapts to the
+// deny text as it would to any tool error — while an approver rejection
+// either carries a reason the model should respond to or doesn't (canned
+// reply stands). The marker strings themselves live in
+// permission/decline-markers.ts alongside their producing seams.
+type DeclinedToolResult = { kind: "approver-rejection"; reason?: string } | { kind: "policy-deny" };
+
+const POLICY_DENY_MARKERS = [DENIED_BY_POLICY_MARKER, NO_MATCHING_GRANTS_MARKER] as const;
+
+function isPolicyDeny(content: string): boolean {
+  return POLICY_DENY_MARKERS.some((marker) => content.includes(marker));
 }
 
-function operatorDeclinedHasMessage(result: { content: unknown }): boolean {
-  return typeof result.content === "string" && / — .+/.test(result.content);
+// The middleware path appends the operator's reason after an em-dash; the
+// reactor path after "denied by approver: ". Both are undefined when the
+// operator declined without a reason.
+function approverRejectionReason(content: string): string | undefined {
+  const reactor = content.match(new RegExp(`${APPROVER_REJECTION_MARKER}: (.+)`));
+  if (reactor !== null) return reactor[1];
+  if (content.includes(OPERATOR_DECLINED_MARKER)) {
+    const separator = content.indexOf(" — ");
+    if (separator !== -1) return content.slice(separator + 3);
+  }
+  return undefined;
+}
+
+function classifyDeclinedToolResult(result: {
+  content: unknown;
+  isError?: boolean;
+}): DeclinedToolResult | null {
+  if (result.isError !== true || typeof result.content !== "string") return null;
+  const content = result.content;
+  if (isPolicyDeny(content)) return { kind: "policy-deny" };
+  if (content.includes(APPROVER_REJECTION_MARKER) || content.includes(OPERATOR_DECLINED_MARKER)) {
+    const reason = approverRejectionReason(content);
+    return reason === undefined
+      ? { kind: "approver-rejection" }
+      : { kind: "approver-rejection", reason };
+  }
+  return null;
 }
 
 const CODE_FILE_EXT =
@@ -715,24 +757,32 @@ class ChatDirectorImpl extends DefaultDirector {
       if (!event.result.isError) this.onActivateTools?.(["lsp"]);
     }
 
-    if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
-      if (operatorDeclinedHasMessage(event.result)) {
-        return super.decide(event, state, capabilities);
-      }
-      if (hasActiveTasks(this.tasks)) {
-        if (this.declinedTerminationNudges < MAX_DECLINED_OPEN_TASK_NUDGES) {
-          this.declinedTerminationNudges++;
-          return [
-            capabilities.checkpoint("operator-declined"),
-            inferWithNudge(capabilities, DECLINED_OPEN_TASK_NUDGE),
-          ];
+    if (event.type === "tool.done") {
+      const declined = classifyDeclinedToolResult(event.result);
+      // Reason-less approver rejections are the only canned case: the model
+      // has no reason to respond to. Reason-bearing approver rejections and
+      // policy denies re-infer below — the model responds to the reason or
+      // adapts to the deny text.
+      if (
+        declined !== null &&
+        declined.kind === "approver-rejection" &&
+        declined.reason === undefined
+      ) {
+        if (hasActiveTasks(this.tasks)) {
+          if (this.declinedTerminationNudges < MAX_DECLINED_OPEN_TASK_NUDGES) {
+            this.declinedTerminationNudges++;
+            return [
+              capabilities.checkpoint("operator-declined"),
+              inferWithNudge(capabilities, DECLINED_OPEN_TASK_NUDGE),
+            ];
+          }
+          this.logTerminationWithOpenTasks("operator-declined");
         }
-        this.logTerminationWithOpenTasks("operator-declined");
+        return [
+          capabilities.checkpoint("operator-declined"),
+          capabilities.reply("Tool call rejected by operator."),
+        ];
       }
-      return [
-        capabilities.checkpoint("operator-declined"),
-        capabilities.reply("Tool call rejected by operator."),
-      ];
     }
 
     // Keep the running local estimate current on every cycle (tool results and

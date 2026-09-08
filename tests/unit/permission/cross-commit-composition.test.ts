@@ -17,6 +17,7 @@ function gateWith(onAsk: RequestApproval) {
     requestApproval: onAsk,
     interactive: true,
     skipPermissions: false,
+    reactorGated: false,
     cwd: process.cwd(),
   });
 }
