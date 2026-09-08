@@ -15,7 +15,7 @@
         "@intx/types": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@opentui/core": "0.5.10",
-        "arktype": "^2.2.3",
+        "arktype": "catalog:",
         "highlight.js": "^11.11.1",
       },
       "devDependencies": {
