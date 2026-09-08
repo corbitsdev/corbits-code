@@ -16,6 +16,7 @@ import {
 } from "../inference-gateway-error.js";
 import { isProviderFailurePresentationSuppressed } from "./provider/failure-attempt.js";
 import type { RunState } from "./session-queue.js";
+import type { PendingAskWake } from "../subagent/fleet-report.js";
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */
 export type BridgeInboundEvent =
@@ -48,6 +49,11 @@ export type BridgeInboundEvent =
    * new turn rather than a queued steer.
    */
   | { readonly type: "fleet"; readonly running: number }
+  /**
+   * Workers newly parked in ask_director (transition-only, emitter-side
+   * deduped). The bridge stashes and delivers them when the parent can act.
+   */
+  | { readonly type: "agent-ask"; readonly asks: readonly PendingAskWake[] }
   | { readonly type: "tool.boundary" }
   | { readonly type: "error"; readonly message: string }
   /**

@@ -17,10 +17,12 @@ import { loadSentMessages } from "../../session/sent-messages.js";
 import { setActiveDisposeHost } from "../../session/active-host.js";
 import {
   createFleetWatch,
+  createPendingAskWatch,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   liveFleetCount,
   observeFleet,
+  observePendingAsks,
 } from "../../subagent/index.js";
 import { scheduleUpgradeNotice } from "../../upgrade/index.js";
 import pkg from "../../../package.json" with { type: "json" };
@@ -130,11 +132,21 @@ export function wirePostStartup(
   // terminalizes. Store notifications fire per child event, not per status
   // flip, so emit only when the count itself moves.
   let lastLiveFleet = 0;
+  // Parked ask_director questions ride the same store subscription. The
+  // emitter-side watch dedups on questionId transitions, so only a newly
+  // parked question reaches the bridge; delivery timing is the bridge's.
+  let askWatch = createPendingAskWatch();
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
-    const fleet = liveFleetCount(services.subAgentSessions.list());
+    const lanes = services.subAgentSessions.list();
+    const fleet = liveFleetCount(lanes);
     if (fleet !== lastLiveFleet) {
       lastLiveFleet = fleet;
       services.emitter.emit("event", { type: "fleet", running: fleet });
+    }
+    const asks = observePendingAsks(askWatch, lanes, (id) => services.subAgentSessions.peekAsk(id));
+    askWatch = asks.watch;
+    if (asks.wakes.length > 0) {
+      services.emitter.emit("event", { type: "agent-ask", asks: asks.wakes });
     }
     if (fleetSettle !== null) return;
     fleetSettle = setTimeout(() => {

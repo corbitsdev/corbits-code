@@ -29,6 +29,10 @@ export interface FleetLane {
   readonly error?: string;
   /** Machine-readable forced-stop reason (see SubAgentSession.stopReason). */
   readonly stopReason?: string;
+  /** Catalog agent id (SubAgentSession.agentId); the wake message names it. */
+  readonly agentId?: string;
+  /** Set on nested (one-hop) dispatches; such asks never wake the root. */
+  readonly parentSessionId?: string;
 }
 
 interface LaneMark {
@@ -115,6 +119,81 @@ function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
  */
 export function liveFleetCount(lanes: readonly FleetLane[]): number {
   return lanes.filter((lane) => lane.status === "running").length;
+}
+
+/**
+ * One parked ask_director question worth waking the parent for. `sessionId`
+ * and `agentId` differ only in namespace; the wake message and send_input
+ * both speak `agentId`.
+ */
+export interface PendingAskWake {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly description: string;
+  readonly question: string;
+  readonly questionId: string;
+}
+
+/** QuestionIds already woken, per lane. The caller keeps and hands it back. */
+export interface PendingAskWatch {
+  readonly questionIds: ReadonlyMap<string, string>;
+}
+
+export function createPendingAskWatch(): PendingAskWatch {
+  return { questionIds: new Map() };
+}
+
+/**
+ * Which parked asks are new since the last observation. Only top-level
+ * workers (no `parentSessionId`) wake the root — a nested orchestrator owns
+ * its own children's questions. A resolved ask drops from the watch, so a
+ * re-ask with a fresh questionId wakes again while repeat notifications for
+ * the same questionId stay silent.
+ */
+export function observePendingAsks(
+  previous: PendingAskWatch,
+  lanes: readonly FleetLane[],
+  peekAsk: (sessionId: string) => { question: string; questionId: string } | undefined,
+): { watch: PendingAskWatch; wakes: readonly PendingAskWake[] } {
+  const questionIds = new Map(previous.questionIds);
+  const wakes: PendingAskWake[] = [];
+  for (const lane of lanes) {
+    if (lane.parentSessionId !== undefined) continue;
+    if (lane.status !== "running") {
+      questionIds.delete(lane.id);
+      continue;
+    }
+    const ask = peekAsk(lane.id);
+    if (ask === undefined) {
+      questionIds.delete(lane.id);
+      continue;
+    }
+    if (questionIds.get(lane.id) === ask.questionId) continue;
+    questionIds.set(lane.id, ask.questionId);
+    wakes.push({
+      sessionId: lane.id,
+      agentId: lane.agentId ?? lane.id,
+      description: lane.description,
+      question: ask.question,
+      questionId: ask.questionId,
+    });
+  }
+  return { watch: { questionIds }, wakes };
+}
+
+/**
+ * The wake turn text. It must read as the worker's question reaching the
+ * parent, not as the operator being asked — the parent answers via
+ * send_input itself and only escalates when it genuinely cannot.
+ */
+export function pendingAskWakeText(wake: PendingAskWake): string {
+  return [
+    `ask_director wake — worker ${wake.agentId} (${wake.description}) parked question ${wake.questionId} while this session was not collecting:`,
+    "",
+    wake.question,
+    "",
+    `The worker — not the operator — raised this. Answer it with send_input (soft) targeting agent_id ${wake.agentId}; do not relay to the operator unless it genuinely needs them.`,
+  ].join("\n");
 }
 
 type Change =
