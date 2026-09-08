@@ -1254,6 +1254,18 @@ describe("loadConfig", () => {
 });
 
 describe("buildGoSource", () => {
+  test("propagates the session marker through all protocol variants", () => {
+    for (const model of ["kimi-k2.7-code", "gpt-5.6-luna", "minimax-m3"]) {
+      const source = buildGoSource({
+        id: "opencode-go",
+        apiKey: "sk-go",
+        model,
+        sessionId: "sess-1",
+      });
+      expect(source.defaults?.providerOptions).toMatchObject({ opencodeSessionId: "sess-1" });
+    }
+  });
+
   test("routes chat-completions models through the OpenCode Go adapter", () => {
     const source = buildGoSource({
       id: "opencode-go",

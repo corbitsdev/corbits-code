@@ -196,7 +196,7 @@ test("buildInferenceSourceForRef routes OpenCode Go models by protocol", () => {
     ctx,
     undefined,
   );
-  expect(messages?.provider).toBe("anthropic");
+  expect(messages?.provider).toBe("opencode-go-messages");
   expect(messages?.baseURL).toBe("https://opencode.ai/zen/go");
   expect(messages?.model).toBe("minimax-m3");
 });
