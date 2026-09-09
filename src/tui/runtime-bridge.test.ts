@@ -1626,6 +1626,48 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     );
   });
 
+  test("occupancy send abort drops the continuation echo so a later matching inbound paints", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const occupancy =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          const operator = "dispatch workers";
+          bridge.submit(operator, "immediate");
+          const userRowsAfterSubmit = shell.streamLog.filter((r) => r.role === "user").length;
+          bridge.beginSystemContinuation(occupancy);
+          bridge.abortSystemContinuation();
+          expect(shell.session.run).toBe("idle");
+
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: operator } },
+          });
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(userRowsAfterSubmit);
+
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: occupancy } },
+          });
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
+            userRowsAfterSubmit + 1,
+          );
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("occupancy send abort resets the turn without a following reply", async () => {
     await withTestRenderer(
       async (h) => {

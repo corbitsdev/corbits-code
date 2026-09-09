@@ -221,7 +221,8 @@ export interface SessionBridge {
    */
   beginSystemContinuation: (text: string) => void;
   /**
-   * Occupancy send failed after beginSystemContinuation. Re-arm the dry-open
+   * Occupancy send failed after beginSystemContinuation. Drop the occupancy
+   * echo so a later matching inbound is not swallowed, re-arm the dry-open
    * latch, drop the continuation hold, and idle so follow-ups can drain and a
    * later settle can take another occupancy shot.
    */
@@ -1617,6 +1618,18 @@ export function attachSessionBridge(
     },
     abortSystemContinuation: () => {
       if (bag.disposed) return;
+      if (bag.awaitingContinuationInference) {
+        const occupancy = bag.lastSentMessage;
+        if (occupancy.length > 0) {
+          const last = bag.pendingEchoes.length - 1;
+          if (last >= 0 && bag.pendingEchoes[last] === occupancy) {
+            bag.pendingEchoes.pop();
+          } else {
+            const index = bag.pendingEchoes.lastIndexOf(occupancy);
+            if (index !== -1) bag.pendingEchoes.splice(index, 1);
+          }
+        }
+      }
       bag.awaitingContinuationInference = false;
       bag.pendingDryOpenDrive = true;
       bag.lastSentMessage = "";
