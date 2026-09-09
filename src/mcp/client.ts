@@ -62,19 +62,27 @@ interface HTTPAuthContext {
   url: URL;
   authProvider: CorbitsOAuthProvider;
   callback: CallbackServer;
-  episode: HTTPAuthEpisodeState;
-  signal?: AbortSignal;
+  coordinator: HTTPAuthCoordinator;
   interactive: boolean;
   serverName: string;
   onAuthorized?: (serverName: string) => void;
 }
 
-interface HTTPAuthEpisodeState {
-  promptGuard?: { clear(): void };
-  customRefreshAttempted: boolean;
+interface BrowserAuthFlow {
+  attempt: { clear(): void };
+  promptEmitted: Promise<void>;
 }
 
-function isRecoverableAuthError(err: unknown): boolean {
+interface HTTPAuthCoordinator {
+  lifecycle: AbortController;
+  requestSignal: AbortSignal;
+  inFlight?: Promise<void>;
+  refreshInFlight?: Promise<boolean>;
+  browserFlow?: BrowserAuthFlow;
+  probe(): Promise<void>;
+}
+
+function isRecoverableAuthError(err: unknown): err is UnauthorizedError | OAuthError {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
@@ -135,12 +143,36 @@ async function tryTokenRefresh(context: HTTPAuthContext): Promise<boolean> {
   }
 }
 
+function getOrStartRefresh(context: HTTPAuthContext): Promise<boolean> {
+  const coordinator = context.coordinator;
+  if (coordinator.refreshInFlight !== undefined) return coordinator.refreshInFlight;
+  const shared = Promise.resolve().then(() => tryTokenRefresh(context));
+  coordinator.refreshInFlight = shared;
+  const clear = () => {
+    if (coordinator.refreshInFlight === shared) delete coordinator.refreshInFlight;
+  };
+  void shared.then(clear, clear);
+  return shared;
+}
+
 function gateRedirectToAuthorization(context: HTTPAuthContext): void {
   const inner = context.authProvider.redirectToAuthorization.bind(context.authProvider);
   context.authProvider.redirectToAuthorization = async (authorizationUrl: URL) => {
-    if (context.episode.promptGuard !== undefined) return;
-    context.episode.promptGuard = beginBrowserAuth(context);
-    await inner(authorizationUrl);
+    const coordinator = context.coordinator;
+    if (coordinator.browserFlow !== undefined) return coordinator.browserFlow.promptEmitted;
+    const refresh = coordinator.refreshInFlight;
+    if (refresh !== undefined && (await refresh)) return;
+    const concurrentBrowserFlow = coordinator.browserFlow as BrowserAuthFlow | undefined;
+    if (concurrentBrowserFlow !== undefined) return concurrentBrowserFlow.promptEmitted;
+    if (!context.interactive)
+      throw new Error("Authorization required but no interactive handler is available.");
+
+    const attempt = beginBrowserAuth(context);
+    const startPrompt = Promise.withResolvers<void>();
+    const promptEmitted = startPrompt.promise.then(() => inner(authorizationUrl));
+    coordinator.browserFlow = { attempt, promptEmitted };
+    startPrompt.resolve();
+    return promptEmitted;
   };
 }
 
@@ -176,16 +208,6 @@ function streamableHTTPTransportOptions(
   };
 }
 
-async function completeInteractiveAuth(context: HTTPAuthContext): Promise<void> {
-  if (!context.interactive)
-    throw new Error("Authorization required but no interactive handler is available.");
-  const code = await context.callback.waitForCode(context.signal ?? new AbortController().signal);
-  await new StreamableHTTPClientTransport(
-    context.url,
-    streamableHTTPTransportOptions(context.authProvider, context.signal),
-  ).finishAuth(code);
-}
-
 /**
  * Run interactive OAuth, retry the failed operation, and notify only when the
  * retry itself succeeded — a failed re-auth must leave standing "needs auth"
@@ -202,67 +224,97 @@ export async function retryAfterInteractiveAuth<T>(
   return value;
 }
 
-async function recoverHTTPAuthorization<T>(
-  err: unknown,
-  context: HTTPAuthContext | undefined,
-  operation: () => Promise<T>,
-): Promise<T> {
-  if (context === undefined || !isRecoverableAuthError(err)) throw err;
-  let lastErr: unknown = err;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (lastErr instanceof OAuthError) await context.authProvider.resetAuthorization();
-    if (lastErr instanceof UnauthorizedError) {
-      if (context.episode.promptGuard === undefined) {
-        if (!context.episode.customRefreshAttempted) {
-          context.episode.customRefreshAttempted = true;
-          if (await tryTokenRefresh(context)) {
-            try {
-              return await operation();
-            } catch (nextErr) {
-              if (!isRecoverableAuthError(nextErr)) throw nextErr;
-              lastErr = nextErr;
-              continue;
-            }
-          }
-        }
-        context.episode.promptGuard = beginBrowserAuth(context);
-      }
-      const guard = context.episode.promptGuard;
-      const value = await retryAfterInteractiveAuth(
-        () => completeInteractiveAuth(context),
-        operation,
-        context.onAuthorized === undefined
-          ? undefined
-          : () => context.onAuthorized?.(context.serverName),
-      );
-      guard.clear();
-      return value;
-    }
+async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPAuthContext) {
+  const coordinator = context.coordinator;
+  if (err instanceof OAuthError) await context.authProvider.resetAuthorization();
+  if (err instanceof UnauthorizedError && coordinator.browserFlow === undefined) {
+    await getOrStartRefresh(context);
+    // SDK redirects waiting on this refresh must reserve the browser flow before the probe.
+    await Promise.resolve();
+  }
+
+  if (coordinator.browserFlow === undefined) {
     try {
-      return await operation();
-    } catch (nextErr) {
-      if (!isRecoverableAuthError(nextErr)) throw nextErr;
-      lastErr = nextErr;
+      await coordinator.probe();
+      resetAfterVerifiedRecovery(context);
+      return;
+    } catch (probeErr) {
+      if (!isRecoverableAuthError(probeErr)) throw probeErr;
+      if (coordinator.browserFlow === undefined) throw probeErr;
     }
   }
-  throw lastErr;
+
+  const browserFlow = coordinator.browserFlow;
+  await browserFlow.promptEmitted;
+  const code = await context.callback.waitForCode(coordinator.lifecycle.signal);
+  await new StreamableHTTPClientTransport(
+    context.url,
+    streamableHTTPTransportOptions(context.authProvider, coordinator.requestSignal),
+  ).finishAuth(code);
+  await coordinator.probe();
+  resetAfterVerifiedRecovery(context);
+}
+
+function resetAfterVerifiedRecovery(context: HTTPAuthContext): void {
+  context.coordinator.browserFlow?.attempt.clear();
+  context.onAuthorized?.(context.serverName);
+}
+
+function getOrStartRecovery(
+  err: UnauthorizedError | OAuthError,
+  context: HTTPAuthContext,
+): Promise<void> {
+  const coordinator = context.coordinator;
+  if (coordinator.inFlight !== undefined) return coordinator.inFlight;
+  const shared = Promise.resolve().then(() => driveRecovery(err, context));
+  coordinator.inFlight = shared;
+  const clear = () => {
+    if (coordinator.inFlight !== shared) return;
+    delete coordinator.inFlight;
+    delete coordinator.refreshInFlight;
+    delete coordinator.browserFlow;
+  };
+  void shared.then(clear, clear);
+  return shared;
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+function awaitRecovery(recovery: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return recovery;
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void recovery.then(
+      () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 async function withHTTPAuthorizationRecovery<T>(
   context: HTTPAuthContext | undefined,
   operation: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   try {
     return await operation();
   } catch (err) {
-    try {
-      return await recoverHTTPAuthorization(err, context, operation);
-    } finally {
-      if (context !== undefined) {
-        delete context.episode.promptGuard;
-        context.episode.customRefreshAttempted = false;
-      }
-    }
+    if (context === undefined || !isRecoverableAuthError(err)) throw err;
+    await awaitRecovery(getOrStartRecovery(err, context), signal);
+    return operation();
   }
 }
 
@@ -271,6 +323,7 @@ async function finishClient(
   serverName: string,
   authContext?: HTTPAuthContext,
   signal?: AbortSignal,
+  closeLifecycle?: () => void,
 ): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () =>
     signal === undefined ? client.listTools() : client.listTools(undefined, { signal }),
@@ -289,13 +342,15 @@ async function finishClient(
     serverName,
     tools,
     async call(toolName, args, signal) {
-      const context = authContext === undefined ? undefined : { ...authContext, signal };
-      const result = await withHTTPAuthorizationRecovery(context, () =>
-        client.callTool({ name: toolName, arguments: args }, undefined, { signal }),
+      const result = await withHTTPAuthorizationRecovery(
+        authContext,
+        () => client.callTool({ name: toolName, arguments: args }, undefined, { signal }),
+        signal,
       );
       return unwrapToolContent(result.content);
     },
     async close() {
+      closeLifecycle?.();
       authContext?.callback.close();
       await client.close().catch(() => undefined);
     },
@@ -341,6 +396,14 @@ async function connectHttp(
     return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
   let callback: CallbackServer | undefined;
   let client: Client | undefined;
+  const lifecycle = new AbortController();
+  const abortLifecycle = () => lifecycle.abort(options.signal?.reason);
+  const closeLifecycle = () => {
+    lifecycle.abort();
+    options.signal?.removeEventListener("abort", abortLifecycle);
+  };
+  if (options.signal?.aborted) abortLifecycle();
+  else options.signal?.addEventListener("abort", abortLifecycle, { once: true });
   try {
     const normalizedURL = normalizeMCPServerURL(config.url);
     const url = new URL(normalizedURL);
@@ -360,38 +423,61 @@ async function connectHttp(
         redirectUrl: callback.redirectUrl,
         onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
         onAuthorizationState: callback.expectState,
-        ...(options.signal === undefined ? {} : { fetchFn: fetchWithConnectAbort(options.signal) }),
+        ...(options.signal === undefined
+          ? { fetchFn: fetchWithConnectAbort(lifecycle.signal) }
+          : { fetchFn: fetchWithConnectAbort(options.signal) }),
       });
       makeTransport = () =>
         new StreamableHTTPClientTransport(
           url,
           streamableHTTPTransportOptions(authProvider, options.signal),
         ) as unknown as Transport;
+      const coordinator: HTTPAuthCoordinator = {
+        lifecycle,
+        requestSignal: options.signal ?? lifecycle.signal,
+        probe: async () => {
+          const probeClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
+          try {
+            await probeClient.connect(makeTransport(), { signal: lifecycle.signal });
+          } finally {
+            await probeClient.close().catch(() => undefined);
+          }
+        },
+      };
       authContext = {
         url,
         authProvider,
         callback,
-        episode: { customRefreshAttempted: false },
+        coordinator,
         interactive: options.onAuthURL !== undefined,
         serverName: config.name,
         ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
       };
       gateRedirectToAuthorization(authContext);
     }
     const connectedClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
     client = connectedClient;
-    await withHTTPAuthorizationRecovery(authContext, () =>
-      connectedClient.connect(
-        makeTransport(),
-        options.signal === undefined ? undefined : { signal: options.signal },
-      ),
+    await withHTTPAuthorizationRecovery(
+      authContext,
+      () => connectedClient.connect(makeTransport(), { signal: lifecycle.signal }),
+      lifecycle.signal,
     );
+    if (authContext !== undefined) {
+      authContext.coordinator.probe = () =>
+        connectedClient.listTools(undefined, { signal: lifecycle.signal }).then(() => undefined);
+    }
     return {
       ok: true,
-      client: await finishClient(connectedClient, config.name, authContext, options.signal),
+      client: await finishClient(
+        connectedClient,
+        config.name,
+        authContext,
+        options.signal,
+        closeLifecycle,
+      ),
     };
   } catch (err) {
+    closeLifecycle();
     await client?.close().catch(() => undefined);
     try {
       callback?.close();

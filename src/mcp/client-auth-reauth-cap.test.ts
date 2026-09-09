@@ -5,14 +5,23 @@ import { withMockedModule } from "../../tests/helpers/mock-module.js";
 let finishAuthCalls = 0;
 let finishAuthError: Error | undefined = new Error("finishAuth exploded");
 let connectFailuresLeft = 0;
+let listFailuresLeft = 0;
 let callFailuresLeft = 0;
+let callToolCalls = 0;
 let redirectsPerFailure = 1;
+let redirectOnListFailure = false;
 let redirectConcurrently = false;
 let providerCreates = 0;
 let refreshCalls = 0;
 let refreshSucceeds = false;
 let authEvents: string[] = [];
 let authURLCount = 0;
+let authorizedCount = 0;
+let waitForCodeCalls = 0;
+let refreshGate: Promise<void> | undefined;
+let releaseRefresh: (() => void) | undefined;
+let callbackGate: Promise<void> | undefined;
+let releaseCallback: (() => void) | undefined;
 let liveProvider: { redirectToAuthorization?: (url: URL) => void | Promise<void> } | undefined;
 
 const fakeProvider = {
@@ -21,6 +30,7 @@ const fakeProvider = {
   refreshToken: async () => {
     refreshCalls += 1;
     authEvents.push("refresh");
+    await refreshGate;
     if (!refreshSucceeds) throw new UnauthorizedError("refresh rejected");
     return { access_token: "fresh", refresh_token: "refresh-me" };
   },
@@ -36,6 +46,22 @@ async function emitRedirects(
   } else {
     for (let call = 0; call < redirectsPerFailure; call += 1) await redirect();
   }
+}
+
+function waitForGate(signal: AbortSignal): Promise<void> {
+  if (callbackGate === undefined) return Promise.resolve();
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void callbackGate?.then(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    });
+  });
 }
 
 await withMockedModule(
@@ -56,9 +82,17 @@ await withMockedModule(
         }
       }
       async listTools(): Promise<{ tools: [] }> {
+        if (listFailuresLeft > 0) {
+          listFailuresLeft -= 1;
+          if (redirectOnListFailure) {
+            await liveProvider?.redirectToAuthorization?.(new URL("https://auth.test/authorize"));
+          }
+          throw new UnauthorizedError("authorization required");
+        }
         return { tools: [] };
       }
       async callTool(): Promise<{ content: [] }> {
+        callToolCalls += 1;
         if (callFailuresLeft > 0) {
           callFailuresLeft -= 1;
           await emitRedirects(liveProvider);
@@ -107,7 +141,11 @@ await withMockedModule(
     startCallbackServer: async () => ({
       redirectUrl: "http://127.0.0.1:12345/callback",
       expectState: () => undefined,
-      waitForCode: async () => "code",
+      waitForCode: async (signal: AbortSignal) => {
+        waitForCodeCalls += 1;
+        await waitForGate(signal);
+        return "code";
+      },
       close: () => undefined,
     }),
   }),
@@ -154,8 +192,11 @@ async function connectWithAuthPrompt(): Promise<{ ok: boolean; error?: string }>
 describe("HTTP MCP re-auth loop prevention", () => {
   beforeEach(() => {
     connectFailuresLeft = 0;
+    listFailuresLeft = 0;
     callFailuresLeft = 0;
+    callToolCalls = 0;
     redirectsPerFailure = 1;
+    redirectOnListFailure = false;
     redirectConcurrently = false;
     finishAuthCalls = 0;
     finishAuthError = new Error("finishAuth exploded");
@@ -165,6 +206,12 @@ describe("HTTP MCP re-auth loop prevention", () => {
     refreshSucceeds = false;
     authEvents = [];
     authURLCount = 0;
+    authorizedCount = 0;
+    waitForCodeCalls = 0;
+    refreshGate = undefined;
+    releaseRefresh = undefined;
+    callbackGate = undefined;
+    releaseCallback = undefined;
     resetBrowserAuthState();
     setSystemTime();
   });
@@ -185,6 +232,121 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(refreshCalls).toBe(1);
     expect(finishAuthCalls).toBe(0);
     expect(authURLCount).toBe(0);
+  });
+
+  test("rejects promptly when refresh and an auth probe fail without emitting a URL", async () => {
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    redirectsPerFailure = 0;
+    callFailuresLeft = 1;
+    listFailuresLeft = 1;
+
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "authorization required",
+    );
+
+    expect(refreshCalls).toBe(1);
+    expect(authURLCount).toBe(0);
+    expect(waitForCodeCalls).toBe(0);
+    expect(authorizedCount).toBe(0);
+  });
+
+  test("shares live-call recovery across concurrent unauthorized calls", async () => {
+    finishAuthError = undefined;
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    redirectsPerFailure = 0;
+    callFailuresLeft = 2;
+    listFailuresLeft = 1;
+    redirectOnListFailure = true;
+
+    const calls = [
+      connected.client.call("first", { value: 1 }, new AbortController().signal),
+      connected.client.call("second", { value: 2 }, new AbortController().signal),
+    ];
+
+    await expect(Promise.all(calls)).resolves.toEqual(["", ""]);
+    expect(refreshCalls).toBe(1);
+    expect(authURLCount).toBe(1);
+    expect(waitForCodeCalls).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+    expect(callToolCalls).toBe(4);
+    expect(authorizedCount).toBe(1);
+  });
+
+  test("does not start browser fallback while shared refresh is pending", async () => {
+    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    refreshGate = new Promise((resolve) => {
+      releaseRefresh = resolve;
+    });
+    redirectsPerFailure = 0;
+    callFailuresLeft = 1;
+    const first = connected.client.call("first", {}, new AbortController().signal);
+    while (refreshCalls === 0) await Promise.resolve();
+
+    redirectsPerFailure = 1;
+    callFailuresLeft = 1;
+    const second = connected.client.call("second", {}, new AbortController().signal);
+    await Promise.resolve();
+    expect(authURLCount).toBe(0);
+
+    releaseRefresh?.();
+    await expect(Promise.all([first, second])).rejects.toThrow("finishAuth exploded");
+    expect(refreshCalls).toBe(1);
+    expect(authURLCount).toBe(1);
+    expect(waitForCodeCalls).toBe(1);
+  });
+
+  test("caller abort does not cancel shared recovery for another call", async () => {
+    finishAuthError = undefined;
+    callbackGate = new Promise((resolve) => {
+      releaseCallback = resolve;
+    });
+    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 2;
+    const firstAbort = new AbortController();
+    const first = connected.client.call("first", {}, firstAbort.signal);
+    const second = connected.client.call("second", {}, new AbortController().signal);
+    while (waitForCodeCalls === 0) await Promise.resolve();
+
+    firstAbort.abort(new Error("caller stopped"));
+    await expect(first).rejects.toThrow("caller stopped");
+    releaseCallback?.();
+
+    await expect(second).resolves.toBe("");
+    expect(waitForCodeCalls).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+    expect(authURLCount).toBe(1);
+  });
+
+  test("client close aborts the shared callback waiter", async () => {
+    finishAuthError = undefined;
+    callbackGate = new Promise((resolve) => {
+      releaseCallback = resolve;
+    });
+    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 1;
+    const call = connected.client.call("ping", {}, new AbortController().signal);
+    while (waitForCodeCalls === 0) await Promise.resolve();
+
+    await connected.client.close();
+
+    await expect(call).rejects.toHaveProperty("name", "AbortError");
+    expect(finishAuthCalls).toBe(0);
   });
 
   test("does not repeat the SDK refresh after redirecting to authorization", async () => {

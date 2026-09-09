@@ -17,6 +17,7 @@ let blockTokenExchange = false;
 let tokenExchangeSignals: (AbortSignal | null | undefined)[] = [];
 let tokenExchangeAborts = 0;
 let lastTransportAuth: (() => Promise<void>) | undefined;
+let lastTransportRedirect: (() => Promise<void>) | undefined;
 let tokenRefreshSignals: (AbortSignal | null | undefined)[] = [];
 let tokenRefreshAborts = 0;
 
@@ -35,9 +36,10 @@ function hangUntilAbort(
   });
 }
 
+const redirectToAuthorization = () => undefined;
 const authProvider = {
   resetAuthorization: async () => undefined,
-  redirectToAuthorization: () => undefined,
+  redirectToAuthorization,
 };
 
 await withMockedModule(
@@ -46,7 +48,10 @@ await withMockedModule(
     ...real,
     Client: class {
       async connect(): Promise<void> {
-        if (clientConnectError !== undefined) throw clientConnectError;
+        if (clientConnectError !== undefined) {
+          if (clientConnectError instanceof UnauthorizedError) await lastTransportRedirect?.();
+          throw clientConnectError;
+        }
       }
       async listTools(
         _params?: unknown,
@@ -86,12 +91,18 @@ await withMockedModule(
       constructor(
         _url: URL,
         private readonly options?: {
+          authProvider?: { redirectToAuthorization?: (url: URL) => void | Promise<void> };
           requestInit?: RequestInit;
           fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>;
         },
       ) {
         transportOptions.push(options);
         lastTransportAuth = () => this.auth();
+        lastTransportRedirect = async () => {
+          await this.options?.authProvider?.redirectToAuthorization?.(
+            new URL("https://auth.test/authorize"),
+          );
+        };
       }
       async finishAuth(): Promise<void> {
         const signal = this.options?.requestInit?.signal;
@@ -177,8 +188,10 @@ describe("HTTP MCP auth policy", () => {
     tokenExchangeSignals = [];
     tokenExchangeAborts = 0;
     lastTransportAuth = undefined;
+    lastTransportRedirect = undefined;
     tokenRefreshSignals = [];
     tokenRefreshAborts = 0;
+    authProvider.redirectToAuthorization = redirectToAuthorization;
   });
 
   test("built-in anonymous Exa treats 401 as a normal failure without OAuth machinery", async () => {
