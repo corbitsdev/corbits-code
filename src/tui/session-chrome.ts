@@ -97,8 +97,6 @@ const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
   task: "planning",
   tool_search: "researching",
   search_agents: "researching",
-  search_archive: "researching",
-  read_archive: "researching",
   ask_operator: "waiting",
   submit_output: "working",
 };

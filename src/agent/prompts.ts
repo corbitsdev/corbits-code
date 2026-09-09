@@ -226,7 +226,7 @@ export function buildPromptDisciplineBlock(
 
 const TOOL_SUMMARIES: Record<string, string> = {
   read_file:
-    "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell). Only read_file a tool-output:// URI if the truncation notice named one",
+    "read a file, tool-output:///{callId} from a prior tool result, or archive:///{occurrenceId} (prefer over cat/head/tail in the shell). Only read_file a tool-output:// URI if the truncation notice named one",
   write_file: "create or overwrite a file (never shell redirects or heredocs)",
   edit_file:
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
@@ -234,8 +234,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   run_shell:
     "run a shell command (builds, tests, git; pass timeout ms to bound long commands; never to read/write/delete files, search trees, or talk to the user)",
   search_files:
-    "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
-  grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg)",
+    "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find); path archive:/// lists evidence-archive refs",
+  grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg); path archive:/// searches this session's evidence archive",
   list_dir: "list a directory's entries (bounded listing)",
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
   web_search: "search the web (use instead of curl or wget)",
@@ -261,10 +261,6 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "load a listed skill's full instructions before doing work it covers",
   skill_search:
     "look up skill descriptions by capability (catalog — call directly, do not tool_search for this)",
-  search_archive:
-    "search this session's compaction evidence archive; returns archive:///{occurrenceId} refs only",
-  read_archive:
-    "read one evidence-archive occurrence by archive:///{occurrenceId} from search_archive",
 };
 
 export function buildAvailableTools(

@@ -515,6 +515,33 @@ describe("compaction archive storage", () => {
     expect(occ.blobKey.includes("..")).toBe(false);
     expect(await archive.readAuthorizedPayload(occ.occurrenceId)).toBe("hello-store");
   });
+
+  test("rejects slash-containing blob keys so they cannot nest under tool-output", async () => {
+    const dir = tempDir();
+    const archive = createCompactionArchive({
+      sessionId: "sess-slash",
+      contextDir: dir,
+      writeBlob: async () => {
+        throw new Error("writeBlob must not run for a slash key");
+      },
+      readBlob: async () => {
+        throw new Error("readBlob must not run for a slash key");
+      },
+    });
+    let thrown: Error | undefined;
+    try {
+      await archive.recordExistingBlobReference({
+        kind: "overflow_blob",
+        blobKey: "archive/foo.json",
+        contentHash: hashAuthorizedBytes(new TextEncoder().encode("x")),
+      });
+    } catch (cause) {
+      thrown = cause instanceof Error ? cause : new Error(String(cause));
+    }
+    expect(thrown?.message).toContain("unsafe characters");
+    expect(thrown?.message).toContain("archive/foo.json");
+    expect(await archive.listOccurrences()).toEqual([]);
+  });
 });
 
 describe("wrapCompactorWithCompletenessGate", () => {

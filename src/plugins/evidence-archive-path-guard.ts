@@ -13,7 +13,7 @@ const PATH_TOOLS = new Set([
 ]);
 
 const DENY_MESSAGE =
-  "Cannot read evidence-archive or tool-output/archive-* with this tool. Use search_archive and read_archive with archive:/// refs.";
+  "Cannot read evidence-archive or tool-output/archive-* dumps. Use search_files, grep, or read_file with archive:/// refs.";
 
 export function isProtectedEvidenceLocation(value: string): boolean {
   const normalized = value.replaceAll("\\", "/");

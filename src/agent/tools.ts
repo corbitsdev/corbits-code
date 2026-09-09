@@ -16,6 +16,7 @@ import {
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
+import { advertiseArchiveSurface } from "../plugins/evidence-archive-search-plugin.js";
 import type { Telemetry } from "../telemetry/index.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
@@ -102,7 +103,6 @@ import { createUseSkillTool } from "./use-skill.js";
 import { createSkillSearchTool } from "./skill-search.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
-import { createSearchArchiveTool, createReadArchiveTool } from "./archive-tools.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
 import {
   createCodexToolProxies,
@@ -558,12 +558,13 @@ export async function createAgentToolset(
   }
 
   const baseTools: AgentTool[] = [
-    ...fromToolRunner(posixTools).map((tool) => ({
-      ...tool,
-      definition: advertiseEditFileLineRange(
+    ...fromToolRunner(posixTools).map((tool) => {
+      let definition = advertiseEditFileLineRange(
         advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
-      ),
-    })),
+      );
+      if (getEvidenceArchive !== undefined) definition = advertiseArchiveSurface(definition);
+      return { ...tool, definition };
+    }),
     createListDirTool(cwd, {
       allowOutside: () => permissionGate.getSkipPermissions(),
     }),
@@ -574,9 +575,6 @@ export async function createAgentToolset(
       : createWebFetchTool(),
     createWebSearchTool(),
     ...orchestratorTools,
-    ...(getEvidenceArchive !== undefined
-      ? [createSearchArchiveTool(getEvidenceArchive), createReadArchiveTool(getEvidenceArchive)]
-      : []),
     stringTool({
       definition: shellCollect.definition,
       handler: shellCollect.handler,

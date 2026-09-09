@@ -43,7 +43,7 @@ describe("evidenceArchivePathGuardPlugin", () => {
     for (const call of denied) {
       const result = await handler(call, new AbortController().signal);
       expect(result.isError).toBe(true);
-      expect(String(result.content)).toContain("search_archive");
+      expect(String(result.content)).toContain("search_files");
       expect(String(result.content)).toContain("archive:///");
     }
   });

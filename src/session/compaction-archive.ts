@@ -344,7 +344,14 @@ function encodePayload(payload: unknown): { bytes: Uint8Array; contentType: stri
 
 function occurrenceBlobKey(sessionId: string, occurrenceId: string): string {
   // ContextStore.writeBlob rejects slash-containing keys (sanitizeCallId).
-  return `archive-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${occurrenceId}`;
+  return assertSafeBlobKey(`archive-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${occurrenceId}`);
+}
+
+function assertSafeBlobKey(key: string): string {
+  if (key.includes("/") || key.includes("..")) {
+    throw new Error(`blob key contains unsafe characters: ${JSON.stringify(key)}`);
+  }
+  return key;
 }
 
 async function appendIndex(contextDir: string, occurrence: ArchiveOccurrence): Promise<void> {
@@ -411,7 +418,7 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
       ...(input.lifecycle !== undefined ? { lifecycle: input.lifecycle } : {}),
       recordedAt,
     });
-    const blobKey = input.blobKey ?? occurrenceBlobKey(sessionId, occurrenceId);
+    const blobKey = assertSafeBlobKey(input.blobKey ?? occurrenceBlobKey(sessionId, occurrenceId));
     if (input.skipWrite !== true && input.gap !== true) {
       await writeBlob(blobKey, bytes, contentType);
     }
@@ -440,9 +447,10 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
     },
 
     async recordExistingBlobReference(input) {
+      const blobKey = assertSafeBlobKey(input.blobKey);
       let gap = false;
       try {
-        const bytes = await readBlob(input.blobKey);
+        const bytes = await readBlob(blobKey);
         const actual = hashAuthorizedBytes(bytes);
         if (actual !== input.contentHash) gap = true;
       } catch {
@@ -461,7 +469,7 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
         sessionId,
         kind: input.kind,
         contentHash: input.contentHash,
-        blobKey: input.blobKey,
+        blobKey,
         recordedAt,
         ...(input.callId !== undefined ? { callId: input.callId } : {}),
         ...(input.provenance !== undefined ? { provenance: input.provenance } : {}),

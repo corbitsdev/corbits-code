@@ -116,6 +116,8 @@ src/
     data-only-agent.ts         Markdown-only agent plugins (agents/*.md)
     loader.ts                  Plugin discovery + loadPluginEntry
     path-escape-plugin.ts      Path sandboxing (first)
+    evidence-archive-search-plugin.ts  archive:/// search/read via posix tools
+    evidence-archive-path-guard.ts     Block dump-path reads of the archive sidecar
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
     secret-guard-plugin.ts     Hard-deny path-keyed secret files
     authz-plugin.ts            Catastrophic command blocking (thin wrapper)
