@@ -143,10 +143,6 @@ export async function assembleTUISession(
     reactorGated: true,
     onGrant: (approval, covers) => emitter.emit("permission.grant", { approval, covers }),
   });
-  const approvalResume = createApprovalResume({
-    getAgent: () => state.currentAgent,
-    gate: permissionGate,
-  });
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
@@ -377,6 +373,18 @@ export async function assembleTUISession(
   // so a rebuild never races an in-flight deliver.
   const sessionOps = createSessionOperationQueue();
   const deliveryGeneration = createDeliveryGeneration();
+  const approvalResume = createApprovalResume({
+    getAgent: () => state.agentProxy ?? state.currentAgent,
+    deliver: (message) => {
+      const stillCurrent = deliveryGeneration.capture();
+      return sessionOps.enqueue(async () => {
+        if (!stillCurrent()) return;
+        if (state.fatalBuildError !== null) throw state.fatalBuildError;
+        liveAgent(state).deliver(message);
+      });
+    },
+    gate: permissionGate,
+  });
   state.enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
     const stillCurrent = deliveryGeneration.capture();
     void sessionOps.enqueue(async () => {

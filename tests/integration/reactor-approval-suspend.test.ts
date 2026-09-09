@@ -92,10 +92,12 @@ describe("integration — reactor approval suspend/resume", () => {
         const handling = resume.handle(result);
         await waitForAsk(ctx);
         expect(ctx.asks.length).toBe(1);
+        const started = Date.now();
         ctx.approve();
         expect(await handling).toBe(true);
 
         const reply = await turn.reply();
+        expect(Date.now() - started).toBeLessThan(1000);
         // The parked call was re-dispatched and actually executed (approvedOnce
         // bypass, real tool.start) without a second ask, and its result is not
         // a permission denial.
@@ -132,10 +134,12 @@ describe("integration — reactor approval suspend/resume", () => {
       const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
       const handling = resume.handle(result);
       await waitForAsk(ctx);
+      const started = Date.now();
       ctx.reject("not today");
       expect(await handling).toBe(true);
 
       await turn.reply();
+      expect(Date.now() - started).toBeLessThan(1000);
       // resume.tool_result answers the parked call by committing the result
       // turn directly (upstream does not emit tool.done for it), so the
       // approver's reason reaches the model through history.
@@ -148,6 +152,29 @@ describe("integration — reactor approval suspend/resume", () => {
             b.content.some((c) => c.type === "text" && c.text.includes("denied by approver")),
         );
       expect(denied).toBe(true);
+    } finally {
+      await closeIntegrationSession(session);
+    }
+  });
+
+  test.serial("rebuild-then-approve fails loud when the parked agent is closed", async () => {
+    const ctx = gateWithDeferredApproval();
+    const session = await openWith(ctx.gate);
+    try {
+      session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
+      const turn = await runUntilSuspended(session, "Please fetch example.com.");
+      const { result } = turn;
+      expect(result.type).toBe("suspended");
+      if (result.type !== "suspended") return;
+
+      const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
+      const handling = resume.handle(result);
+      await waitForAsk(ctx);
+      await session.agent.close();
+      const started = Date.now();
+      ctx.approve();
+      await expect(handling).rejects.toThrow();
+      expect(Date.now() - started).toBeLessThan(1000);
     } finally {
       await closeIntegrationSession(session);
     }

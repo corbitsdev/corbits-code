@@ -108,40 +108,63 @@ function decisionMessage(
 }
 
 export function createApprovalResume(args: {
-  // Late-bound: the live agent is read at handle() time so rebuilds
-  // (/clear, model switch) deliver through the current instance.
+  // Late-bound: the live agent is read at history/deliver time so rebuilds
+  // (/clear, model switch) deliver through the current instance, not a
+  // snapshot taken at handle() start.
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
+  // TUI session queue. When present, each decision is awaited through this
+  // seam; exec omits it and uses getAgent().deliver.
+  deliver?: (message: InboundMessage) => void | Promise<void>;
   gate: PermissionGate;
 }): ApprovalResume {
   const { getAgent, gate } = args;
+
+  const requireAgent = (): Pick<Agent, "deliver" | "history"> => {
+    const agent = getAgent();
+    if (agent === undefined) {
+      throw new Error("approval resume: no live agent");
+    }
+    return agent;
+  };
+
+  const deliverDecision = async (message: InboundMessage): Promise<void> => {
+    if (args.deliver !== undefined) {
+      await args.deliver(message);
+      return;
+    }
+    requireAgent().deliver(message);
+  };
+
   return {
     handle: async (result) => {
       if (result.type !== "suspended") return false;
-      const agent = getAgent();
-      if (agent === undefined) return true;
       const { correlationId, approvalSnapshot } = result;
 
       // Turn-count watermark for the settled guard below: a "approval timed
       // out" tool result appended after this point means the reactor settled
       // this very correlation before our decision lands.
-      const turnsAtSuspend = (await agent.history()).length;
+      const turnsAtSuspend = (await requireAgent().history()).length;
 
       if (approvalSnapshot === undefined) {
         // A suspension without a snapshot cannot be surfaced; fail closed by
         // rejecting the parked call so the run does not hang on an invisible
         // gate.
-        agent.deliver(decisionMessage(correlationId, "rejected", "approval surface unavailable"));
+        await deliverDecision(
+          decisionMessage(correlationId, "rejected", "approval surface unavailable"),
+        );
         return true;
       }
 
       const request = requestFromApprovalSnapshot(approvalSnapshot, correlationId);
       if (request === null) {
-        agent.deliver(decisionMessage(correlationId, "rejected", "approval surface unavailable"));
+        await deliverDecision(
+          decisionMessage(correlationId, "rejected", "approval surface unavailable"),
+        );
         return true;
       }
 
       const outcome = await gate.resolveSuspended(request);
-      if (settledAfterSuspend(await agent.history(), turnsAtSuspend)) {
+      if (settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)) {
         // The reactor already answered the parked call (its approval timeout
         // fired while the surface was still up). Delivering now would append
         // the raw decision JSON as an uncorrelated user turn — drop and log.
@@ -149,10 +172,10 @@ export function createApprovalResume(args: {
         return true;
       }
       if (outcome === undefined || !outcome.allow) {
-        agent.deliver(decisionMessage(correlationId, "rejected", outcome?.message));
+        await deliverDecision(decisionMessage(correlationId, "rejected", outcome?.message));
         return true;
       }
-      agent.deliver(decisionMessage(correlationId, "approved"));
+      await deliverDecision(decisionMessage(correlationId, "approved"));
       return true;
     },
   };
