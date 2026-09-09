@@ -134,6 +134,45 @@ describe("primary message admission", () => {
     expect(delivered[0]!.content).toContain(CREDENTIAL_REDACTION);
     expect(delivered[1]!.content).toContain(CREDENTIAL_REDACTION);
   });
+
+  test("history and archive share the same admitted representation", async () => {
+    const dir = tempDir();
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "sess-admit",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const bytes = blobs.get(key);
+        if (bytes === undefined) throw new Error(`missing blob ${key}`);
+        return bytes;
+      },
+    });
+    const delivered: InboundMessage[] = [];
+    const agent = {
+      deliver(message: InboundMessage) {
+        delivered.push(message);
+      },
+      async send(message: InboundMessage) {
+        delivered.push(message);
+        return { ok: true as const };
+      },
+    };
+    const wrapped = createPrimaryDeliveryAdmission(agent, archive);
+    wrapped.deliver(inbound({ content: "constraint sk-abcdefghijklmnopqrstuvwxyz012345" }));
+    await archive.awaitPendingWrites();
+    expect(delivered).toHaveLength(1);
+    const admitted = delivered[0]!.content!;
+    expect(admitted).toContain(CREDENTIAL_REDACTION);
+    expect(admitted).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
+    const occurrences = await archive.listOccurrences();
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]!.kind).toBe("user_message");
+    const archived = await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId);
+    expect(archived).toBe(admitted);
+  });
 });
 
 describe("compaction archive storage", () => {

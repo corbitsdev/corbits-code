@@ -469,44 +469,50 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const buildAgent = async (): Promise<Agent> => {
     const workdir = wiring.getWorkdir();
     const { storage, audit } = await createSessionStores(workdir);
-    // workdir is …/<sessionId>/context for primary sessions.
-    const sessionId = path.basename(path.dirname(workdir));
-    const archive = createCompactionArchive({
-      sessionId,
-      contextDir: workdir,
-      writeBlob: (key, bytes, contentType) =>
-        storage.writeBlob(key, bytes, contentType),
-      readBlob: (key) => storage.readBlob(key),
-    });
-    if (wiring.evidenceArchiveHolder !== undefined) {
-      wiring.evidenceArchiveHolder.current = archive;
+    // Primary-only evidence archive. Workers never pass evidenceArchiveHolder, so
+    // they keep plain storage and omit admission / authorize recording wraps.
+    const archiveHolder = wiring.evidenceArchiveHolder;
+    let primaryArchive: CompactionArchive | undefined;
+    if (archiveHolder !== undefined) {
+      const sessionId = path.basename(path.dirname(workdir));
+      primaryArchive = createCompactionArchive({
+        sessionId,
+        contextDir: workdir,
+        writeBlob: (key, bytes, contentType) =>
+          storage.writeBlob(key, bytes, contentType),
+        readBlob: (key) => storage.readBlob(key),
+      });
+      archiveHolder.current = primaryArchive;
     }
 
-    const storageWithArchive: ContextStore = {
-      ...storage,
-      async writeResponse(turn, signal) {
-        const content = turn.content.map((block) => {
-          if (block.type !== "text") return block;
-          const text = applyRecordingPolicyToText(block.text);
-          return text === block.text ? block : { ...block, text };
-        });
-        const admitted = { ...turn, content };
-        for (const block of admitted.content) {
-          if (block.type === "text" && block.text.length > 0) {
-            await archive.recordAuthorizedPayload({
-              kind: "assistant_text",
-              payload: block.text,
-              provenance: "writeResponse:post-policy",
-            });
-          }
-        }
-        return storage.writeResponse(admitted, signal);
-      },
-    };
+    const storageForAgent: ContextStore =
+      primaryArchive === undefined
+        ? storage
+        : {
+            ...storage,
+            async writeResponse(turn, signal) {
+              const content = turn.content.map((block) => {
+                if (block.type !== "text") return block;
+                const text = applyRecordingPolicyToText(block.text);
+                return text === block.text ? block : { ...block, text };
+              });
+              const admitted = { ...turn, content };
+              for (const block of admitted.content) {
+                if (block.type === "text" && block.text.length > 0) {
+                  await primaryArchive.recordAuthorizedPayload({
+                    kind: "assistant_text",
+                    payload: block.text,
+                    provenance: "writeResponse:post-policy",
+                  });
+                }
+              }
+              return storage.writeResponse(admitted, signal);
+            },
+          };
     const agent = await createAgentWithLiveToolDispatch(agentDef, {
       sources: wiring.getSources(),
       defaultSource: wiring.getDefaultSource(),
-      storage: storageWithArchive,
+      storage: storageForAgent,
       workdir,
       // contextTransforms ride deps: the published @intx/agent forwards deps
       // into reactor assembly verbatim, and the vendored assembly picks the
@@ -515,7 +521,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ...wiring.inferenceDeps,
         contextTransforms: [
           createAttachmentRehydrateTransform((key) =>
-            storageWithArchive.readBlob(key),
+            storageForAgent.readBlob(key),
           ),
         ],
       },
@@ -524,7 +530,10 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       // Gate-backed reactor authorization: ask-tier calls suspend via the
       // vendored approval-suspend primitive instead of parking on a closure.
       // Finalize evidence admission after guards resolve; never scrub exec args.
-      authorize: wrapAuthorizeWithEvidenceArchive(wiring.authorize, () => archive),
+      authorize:
+        primaryArchive === undefined
+          ? wiring.authorize
+          : wrapAuthorizeWithEvidenceArchive(wiring.authorize, () => primaryArchive),
       directors: createDirectorRegistry({
         factories: [chatDirectorDef.factory],
         defaultId: `${ID_PREFIX}/chat`,
@@ -533,8 +542,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         "pruning-compactor": wiring.getCompactor(),
       },
     });
-    const admittedAgent = createPrimaryDeliveryAdmission(agent, archive);
-    wiring.onBuilt(admittedAgent, storageWithArchive);
+    const admittedAgent =
+      primaryArchive === undefined ? agent : createPrimaryDeliveryAdmission(agent, primaryArchive);
+    wiring.onBuilt(admittedAgent, storageForAgent);
     return admittedAgent;
   };
 
