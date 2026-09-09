@@ -526,6 +526,60 @@ describe("wireGates", () => {
     });
   });
 
+  test("sequential permission.gate Accept once on B allows B", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      const emitter = new EventEmitter();
+      let resolvedA: unknown;
+      let resolvedB: unknown;
+      try {
+        const dispose = wireGates(emitter, shell);
+        emitter.emit("permission.gate", {
+          request: baseRequest({
+            id: "req-a",
+            subject: "git status",
+            scopes: [{ id: "scope-a", label: "Allow git A", pattern: "git A*" }],
+          }),
+          resolve: (outcome: unknown) => {
+            resolvedA = outcome;
+          },
+        });
+        closeInsetOverlay(shell);
+        expect(resolvedA).toEqual({ allow: false });
+        expect(shell.overlayList).toBeNull();
+
+        emitter.emit("permission.gate", {
+          request: baseRequest({
+            id: "req-b",
+            subject: "git push",
+            scopes: [{ id: "scope-b", label: "Allow git B", pattern: "git B*" }],
+          }),
+          resolve: (outcome: unknown) => {
+            resolvedB = outcome;
+          },
+        });
+        expect(shell.overlayKind).toBe("permissions");
+        expect(shell.overlayList?.select.options.map((option) => option.value)).toEqual([
+          `req-b:${PERMISSION_DENY_ID}`,
+          `req-b:${PERMISSION_ONCE_ID}`,
+          "req-b:scope-b",
+        ]);
+
+        moveOverlaySelection(shell, 1);
+        acceptOverlaySelection(shell);
+        expect(resolvedB).toEqual({ allow: true });
+        expect(resolvedB).not.toEqual({ allow: false });
+
+        dispose();
+      } finally {
+        shell.dispose();
+      }
+    });
+  });
+
   test("operator.gate without id cancels without opening", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
