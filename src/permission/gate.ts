@@ -471,11 +471,20 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // settled all collapse to now. Interactive prompts use approvalLog.ask
   // directly (see below) so their real queued/displayed/settled timestamps
   // are captured.
+  //
+  // Recording owns uniqueness: reactor-gated calls run decide() twice (env.authorize
+  // then gateToolCall) and decide() is not otherwise idempotent. A second pass
+  // for the same call.id must still return deny, but must not append a second
+  // JSONL record.
+  const recordedCallIds = new Set<string>();
   const recordAutoDecision = (
+    callId: string,
     tool: string,
     rule: string | undefined,
     outcome: ApprovalOutcomeKind,
   ): void => {
+    if (recordedCallIds.has(callId)) return;
+    recordedCallIds.add(callId);
     approvalLog
       .ask({
         tool,
@@ -546,15 +555,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // a secret path is ask so an explicit one-time approval can pass it.
         const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
         if (shellRule?.effect === "deny") {
-          recordAutoDecision(call.name, shellRule.name, "auto-deny");
+          recordAutoDecision(call.id, call.name, shellRule.name, "auto-deny");
           return { kind: "deny", reason: shellRule.reason };
         }
         if (shellRule === undefined) {
-          recordAutoDecision(call.name, undefined, "auto-allow");
+          recordAutoDecision(call.id, call.name, undefined, "auto-allow");
           return { kind: "allow" };
         }
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
-        recordAutoDecision(call.name, "auto-allowed-tool", "auto-allow");
+        recordAutoDecision(call.id, call.name, "auto-allowed-tool", "auto-allow");
         return { kind: "allow" };
       }
       // Any other tool in auto mode (MCP or unknown built-in) is not
@@ -633,7 +642,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const askRule = anySecret ? "sensitive-path" : undefined;
 
         if (!interactive || requestApproval === undefined) {
-          recordAutoDecision(request.tool, askRule ?? "non-interactive", "deny");
+          recordAutoDecision(call.id, request.tool, askRule ?? "non-interactive", "deny");
           return {
             kind: "deny",
             reason: anySecret
@@ -668,7 +677,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       }
 
       if (!interactive || requestApproval === undefined) {
-        recordAutoDecision(request.tool, "non-interactive", "deny");
+        recordAutoDecision(call.id, request.tool, "non-interactive", "deny");
         return {
           kind: "deny",
           reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
