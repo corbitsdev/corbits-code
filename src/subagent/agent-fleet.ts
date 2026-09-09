@@ -480,14 +480,14 @@ function sessionHasInFlightShell(session: SubAgentSession): boolean {
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses. ` +
+    `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses without a live targeted run_shell or shell. ` +
     `Default mode is "any" (return when the first target finishes or asks). Pass mode="all" to wait until every target is ` +
     `terminal — except a pending ask_director unblocks immediately regardless of mode so the director can send_input. ` +
     `Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
     `the workers — they keep running and remain waitable. If a targeted child still has run_shell or ` +
-    `shell in flight, the wait extends in default-length slices until the shell ends, the worker ` +
+    `shell in flight, the wait extends in default-length slices until the last such shell ends, the worker ` +
     `terminals, abort, or the max elapsed clamp — a timeout still does not touch workers and is not a ` +
     `cue to retry immediately. Live wait status includes "queued" (waiting for a burst ` +
     `slot), "running", and "awaiting_director". interrupt_agent and close_agent unblock this wait immediately with ` +
@@ -506,7 +506,7 @@ export const waitAgentsToolDefinition: ToolDefinition = {
       },
       timeout_ms: {
         type: "number",
-        description: `Max time to block, in ms. Default ${DEFAULT_WAIT_TIMEOUT_MS}, clamped to ${MAX_WAIT_TIMEOUT_MS}.`,
+        description: `Initial block in ms. Default ${DEFAULT_WAIT_TIMEOUT_MS}, clamped to ${MAX_WAIT_TIMEOUT_MS}. A short value is an Enter hatch when no targeted run_shell or shell is in flight. A live shell extends in default-length slices until the last such shell ends, the worker terminals, abort, or elapsed hits the max clamp.`,
       },
       mode: {
         type: "string",
@@ -1315,8 +1315,11 @@ function targetedHasInFlightShell(
  * a timer and the parent tool signal; never polls. On timer fire, if a
  * targeted live worker still has run_shell or shell in flight, the wait
  * extends in default-length slices until elapsed hits MAX_WAIT_TIMEOUT_MS.
- * Timeout and abort have no side effects: workers keep running and remain
- * waitable. Overlay writers wake this wait via `sessions.wake()`.
+ * When the last such shell ends after extend has started and the worker is
+ * still running, the wait times out on that store mutation instead of
+ * sitting on the remainder of the current slice. Timeout and abort have no
+ * side effects: workers keep running and remain waitable. Overlay writers
+ * wake this wait via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
@@ -1349,7 +1352,17 @@ async function waitForTerminal(
     };
     const onAbort = (): void => finish(true);
     const onChange = (): void => {
-      if (ready()) finish(false);
+      if (ready()) {
+        finish(false);
+        return;
+      }
+      if (signal?.aborted) {
+        finish(true);
+        return;
+      }
+      if (Date.now() - waitStartedAt < timeoutMs) return;
+      if (targetedHasInFlightShell(sessions, fleetRecords, targets)) return;
+      finish(true);
     };
     const onTimer = (): void => {
       if (ready()) {
