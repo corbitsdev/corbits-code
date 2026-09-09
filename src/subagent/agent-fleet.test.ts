@@ -14,7 +14,6 @@ import {
   DEFAULT_WAIT_TIMEOUT_MS,
   MAX_WAIT_TIMEOUT_MS,
   clampWaitTimeoutMs,
-  nextWaitTimerMs,
   waitAgentsToolDefinition,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
@@ -292,6 +291,29 @@ describe("spawn_agent + wait_agents", () => {
     }[];
     expect(secondResults[0]!.status).toBe("done");
     expect(secondResults[0]!.report).toBe("finished");
+  });
+
+  test("explicit short timeout_ms is honored even if a child has run_shell in flight", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async () => gate.promise);
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const spawned = await callTool(spawn, {
+      description: "slow job",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    stampToolStart(deps.sessions, id, "run_shell", "call-shell");
+
+    const first = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    expect(first.timed_out).toBe(true);
+    const firstResults = first.results as { agent_id: string; status: string }[];
+    expect(firstResults[0]!.status).toBe("running");
+    expect(deps.sessions.get(id)?.status).toBe("running");
+
+    gate.resolve({ report: "finished" });
   });
 
   test("wait_agents with no targets waits on all uncollected agents in this fleet", async () => {
@@ -648,11 +670,9 @@ describe("wait mailbox session tombstone and pin", () => {
 });
 
 describe("wait timeout helpers", () => {
-  test("default is 5 minutes and clamp is 30 minutes", () => {
-    expect(DEFAULT_WAIT_TIMEOUT_MS).toBe(300_000);
+  test("default is a 30-second hatch and clamp is 30 minutes", () => {
+    expect(DEFAULT_WAIT_TIMEOUT_MS).toBe(30_000);
     expect(MAX_WAIT_TIMEOUT_MS).toBe(1_800_000);
-    expect(DEFAULT_WAIT_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
-    expect(MAX_WAIT_TIMEOUT_MS).toBeGreaterThanOrEqual(DEFAULT_WAIT_TIMEOUT_MS);
   });
 
   test("clampWaitTimeoutMs floors at 0 and caps at MAX", () => {
@@ -662,28 +682,11 @@ describe("wait timeout helpers", () => {
     expect(clampWaitTimeoutMs(0)).toBe(0);
   });
 
-  test("nextWaitTimerMs extends only while a shell is in flight and elapsed is under max", () => {
-    const defaultMs = DEFAULT_WAIT_TIMEOUT_MS;
-    const maxMs = MAX_WAIT_TIMEOUT_MS;
-    expect(nextWaitTimerMs({ elapsed: 80, hasInFlightShell: true, defaultMs, maxMs })).toBe(
-      defaultMs,
-    );
-    expect(
-      nextWaitTimerMs({ elapsed: 80, hasInFlightShell: false, defaultMs, maxMs }),
-    ).toBeUndefined();
-    expect(
-      nextWaitTimerMs({ elapsed: maxMs, hasInFlightShell: true, defaultMs, maxMs }),
-    ).toBeUndefined();
-    expect(
-      nextWaitTimerMs({ elapsed: maxMs - 100_000, hasInFlightShell: true, defaultMs, maxMs }),
-    ).toBe(100_000);
-  });
-
-  test("wait_agents description interpolates the new default and clamp and mentions shell extend", () => {
+  test("wait_agents description interpolates the hatch default and 30-minute clamp", () => {
     expect(waitAgentsToolDefinition.description).toContain(String(DEFAULT_WAIT_TIMEOUT_MS));
     expect(waitAgentsToolDefinition.description).toContain(String(MAX_WAIT_TIMEOUT_MS));
-    expect(waitAgentsToolDefinition.description).toContain("run_shell");
     expect(waitAgentsToolDefinition.description).toContain("tight zero-progress loop");
+    expect(waitAgentsToolDefinition.description).not.toContain("extends");
     const timeoutSchema = (
       waitAgentsToolDefinition.inputSchema as {
         properties?: { timeout_ms?: { description?: string } };
@@ -691,14 +694,10 @@ describe("wait timeout helpers", () => {
     ).properties?.timeout_ms;
     expect(timeoutSchema?.description).toContain(String(DEFAULT_WAIT_TIMEOUT_MS));
     expect(timeoutSchema?.description).toContain(String(MAX_WAIT_TIMEOUT_MS));
-    expect(timeoutSchema?.description).toContain("Enter hatch");
-    expect(timeoutSchema?.description).toContain("extends");
+    expect(timeoutSchema?.description).toContain("Max time to block");
+    expect(timeoutSchema?.description).not.toContain("extends");
   });
 });
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function stampToolStart(
   sessions: ReturnType<typeof createSubAgentSessionStore>,
@@ -713,242 +712,6 @@ function stampToolStart(
     data: { call: { id: callId, name, arguments: {} } },
   } as unknown as ReactorEmittedEvent);
 }
-
-function stampToolDone(
-  sessions: ReturnType<typeof createSubAgentSessionStore>,
-  id: string,
-  callId: string,
-  seq: number,
-): void {
-  sessions.appendEvent(id, {
-    type: "tool.done",
-    seq,
-    data: { result: { callId, content: "ok", isError: false } },
-  } as unknown as ReactorEmittedEvent);
-}
-
-describe("wait_agents shell-extend", () => {
-  test("extends while run_shell is in flight instead of returning a zero-progress timeout", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const spawned = await callTool(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    stampToolStart(deps.sessions, id, "run_shell", "call-shell");
-
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 80 });
-    let settled = false;
-    void waiting.then(() => {
-      settled = true;
-    });
-    await delay(150);
-    expect(settled).toBe(false);
-    expect(deps.sessions.get(id)?.status).toBe("running");
-
-    gate.resolve({ report: "done" });
-    const result = await waiting;
-    expect(result.timed_out).toBe(false);
-    const results = result.results as { status: string; report?: string }[];
-    expect(results[0]!.status).toBe("done");
-    expect(results[0]!.report).toBe("done");
-  });
-
-  test("extends while Codex shell is in flight", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const spawned = await callTool(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    stampToolStart(deps.sessions, id, "shell", "call-codex-shell");
-
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 80 });
-    let settled = false;
-    void waiting.then(() => {
-      settled = true;
-    });
-    await delay(150);
-    expect(settled).toBe(false);
-
-    gate.resolve({ report: "codex done" });
-    const result = await waiting;
-    expect(result.timed_out).toBe(false);
-    expect(deps.sessions.get(id)?.status).not.toBe("failed");
-  });
-
-  test("extends when run_shell is outstanding even if currentToolName is grep", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const spawned = await callTool(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    stampToolStart(deps.sessions, id, "grep", "call-grep", 1);
-    stampToolStart(deps.sessions, id, "run_shell", "call-shell", 2);
-    expect(deps.sessions.get(id)?.currentToolName).toBe("grep");
-
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 80 });
-    let settled = false;
-    void waiting.then(() => {
-      settled = true;
-    });
-    await delay(150);
-    expect(settled).toBe(false);
-
-    gate.resolve({ report: "done" });
-    const result = await waiting;
-    expect(result.timed_out).toBe(false);
-  });
-
-  test("grep-only outstanding tools do not extend", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const spawned = await callTool(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    stampToolStart(deps.sessions, id, "grep", "call-grep");
-
-    const first = await callTool(wait, { targets: [id], timeout_ms: 50 });
-    expect(first.timed_out).toBe(true);
-    const firstResults = first.results as { status: string }[];
-    expect(firstResults[0]!.status).toBe("running");
-    expect(deps.sessions.get(id)?.status).toBe("running");
-
-    gate.resolve({ report: "finished" });
-    const second = await callTool(wait, { targets: [id], timeout_ms: 5000 });
-    expect(second.timed_out).toBe(false);
-  });
-
-  test("mode=all extends when any targeted live worker has run_shell in flight", async () => {
-    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
-    let callIndex = 0;
-    const deps = makeDeps(async () => gates[callIndex++]!.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const first = await callTool(spawn, {
-      description: "a",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const second = await callTool(spawn, {
-      description: "b",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const ids = [first.agent_id as string, second.agent_id as string];
-    stampToolStart(deps.sessions, ids[0]!, "run_shell", "call-shell");
-
-    const waiting = callTool(wait, { targets: ids, mode: "all", timeout_ms: 80 });
-    let settled = false;
-    void waiting.then(() => {
-      settled = true;
-    });
-    await delay(150);
-    expect(settled).toBe(false);
-
-    const afterDone = Date.now();
-    stampToolDone(deps.sessions, ids[0]!, "call-shell", 2);
-    const result = await waiting;
-    expect(Date.now() - afterDone).toBeLessThan(500);
-    expect(result.timed_out).toBe(true);
-    expect(deps.sessions.get(ids[0]!)?.status).toBe("running");
-    expect(deps.sessions.get(ids[1]!)?.status).toBe("running");
-
-    gates[0]!.resolve({ report: "a done" });
-    gates[1]!.resolve({ report: "b done" });
-  });
-
-  test("abort during a shell-extend slice returns immediately without cancelling the worker", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const spawned = await callTool(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    stampToolStart(deps.sessions, id, "run_shell", "call-shell");
-
-    if (wait.kind !== "full") throw new Error("expected full tool");
-    const ac = new AbortController();
-    const pending = wait.handler(
-      {
-        id: "wait-extend-abort",
-        name: "wait_agents",
-        arguments: { targets: [id], timeout_ms: 80 },
-      },
-      ac.signal,
-    );
-    await delay(120);
-    ac.abort();
-    const result = await pending;
-    const content =
-      typeof result.content === "string" ? result.content : JSON.stringify(result.content);
-    const parsed = JSON.parse(content) as {
-      timed_out: boolean;
-      results: { status: string }[];
-    };
-    expect(parsed.timed_out).toBe(true);
-    expect(parsed.results[0]!.status).toBe("running");
-    expect(deps.sessions.get(id)?.status).toBe("running");
-
-    gate.resolve({ report: "done" });
-  });
-
-  test("after extend starts, tool.done on the last run_shell times out promptly while the worker still runs", async () => {
-    const gate = deferred<RunSubAgentResult>();
-    const deps = makeDeps(async () => gate.promise);
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
-    const spawned = await callTool(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    stampToolStart(deps.sessions, id, "run_shell", "call-shell");
-
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 80 });
-    let settled = false;
-    void waiting.then(() => {
-      settled = true;
-    });
-    await delay(150);
-    expect(settled).toBe(false);
-    expect(deps.sessions.get(id)?.status).toBe("running");
-
-    const afterDone = Date.now();
-    stampToolDone(deps.sessions, id, "call-shell", 2);
-    const result = await waiting;
-    expect(Date.now() - afterDone).toBeLessThan(500);
-    expect(result.timed_out).toBe(true);
-    const results = result.results as { status: string }[];
-    expect(results[0]!.status).toBe("running");
-    expect(deps.sessions.get(id)?.status).toBe("running");
-
-    gate.resolve({ report: "done" });
-  }, 2000);
-});
 
 describe("spawn_agent parentage", () => {
   test("records the caller session as parentSessionId", async () => {

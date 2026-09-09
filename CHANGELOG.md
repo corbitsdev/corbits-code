@@ -15,11 +15,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Changed
 
-- wait_agents default timeout is 5 minutes (was 30 seconds) and the clamp is 30
-  minutes (was 5). While a targeted child has `run_shell` or `shell` in flight,
-  the wait extends in default-length slices until the shell ends, the worker
-  terminals, abort, or the 30-minute elapsed ceiling. Timeout, extend, and abort
-  still do not cancel workers.
+- wait_agents default timeout stays a 30-second Enter hatch. The clamp is 30
+  minutes (was 5) so an explicit `timeout_ms` can cover a long typecheck or
+  full check. Timeout and abort still do not cancel workers. The wait does
+  not auto-extend while a child shell is in flight.
 
 ## [0.3.18] - 2026-09-08
 

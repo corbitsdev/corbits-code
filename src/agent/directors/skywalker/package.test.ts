@@ -131,9 +131,8 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("answer them first");
     expect(p).toContain("Enter can land");
     expect(p).toContain("do not tight-loop wait_agents");
-    expect(p).toContain("extends while a targeted child has run_shell or shell in flight");
-    expect(p).toContain("that extend ends when the last such shell ends");
-    expect(p).toContain("short timeout_ms when no child run_shell or shell is in flight");
+    expect(p).toContain("explicit large timeout_ms");
+    expect(p).toContain("does not auto-extend");
     expect(p).not.toContain("timeout_ms: 1000");
     expect(p).not.toContain("timeout_ms: MAX");
   });

@@ -64,7 +64,6 @@ import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import {
   DEFAULT_CANCEL_REASON,
   type AgentLifecycleStatus,
-  type SubAgentSession,
   type SubAgentSessionStore,
 } from "./session-store.js";
 import { isLiveWaitStatus, projectWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
@@ -451,45 +450,23 @@ const WaitAgentsArgs = type({
   "mode?": "'any' | 'all'",
 });
 
-export const DEFAULT_WAIT_TIMEOUT_MS = 300_000;
+export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
 export const MAX_WAIT_TIMEOUT_MS = 1_800_000;
-
-const IN_FLIGHT_SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(["run_shell", "shell"]);
 
 export function clampWaitTimeoutMs(requested: number): number {
   return Math.min(Math.max(requested, 0), MAX_WAIT_TIMEOUT_MS);
 }
 
-export function nextWaitTimerMs(args: {
-  elapsed: number;
-  hasInFlightShell: boolean;
-  defaultMs: number;
-  maxMs: number;
-}): number | undefined {
-  if (args.elapsed >= args.maxMs) return undefined;
-  if (!args.hasInFlightShell) return undefined;
-  const delay = Math.min(args.defaultMs, args.maxMs - args.elapsed);
-  if (delay <= 0) return undefined;
-  return delay;
-}
-
-function sessionHasInFlightShell(session: SubAgentSession): boolean {
-  return session.outstandingTools.some((call) => IN_FLIGHT_SHELL_TOOL_NAMES.has(call.name));
-}
-
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses without a live targeted run_shell or shell. ` +
+    `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses. ` +
     `Default mode is "any" (return when the first target finishes or asks). Pass mode="all" to wait until every target is ` +
     `terminal — except a pending ask_director unblocks immediately regardless of mode so the director can send_input. ` +
     `Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
-    `the workers — they keep running and remain waitable. If a targeted child still has run_shell or ` +
-    `shell in flight, the wait extends in default-length slices until the last such shell ends, the worker ` +
-    `terminals, abort, or the max elapsed clamp — a timeout still does not touch workers and is not a ` +
-    `cue to retry immediately. Live wait status includes "queued" (waiting for a burst ` +
+    `the workers — they keep running and remain waitable. Live wait status includes "queued" (waiting for a burst ` +
     `slot), "running", and "awaiting_director". interrupt_agent and close_agent unblock this wait immediately with ` +
     `status "interrupted". awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
     `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
@@ -506,7 +483,7 @@ export const waitAgentsToolDefinition: ToolDefinition = {
       },
       timeout_ms: {
         type: "number",
-        description: `Initial block in ms. Default ${DEFAULT_WAIT_TIMEOUT_MS}, clamped to ${MAX_WAIT_TIMEOUT_MS}. A short value is an Enter hatch when no targeted run_shell or shell is in flight. A live shell extends in default-length slices until the last such shell ends, the worker terminals, abort, or elapsed hits the max clamp.`,
+        description: `Max time to block, in ms. Default ${DEFAULT_WAIT_TIMEOUT_MS}, clamped to ${MAX_WAIT_TIMEOUT_MS}.`,
       },
       mode: {
         type: "string",
@@ -1296,28 +1273,10 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   return record !== undefined && !isLiveWaitStatus(record.status);
 }
 
-function targetedHasInFlightShell(
-  sessions: SubAgentSessionStore,
-  fleetRecords: FleetMailboxHandle,
-  targets: readonly string[],
-): boolean {
-  return targets.some((id) => {
-    const record = fleetRecords.peek(id);
-    if (record !== undefined && !isLiveWaitStatus(record.status)) return false;
-    const session = sessions.get(id);
-    return session !== undefined && sessionHasInFlightShell(session);
-  });
-}
-
 /**
  * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
  * elapses. Driven by the session store's mailbox (`subscribe`) raced against
- * a timer and the parent tool signal; never polls. On timer fire, if a
- * targeted live worker still has run_shell or shell in flight, the wait
- * extends in default-length slices until elapsed hits MAX_WAIT_TIMEOUT_MS.
- * When the last such shell ends after extend has started and the worker is
- * still running, the wait times out on that store mutation instead of
- * sitting on the remainder of the current slice. Timeout and abort have no
+ * a timer and the parent tool signal; never polls. Timeout and abort have no
  * side effects: workers keep running and remain waitable. Overlay writers
  * wake this wait via `sessions.wake()`.
  */
@@ -1338,10 +1297,8 @@ async function waitForTerminal(
   if (signal?.aborted) return true;
   if (ready()) return false;
 
-  const waitStartedAt = Date.now();
   return await new Promise<boolean>((resolve) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
     const finish = (timedOut: boolean): void => {
       if (settled) return;
       settled = true;
@@ -1352,40 +1309,9 @@ async function waitForTerminal(
     };
     const onAbort = (): void => finish(true);
     const onChange = (): void => {
-      if (ready()) {
-        finish(false);
-        return;
-      }
-      if (signal?.aborted) {
-        finish(true);
-        return;
-      }
-      if (Date.now() - waitStartedAt < timeoutMs) return;
-      if (targetedHasInFlightShell(sessions, fleetRecords, targets)) return;
-      finish(true);
+      if (ready()) finish(false);
     };
-    const onTimer = (): void => {
-      if (ready()) {
-        finish(false);
-        return;
-      }
-      if (signal?.aborted) {
-        finish(true);
-        return;
-      }
-      const next = nextWaitTimerMs({
-        elapsed: Date.now() - waitStartedAt,
-        hasInFlightShell: targetedHasInFlightShell(sessions, fleetRecords, targets),
-        defaultMs: DEFAULT_WAIT_TIMEOUT_MS,
-        maxMs: MAX_WAIT_TIMEOUT_MS,
-      });
-      if (next !== undefined) {
-        timer = setTimeout(onTimer, next);
-        return;
-      }
-      finish(true);
-    };
-    timer = setTimeout(onTimer, timeoutMs);
+    const timer = setTimeout(() => finish(true), timeoutMs);
     const unsubscribeSessions = sessions.subscribe(onChange);
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) finish(true);
