@@ -369,6 +369,59 @@ describe("resume_agent", () => {
     expect(results[0]!.report).toBe("second report");
   });
 
+  test("interrupt then successful resume wait is done without leftover interrupted stop_reason", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerInterrupt(worker.id, () => {});
+    let finish: (reply: string) => void = () => {};
+    sessions.registerFollowup(
+      worker.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fleetRecords.register(worker.id);
+
+    const interruptAgent = createInterruptAgentTool({ sessions, fleetRecords });
+    const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+
+    const interruptWaiting = callTool(wait, { targets: [worker.id], timeout_ms: 2000 });
+    await callTool(interruptAgent, { target: worker.id });
+    const interruptedWait = await interruptWaiting;
+    expect(interruptedWait.timed_out).toBe(false);
+    const interruptedResults = interruptedWait.results as {
+      status: string;
+      stop_reason?: string;
+    }[];
+    expect(interruptedResults[0]!.status).toBe("interrupted");
+    expect(interruptedResults[0]!.stop_reason).toBe("interrupted");
+
+    const resumed = await callTool(resumeAgent, { target: worker.id, message: "continue" });
+    expect(resumed.status).toBe("running");
+
+    const waiting = callTool(wait, { targets: [worker.id], timeout_ms: 2000 });
+    finish("resumed report");
+    const collected = await waiting;
+    expect(collected.timed_out).toBe(false);
+    const results = collected.results as {
+      status: string;
+      report?: string;
+      stop_reason?: string;
+    }[];
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toBe("resumed report");
+    expect(results[0]!.stop_reason).not.toBe("interrupted");
+  });
+
   test("resume followup rejection invokes close; close_agent tears down leftover", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);

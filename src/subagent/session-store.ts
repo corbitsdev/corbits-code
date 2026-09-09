@@ -753,6 +753,7 @@ export function createSubAgentSessionStore(
     mutate(id, (s) => {
       s.lifecycle = { state: "running" };
       delete s.finishedAt;
+      delete s.stopReason;
     });
   };
   const endFollowupTurn = (id: string, restore: "completed" | "interrupted"): void => {
