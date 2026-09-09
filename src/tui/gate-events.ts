@@ -26,7 +26,7 @@ export interface OperatorGateEvent {
 }
 
 export interface PermissionGateEvent {
-  /** Minted at overlay-open by the TUI emitter, never on PermissionRequest. */
+  /** Minted by the session emitter at gate emit, never on PermissionRequest. */
   id: string;
   request: PermissionRequest;
   resolve: (outcome: ApprovalOutcome) => void;

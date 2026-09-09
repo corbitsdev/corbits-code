@@ -342,8 +342,9 @@ viewport kit: shared windowing, keep-active-visible, and page/jump behavior.
 There is exactly one scroll lease at a time; keyboard paging and the mouse
 wheel both follow whichever surface currently holds it, so a modal open on
 top of the transcript never lets the wheel move the transcript underneath it.
-Ask and permission rows are namespaced by the ask id minted when the overlay
-opens. Paint replaces the whole options array (labels and ids together);
+Ask and permission rows are namespaced by the ask id minted on the gate
+event at emit, before the overlay opens. Paint replaces the whole options
+array (labels and ids together);
 there is no drop-by-id merge. Enter binds by the painted id against the live
 bag — a painted value that is not in that bag, or Enter on an empty gate
 with no answer field, fail-closes the accept as unavailable rather than
