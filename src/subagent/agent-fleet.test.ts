@@ -16,6 +16,7 @@ import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   createInterruptAgentTool,
   createCloseAgentTool,
+  createResumeAgentTool,
   createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -1072,7 +1073,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     gate.resolve({ report: "done" });
   });
 
-  test("send_input interrupt:true unblocks wait_agents as interrupted", async () => {
+  test("send_input interrupt:true keeps wait_agents live until the followup completes", async () => {
     const gate = deferred<RunSubAgentResult>();
     const followupGate = deferred<string>();
     const deps = makeDeps(async (params) => {
@@ -1101,16 +1102,97 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const id = spawned.agent_id as string;
     const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
     await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    followupGate.resolve("later");
+    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
     const waited = await waiting;
     expect(waited.timed_out).toBe(false);
     const results = waited.results as {
       agent_id: string;
       status: string;
+      report?: string;
       stop_reason?: string;
     }[];
-    expect(results).toEqual([{ agent_id: id, status: "interrupted", stop_reason: "interrupted" }]);
-    expect(deps.sessions.get(id)?.stopReason).toBe("interrupted");
-    followupGate.resolve("later");
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toBe("later");
+  });
+
+  test("CL-7331: send_input interrupt keeps wait live until the queued followup completes", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const followupGate = deferred<string>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => followupGate.promise,
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const resume = createResumeAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    const sent = await callTool(sendInput, {
+      target: id,
+      message: "return a concise report",
+      interrupt: true,
+    });
+    expect(sent.status).toBe("interrupted");
+
+    // The queued followup is still running: wait must stay live (not an
+    // immediate terminal interrupted), and list must agree with lifecycle.
+    const pending = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    expect(pending.timed_out).toBe(true);
+    expect((pending.results as { status: string }[])[0]!.status).toBe("running");
+
+    const listed = await callTool(list, {});
+    const entry = (listed.agents as { agent_id: string; status: string; lifecycle: string }[]).find(
+      (a) => a.agent_id === id,
+    );
+    expect(entry?.status).toBe("running");
+    expect(entry?.lifecycle).toBe("running");
+
+    // A resume while the followup is in flight must agree with wait/list.
+    if (resume.kind !== "full") throw new Error("expected full tool");
+    const resumed = await resume.handler(
+      {
+        id: "resume-while-followup",
+        name: "resume_agent",
+        arguments: { target: id, message: "x" },
+      },
+      new AbortController().signal,
+    );
+    expect(resumed.isError).toBe(true);
+    expect(String(resumed.content)).toContain("status: running");
+
+    // When the queued followup finishes, its report must surface via wait.
+    followupGate.resolve("followup report");
+    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
+    const done = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(done.timed_out).toBe(false);
+    const doneResults = done.results as { status: string; report?: string }[];
+    expect(doneResults[0]!.status).toBe("done");
+    expect(doneResults[0]!.report).toBe("followup report");
   });
 
   test("soft-interrupt wait path collects so omitted re-wait does not re-deliver", async () => {
