@@ -21,9 +21,9 @@ interface CallbackWaiter {
 const CALLBACK_PATH = "/callback";
 const CLOSED_ERROR = "OAuth callback server closed before authorization completed.";
 
-// The listen port is always 0, so the OS assigns an ephemeral port and
-// concurrent sessions can never collide on a fixed callback port. `serverName`
-// only names the authorization on the page the browser lands on.
+// Start a loopback server to receive the OAuth redirect. close() fail-closes
+// waitForCode so disposing the toolset cannot leave authorization hung.
+// `serverName` only names the authorization on the page the browser lands on.
 export async function startCallbackServer(serverName?: string): Promise<CallbackServer> {
   let closed = false;
   let expectedState: string | undefined;
@@ -36,6 +36,7 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
   };
 
   const deliver = (result: CallbackResult): void => {
+    if (closed) return;
     if (waiter === undefined) {
       pendingResult = result;
       return;
@@ -78,13 +79,7 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", (err) => {
-      reject(
-        new Error(
-          `Could not start the OAuth callback server: ${err.message}. ` +
-            "The server always requests an ephemeral port, so this is unexpected — " +
-            "retry connecting to the MCP server.",
-        ),
-      );
+      reject(new Error(`Could not start the OAuth callback server: ${err.message}`));
     });
     server.listen(0, "127.0.0.1", resolve);
   });
@@ -130,6 +125,7 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
     close: () => {
       // Rejecting the waiter here is what unblocks toolset disposal: a server
       // that merely stops listening would leave a pending waitForCode hung.
+      if (closed) return;
       closed = true;
       pendingResult = undefined;
       if (waiter !== undefined) {

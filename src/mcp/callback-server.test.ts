@@ -73,15 +73,21 @@ describe("MCP callback server", () => {
     }
   });
 
-  test("binds an ephemeral OS-assigned port on 127.0.0.1", async () => {
-    const server = await startCallbackServer();
+  test("binds concurrent servers to distinct loopback ports", async () => {
+    const first = await startCallbackServer();
+    const second = await startCallbackServer();
     try {
-      const url = new URL(server.redirectUrl);
+      const firstUrl = new URL(first.redirectUrl);
+      const secondUrl = new URL(second.redirectUrl);
 
-      expect(url.hostname).toBe("127.0.0.1");
-      expect(Number(url.port)).toBeGreaterThan(0);
+      expect(firstUrl.hostname).toBe("127.0.0.1");
+      expect(secondUrl.hostname).toBe("127.0.0.1");
+      expect(firstUrl.port).not.toBe(secondUrl.port);
+      expect(Number(firstUrl.port)).toBeGreaterThan(0);
+      expect(Number(secondUrl.port)).toBeGreaterThan(0);
     } finally {
-      server.close();
+      first.close();
+      second.close();
     }
   });
 
@@ -100,7 +106,24 @@ describe("MCP callback server", () => {
     );
   });
 
-  test("reports a clear actionable error when the server fails to bind", async () => {
+  test("close is idempotent and does not leak a waiter after a late callback", async () => {
+    const server = await startCallbackServer();
+    authorize(server, "expected");
+    server.close();
+    server.close();
+
+    await expect(
+      fetch(`${server.redirectUrl}?code=abc&state=expected`).then(
+        () => "fetched",
+        (err: unknown) => err,
+      ),
+    ).resolves.toBeInstanceOf(Error);
+    await expect(server.waitForCode(new AbortController().signal)).rejects.toThrow(
+      "closed before authorization completed",
+    );
+  });
+
+  test("rejects start when listen fails without rewriting the OS error as a retry", async () => {
     await withMockedModuleDuring(
       import.meta.resolve("node:http"),
       (real: typeof import("node:http")) => ({
@@ -113,7 +136,7 @@ describe("MCP callback server", () => {
               return fake;
             },
             listen: () => {
-              listeners.error?.(new Error("listen EADDRINUSE: address already in use"));
+              listeners.error?.(new Error("listen EACCES: permission denied"));
             },
             address: (): undefined => undefined,
           };
@@ -121,15 +144,9 @@ describe("MCP callback server", () => {
         }) as typeof real.createServer,
       }),
       async () => {
-        const err: unknown = await startCallbackServer().then(
-          () => undefined,
-          (failure: unknown) => failure,
+        await expect(startCallbackServer()).rejects.toThrow(
+          "Could not start the OAuth callback server: listen EACCES: permission denied",
         );
-        const error = err as Error;
-
-        expect(error.message).toContain("OAuth callback server");
-        expect(error.message).toContain("EADDRINUSE");
-        expect(error.message).toContain("retry");
       },
     );
   });
