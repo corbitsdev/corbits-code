@@ -22,6 +22,7 @@ import {
   type SubAgentSessionStore,
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
+import { awaitCloseWithoutHidingLeftover } from "../subagent/dispose.js";
 import type { ContextStore, InferenceSource, InboundMessage } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
@@ -181,7 +182,7 @@ async function runExecDispose(args: {
   }
   if (args.agent !== null) {
     try {
-      await args.agent.close();
+      await awaitCloseWithoutHidingLeftover(args.agent.close(), failures[0]);
     } catch (err: unknown) {
       logger.debug("agent.close during exec finally failed: {error}", {
         error: formatCaughtError(err),

@@ -114,6 +114,38 @@ describe("sub-agent teardown", () => {
     ).rejects.toThrow(/still live after 2000ms reap/);
   });
 
+  test("disposeSubAgentSession surfaces leftover posix dispose when agent.close hangs", async () => {
+    const posixTools = {
+      dispose: async () => {
+        throw new Error("1 shell child process still live after 2000ms reap");
+      },
+    };
+    let closeStarted = false;
+    const pending = disposeSubAgentSession({
+      agent: {
+        close: () => {
+          closeStarted = true;
+          return new Promise<void>(() => {});
+        },
+      },
+      posixTools,
+    });
+    const result = await Promise.race([
+      pending.then(
+        () => ({ kind: "resolved" as const }),
+        (err: unknown) => ({ kind: "rejected" as const, err }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        setTimeout(() => resolve({ kind: "timeout" }), 200);
+      }),
+    ]);
+    expect(closeStarted).toBe(true);
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected leftover reject");
+    expect(result.err).toBeInstanceOf(Error);
+    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+  });
+
   test("spawn registry tracks in-flight plugin tool calls", async () => {
     const { plugin, snapshot } = createSubAgentSpawnRegistryPlugin();
     expect(plugin.middleware).toBeDefined();

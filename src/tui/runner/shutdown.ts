@@ -1,3 +1,5 @@
+import { awaitCloseWithoutHidingLeftover } from "../../subagent/dispose.js";
+
 export interface RuntimeShutdownDeps {
   disposeHost: () => void;
   cancelWorkers: () => void | Promise<void>;
@@ -37,7 +39,7 @@ export function createRuntimeShutdown(deps: RuntimeShutdownDeps): () => Promise<
         failures.push(err);
       }
       try {
-        await deps.closeAgent();
+        await awaitCloseWithoutHidingLeftover(deps.closeAgent(), failures[0]);
       } catch (err) {
         failures.push(err);
       }

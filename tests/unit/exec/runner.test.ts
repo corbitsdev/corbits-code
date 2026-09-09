@@ -466,6 +466,38 @@ describe("disposeExecRuntime", () => {
     ).rejects.toThrow(/still live after 2000ms reap/);
   });
 
+  test("surfaces leftover toolset dispose when agent.close hangs", async () => {
+    let closeStarted = false;
+    const pending = disposeExecRuntime({
+      agent: {
+        close: () => {
+          closeStarted = true;
+          return new Promise<void>(() => {});
+        },
+      },
+      toolset: {
+        dispose: async () => {
+          throw new Error("1 shell child process still live after 2000ms reap");
+        },
+      },
+      subAgentSessions: null,
+    });
+    const result = await Promise.race([
+      pending.then(
+        () => ({ kind: "resolved" as const }),
+        (err: unknown) => ({ kind: "rejected" as const, err }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        setTimeout(() => resolve({ kind: "timeout" }), 200);
+      }),
+    ]);
+    expect(closeStarted).toBe(true);
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected leftover reject");
+    expect(result.err).toBeInstanceOf(Error);
+    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+  });
+
   test("rejects when toolset dispose fails", async () => {
     await expect(
       disposeExecRuntime({

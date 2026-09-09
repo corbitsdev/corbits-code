@@ -78,6 +78,24 @@ export async function awaitBoundedTeardown(
   if (timedOut) throw new Error(`session close exceeded ${deadlineMs}ms`);
 }
 
+/**
+ * Always start `close`. Await it only when posix/toolset dispose already
+ * succeeded; a leftover throw must not wait unbounded on a hung close.
+ */
+export async function awaitCloseWithoutHidingLeftover(
+  close: Promise<unknown>,
+  leftover: unknown,
+): Promise<void> {
+  if (leftover === undefined) {
+    await close;
+    return;
+  }
+  void close.then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
 export interface SubAgentSpawnSnapshot {
   inFlightToolCalls: number;
   inFlightByTool: Readonly<Record<string, number>>;
@@ -147,12 +165,12 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
     posixError = err;
   }
   try {
-    await input.agent?.close();
+    await awaitCloseWithoutHidingLeftover(input.agent?.close() ?? Promise.resolve(), posixError);
   } catch {
     // ignore
   }
   try {
-    await input.streamPromise;
+    await awaitCloseWithoutHidingLeftover(input.streamPromise ?? Promise.resolve(), posixError);
   } catch {
     // ignore
   }
