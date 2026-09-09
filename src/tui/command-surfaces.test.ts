@@ -41,7 +41,6 @@ import { openPalette } from "./shell/palette";
 
 function baseSnapshot(): SettingsSnapshot {
   return {
-    compactionMode: "llm",
     waitForApproval: true,
     telemetryEnabled: false,
     showPromptCost: false,
@@ -151,7 +150,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   readonly deps: CommandSurfaceDeps;
   readonly snapshot: () => SettingsSnapshot;
   readonly calls: {
-    compaction: string[];
     waitForApproval: boolean[];
     telemetry: boolean[];
     showPromptCost: boolean[];
@@ -159,7 +157,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
 } {
   let state: SettingsSnapshot = { ...baseSnapshot(), ...overrides };
   const calls = {
-    compaction: [] as string[],
     waitForApproval: [] as boolean[],
     telemetry: [] as boolean[],
     showPromptCost: [] as boolean[],
@@ -168,10 +165,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
     notify: () => undefined,
     settings: {
       read: () => state,
-      setCompactionMode: (mode) => {
-        calls.compaction.push(mode);
-        state = { ...state, compactionMode: mode };
-      },
       setWaitForApproval: (value) => {
         calls.waitForApproval.push(value);
         state = { ...state, waitForApproval: value };
@@ -197,14 +190,14 @@ describe("settings surface", () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(
+      expect(shell.overlayItems.some((l) => l.includes("approval wait"))).toBe(
         true,
       );
       expect(shell.overlayItems.some((l) => l.includes("off"))).toBe(true);
     });
   });
 
-  test("left/right cycles compaction in place and persists", async () => {
+  test("left/right cycles approval wait in place and persists", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = settingsDeps();
       openCommandSurface(shell, "settings", deps);
@@ -214,9 +207,9 @@ describe("settings surface", () => {
       expect(cycleOverlaySelection(shell, 1)).toBe(true);
       await Promise.resolve();
       await Promise.resolve();
-      expect(calls.compaction).toEqual(["pruning"]);
+      expect(calls.waitForApproval).toEqual([false]);
       expect(shell.overlayKind).toBe("settings");
-      expect(shell.overlayItems[0]).toContain("drop");
+      expect(shell.overlayItems[0]).toContain("off");
     });
   });
 
@@ -233,7 +226,7 @@ describe("settings surface", () => {
       acceptOverlaySelection(shell);
 
       const row = shell.streamLog.at(-1);
-      expect(row?.text).toBe("Set compaction to drop.");
+      expect(row?.text).toBe("Set wait for approval to off.");
       expect(row?.meta).not.toBe("overlay");
       expect(row?.text).not.toContain("‹");
       expect(row?.text).not.toContain("›");
@@ -252,6 +245,8 @@ describe("settings surface", () => {
         false,
       );
       expect(shell.overlayItems.some((l) => l.includes("scope"))).toBe(false);
+      expect(shell.overlayItems.some((l) => l.includes("compaction"))).toBe(false);
+      expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(false);
     });
   });
 
@@ -266,8 +261,8 @@ describe("settings surface", () => {
         true,
       );
 
-      // compaction, approval wait, telemetry, show cost
-      moveOverlaySelection(shell, 3);
+      // approval wait, telemetry, show cost
+      moveOverlaySelection(shell, 2);
       cycleOverlaySelection(shell, 1);
       await Promise.resolve();
       await Promise.resolve();

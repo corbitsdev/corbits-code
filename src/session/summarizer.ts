@@ -4,15 +4,16 @@
 // replaces older turns with a summary. A deterministic stats blob ("Turns: N,
 // Tools called: ...") loses everything that matters for resuming work, so this
 // module produces a structured, workflow-aware narrative via a one-shot
-// inference call against the session's own model. On any failure it falls back
-// to the deterministic summary so compaction never breaks the session.
+// inference call against the session's own model. Failure is fatal to that
+// compact cycle: the caller retains the prior context instead of substituting
+// a statistics-only stub.
 
 import { runInference, type Dependencies } from "@intx/inference";
 import { createDefaultDependencies } from "@intx/inference/providers";
 import { getLogger } from "@intx/log";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { buildTurnSummary } from "./compactor.js";
+import { buildArchiveSummaryExcerpt, type SummaryExcerptArchive } from "./summary-excerpt.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 
@@ -54,6 +55,8 @@ const SYSTEM_INSTRUCTION = [
   "The immediate next action(s) to take right now.",
   "",
   "Be specific and terse. Prefer paths, names, and exact values over prose.",
+  "When the excerpt includes archive:/// refs, keep those identifiers so later",
+  "turns can retrieve the evidence. Do not invent archive contents.",
 ].join("\n");
 
 // Pull a compact, model-readable excerpt out of the turns being dropped:
@@ -138,8 +141,11 @@ function workflowPreamble(ctx: SummaryContext | undefined): string {
 export function buildSummaryPrompt(
   turns: ConversationTurn[],
   ctx?: SummaryContext,
+  excerpt?: string,
 ): string {
-  return `${workflowPreamble(ctx)}Session excerpt:\n\n${condenseTurns(turns)}`;
+  const body =
+    excerpt !== undefined && excerpt.length > 0 ? excerpt : condenseTurns(turns);
+  return `${workflowPreamble(ctx)}Session excerpt:\n\n${body}`;
 }
 
 // Low-level completion: one inference round-trip returning assistant text.
@@ -183,13 +189,15 @@ export interface ModelSummarizerOptions {
   deps?: Dependencies;
   /** Cap on the returned summary length. */
   maxChars?: number;
+  /** Primary sessions pass the evidence archive so the prompt is not a clipped stub. */
+  getArchive?: () => SummaryExcerptArchive | undefined;
 }
 
 /**
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
- * Produces a structured, workflow-aware summary via the model; on any error
- * (or empty output) falls back to the deterministic summary so a compaction
- * cycle never throws.
+ * Produces a structured, workflow-aware summary via the model. Empty output
+ * or a failed call throws so the compact cycle can keep the prior context
+ * instead of replacing it with a statistics-only stub.
  */
 export function createModelSummarizer(
   options: ModelSummarizerOptions,
@@ -199,11 +207,9 @@ export function createModelSummarizer(
   const maxChars = options.maxChars ?? 4000;
 
   return async (turns, ctx) => {
-    // The marker tells the model (and anyone reading a transcript) that the
-    // compacted region is a lossy stats stub, not a real handoff summary.
-    const fallback = (reason: string): string =>
-      `[Model summary unavailable (${reason}); deterministic fallback]\n${buildTurnSummary(turns, maxChars)}`;
     try {
+      const archive = options.getArchive?.();
+      const excerpt = archive !== undefined ? await buildArchiveSummaryExcerpt(archive) : undefined;
       const promptTurns: ConversationTurn[] = [
         {
           role: "system",
@@ -212,27 +218,22 @@ export function createModelSummarizer(
         },
         {
           role: "user",
-          content: [{ type: "text", text: buildSummaryPrompt(turns, ctx) }],
+          content: [{ type: "text", text: buildSummaryPrompt(turns, ctx, excerpt) }],
           timestamp: 0,
         },
       ];
       const signal = options.getSignal?.() ?? new AbortController().signal;
       const text = await complete(promptTurns, options.getSource(), signal);
       if (text.length === 0) {
-        logger.warn(
-          "compaction summary call returned empty text; using deterministic fallback",
-        );
-        return fallback("empty model output");
+        logger.warn("compaction summary call returned empty text");
+        throw new Error("compaction summary returned empty text");
       }
       return text.length > maxChars ? text.slice(0, maxChars) : text;
     } catch (error) {
-      logger.warn(
-        "compaction summary call failed; using deterministic fallback: {error}",
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return fallback("summary call failed");
+      logger.warn("compaction summary call failed: {error}", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error instanceof Error ? error : new Error(String(error));
     }
   };
 }

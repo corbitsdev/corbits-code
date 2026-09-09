@@ -87,7 +87,6 @@ import {
 } from "../shell/background-shell.js";
 import { createShellCollectTool } from "../agent/background-shell-tool.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
-import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
@@ -1036,9 +1035,6 @@ async function runSubAgentInner(
             params.catalog,
             params.settings,
           );
-    const subagentSource =
-      bundle.sources.find((s) => s.id === bundle.defaultSource) ??
-      bundle.sources[0];
     agent = await createAgentWithLiveToolDispatch(def, {
       sources: bundle.sources,
       defaultSource: bundle.defaultSource,
@@ -1062,19 +1058,7 @@ async function runSubAgentInner(
         defaultId: `${ID_PREFIX}/subagent`,
       }),
       compactors: {
-        "pruning-compactor": createSessionPruningCompactor({
-          compactionMode: "llm",
-          // A structured model summary keeps sub-agent context useful across a
-          // compaction; the deterministic stub remains the fallback on failure.
-          ...(subagentSource !== undefined
-            ? {
-                summarize: createModelSummarizer({
-                  getSource: () => subagentSource,
-                  deps: inferenceDeps,
-                }),
-              }
-            : {}),
-        }),
+        "pruning-compactor": createSessionPruningCompactor({}),
       },
     });
     // Tools were built before the agent; bind the child's store now so own spills

@@ -293,12 +293,10 @@ describe("mountRunnerHost command surfaces", () => {
       surfaces: {
         settings: {
           read: () => ({
-            compactionMode: "llm",
             waitForApproval: true,
             telemetryEnabled: false,
             showPromptCost: false,
           }),
-          setCompactionMode: () => undefined,
           setWaitForApproval: () => undefined,
           setTelemetryEnabled: () => undefined,
           setShowPromptCost: () => undefined,

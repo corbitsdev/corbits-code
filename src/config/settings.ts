@@ -117,9 +117,9 @@ export interface Settings {
   // interactive install). Upgrade stamps only after notes are actually shown
   // so a missing surface cannot silently swallow them (CL-5475).
   lastChangelogVersion?: string;
-  // Controls the context-compaction strategy used when the context window fills.
-  // "llm" (default) generates a structured handoff summary via LLM call.
-  // "pruning" uses fast deterministic pruning with no LLM call.
+  // Deprecated: summarize vs drop is no longer operator-selectable. Primary
+  // compaction is always the evidence-backed LLM handoff. Legacy values may
+  // still appear in on-disk settings and are ignored; new writes omit this field.
   compactionMode?: "llm" | "pruning";
   // Deprecated (CL-5814): orchestrator is the only product path. Legacy values
   // may still appear in on-disk settings and are ignored at resolve time; new

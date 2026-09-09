@@ -111,7 +111,7 @@ function queueEvidenceReply(session: IntegrationSession, callId: string) {
   }
 }
 
-describe("integration — frozen compaction mechanics baseline", () => {
+describe("integration — compaction mechanics baseline", () => {
   test.serial(
     "counts repeated real nonzero shell exits as failed attempts",
     async () => {
@@ -294,14 +294,14 @@ describe("integration — frozen compaction mechanics baseline", () => {
                 turn.content.some(
                   (block) => block.type === "text" && block.text.startsWith(COMPACTED_PREFIX),
                 ),
-              ).length ===
-              fold + 1,
+              ).length === 1,
             continuedAtCall: inferenceCount >= 2 ? requestCount + 2 : null,
           };
           folds.push(observation);
           expect(qualifyingFold(observation)).toBe(true);
           expect(summaryInputs.length).toBe(fold + 1);
-          expect(recoverEvidence(reply)).toEqual(REQUIRED_EVIDENCE.slice(0, 1));
+          const recovered = recoverEvidence(reply);
+          expect(recovered).toEqual([...REQUIRED_EVIDENCE]);
           process.stdout.write(
             `${JSON.stringify({ phase: fold + 1, ...observation, recoveredFacts: recoverEvidence(reply).length, requiredFacts: REQUIRED_EVIDENCE.length, phaseLatencyMs: performance.now() - startedAt })}\n`,
           );

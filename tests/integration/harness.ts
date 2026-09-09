@@ -23,7 +23,7 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import type { AuthzCallResult } from "@intx/inference";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setupHarness, type Harness } from "@intx/inference-testing";
-import type { ContextTransform, InferenceSource } from "@intx/types/runtime";
+import type { ContextTransform, ContextStore, InferenceSource } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { createAgentWithLiveToolDispatch } from "../../src/agent/live-tool-dispatch.js";
@@ -32,6 +32,14 @@ import { createAgentToolset } from "../../src/agent/tools.js";
 import { ID_PREFIX } from "../../src/branding.js";
 import type { PermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
+import {
+  applyRecordingPolicyToText,
+  createCompactionArchive,
+  createPrimaryDeliveryAdmission,
+  hashAuthorizedBytes,
+  wrapAuthorizeWithEvidenceArchive,
+  type CompactionArchive,
+} from "../../src/session/compaction-archive.js";
 import { assertReplySend } from "../../src/subagent/run.js";
 import { createModelSummarizer, type CompletionFn } from "../../src/session/summarizer.js";
 import {
@@ -78,11 +86,20 @@ export async function openIntegrationSession(
   const harness = setupHarness();
   const cwd = mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
   const workdir = join(cwd, ".agent-state", "integration-session");
+  const evidenceArchiveHolder: { current: CompactionArchive | undefined } = { current: undefined };
+  const storageHolder: { current: ContextStore | undefined } = { current: undefined };
 
   const toolset = await createAgentToolset({
     cwd,
     permissionGate: opts.permissionGate,
     onOperatorGate: async () => ({ kind: "cancel" }),
+    ...(opts.compactionCompletion !== undefined
+      ? {
+          getEvidenceArchive: () => evidenceArchiveHolder.current,
+          getBlobWriter: () => storageHolder.current?.writeBlob,
+          getContextDir: () => workdir,
+        }
+      : {}),
   });
 
   const chatDirectorDef = defineDirector({
@@ -121,11 +138,58 @@ export async function openIntegrationSession(
   });
 
   const storage = await createOptimizedContextStore(workdir);
+  storageHolder.current = storage;
   const startAgent = opts.createAgentFn ?? createAgentWithLiveToolDispatch;
-  const agent = await startAgent(def, {
+  const baseAuthorize = opts.authorize ?? permissiveAuthorize();
+  let storageForAgent: ContextStore = storage;
+  let authorize = baseAuthorize;
+  let primaryArchive: CompactionArchive | undefined;
+  if (opts.compactionCompletion !== undefined) {
+    const archive = createCompactionArchive({
+      sessionId: "integration-session",
+      contextDir: workdir,
+      writeBlob: (key, bytes, contentType) => storage.writeBlob(key, bytes, contentType),
+      readBlob: (key) => storage.readBlob(key),
+    });
+    primaryArchive = archive;
+    evidenceArchiveHolder.current = archive;
+    storageForAgent = {
+      ...storage,
+      async writeBlob(key, bytes, contentType, signal) {
+        await storage.writeBlob(key, bytes, contentType, signal);
+        if (!key.startsWith("img-")) return;
+        await archive.recordExistingBlobReference({
+          kind: "attachment",
+          blobKey: key,
+          contentHash: hashAuthorizedBytes(bytes),
+          provenance: "persistBlobs:aged-image",
+        });
+      },
+      async writeResponse(turn, signal) {
+        const content = turn.content.map((block) => {
+          if (block.type !== "text") return block;
+          const text = applyRecordingPolicyToText(block.text);
+          return text === block.text ? block : { ...block, text };
+        });
+        const admitted = { ...turn, content };
+        for (const block of admitted.content) {
+          if (block.type === "text" && block.text.length > 0) {
+            await archive.recordAuthorizedPayload({
+              kind: "assistant_text",
+              payload: block.text,
+              provenance: "writeResponse:post-policy",
+            });
+          }
+        }
+        return storage.writeResponse(admitted, signal);
+      },
+    };
+    authorize = wrapAuthorizeWithEvidenceArchive(baseAuthorize, () => archive);
+  }
+  const innerAgent = await startAgent(def, {
     sources: [INTEGRATION_SOURCE],
     defaultSource: INTEGRATION_SOURCE.id,
-    storage,
+    storage: storageForAgent,
     workdir,
     deps: {
       ...harness.deps,
@@ -134,9 +198,7 @@ export async function openIntegrationSession(
         : {}),
     },
     audit: noopAuditStore(),
-    ...(opts.authorize !== undefined
-      ? { authorize: opts.authorize }
-      : { authorize: permissiveAuthorize() }),
+    authorize,
     directors: createDirectorRegistry({
       factories: [chatDirectorDef.factory],
       defaultId: `${ID_PREFIX}/chat`,
@@ -145,11 +207,11 @@ export async function openIntegrationSession(
       ? {
           compactors: {
             "pruning-compactor": createSessionPruningCompactor({
-              compactionMode: "llm",
               summarize: createModelSummarizer({
                 getSource: () => INTEGRATION_SOURCE,
                 deps: harness.deps,
                 complete: opts.compactionCompletion,
+                getArchive: () => evidenceArchiveHolder.current,
               }),
             }),
           },
@@ -157,6 +219,10 @@ export async function openIntegrationSession(
       : {}),
     closeTimeoutMs: 0,
   });
+  const agent =
+    primaryArchive === undefined
+      ? innerAgent
+      : createPrimaryDeliveryAdmission(innerAgent, primaryArchive);
 
   return { harness, cwd, workdir, agent, toolset };
 }

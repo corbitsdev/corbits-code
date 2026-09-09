@@ -653,8 +653,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const summarizeForCompaction = createModelSummarizer({
       getSource: () => liveSource,
       deps: inferenceDeps,
+      getArchive: () => evidenceArchiveHolder.current,
     });
-    const liveCompactionMode = config.settings?.compactionMode ?? "llm";
 
     const { activated: activatedToolNames, computeAdvertised } =
       createAdvertisedToolset({
@@ -701,7 +701,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
         liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id,
       getCompactor: () =>
         createSessionPruningCompactor({
-          compactionMode: liveCompactionMode,
           summarize: summarizeForCompaction,
           telemetry: liveTelemetry,
         }),

@@ -98,11 +98,8 @@ export interface WebProviderChoice {
   readonly name: string;
 }
 
-export type CompactionMode = "llm" | "pruning";
-
 /** Live values behind the settings surface, re-read on every open. */
 export interface SettingsSnapshot {
-  readonly compactionMode: CompactionMode;
   readonly waitForApproval: boolean;
   readonly telemetryEnabled: boolean;
   readonly showPromptCost: boolean;
@@ -212,7 +209,6 @@ export interface HooksSurfaceSummary {
 
 export interface SettingsSurfaceDeps {
   readonly read: () => SettingsSnapshot;
-  readonly setCompactionMode: (mode: CompactionMode) => void;
   readonly setWaitForApproval: (value: boolean) => void;
   readonly setTelemetryEnabled: (value: boolean) => void;
   readonly setShowPromptCost: (value: boolean) => void;
@@ -408,18 +404,6 @@ function cycleField<T extends string>(
     .join("  ");
 }
 
-/** Step `current` to the next/previous option in `options`, wrapping. */
-function cycleValue<T>(
-  options: readonly T[],
-  current: T,
-  direction: -1 | 1,
-): T {
-  const idx = options.indexOf(current);
-  const base = idx < 0 ? 0 : idx;
-  const next = options[(base + direction + options.length) % options.length];
-  return next ?? current;
-}
-
 /** The active option's plain label — the value an accept echo should report, not the row's painted display string. */
 function activeOptionLabel<T extends string>(
   options: readonly CycleOption<T>[],
@@ -428,10 +412,6 @@ function activeOptionLabel<T extends string>(
   return options.find((o) => o.id === activeId)?.label ?? activeId;
 }
 
-const COMPACTION_OPTIONS: readonly CycleOption<CompactionMode>[] = [
-  { id: "llm", label: "summarize" },
-  { id: "pruning", label: "drop" },
-];
 const ON_OFF_OPTIONS: readonly CycleOption<"on" | "off">[] = [
   { id: "on", label: "on" },
   { id: "off", label: "off" },
@@ -454,28 +434,6 @@ function settingsCycleRows(
   settings: SettingsSurfaceDeps,
 ): readonly SettingsCycleRow[] {
   return [
-    {
-      id: "compaction",
-      value: `${"compaction".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(COMPACTION_OPTIONS, snapshot.compactionMode)}`,
-      chosenLabel: activeOptionLabel(
-        COMPACTION_OPTIONS,
-        snapshot.compactionMode,
-      ),
-      describe: {
-        what: "how the transcript is trimmed once the context fills.",
-        impact:
-          "summarize (default) costs a call; drop is free but strips output too.",
-        tone: "consequence",
-      },
-      cycle: (dir) =>
-        settings.setCompactionMode(
-          cycleValue(
-            COMPACTION_OPTIONS.map((o) => o.id),
-            snapshot.compactionMode,
-            dir,
-          ),
-        ),
-    },
     {
       id: "wait-for-approval",
       value: `${"approval wait".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off")}`,

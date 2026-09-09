@@ -502,13 +502,14 @@ export async function assembleTUISession(
   const buildSessionSources = (): LiveSessionSources =>
     resolveLiveSessionSources(state.config, state.sessionId);
 
-  // Compaction summarizer: produces a structured, workflow-aware handoff via a
-  // one-shot call on the live model, falling back to the deterministic summary
-  // on any failure. Workflow state is read at compaction time so a pass
-  // mid-/build or mid-/plan still names the active step.
+  // Compaction summarizer: structured handoff via the live model. Failure
+  // keeps prior context rather than substituting a stats stub. Workflow state
+  // is read at compaction time so a pass mid-/build or mid-/plan still names
+  // the active step. The archive, when mounted, supplies the unclipped excerpt.
   const compactionSummarize = createModelSummarizer({
     getSource: () => state.liveSource,
     deps: start.inferenceDeps,
+    getArchive: () => evidenceArchiveHolder.current,
   });
   const summaryContext = (): SummaryContext | undefined => {
     const status = workflowHost.status();
@@ -560,7 +561,6 @@ export async function assembleTUISession(
         : state.liveSource.id,
     getCompactor: () =>
       createSessionPruningCompactor({
-        compactionMode: state.liveCompactionMode,
         summarize: compactionSummarize,
         summaryContext,
         telemetry: liveTelemetry,

@@ -79,7 +79,8 @@ src/
     index.ts              Session lifecycle
     state.ts              RunState JSON save/load
     compactor.ts          Context compactor
-    summarizer.ts         Model-backed structured compaction summary (+ deterministic fallback)
+    summarizer.ts         Model-backed structured compaction summary (fails closed)
+    summary-excerpt.ts    Token-budgeted archive excerpt for the summary call
     compaction-archive.ts Primary-only authorized evidence archive (post-policy capture)
     compaction-archive-schema.ts Archive occurrence / completeness certificate schemas
     run-sink.ts           Run-level event sink

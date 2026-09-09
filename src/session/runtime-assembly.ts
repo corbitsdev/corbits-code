@@ -344,7 +344,6 @@ export function buildSessionSourcesFromConfig(
 const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 
 export interface SessionPruningCompactorArgs {
-  compactionMode: "llm" | "pruning";
   /** Omitted for sourceless leaves — compaction falls back to the deterministic stub. */
   summarize?: (
     turns: ConversationTurn[],
@@ -363,9 +362,7 @@ export function createSessionPruningCompactor(
   const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
-    ...(args.compactionMode !== "pruning" && args.summarize !== undefined
-      ? { summarize: args.summarize }
-      : {}),
+    ...(args.summarize !== undefined ? { summarize: args.summarize } : {}),
     ...(args.summaryContext ? { summaryContext: args.summaryContext } : {}),
   });
   const telemetry = args.telemetry ?? NOOP_TELEMETRY;
@@ -381,7 +378,7 @@ export function createSessionPruningCompactor(
       // averages toward the runs where nothing happened.
       if (result.record.decisions.summarizedTurnCount !== undefined) {
         telemetry.capture("compaction", {
-          mode: args.compactionMode,
+          mode: "llm",
           duration_ms: Date.now() - startedAt,
           turns_before: turnsBefore,
           turns_after: result.output.length,
