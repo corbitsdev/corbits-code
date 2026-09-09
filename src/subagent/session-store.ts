@@ -277,7 +277,7 @@ export interface SubAgentSessionStore {
    * flip to interrupted rather than completed. Clears the in-flight-run bit
    * and notifies waiters.
    */
-  attachReport(id: string, report: string): void;
+  attachReport(id: string, report: string, opts?: { stopReason?: ForcedStopReason }): void;
   /** True while a run or followup has not settled. */
   isRunInFlight(id: string): boolean;
   /**
@@ -1499,7 +1499,7 @@ export function createSubAgentSessionStore(
       } else pinCounts.set(id, next);
     },
 
-    attachReport(id: string, report: string): void {
+    attachReport(id: string, report: string, opts?: { stopReason?: ForcedStopReason }): void {
       mutate(id, (session) => {
         const state = session.lifecycle.state;
         if (state === "completed" || state === "failed") {
@@ -1510,6 +1510,7 @@ export function createSubAgentSessionStore(
           session.lifecycle = { state: "interrupted", report };
           session.report = report;
           session.finishedAt = session.finishedAt ?? now();
+          if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
           pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         } else if (
           (state === "cancelled" || state === "interrupted" || state === "shutdown") &&
@@ -1517,6 +1518,7 @@ export function createSubAgentSessionStore(
         ) {
           session.report = report;
           session.lifecycle = { ...session.lifecycle, report };
+          if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
           pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         }
         runInFlight.delete(id);

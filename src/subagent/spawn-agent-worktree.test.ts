@@ -332,7 +332,7 @@ describe("spawn_agent worktree isolation", () => {
           error_count: 0,
           duration_ms: 1,
           model: "test-model",
-          terminal_reason: "cancelled" as const,
+          terminal_reason: "interrupted" as const,
         });
         settlementCount += 1;
         settlementWasFrozen = Object.isFrozen(summary);
@@ -359,7 +359,7 @@ describe("spawn_agent worktree isolation", () => {
     expect(sessions.interruptOne(agentId).ok).toBe(true);
     settle.resolve({
       report: "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
-      stopReason: "cancelled",
+      stopReason: "interrupted",
       interrupted: true,
     });
     await waitFor(() => events.some((event) => event.event === "subagent_end"));
@@ -371,7 +371,7 @@ describe("spawn_agent worktree isolation", () => {
     expect(ends).toHaveLength(1);
     expect(ends[0]?.properties).toMatchObject({
       status: "interrupted",
-      stop_reason: "cancelled",
+      stop_reason: "interrupted",
     });
     expect(workerCwd).toBeDefined();
     expect(await pathExists(workerCwd!)).toBe(true);

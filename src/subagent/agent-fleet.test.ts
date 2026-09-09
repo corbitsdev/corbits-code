@@ -391,12 +391,14 @@ describe("spawn_agent + wait_agents", () => {
       agent_id: string;
       status: string;
       report?: string;
+      stop_reason?: string;
     }[];
     expect(results).toHaveLength(1);
     expect(results[0]!.status).toBe("interrupted");
     expect(results[0]!.report).toContain("## Summary");
     expect(results[0]!.report).toContain("## Findings");
     expect(results[0]!.report).toContain("gate.ts");
+    expect(results[0]!.stop_reason).toBe("cancelled");
     // Strip stays cancelled — salvage is for wait_agents, not a resurrection.
     expect(deps.sessions.get(id)?.status).toBe("cancelled");
     expect(deps.sessions.get(id)?.lifecycle.state).toBe("cancelled");
@@ -432,6 +434,87 @@ describe("spawn_agent + wait_agents", () => {
     expect(results[0]!.status).toBe("interrupted");
     expect(results[0]!.error).toBeUndefined();
     expect(deps.sessions.get(id)?.status).toBe("cancelled");
+  });
+
+  test("incomplete-report complete is wait done with stop_reason", async () => {
+    const deps = makeDeps(async () => ({
+      report: forcedStopReport("incomplete-report", "Still narrating"),
+      stopReason: "incomplete-report",
+    }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const spawned = await callTool(spawn, {
+      description: "incomplete salvage",
+      prompt: "probe",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const results = waited.results as {
+      status: string;
+      report?: string;
+      error?: string;
+      stop_reason?: string;
+    }[];
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.stop_reason).toBe("incomplete-report");
+    expect(results[0]!.report).toContain("narrated instead of writing a report envelope");
+    expect(results[0]!.error).toBeUndefined();
+  });
+
+  test("failed spawn_agent wait_agents returns error not report", async () => {
+    const deps = makeDeps(async () => {
+      throw new Error("provider blew up");
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const spawned = await callTool(spawn, {
+      description: "failed run",
+      prompt: "probe",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const results = waited.results as {
+      status: string;
+      report?: string;
+      error?: string;
+      stop_reason?: string;
+    }[];
+    expect(results[0]!.status).toBe("failed");
+    expect(results[0]!.error).toContain("provider blew up");
+    expect(results[0]!.report).toBeUndefined();
+    expect(results[0]!.stop_reason).toBeUndefined();
+  });
+
+  test("interrupt salvage wait_agents includes stop_reason interrupted", async () => {
+    const deps = makeDeps(async () => ({
+      report: forcedStopReport("interrupted", "partial"),
+      stopReason: "interrupted",
+      interrupted: true,
+    }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+
+    const spawned = await callTool(spawn, {
+      description: "interrupt salvage",
+      prompt: "probe",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const results = waited.results as {
+      status: string;
+      report?: string;
+      error?: string;
+      stop_reason?: string;
+    }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(results[0]!.stop_reason).toBe("interrupted");
+    expect(results[0]!.report).toContain("interrupted before finishing");
+    expect(results[0]!.error).toBeUndefined();
   });
 });
 
@@ -2079,8 +2162,14 @@ describe("admission queue", () => {
     const elapsed = Date.now() - startedAt;
     expect(elapsed).toBeLessThan(200);
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { agent_id: string; status: string }[];
-    expect(results).toEqual([{ agent_id: queuedId, status: "interrupted" }]);
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      stop_reason?: string;
+    }[];
+    expect(results).toEqual([
+      { agent_id: queuedId, status: "interrupted", stop_reason: "cancelled" },
+    ]);
     expect(started).toBe(1);
 
     gate.resolve({ report: "ok" });

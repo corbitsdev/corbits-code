@@ -146,6 +146,20 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("if the job still needs doing");
   });
 
+  test("systemPrompt fail-then-successor is distinct from operator-cancel wait", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("incomplete-report");
+    expect(p).toContain("interrupted-incomplete");
+    expect(p).toContain("MAY `spawn_agent` **one** successor");
+    expect(p).toContain("changed** brief");
+    expect(p).toContain("wait for the operator");
+    expect(p).toContain("Do not auto-retry");
+    expect(p).toContain("Identical re-dispatch of the same brief stays refused");
+    expect(p).toContain("Operator-cancel is not a re-dispatch");
+    expect(p).not.toContain("Then start the next worker");
+    expect(p).not.toContain("if the job still needs doing");
+  });
+
   test("systemPrompt simple path skips explorer+critic for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("DIY on the parent");

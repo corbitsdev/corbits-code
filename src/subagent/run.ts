@@ -91,6 +91,7 @@ import {
   subAgentToolName,
 } from "./report.js";
 import {
+  appendSubAgentParentHints,
   forcedStopReport,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
@@ -1182,6 +1183,8 @@ async function runSubAgentInner(
       if (runController.signal.aborted) throw abortError(runController.signal);
     };
     const thisTurnInterrupt = interruptController;
+    const parentFacing = (body: string, reason?: ForcedStopReason): string =>
+      appendActivitySummary(appendSubAgentParentHints(body, reason), toolNamesUsed);
     try {
       ensureNotAborted();
       // Combine the run's own controller with the dedicated interrupt
@@ -1221,7 +1224,7 @@ async function runSubAgentInner(
       // finally block still tears down for those.
       turnSucceeded = true;
       return withTelemetry({
-        report: appendActivitySummary(report, toolNamesUsed),
+        report: parentFacing(report, directorForcedStopReason),
         ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
         // Only this path skips teardown below when persist is set — tell
         // the caller so a salvage below is never mistaken for a still-live,
@@ -1237,14 +1240,14 @@ async function runSubAgentInner(
         const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
         const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);
         return withTelemetry({
-          report: appendActivitySummary(
-            forcedStopReport("cancelled", tail, {
+          report: parentFacing(
+            forcedStopReport("interrupted", tail, {
               detail: "interrupted by interrupt_agent",
               paths: salvagePathsFromThrash(thrashState),
             }),
-            toolNamesUsed,
+            "interrupted",
           ),
-          stopReason: "cancelled",
+          stopReason: "interrupted",
           interrupted: true,
         });
       }
@@ -1285,12 +1288,12 @@ async function runSubAgentInner(
             ...(detail !== undefined ? { detail } : {}),
           });
           return withTelemetry({
-            report: appendActivitySummary(
+            report: parentFacing(
               forcedStopReport(reason, tail, {
                 ...(detail !== undefined ? { detail } : {}),
                 paths: salvagePathsFromThrash(thrashState),
               }),
-              toolNamesUsed,
+              reason,
             ),
             stopReason: reason,
           });

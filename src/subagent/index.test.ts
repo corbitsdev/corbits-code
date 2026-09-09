@@ -355,6 +355,7 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledParsed.findings).toContain("Partial findings");
     expect(cancelledParsed.blockers).toContain("wait for the operator");
     expect(cancelledParsed.blockers).not.toContain("parent may re-dispatch");
+    expect(cancelledParsed.blockers).not.toContain("successor");
 
     // Nested agent envelope in partial text must not clobber cancel Summary.
     const cancelledNested = [
@@ -392,6 +393,32 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledWithHint).toContain("Findings and Paths");
     expect(cancelledWithHint).toContain("wait for the operator");
     expect(cancelledWithHint).not.toContain("re-dispatch only if");
+    expect(cancelledWithHint).not.toContain("MAY spawn one successor");
+
+    const incomplete = forcedStopReport("incomplete-report", "Still narrating");
+    const incompleteParsed = parseSubAgentReport(incomplete);
+    expect(incompleteParsed.blockers).toContain("one successor");
+    expect(incompleteParsed.blockers).toContain("changed brief");
+    expect(incompleteParsed.blockers).not.toContain("wait for the operator");
+    const incompleteWithHint = appendSubAgentParentHints(incomplete, "incomplete-report");
+    expect(incompleteWithHint).toContain("MAY spawn one successor");
+    expect(incompleteWithHint).not.toContain("wait for the operator instead of auto-starting");
+
+    const interrupted = forcedStopReport("interrupted", "Partial work");
+    const interruptedParsed = parseSubAgentReport(interrupted);
+    expect(interruptedParsed.blockers).toContain("one successor");
+    expect(interruptedParsed.blockers).toContain("changed brief");
+    expect(interruptedParsed.blockers).not.toContain("wait for the operator");
+    const interruptedWithHint = appendSubAgentParentHints(interrupted, "interrupted");
+    expect(interruptedWithHint).toContain("MAY spawn one successor");
+    expect(interruptedWithHint).not.toContain("wait for the operator instead of auto-starting");
+
+    const stalled = forcedStopReport("stalled", "parked");
+    const stalledParsed = parseSubAgentReport(stalled);
+    expect(stalledParsed.blockers).toContain("finish this lane");
+    expect(stalledParsed.blockers).toContain("Do not start a diagnostic wave");
+    expect(stalledParsed.blockers).not.toContain("MAY spawn one successor");
+    expect(appendSubAgentParentHints(stalled, "stalled")).not.toContain("MAY spawn one successor");
 
     // Paths section carries thrash salvage; empty prose with paths still informs Findings.
     const withPaths = forcedStopReport("cancelled", "", {

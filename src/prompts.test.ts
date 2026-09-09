@@ -129,11 +129,17 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).not.toContain("weaker");
 });
 
-test("primary chat prompt does not invite auto-starting the next worker after unfinished specialists", () => {
+test("primary chat prompt classifies fail-path successor vs operator-cancel wait", () => {
   const prompt = buildChatSystemPrompt();
   const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
-  expect(guidelines).not.toContain("change the brief rather than repeating it");
+  expect(guidelines).toContain("MAY spawn one successor with a changed brief");
+  expect(guidelines).toContain("wait for the operator");
+  expect(guidelines).toContain("do not auto-retry");
+  expect(guidelines).toContain("Identical brief: refuse");
   expect(guidelines).not.toContain("start the next worker");
+  expect(prompt).toContain("MAY `spawn_agent` **one** successor");
+  expect(prompt).toContain("wait for the operator");
+  expect(prompt).toContain("Identical re-dispatch of the same brief stays refused");
   expect(prompt).not.toContain("Then start the next worker");
   expect(prompt).not.toContain("if the job still needs doing");
 });

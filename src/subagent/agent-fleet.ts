@@ -102,6 +102,7 @@ interface FleetRecord {
   status: WaitJSONStatus;
   report?: string;
   error?: string;
+  stopReason?: string;
   providerFailure?: true;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
@@ -344,6 +345,7 @@ class FleetMailbox {
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
       ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
+      ...(payload?.stopReason !== undefined ? { stopReason: payload.stopReason } : {}),
       ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
       ...(ask !== undefined ? { question: ask.question, questionId: ask.questionId } : {}),
       ...(status === "awaiting_director" && session !== undefined
@@ -1197,13 +1199,17 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 const followupLive =
                   now?.lifecycle.state === "running" && overlay?.status === "interrupted";
                 if (!followupLive) {
-                  deps.sessions.attachReport(session.id, result.report);
+                  deps.sessions.attachReport(session.id, result.report, {
+                    ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                  });
                 }
                 return;
               }
               const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
               if (alreadyCancelled) {
-                deps.sessions.attachReport(session.id, result.report);
+                deps.sessions.attachReport(session.id, result.report, {
+                  ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                });
                 return;
               }
               const agentRetained = result.agentRetained === true;
@@ -1397,6 +1403,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ? { report: taken.report }
             : {}),
           ...(taken.error !== undefined ? { error: taken.error } : {}),
+          ...(taken.stopReason !== undefined ? { stop_reason: taken.stopReason } : {}),
           ...(taken.providerFailure === true ? { provider_failure: true } : {}),
           ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
         };

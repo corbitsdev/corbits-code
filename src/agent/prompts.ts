@@ -170,7 +170,7 @@ export function buildGuidelines(
           "Orchestration:",
           "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle, and `wait_agents` / `list_agents` on a later turn collect their reports without holding this conversation blocked.",
           "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
-          "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
+          "- After workers return, classify fail / incomplete-report / interrupted-incomplete vs operator-cancel vs clean complete. Fail-path: diagnose from the report or error and MAY spawn one successor with a changed brief. Operator-cancel: wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent` / `wait_agents`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
