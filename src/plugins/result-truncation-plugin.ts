@@ -328,10 +328,17 @@ async function archiveThenTruncate(
     before.length > MAX_RESULT_CHARS
   ) {
     try {
+      const spilled =
+        typeof before === "string"
+          ? scrubSecretShapedContent(materializeToolResultContent(before).text)
+          : scrubSecretShapedContent(
+              materializeToolResultRecord(before as Record<string, unknown>)
+                .text,
+            );
       await archive.recordExistingBlobReference({
         kind: "overflow_blob",
         blobKey: spillBlobKey(callId),
-        contentHash: hashAuthorizedBytes(new TextEncoder().encode(before)),
+        contentHash: hashAuthorizedBytes(new TextEncoder().encode(spilled)),
         callId,
         provenance: "result-truncation:full",
       });

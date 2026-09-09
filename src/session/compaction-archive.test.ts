@@ -15,6 +15,7 @@ import {
   hashAuthorizedBytes,
   isControlOrEmptyInbound,
 } from "./compaction-archive.js";
+import { createOptimizedContextStore } from "./optimized-context-store.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "compaction-archive-"));
@@ -122,8 +123,12 @@ describe("primary message admission", () => {
       deliver(message: InboundMessage) {
         delivered.push(message);
       },
-      async send(message: InboundMessage) {
-        delivered.push(message);
+      async send(content: string | InboundMessage) {
+        if (typeof content === "string") {
+          delivered.push(inbound({ content }));
+          return { ok: true as const };
+        }
+        delivered.push(content);
         return { ok: true as const };
       },
     };
@@ -155,8 +160,12 @@ describe("primary message admission", () => {
       deliver(message: InboundMessage) {
         delivered.push(message);
       },
-      async send(message: InboundMessage) {
-        delivered.push(message);
+      async send(content: string | InboundMessage) {
+        if (typeof content === "string") {
+          delivered.push(inbound({ content }));
+          return { ok: true as const };
+        }
+        delivered.push(content);
         return { ok: true as const };
       },
     };
@@ -172,6 +181,43 @@ describe("primary message admission", () => {
     expect(occurrences[0]!.kind).toBe("user_message");
     const archived = await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId);
     expect(archived).toBe(admitted);
+  });
+
+  test("send(string) admits and archives like InboundMessage", async () => {
+    const dir = tempDir();
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "sess-send-string",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const bytes = blobs.get(key);
+        if (bytes === undefined) throw new Error(`missing blob ${key}`);
+        return bytes;
+      },
+    });
+    const sent: string[] = [];
+    const agent = {
+      deliver(_message: InboundMessage) {
+        /* unused */
+      },
+      async send(content: string | InboundMessage) {
+        if (typeof content !== "string") throw new Error("expected string send");
+        sent.push(content);
+        return { ok: true as const };
+      },
+    };
+    const wrapped = createPrimaryDeliveryAdmission(agent, archive);
+    const secret = `sk-${"a".repeat(24)}`;
+    await wrapped.send(`constraint ${secret}`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(CREDENTIAL_REDACTION);
+    expect(sent[0]).not.toContain(secret);
+    const occurrences = await archive.listOccurrences();
+    expect(occurrences).toHaveLength(1);
+    expect(await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId)).toBe(sent[0]!);
   });
 });
 
@@ -450,5 +496,188 @@ describe("compaction archive storage", () => {
     expect(writes).toBe(1);
     const cert = await archive.certifyRange([occ.occurrenceId]);
     expect(cert.status).toBe("complete");
+  });
+
+  test("recordAuthorizedPayload writes store-legal keys through createOptimizedContextStore", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const archive = createCompactionArchive({
+      sessionId: "sess-store-keys",
+      contextDir: dir,
+      writeBlob: (key, bytes, contentType) => store.writeBlob(key, bytes, contentType),
+      readBlob: (key) => store.readBlob(key),
+    });
+    const occ = await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "hello-store",
+    });
+    expect(occ.blobKey.includes("/")).toBe(false);
+    expect(occ.blobKey.includes("..")).toBe(false);
+    expect(await archive.readAuthorizedPayload(occ.occurrenceId)).toBe("hello-store");
+  });
+});
+
+describe("wrapCompactorWithCompletenessGate", () => {
+  const ctx = { trigger: "test" } as unknown as import("@intx/types/runtime").StrategyContext;
+
+  function truncating(name: string): import("@intx/types/runtime").Compactor {
+    return {
+      name,
+      version: "1",
+      async apply(turns) {
+        return {
+          output: turns.slice(-1),
+          blobs: [
+            {
+              key: "stats",
+              bytes: new TextEncoder().encode("{}"),
+              contentType: "application/json",
+            },
+          ],
+          record: {
+            strategy: name,
+            version: "1",
+            parameters: {},
+            reason: "compact",
+            decisions: { dropped: turns.length - 1 },
+          },
+        };
+      },
+    };
+  }
+
+  function memoryArchive() {
+    const dir = tempDir();
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "sess-gate",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const bytes = blobs.get(key);
+        if (bytes === undefined) throw new Error(`missing ${key}`);
+        return bytes;
+      },
+    });
+    return { archive, blobs };
+  }
+
+  test("incomplete archive returns identity history and drops stats blobs", async () => {
+    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { archive } = memoryArchive();
+    const inner = truncating("pruning-compactor");
+    const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "secret-fact" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "call-drop", name: "read_file", arguments: { path: "a.ts" } },
+        ],
+        timestamp: 2,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "call-drop", content: [{ type: "text", text: "ok" }] },
+        ],
+        timestamp: 3,
+      },
+    ];
+
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.output).toBe(turns);
+    expect(result.blobs).toBeUndefined();
+    expect(result.record.reason).toBe("incomplete-evidence-archive");
+  });
+
+  test("complete archive covering dropped callIds allows the rewrite", async () => {
+    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { archive } = memoryArchive();
+    await archive.recordAuthorizedPayload({
+      kind: "tool_args",
+      payload: { name: "read_file", arguments: { path: "a.ts" } },
+      callId: "call-drop",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "ok",
+      callId: "call-drop",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "secret-fact",
+    });
+
+    const inner = truncating("pruning-compactor");
+    const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "secret-fact" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "call-drop", name: "read_file", arguments: { path: "a.ts" } },
+        ],
+        timestamp: 2,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "call-drop", content: [{ type: "text", text: "ok" }] },
+        ],
+        timestamp: 3,
+      },
+    ];
+
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.output).toHaveLength(1);
+    expect(result.blobs?.some((b) => b.key === "stats")).toBe(true);
+    expect(result.record.reason).toBe("compact");
+  });
+
+  test("explicit gap records are not required for completeness", async () => {
+    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { archive } = memoryArchive();
+    await archive.importHistoricalEvidence([
+      { kind: "user_message", available: false, callId: "historical-gap" },
+    ]);
+    await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "ok",
+      callId: "call-drop",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "secret-fact",
+    });
+
+    const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "secret-fact" }],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "call-drop", content: [{ type: "text", text: "ok" }] },
+        ],
+        timestamp: 2,
+      },
+    ];
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.output).toHaveLength(1);
+    expect(result.record.reason).toBe("compact");
   });
 });

@@ -11,7 +11,12 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
-import type { InboundMessage } from "@intx/types/runtime";
+import type {
+  Compactor,
+  ConversationTurn,
+  InboundMessage,
+  StrategyContext,
+} from "@intx/types/runtime";
 import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import {
   ArchiveOccurrence,
@@ -216,7 +221,7 @@ async function archiveAdmittedInbound(
 export function createPrimaryDeliveryAdmission<
   T extends {
     deliver: (message: InboundMessage) => void;
-    send: (message: InboundMessage, ...rest: never[]) => unknown;
+    send: (content: string | InboundMessage, ...rest: never[]) => unknown;
   },
 >(agent: T, archive?: CompactionArchive): T {
   return {
@@ -229,8 +234,23 @@ export function createPrimaryDeliveryAdmission<
         trackPendingWrite(archive, archiveAdmittedInbound(archive, admitted));
       }
     },
-    send(message: InboundMessage, ...rest: never[]) {
-      const admitted = admitPrimaryInboundMessage(message);
+    send(content: string | InboundMessage, ...rest: never[]) {
+      if (typeof content === "string") {
+        const admitted = content.length === 0 ? content : applyRecordingPolicyToText(content);
+        if (archive === undefined || admitted.length === 0) {
+          return agent.send(admitted, ...rest);
+        }
+        const run = async () => {
+          await archive.recordAuthorizedPayload({
+            kind: "user_message",
+            payload: admitted,
+            provenance: "primary-admission",
+          });
+          return agent.send(admitted, ...rest);
+        };
+        return run();
+      }
+      const admitted = admitPrimaryInboundMessage(content);
       if (archive === undefined) {
         return agent.send(admitted, ...rest);
       }
@@ -322,7 +342,8 @@ function encodePayload(payload: unknown): { bytes: Uint8Array; contentType: stri
 }
 
 function occurrenceBlobKey(sessionId: string, occurrenceId: string): string {
-  return `archive/${sessionId}/${occurrenceId}`;
+  // ContextStore.writeBlob rejects slash-containing keys (sanitizeCallId).
+  return `archive-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${occurrenceId}`;
 }
 
 async function appendIndex(contextDir: string, occurrence: ArchiveOccurrence): Promise<void> {
@@ -596,4 +617,109 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
     },
   };
   return archive;
+}
+
+function textKindForRole(role: ConversationTurn["role"]): ArchiveKind {
+  if (role === "assistant") return "assistant_text";
+  return "user_message";
+}
+
+function coveringOccurrence(
+  units: readonly {
+    kind: "text" | "tool_call" | "tool_result";
+    text?: string;
+    role?: ConversationTurn["role"];
+    callId?: string;
+  }[],
+  occurrences: readonly ArchiveOccurrence[],
+): { ids: string[]; unmatched: boolean } {
+  const used = new Set<string>();
+  const ids: string[] = [];
+  for (const unit of units) {
+    const match = occurrences.find((occ) => {
+      if (used.has(occ.occurrenceId) || occ.gap === true) return false;
+      if (unit.kind === "text") {
+        if (unit.role === undefined || unit.text === undefined) return false;
+        if (occ.kind !== textKindForRole(unit.role)) return false;
+        return occ.contentHash === hashAuthorizedBytes(new TextEncoder().encode(unit.text));
+      }
+      if (unit.callId === undefined || occ.callId !== unit.callId) return false;
+      if (unit.kind === "tool_call") return occ.kind === "tool_args" || occ.kind === "tool_failure";
+      return occ.kind === "tool_result" || occ.kind === "overflow_blob";
+    });
+    if (match === undefined) return { ids, unmatched: true };
+    used.add(match.occurrenceId);
+    ids.push(match.occurrenceId);
+  }
+  return { ids, unmatched: false };
+}
+
+function droppedContentUnits(dropped: readonly ConversationTurn[]): {
+  kind: "text" | "tool_call" | "tool_result";
+  text?: string;
+  role?: ConversationTurn["role"];
+  callId?: string;
+}[] {
+  const units: {
+    kind: "text" | "tool_call" | "tool_result";
+    text?: string;
+    role?: ConversationTurn["role"];
+    callId?: string;
+  }[] = [];
+  for (const turn of dropped) {
+    for (const block of turn.content) {
+      if (block.type === "text" && block.text.length > 0) {
+        units.push({ kind: "text", role: turn.role, text: block.text });
+      } else if (block.type === "tool_call") {
+        units.push({ kind: "tool_call", callId: block.id });
+      } else if (block.type === "tool_result") {
+        units.push({ kind: "tool_result", callId: block.callId });
+      }
+    }
+  }
+  return units;
+}
+
+function incompleteIdentity(inner: Compactor, turns: ConversationTurn[]) {
+  return {
+    output: turns,
+    record: {
+      strategy: inner.name,
+      version: inner.version,
+      parameters: {},
+      reason: "incomplete-evidence-archive",
+      decisions: {},
+    },
+  };
+}
+
+/**
+ * Refuse a destructive compact when the evidence archive cannot certify the
+ * dropped prefix. Historical gap:true rows are not part of the expected set.
+ */
+export function wrapCompactorWithCompletenessGate(
+  inner: Compactor,
+  archive: CompactionArchive,
+): Compactor {
+  return {
+    name: inner.name,
+    version: inner.version,
+    async apply(turns: ConversationTurn[], ctx: StrategyContext) {
+      await archive.awaitPendingWrites();
+      const proposed = await inner.apply(turns, ctx);
+      const dropped = turns.filter((turn) => !proposed.output.includes(turn));
+      const units = droppedContentUnits(dropped);
+      if (units.length === 0) return proposed;
+      const occurrences = await archive.listOccurrences();
+      const covering = coveringOccurrence(units, occurrences);
+      if (covering.unmatched || covering.ids.length === 0) {
+        return incompleteIdentity(inner, turns);
+      }
+      const certificate = await archive.certifyRange(covering.ids);
+      if (certificate.status !== "complete") {
+        return incompleteIdentity(inner, turns);
+      }
+      return proposed;
+    },
+  };
 }

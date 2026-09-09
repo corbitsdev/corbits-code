@@ -12,7 +12,7 @@ import {
   formatAgedImageMarker,
   parseAgedImageMarker,
 } from "./attachment-uri.js";
-import { hashAuthorizedBytes, type CompactionArchive } from "./compaction-archive.js";
+import { type CompactionArchive } from "./compaction-archive.js";
 
 export interface AgeImageResult {
   turn: ConversationTurn;
@@ -71,14 +71,8 @@ export async function ageImageBlocks(
       bytes,
       contentType: block.source.mimeType,
     });
-    if (options.archive !== undefined) {
-      await options.archive.recordExistingBlobReference({
-        kind: "attachment",
-        blobKey: id,
-        contentHash: hashAuthorizedBytes(bytes),
-        provenance: "attachment-age:base64",
-      });
-    }
+    // recordExistingBlobReference before persistBlobs marks a false gap.
+    // Callers that already wrote the blob may record after this returns.
     content.push({
       type: "text",
       text: formatAgedImageMarker({ uri, mimeType: block.source.mimeType }),

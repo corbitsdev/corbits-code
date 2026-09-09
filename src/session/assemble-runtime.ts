@@ -59,6 +59,7 @@ import {
   createCompactionArchive,
   createPrimaryDeliveryAdmission,
   wrapAuthorizeWithEvidenceArchive,
+  wrapCompactorWithCompletenessGate,
   type CompactionArchive,
 } from "./compaction-archive.js";
 import path from "node:path";
@@ -539,7 +540,10 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         defaultId: `${ID_PREFIX}/chat`,
       }),
       compactors: {
-        "pruning-compactor": wiring.getCompactor(),
+        "pruning-compactor":
+          primaryArchive === undefined
+            ? wiring.getCompactor()
+            : wrapCompactorWithCompletenessGate(wiring.getCompactor(), primaryArchive),
       },
     });
     const admittedAgent =
