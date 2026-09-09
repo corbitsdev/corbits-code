@@ -3225,12 +3225,17 @@ describe("createReactor — state snapshot inspection", () => {
           if (event.type === "message.received") {
             messageCount++;
             if (messageCount === 1) {
-              // Mutate the snapshot's content block.
+              // Mutate the snapshot's content block. Frozen turns throw;
+              // isolation still holds if the assignment is ignored.
               const msg = state.turns[0];
               if (msg !== undefined) {
                 const block = msg.content[0];
                 if (block !== undefined && block.type === "text") {
-                  (block as { text: string }).text = "CORRUPTED";
+                  try {
+                    (block as { text: string }).text = "CORRUPTED";
+                  } catch {
+                    /* deepFreeze */
+                  }
                 }
               }
               return caps.wait();
@@ -5270,13 +5275,17 @@ function truncatingCompactor(name: string): Compactor {
   };
 }
 
-function makeRecordingContextStore(): {
+function makeRecordingContextStore(opts?: {
+  failCommit?: boolean;
+  initialTurns?: ConversationTurn[];
+}): {
   store: ContextStore;
   commits: { message: string; turns: ConversationTurn[] }[];
   manifests: TransformRecord[][];
   metadata: { pendingOperations: PendingOperation[]; tokenUsage: TokenUsage }[];
   blobs: { key: string; bytes: Uint8Array; contentType?: string }[];
   lastWrittenTurns: ConversationTurn[];
+  writeTurnsCalls: ConversationTurn[][];
 } {
   const commits: { message: string; turns: ConversationTurn[] }[] = [];
   const manifests: TransformRecord[][] = [];
@@ -5285,12 +5294,13 @@ function makeRecordingContextStore(): {
     tokenUsage: TokenUsage;
   }[] = [];
   const blobs: { key: string; bytes: Uint8Array; contentType?: string }[] = [];
+  const writeTurnsCalls: ConversationTurn[][] = [];
   let lastWrittenTurns: ConversationTurn[] = [];
 
   const store: ContextStore = {
     async load() {
       return {
-        turns: [],
+        turns: opts?.initialTurns !== undefined ? [...opts.initialTurns] : [],
         pendingOperations: [],
         tokenUsage: emptyUsage(),
         connectorState: null,
@@ -5300,6 +5310,9 @@ function makeRecordingContextStore(): {
       /* noop */
     },
     async commit(options) {
+      if (opts?.failCommit === true) {
+        throw new Error("commit failed");
+      }
       commits.push({
         message: options.message,
         turns: [...lastWrittenTurns],
@@ -5339,6 +5352,7 @@ function makeRecordingContextStore(): {
       manifests.push([...records]);
     },
     async writeTurns(turns) {
+      writeTurnsCalls.push([...turns]);
       lastWrittenTurns = [...turns];
     },
     async writeMetadata(m) {
@@ -5358,6 +5372,7 @@ function makeRecordingContextStore(): {
     manifests,
     metadata,
     blobs,
+    writeTurnsCalls,
     get lastWrittenTurns() {
       return lastWrittenTurns;
     },
@@ -5619,6 +5634,44 @@ describe("createReactor — transform chain ordering and compact action", () => 
     // Manifest carries the compactor record.
     const flatRecords = recording.manifests.flat();
     expect(flatRecords.some((r) => r.strategy === "tail-only")).toBe(true);
+  });
+
+  test("compact stages writeTurns and replaces memory only after commit", async () => {
+    const seed: ConversationTurn[] = [
+      { role: "user", content: [{ type: "text", text: "a" }], timestamp: 1 },
+      { role: "user", content: [{ type: "text", text: "b" }], timestamp: 2 },
+      { role: "user", content: [{ type: "text", text: "c" }], timestamp: 3 },
+    ];
+    const recording = makeRecordingContextStore({
+      failCommit: true,
+      initialTurns: seed,
+    });
+    const seenLengths: number[] = [];
+    const director: ReactorDirector = {
+      async decide(event, state, caps) {
+        if (event.type === "message.received") {
+          seenLengths.push(state.turns.length);
+          if (seenLengths.length === 1) {
+            return caps.compact("tail-only", "explicit-test");
+          }
+          return caps.done();
+        }
+        return caps.done();
+      },
+    };
+    const { reactor, waitFor } = createDirectReactor({
+      contextStore: recording.store,
+      director,
+      compactors: { "tail-only": truncatingCompactor("tail-only") },
+    });
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    setTimeout(() => reactor.deliver(makeInboundMessage()), 30);
+    await waitFor("reactor.done");
+
+    expect(recording.writeTurnsCalls.some((turns) => turns.length === 1)).toBe(true);
+    expect(recording.commits).toHaveLength(0);
+    expect(seenLengths[1]).toBeGreaterThan(1);
   });
 
   test("compact for an unknown name emits a fatal error and shuts down", async () => {

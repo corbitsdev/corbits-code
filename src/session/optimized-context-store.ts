@@ -33,6 +33,7 @@ const RESPONSE_FILE = "response.jsonl";
 const MANIFEST_FILE = "manifest.jsonl";
 const METADATA_FILE = "metadata.json";
 const TOOL_OUTPUT_DIR = "tool-output";
+const EVIDENCE_ARCHIVE_DIR = "evidence-archive";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
@@ -439,6 +440,33 @@ export async function createSessionStores(
   const pendingSegmentPaths = new Set<string>();
   const writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
   const writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
+  let liveTurnRefs: readonly ConversationTurn[] | null = null;
+  let unpublishedRewrite: ConversationTurn[] | null = null;
+
+  function refPrefixLength(
+    prev: readonly ConversationTurn[],
+    next: readonly ConversationTurn[],
+  ): number {
+    const max = Math.min(prev.length, next.length);
+    let prefix = 0;
+    while (prefix < max && prev[prefix] === next[prefix]) prefix++;
+    return prefix;
+  }
+
+  function contentPrefixLength(
+    prev: readonly ConversationTurn[],
+    next: readonly ConversationTurn[],
+  ): number {
+    const max = Math.min(prev.length, next.length);
+    let prefix = 0;
+    while (
+      prefix < max &&
+      JSON.stringify(prev[prefix]) === JSON.stringify(next[prefix])
+    ) {
+      prefix++;
+    }
+    return prefix;
+  }
 
   async function writeSegmented(
     writer: ReturnType<typeof createSegmentedJSONLWriter>,
@@ -446,6 +474,39 @@ export async function createSessionStores(
   ): Promise<void> {
     const { modifiedPaths } = await writer(turns);
     for (const filepath of modifiedPaths) pendingSegmentPaths.add(filepath);
+  }
+
+  async function writeTurnsLiveOrStage(
+    turns: readonly ConversationTurn[],
+  ): Promise<void> {
+    if (unpublishedRewrite !== null) {
+      unpublishedRewrite = [...turns];
+      return;
+    }
+    if (liveTurnRefs !== null) {
+      if (refPrefixLength(liveTurnRefs, turns) < liveTurnRefs.length) {
+        unpublishedRewrite = [...turns];
+        return;
+      }
+      await writeSegmented(writeTurnsSegmented, turns);
+      liveTurnRefs = [...turns];
+      return;
+    }
+    const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
+    const baseResult = await base.load();
+    const live =
+      extraTexts.length === 0
+        ? baseResult.turns
+        : await loadTurnsWithoutMalformedToolSequence(
+            baseResult.turns,
+            extraTexts,
+          );
+    if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
+      unpublishedRewrite = [...turns];
+      return;
+    }
+    await writeSegmented(writeTurnsSegmented, turns);
+    liveTurnRefs = [...turns];
   }
 
   // Prefer the longest prefix of base + extras whose tool sequence the reactor
@@ -569,7 +630,7 @@ export async function createSessionStores(
     writePrompt: (turns) => writeSegmented(writePromptSegmented, turns),
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
-    writeTurns: (turns) => writeSegmented(writeTurnsSegmented, turns),
+    writeTurns: (turns) => writeTurnsLiveOrStage(turns),
     writeMetadata: (metadata, signal) => base.writeMetadata(metadata, signal),
     readManifestHistory: (limit, signal) =>
       base.readManifestHistory(limit, signal),
@@ -580,6 +641,11 @@ export async function createSessionStores(
     },
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
+        if (unpublishedRewrite !== null) {
+          await writeSegmented(writeTurnsSegmented, unpublishedRewrite);
+          liveTurnRefs = unpublishedRewrite;
+          unpublishedRewrite = null;
+        }
         const toAdd: string[] = [];
         const toRemove: string[] = [];
 
@@ -595,6 +661,10 @@ export async function createSessionStores(
         // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
         await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
         await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
+
+        if (await pathExists(path.join(dir, EVIDENCE_ARCHIVE_DIR))) {
+          toAdd.push(EVIDENCE_ARCHIVE_DIR);
+        }
 
         const add = extraCommitPaths([...new Set(toAdd)]);
         const remove = extraCommitPaths([...new Set(toRemove)]).filter(
