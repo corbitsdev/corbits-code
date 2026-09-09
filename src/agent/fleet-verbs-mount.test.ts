@@ -122,6 +122,58 @@ describe("primary fleet verb mount", () => {
     await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
   });
 
+  test("createAgentToolset dispose closes remaining retained workers after the first leftover", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
+    const { createAgentToolset } = await import("./tools.js");
+    const permissionGate = {
+      check: async () => ({ allowed: true }),
+      getSkipPermissions: () => false,
+    } as never;
+    const sessions = createSubAgentSessionStore();
+    const first = sessions.start({
+      description: "d1",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    const second = sessions.start({
+      description: "d2",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    let firstCloseCalls = 0;
+    let secondCloseCalls = 0;
+    sessions.registerClose(first.id, async () => {
+      firstCloseCalls += 1;
+      throw new Error("1 shell child process still live after 2000ms reap");
+    });
+    sessions.registerClose(second.id, async () => {
+      secondCloseCalls += 1;
+    });
+    sessions.complete(first.id, "done", { agentRetained: true });
+    sessions.complete(second.id, "done", { agentRetained: true });
+
+    const toolset = await createAgentToolset({
+      cwd,
+      permissionGate,
+      onOperatorGate: async () => ({ kind: "option", index: 0 }),
+      subAgent: {
+        provider: {
+          providerName: "test",
+          baseURL: "http://127.0.0.1:0",
+          model: "test-model",
+        },
+        getWorkdirBase: () => cwd,
+        sessions,
+      },
+    });
+
+    await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
+    expect(firstCloseCalls).toBe(1);
+    expect(secondCloseCalls).toBe(1);
+  });
+
   test("createAgentToolset dispose rejects when a retained running persist worker leaves children", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
     const { createAgentToolset } = await import("./tools.js");

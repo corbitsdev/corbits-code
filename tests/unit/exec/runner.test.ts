@@ -298,6 +298,12 @@ describe("runExec", () => {
     const sessionId = "exec-dispose-fail";
     let disposeCalls = 0;
     const dummySource = { id: "test", provider: "test", model: "test" } as InferenceSource;
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return origWrite(chunk as never, ...(rest as never[]));
+    }) as typeof process.stderr.write;
     try {
       await withMockedModuleDuring(
         import.meta.resolve("node:os"),
@@ -347,6 +353,9 @@ describe("runExec", () => {
                     providers: [],
                   });
                   expect(result.exitCode).toBe(1);
+                  expect(result.status).toBe("failed");
+                  expect(result.error).toMatch(/plugin dispose failed|runtime dispose failed/i);
+                  expect(stderrChunks.join("")).toMatch(/runtime dispose failed/i);
                   expect(disposeCalls).toBe(1);
                   expect(getActiveDisposeHost()).toBeNull();
                 },
@@ -356,6 +365,7 @@ describe("runExec", () => {
         },
       );
     } finally {
+      process.stderr.write = origWrite;
       if (previous !== null) setActiveRun(previous);
       else clearActiveRun();
       rmSync(cwd, { recursive: true, force: true });
@@ -413,6 +423,20 @@ describe("disposeExecRuntime", () => {
     await Promise.all([disposeExecRuntime(args), disposeExecRuntime(args)]);
 
     expect(calls).toEqual(["agent", "toolset"]);
+  });
+
+  test("rejects leftover-child dispose from the toolset", async () => {
+    await expect(
+      disposeExecRuntime({
+        agent: { close: async () => undefined },
+        toolset: {
+          dispose: async () => {
+            throw new Error("1 shell child process still live after 2000ms reap");
+          },
+        },
+        subAgentSessions: null,
+      }),
+    ).rejects.toThrow(/still live after 2000ms reap/);
   });
 
   test("rejects when toolset dispose fails", async () => {

@@ -105,6 +105,13 @@ export const ASK_OPERATOR_OPTION_MAX_CHARS = 48;
 /** Cap on the ask_operator question (UTF-16 code units). */
 export const ASK_OPERATOR_QUESTION_MAX_CHARS = 160;
 
+function rethrowToolsetDisposeFailures(failures: unknown[]): void {
+  const first = failures[0];
+  if (first === undefined) return;
+  if (failures.length === 1) throw first;
+  throw new AggregateError(failures, "toolset leftover dispose failed");
+}
+
 const SubmitOutputArgs = type({
   "summary?": "string",
   "step?": "string",
@@ -982,11 +989,20 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     disposed = true;
     mcpAbortController.abort(new Error("MCP toolset disposed"));
     disposal = (async () => {
+      const failures: unknown[] = [];
       const fleetSessions = fleetSessionsForDispose;
       if (fleetSessions !== undefined) {
-        await fleetSessions.cancelAll("parent session closed");
+        try {
+          await fleetSessions.cancelAll("parent session closed");
+        } catch (err: unknown) {
+          failures.push(err);
+        }
         for (const session of [...fleetSessions.list()].reverse()) {
-          await fleetSessions.closeOne(session.id, DEFAULT_CLOSE_DEADLINE_MS);
+          try {
+            await fleetSessions.closeOne(session.id, DEFAULT_CLOSE_DEADLINE_MS);
+          } catch (err: unknown) {
+            failures.push(err);
+          }
         }
       }
       await Promise.allSettled([...inFlightConnections.values()]);
@@ -1000,8 +1016,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       // Kill every live background process group before the posix teardown so
       // /clear, interrupt, and reload cannot leave orphans behind.
       backgroundShells.disposeAll("session closed");
-      await posixTools.dispose();
+      try {
+        await posixTools.dispose();
+      } catch (err: unknown) {
+        failures.push(err);
+      }
       await disposeWebSearchClients();
+      rethrowToolsetDisposeFailures(failures);
     })();
     return disposal;
   };

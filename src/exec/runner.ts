@@ -893,11 +893,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     try {
       await disposeExecRuntime({ agent, toolset, subAgentSessions });
     } catch (err: unknown) {
-      logger.debug("disposeExecRuntime failed: {error}", {
-        error: formatCaughtError(err),
-      });
-      if (result !== undefined && result.exitCode === 0) {
+      const message = formatCaughtError(err);
+      logger.error("runtime dispose failed: {error}", { error: message });
+      stderr.write(`Error: runtime dispose failed: ${message}\n`);
+      if (result !== undefined) {
         result.exitCode = 1;
+        result.status = "failed";
+        result.error = `runtime dispose failed: ${message}`;
       }
     }
     clearActiveDisposeHost();
