@@ -75,6 +75,7 @@ import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setAgentSourceUnlessClosed } from "../tui/agent-source-sync.js";
 import { getToolApprovalBudget } from "../tui/tool-execution-watchdog.js";
+import { WorkflowHost } from "../workflows/host.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
@@ -472,6 +473,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     let currentStorage: ContextStore | null = null;
 
     const overlay = resolveExecDirectorOverlay(config.director);
+    const workflowHostHolder: { instance?: WorkflowHost } = {};
 
     const agentToolset = await createAgentToolset({
       cwd: config.cwd,
@@ -494,8 +496,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         }
         return currentAgent.blobReader;
       },
-      // Exec has no workflow controller — intentional delta vs TUI.
-      isWorkflowActive: () => false,
+      isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
+      completeWorkflowStep: (stepId) =>
+        workflowHostHolder.instance?.complete(stepId) ?? "not-current",
       onOperatorGate: (question, options) => promptOperator(question, options, interactive),
       sessionMode,
       toolAvailability,
@@ -638,6 +641,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
     });
 
+    const workflowHost = new WorkflowHost({
+      cwd: config.cwd,
+      getSessionId: () => sessionId,
+      getToolDefinitions: () => agentToolset.dynamicRunner.currentDefinitions(),
+      getDirector: () => directorHolder.instance,
+    });
+    workflowHostHolder.instance = workflowHost;
+
     const emitter = new EventEmitter();
     const {
       hookManager,
@@ -682,6 +693,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
           });
         });
     }
+    await workflowHost.resume();
 
     const textChunks: string[] = [];
     // Cycles persist to the context store only on inference.done; the recorder
