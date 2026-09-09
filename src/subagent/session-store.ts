@@ -1303,6 +1303,12 @@ export function createSubAgentSessionStore(
         queueFollowupTurn(id, message, "interrupted", {
           ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
         });
+        // After beginFollowupTurn, which clears leftover stopReason. Stamp
+        // here so an in-flight wait_agents overlay can project interrupted
+        // without flipping lifecycle off the live follow-up.
+        mutate(id, (s) => {
+          s.stopReason = "interrupted";
+        });
         pruneRetained();
         return { ok: true, status: "interrupted" };
       }

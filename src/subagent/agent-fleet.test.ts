@@ -1103,8 +1103,13 @@ describe("interrupt_agent unblocks wait_agents", () => {
     await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
     const waited = await waiting;
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { status: string }[];
-    expect(results[0]!.status).toBe("interrupted");
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      stop_reason?: string;
+    }[];
+    expect(results).toEqual([{ agent_id: id, status: "interrupted", stop_reason: "interrupted" }]);
+    expect(deps.sessions.get(id)?.stopReason).toBe("interrupted");
     followupGate.resolve("later");
   });
 
