@@ -22,7 +22,6 @@ import {
   type Agent,
   type AuthorizeFn,
 } from "@intx/agent";
-import { noopAuditStore } from "@intx/agent/testing";
 import type { Compactor, ContextStore, InferenceSource, ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
@@ -48,7 +47,7 @@ import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import type { Task } from "../agent/tasks.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
-import { createOptimizedContextStore } from "./optimized-context-store.js";
+import { createSessionStores } from "./optimized-context-store.js";
 import { createAttachmentRehydrateTransform } from "./attachment-store.js";
 import {
   loadProjectTrust,
@@ -353,6 +352,8 @@ export interface ChatAgentWiring {
   authorize: AuthorizeFn;
   /** Read at each build so /clear and workdir rotation use the live store path. */
   getWorkdir: () => string;
+  /** Read at each build so /clear and session rotation stamp the live session id. */
+  getSessionId: () => string;
   inferenceDeps: Awaited<ReturnType<typeof createInferenceDependencies>>;
   getSources: () => InferenceSource[];
   getDefaultSource: () => string;
@@ -425,7 +426,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
 
   const buildAgent = async (): Promise<Agent> => {
     const workdir = wiring.getWorkdir();
-    const storage = await createOptimizedContextStore(workdir);
+    const { storage, audit } = await createSessionStores(workdir);
     const agent = await createAgentWithLiveToolDispatch(agentDef, {
       sources: wiring.getSources(),
       defaultSource: wiring.getDefaultSource(),
@@ -438,7 +439,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ...wiring.inferenceDeps,
         contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
       },
-      audit: noopAuditStore(),
+      audit,
+      sessionId: wiring.getSessionId(),
       // Gate-backed reactor authorization: ask-tier calls suspend via the
       // vendored approval-suspend primitive instead of parking on a closure.
       authorize: wiring.authorize,

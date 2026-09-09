@@ -471,6 +471,7 @@ export async function assembleTUISession(
       state.reloadIfIdle?.();
     },
     getWorkdir: () => state.workdir,
+    getSessionId: () => state.sessionId,
     authorize: createReactorAuthorize(permissionGate),
     inferenceDeps: start.inferenceDeps,
     getSources: () => (state.liveSources.length > 0 ? state.liveSources : [state.liveSource]),

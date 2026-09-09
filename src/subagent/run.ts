@@ -17,9 +17,8 @@ import {
   type SendResult,
 } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
-import { createIsogitStore } from "@intx/storage-isogit/node";
 import { createWorkerAuthorize, workerPermissionGate } from "../permission/reactor-authorize.js";
-import { createOptimizedContextStore } from "../session/optimized-context-store.js";
+import { createSessionStores } from "../session/optimized-context-store.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
@@ -873,7 +872,8 @@ async function runSubAgentInner(
     // scheme.
     const safeRequestedId =
       params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id) ? params.id : undefined;
-    const workdir = join(params.workdirBase, "subagents", safeRequestedId ?? generateSessionId());
+    const sessionId = safeRequestedId ?? generateSessionId();
+    const workdir = join(params.workdirBase, "subagents", sessionId);
     await mkdir(workdir, { recursive: true });
     // One record per stop/nudge, with its measured value beside its
     // threshold, written into this leaf's own trace dir.
@@ -896,9 +896,7 @@ async function runSubAgentInner(
       },
     });
 
-    const storage = await createOptimizedContextStore(workdir);
-    // Audit commits must not race the native context store's git index.
-    const audit = await createIsogitStore(join(workdir, "audit-store"));
+    const { storage, audit } = await createSessionStores(workdir);
     const authorize = createWorkerAuthorize(params.permissionGate);
 
     const head = { provider: params.provider.providerName, model: params.provider.model };
@@ -928,6 +926,7 @@ async function runSubAgentInner(
         contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
       },
       audit,
+      sessionId,
       authorize: (resource, action, context) =>
         withWorkerIdentity(() => authorize(resource, action, context)),
       directors: createDirectorRegistry({

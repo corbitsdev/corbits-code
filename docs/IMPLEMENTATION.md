@@ -485,13 +485,14 @@ Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests
 
 ### Bounded audit collector retention between checkpoints
 
-Agent-owned audit collectors buffer completed tool results until checkpoint or
-shutdown flush, including when a noop store is supplied. Workers use the durable
-store described under State Persistence; the parent's noop store does not make
-collector retention inapplicable. Long, checkpoint-sparse runs can retain
+Production chat and sub-agent assembly persist audit via the same isogit
+object as context storage (`createSessionStores`), plus a stable `sessionId`.
+Agent-owned audit collectors still buffer completed tool results until
+checkpoint or shutdown flush. Long, checkpoint-sparse runs can retain
 unbounded results. Bounded retention remains owned by the `@intx/inference`
 audit collector: opportunistic flushing or capped result bodies must preserve
-metadata.
+metadata. If a collector is introduced in front of the isogit audit methods,
+add a bounded wrapper in `src/` and re-run hardening tests.
 
 Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; the two items above remain upstream-owned.
 

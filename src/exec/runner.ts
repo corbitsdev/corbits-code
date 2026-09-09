@@ -615,6 +615,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
       getProvider: () => config,
       getWorkdir: () => workdir,
+      getSessionId: () => sessionId,
       authorize: createReactorAuthorize(permissionGate),
       inferenceDeps,
       getSources: () => {
