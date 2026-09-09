@@ -20,6 +20,7 @@ export interface FleetDryMailboxRecord {
   readonly description?: string;
   readonly hint?: string;
   readonly providerFailure?: true;
+  readonly stopReason?: string;
 }
 
 export interface FleetDryMailbox {
@@ -43,6 +44,7 @@ export interface CollectedWorkerReport {
   error?: string;
   hint?: string;
   provider_failure?: true;
+  stop_reason?: string;
 }
 
 export function shouldDriveOpenTasks(input: {
@@ -85,6 +87,7 @@ export function projectMailboxRecord(
     ...(error !== undefined ? { error } : {}),
     ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
     ...(taken.providerFailure === true ? { provider_failure: true } : {}),
+    ...(taken.stopReason !== undefined ? { stop_reason: taken.stopReason } : {}),
   };
 }
 

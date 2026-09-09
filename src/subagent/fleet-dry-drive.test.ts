@@ -217,6 +217,25 @@ describe("collectUncollectedTerminals", () => {
     expect(records.get("ghost")?.collected).toBe(true);
   });
 
+  test("projects mailbox stopReason as stop_reason", () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "interrupted", report: "salvage", stopReason: "interrupted" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => records.get(id),
+    };
+    expect(collectUncollectedTerminals(mailbox, [], true)).toEqual([
+      {
+        agent_id: "w1",
+        status: "interrupted",
+        report: "salvage",
+        stop_reason: "interrupted",
+      },
+    ]);
+  });
+
   test("clips oversized reports", () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["big", { status: "done", report: "x".repeat(FLEET_DRY_REPORT_CHARS + 40) }],
