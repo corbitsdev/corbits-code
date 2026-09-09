@@ -449,7 +449,7 @@ function resolvePort(handlers?: SessionPortHandlers): SessionPort {
  * `message.received` word that note differently, so echoes match on content.
  */
 function promptContent(text: string): string {
-  const note = text.indexOf("\n[");
+  const note = text.search(/\n\[\d+ images? attached:/);
   return (note === -1 ? text : text.slice(0, note)).trim();
 }
 
@@ -1366,7 +1366,7 @@ export function attachSessionBridge(
     for (const ask of asks) bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
     sendInternalText(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"));
   };
-  bag.flushPendingAskWake = () => flushPendingAskWake();
+  bag.flushPendingAskWake = flushPendingAskWake;
 
   const doInterrupt = (): void => {
     if (bag.disposed) return;
@@ -1389,6 +1389,7 @@ export function attachSessionBridge(
     recordLastSent(null);
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
+    flushPendingAskWake();
   };
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;

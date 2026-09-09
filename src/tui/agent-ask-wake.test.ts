@@ -378,4 +378,108 @@ describe("agent ask wake delivery", () => {
       expect(sends).toEqual([]);
     });
   });
+
+  for (const stop of ["interrupt", "stall abort"] as const) {
+    test(`${stop} flushes a stashed ask once the parent is idle`, async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns: 80, rows: 24 },
+            wireKeys: false,
+            run: "idle",
+          });
+          const sends: string[] = [];
+          let nowMs = 0;
+          let tick = () => {};
+          const bridge = attachSessionBridge(
+            shell,
+            createLiveSessionPort({
+              send: (text) => {
+                sends.push(text);
+              },
+              deliver: (text) => {
+                sends.push(text);
+              },
+              interrupt: () => {},
+            }),
+            {
+              now: () => nowMs,
+              stallTimeoutMs: 1_000,
+              stallNoticeMs: 400,
+              schedule: (fn) => {
+                tick = fn;
+                return () => {};
+              },
+            },
+          );
+          try {
+            bridge.handle({ type: "inference.start", data: {} });
+            bridge.handle({ type: "inference.text.delta", data: { token: "ok" } });
+            bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+            expect(sends).toEqual([]);
+            if (stop === "interrupt") {
+              bridge.interrupt();
+            } else {
+              nowMs = 1_000;
+              tick();
+            }
+            expect(sends).toHaveLength(1);
+            expect(sends[0]).toContain("q1");
+            expect(bridge.turn.isProcessing).toBe(true);
+          } finally {
+            bridge.dispose();
+            shell.dispose();
+          }
+        },
+        { width: 80, height: 24 },
+      );
+    });
+  }
+
+  test("a wake question with bracket lines does not spoof attachment-echo matching", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const sends: string[] = [];
+        const send = (text: string) => {
+          sends.push(text);
+        };
+        const bridge = attachSessionBridge(
+          shell,
+          createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+        );
+        try {
+          const ask = {
+            ...wake("a1", "q1"),
+            question: "Choose:\n[1] 8080\n[2] 9090",
+          };
+          bridge.handle({ type: "agent-ask", asks: [ask] });
+          expect(sends).toHaveLength(1);
+          const wakeText = sends[0];
+          if (wakeText === undefined) throw new Error("expected wake text");
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: wakeText } },
+          });
+          expect(shell.streamLog.filter((row) => row.role === "user")).toHaveLength(1);
+          bridge.submit("hello", "immediate");
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "hello\n[1 image attached: shot.png]" } },
+          });
+          expect(
+            shell.streamLog.filter((row) => row.role === "user").map((row) => row.text),
+          ).toEqual([wakeText, "hello"]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
 });

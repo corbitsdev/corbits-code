@@ -79,7 +79,8 @@ export function createFleetWakePublisher(
     } finally {
       suspended = false;
     }
-    // A failed cancellation must not publish its partially reset snapshot.
+    // Reached only after reset() returns. A throw leaves publication suppressed
+    // so a failed cancellation cannot publish its partially reset snapshot.
     publish();
   };
   return { publish, withSuspended };

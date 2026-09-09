@@ -225,8 +225,9 @@ The runner snapshots currently pending root-worker questions, dropping resolved,
 cancelled, replaced, terminal, or removed asks before delivery. It sends one
 coalesced wake when the parent is not processing and all operator gates are closed,
 even while live workers hold the shell busy. Replies use `send_input`'s `target`
-field with the worker's session ID, not its shared catalog ID. Each session/question identity is
-delivered once while pending; the strip never re-delivers it. Synthetic wakes use
+field with the worker's session ID, not its shared catalog ID. The runner
+publishes snapshots and the bridge delivers each session/question identity
+once while pending; the agents strip never re-delivers it. Synthetic wakes use
 the idle delivery path, bypassing composer `/feedback` capture and leaving queued
 user follow-ups untouched.
 

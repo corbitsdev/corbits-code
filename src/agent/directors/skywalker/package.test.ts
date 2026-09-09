@@ -205,11 +205,15 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaves\b/i);
   });
 
-  test("systemPrompt answers wait_agents questions via send_input", () => {
+  test("systemPrompt answers parked director questions via send_input", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("ask_director");
     expect(p).toContain("send_input");
-    expect(p).toMatch(/wait_agents returns status running plus a question/i);
+    expect(p).toContain("awaiting_director");
+    expect(p).toContain("idle-send");
+    expect(p).toContain("target = that worker's session id");
+    expect(p).toContain("target = worker session id");
+    expect(p).not.toMatch(/wait_agents returns status running plus a question/i);
     expect(p).toMatch(/Escalate with ask_operator only when you cannot resolve it/);
   });
 

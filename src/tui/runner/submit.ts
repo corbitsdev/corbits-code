@@ -351,6 +351,7 @@ export function createDeliverRouting(
       },
       recordSent: (text) => {
         if (text.trim().length === 0) return;
+        if (text.startsWith("ask_director wake")) return;
         void appendSentMessage(state.config.cwd, state.sessionId, text).catch((err: unknown) => {
           tuiLogger.debug("sent-message append failed: {error}", {
             error: err instanceof Error ? err.message : String(err),
