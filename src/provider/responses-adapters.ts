@@ -18,15 +18,33 @@ import {
   parseResponse,
   signatureForModel,
 } from "./codex-responses-adapter.js";
+import {
+  XAI_RESPONSES_PATH,
+  XAI_CLIENT_IDENTIFIER,
+  XAI_CLIENT_VERSION,
+  XAI_USER_AGENT,
+} from "../auth/xai/constants.js";
 
-// Generic OpenAI Responses API adapter (POST /responses). Used by OpenCode Go
-// models that speak Responses rather than Chat Completions (e.g. gpt-5.6-luna).
-// Shares the Codex/Grok SSE parser; only the request shape and path differ from
-// Chat Completions and from the Grok-specific header set.
+// Adapters for the OpenAI Responses API (POST /responses) as served by two
+// backends that do NOT speak Chat Completions:
+//   - grok-responses: the grok-cli OAuth proxy (cli-chat-proxy.grok.com). The
+//     request shape mirrors the grok CLI's own /v1/responses call (captured
+//     live): the system prompt rides as a leading `system` input message
+//     (string content, not parts), reasoning is requested by summary, and the
+//     caller is identified by x-grok-* headers rather than a body field.
+//   - openai-responses: generic OpenAI Responses endpoints, used by OpenCode Go
+//     models that speak Responses rather than Chat Completions (e.g.
+//     gpt-5.6-luna).
+// Both share the Codex/Grok SSE parser (see codex-responses-adapter.ts) and the
+// request mapper below; only the endpoint, headers, and reasoning/sampling
+// configuration differ.
 
+export const GROK_RESPONSES_PROVIDER = "grok-responses";
 export const OPENAI_RESPONSES_PROVIDER = "openai-responses";
 
-// Key the source stashes in defaults.providerOptions for this adapter.
+// Keys the sources stash in defaults.providerOptions for these adapters.
+export const GROK_USER_ID_OPTION = "grokUserId";
+export const GROK_SESSION_ID_OPTION = "grokSessionId";
 export const OPENAI_SESSION_ID_OPTION = "openaiSessionId";
 export const OPENCODE_SESSION_ID_OPTION = "opencodeSessionId";
 
@@ -52,6 +70,9 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
   return parts.join("");
 }
 
+// Map one internal turn to Responses items. Text-only messages keep the string
+// shape grok sends; messages with image blocks switch to Responses content parts
+// so the model receives the actual pixels instead of only a text placeholder.
 function toResponsesItems(
   turn: ConversationTurn,
   requestModel: string,
@@ -174,11 +195,32 @@ function dedupeToolItems(items: ResponsesInputItem[]): ResponsesInputItem[] {
   });
 }
 
-function buildRequest(
+// Everything that differs between the Responses backends this module adapts.
+interface ResponsesRequestSpec {
+  /** Endpoint path for the Responses API. */
+  url: string;
+  /** providerOptions key carrying the inference thread's session id. */
+  sessionIdOptionKey: string;
+  /**
+   * Reasoning summary mode. "detailed" streams denser summary deltas than
+   * "auto": Grok bills full thinking tokens but only returns summarized text;
+   * sparse auto summaries left the stall/activity clocks quiet for 60–120s
+   * mid-think. It also forwards providerOptions.reasoning_effort when the
+   * source set it — the adapter does not invent a default.
+   */
+  reasoningSummary: "auto" | "detailed";
+  /** Forward maxTokens/temperature into the request body. */
+  forwardSamplingParams: boolean;
+  /** Provider-specific headers on top of the base content-type/accept/auth set. */
+  extraHeaders: (options: InferenceOptions, model: string) => Record<string, string>;
+}
+
+function buildResponsesRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
   requestProvider: string,
+  spec: ResponsesRequestSpec,
 ): BuiltRequest {
   const conversation = dedupeToolItems(
     messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider)),
@@ -190,35 +232,86 @@ function buildRequest(
   const input = systemMessage !== undefined ? [systemMessage, ...conversation] : conversation;
   const tools = toResponsesTools(options);
 
+  const reasoning: Record<string, unknown> = { summary: spec.reasoningSummary };
+  if (spec.reasoningSummary === "detailed") {
+    const effort = optionString(options, "reasoning_effort");
+    if (effort !== undefined) reasoning["effort"] = effort;
+  }
+
   const body: Record<string, unknown> = {
     model,
     input,
     store: false,
     stream: true,
     include: ["reasoning.encrypted_content"],
-    reasoning: { summary: "auto" },
+    reasoning,
   };
   if (tools !== undefined) {
     body["tools"] = tools;
     body["tool_choice"] = "auto";
   }
-  if (options.maxTokens !== undefined) body["max_output_tokens"] = options.maxTokens;
-  if (options.temperature !== undefined) body["temperature"] = options.temperature;
+  if (spec.forwardSamplingParams) {
+    if (options.maxTokens !== undefined) body["max_output_tokens"] = options.maxTokens;
+    if (options.temperature !== undefined) body["temperature"] = options.temperature;
+  }
   // With store:false this is the only cache-routing signal; keying it to the
   // inference thread's session id keeps every request on the same cache shard.
-  const sessionId = optionString(options, OPENAI_SESSION_ID_OPTION);
+  const sessionId = optionString(options, spec.sessionIdOptionKey);
   if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
-  const opencodeSessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
 
   return {
-    url: "/responses",
+    url: spec.url,
     headers: {
       "content-type": "application/json",
       accept: "text/event-stream",
       authorization: BEARER_CREDENTIAL_SENTINEL,
-      ...(opencodeSessionId !== undefined ? { "x-opencode-session": opencodeSessionId } : {}),
+      ...spec.extraHeaders(options, model),
     },
     body: JSON.stringify(body),
+  };
+}
+
+// The grok proxy identifies the caller by client headers in addition to the
+// bearer token; values mirror the grok CLI's own /v1/responses call.
+const GROK_SPEC: ResponsesRequestSpec = {
+  url: XAI_RESPONSES_PATH,
+  sessionIdOptionKey: GROK_SESSION_ID_OPTION,
+  reasoningSummary: "detailed",
+  forwardSamplingParams: false,
+  extraHeaders: (options, model) => {
+    const headers: Record<string, string> = {
+      "user-agent": XAI_USER_AGENT,
+      "x-grok-client-identifier": XAI_CLIENT_IDENTIFIER,
+      "x-grok-client-version": XAI_CLIENT_VERSION,
+      "x-grok-model-override": model,
+    };
+    const userId = optionString(options, GROK_USER_ID_OPTION);
+    if (userId !== undefined) headers["x-grok-user-id"] = userId;
+    return headers;
+  },
+};
+
+const OPENAI_SPEC: ResponsesRequestSpec = {
+  url: "/responses",
+  sessionIdOptionKey: OPENAI_SESSION_ID_OPTION,
+  reasoningSummary: "auto",
+  forwardSamplingParams: true,
+  extraHeaders: (options) => {
+    const opencodeSessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
+    return opencodeSessionId !== undefined ? { "x-opencode-session": opencodeSessionId } : {};
+  },
+};
+
+export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAdapter {
+  // Re-created per request in buildRequest — see codex-responses-adapter.ts.
+  let indexer = createResponsesBlockIndexer();
+  return {
+    buildRequest: (messages, model, options) => {
+      indexer = createResponsesBlockIndexer();
+      return buildResponsesRequest(messages, model, options, source.provider, GROK_SPEC);
+    },
+    parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
+    parseJSONResponse,
   };
 }
 
@@ -228,7 +321,7 @@ export function createOpenAIResponsesAdapter(source: LastCycleSource): ProviderA
   return {
     buildRequest: (messages, model, options) => {
       indexer = createResponsesBlockIndexer();
-      return buildRequest(messages, model, options, source.provider);
+      return buildResponsesRequest(messages, model, options, source.provider, OPENAI_SPEC);
     },
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, OPENAI_RESPONSES_PROVIDER),
     parseJSONResponse,

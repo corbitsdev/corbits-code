@@ -7,7 +7,7 @@ import {
   createCodexResponsesAdapter,
   tagSignature,
 } from "./codex-responses-adapter.js";
-import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
+import { createGrokResponsesAdapter } from "./responses-adapters.js";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 import {
   sanitizeReplayTurns,

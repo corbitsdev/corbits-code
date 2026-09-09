@@ -3,7 +3,7 @@ import {
   createOpenAIResponsesAdapter,
   OPENAI_SESSION_ID_OPTION,
   OPENCODE_SESSION_ID_OPTION,
-} from "../../src/provider/openai-responses-adapter.js";
+} from "../../src/provider/responses-adapters.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 

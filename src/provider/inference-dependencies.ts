@@ -3,16 +3,14 @@ import { loadAdapterRegistry } from "@intx/inference/providers";
 import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as opencodeGo from "./opencode-go-adapter.js";
 import * as codexResponses from "./codex-responses-adapter.js";
-import * as grokResponses from "./grok-responses-adapter.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
-import * as openaiResponses from "./openai-responses-adapter.js";
+import * as responsesAdapters from "./responses-adapters.js";
 import * as opencodeGoAnthropic from "./opencode-go-anthropic-adapter.js";
 import { CODEX_RESPONSES_PROVIDER, withCodexContentTypeRepair } from "./codex-responses-adapter.js";
-import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
-import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER, OPENAI_RESPONSES_PROVIDER } from "./responses-adapters.js";
 import { OPENCODE_GO_MESSAGES_PROVIDER } from "./opencode-go-anthropic-adapter.js";
 
 // Corbits Code ships first-party adapters on top of the built-in provider set:
@@ -61,9 +59,9 @@ const localModules: Record<string, unknown> = {
   "openai-compatible-adapter": openaiCompatible,
   "opencode-go-adapter": opencodeGo,
   "codex-responses-adapter": codexResponses,
-  "grok-responses-adapter": grokResponses,
+  "grok-responses-adapter": responsesAdapters,
   "bifrost-adapter": bifrostAdapter,
-  "openai-responses-adapter": openaiResponses,
+  "openai-responses-adapter": responsesAdapters,
   "opencode-go-anthropic-adapter": opencodeGoAnthropic,
 };
 

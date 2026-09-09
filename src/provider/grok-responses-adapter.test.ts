@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
-import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
+import { createGrokResponsesAdapter } from "./responses-adapters.js";
 
 const source: LastCycleSource = {
   sourceId: "xai/test",

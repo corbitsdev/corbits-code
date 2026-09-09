@@ -3,7 +3,7 @@ import {
   createGrokResponsesAdapter,
   GROK_SESSION_ID_OPTION,
   GROK_USER_ID_OPTION,
-} from "../../src/provider/grok-responses-adapter.js";
+} from "../../src/provider/responses-adapters.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 
