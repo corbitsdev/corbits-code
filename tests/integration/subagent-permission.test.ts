@@ -14,8 +14,11 @@ import {
 import { runSubAgent, type RunSubAgentParams } from "../../src/subagent/run.js";
 import { withMockedModuleDuring } from "../helpers/mock-module.js";
 import { mcpClientToAgentTools } from "../../src/mcp/plugin.js";
+import type { MCPClient } from "../../src/mcp/client.js";
 import { getSubAgentIdentity } from "../../src/subagent/identity-context.js";
 import { createSubAgentSessionStore } from "../../src/subagent/session-store.js";
+import { workerPermissionGate } from "../../src/permission/reactor-authorize.js";
+import { gateAgentTools } from "../../src/plugins/permission-plugin.js";
 
 const report =
   "## Summary\nFinished.\n## Findings\nAttempted write.\n## Blockers\nNone.\n## Paths\nprobe.txt";
@@ -351,6 +354,184 @@ test.serial(
   },
   20000,
 );
+
+async function bindCreateAgentToolsetInherit(args: {
+  cwd: string;
+  permissionGate: PermissionGate;
+  client: MCPClient;
+}): Promise<{
+  inheritMcpTools: NonNullable<RunSubAgentParams["inheritMcpTools"]>;
+  dispose: () => Promise<void>;
+}> {
+  let inheritMcpTools: RunSubAgentParams["inheritMcpTools"];
+  let dispose: () => Promise<void> = async () => undefined;
+  await withMockedModuleDuring(
+    import.meta.resolve("../../src/subagent/agent-fleet.js"),
+    (real: typeof import("../../src/subagent/agent-fleet.js")) => ({
+      ...real,
+      createSpawnAgentTool: (deps: Parameters<typeof real.createSpawnAgentTool>[0]) => {
+        inheritMcpTools = deps.inheritMcpTools;
+        return real.createSpawnAgentTool(deps);
+      },
+    }),
+    async () =>
+      withMockedModuleDuring(
+        import.meta.resolve("../../src/mcp/client.js"),
+        (real: typeof import("../../src/mcp/client.js")) => ({
+          ...real,
+          connectMCPServer: async () => ({ ok: true as const, client: args.client }),
+        }),
+        async () => {
+          const { createAgentToolset } = await import("../../src/agent/tools.js");
+          const toolset = await createAgentToolset({
+            cwd: args.cwd,
+            permissionGate: args.permissionGate,
+            onOperatorGate: async () => ({ kind: "cancel" }),
+            mcpServers: [],
+            subAgent: {
+              provider: {
+                providerName: "openai",
+                baseURL: "https://api.openai.com/v1",
+                model: "test-model",
+              },
+              getWorkdirBase: () => join(args.cwd, "state"),
+              sessions: createSubAgentSessionStore(),
+            },
+          });
+          dispose = () => toolset.dispose();
+          await toolset.connectMCPServer(
+            { name: "probe", type: "http", url: "https://mcp.probe.test/mcp" },
+            {
+              interactiveAuth: false,
+              onStatus: () => undefined,
+              onToolsChanged: () => undefined,
+            },
+          );
+        },
+      ),
+  );
+  if (inheritMcpTools === undefined) {
+    await dispose();
+    throw new Error("createAgentToolset did not wire inheritMcpTools");
+  }
+  return { inheritMcpTools, dispose };
+}
+
+test.serial(
+  "createAgentToolset inherit wraps ungated MCP tools with the passed worker gate",
+  async () => {
+    let asks = 0;
+    await withWorker(
+      async ({ cwd, harness, params, audit }) => {
+        let calls = 0;
+        const client = {
+          serverName: "probe",
+          tools: [
+            {
+              name: "mutate",
+              description: "mutates",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+          call: async () => {
+            calls++;
+            return "changed";
+          },
+          close: async () => undefined,
+        };
+        const bound = await bindCreateAgentToolsetInherit({
+          cwd,
+          permissionGate: params.permissionGate,
+          client,
+        });
+        try {
+          params.permissionGate.setSeededApprovals([
+            { tool: "mcp__probe__mutate", pattern: "mcp__probe__mutate" },
+          ]);
+          const authorize = params.permissionGate.authorizeCall;
+          params.permissionGate.authorizeCall = async (call) => {
+            const result = await authorize(call);
+            params.permissionGate.setSeededApprovals([]);
+            return result;
+          };
+          params.inheritMcpTools = bound.inheritMcpTools;
+          harness.scenario.replyOnce("openai", {
+            toolCalls: [{ name: "mcp__probe__mutate", args: {} }],
+          });
+          harness.scenario.replyOnce("openai", { text: report });
+          await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+          expect(calls).toBe(1);
+          expect(asks).toBe(0);
+          expect((await audit())[0]?.authz?.effect).toBe("allow");
+        } finally {
+          await bound.dispose();
+        }
+      },
+      (cwd) =>
+        createPermissionGate({
+          cwd,
+          approvals: [],
+          interactive: true,
+          auto: false,
+          skipPermissions: false,
+          reactorGated: false,
+          requestApproval: async () => {
+            asks++;
+            return { allow: true };
+          },
+        }),
+    );
+  },
+  20000,
+);
+
+test("storing parent-gated MCP tools then wrapping again still calls requestApproval", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "worker-permission-"));
+  let asks = 0;
+  let calls = 0;
+  try {
+    const parent = createPermissionGate({
+      cwd,
+      approvals: [],
+      interactive: true,
+      auto: false,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => {
+        asks++;
+        return { allow: true };
+      },
+    });
+    const client = {
+      serverName: "probe",
+      tools: [
+        {
+          name: "mutate",
+          description: "mutates",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      call: async () => {
+        calls++;
+        return "changed";
+      },
+      close: async () => undefined,
+    };
+    parent.registerMcpClient(client);
+    const parentGated = mcpClientToAgentTools(client, parent);
+    const doubleWrapped = gateAgentTools(parentGated, workerPermissionGate(parent));
+    const tool = doubleWrapped[0];
+    if (tool?.kind !== "full") throw new Error("expected full inherited MCP tool");
+    await tool.handler(
+      { id: "c1", name: "mcp__probe__mutate", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(asks).toBe(1);
+    expect(calls).toBe(1);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
 
 test.serial(
   "live worker authorization is not evaluated again after policy revocation before runner",
