@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
@@ -7,6 +8,7 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
+  authFilePath,
   tryLoadAuthStateSync,
   updateAuthState,
   type MCPAuthIdentity,
@@ -62,6 +64,25 @@ function assignClient(stored: MCPAuthState, next: MCPAuthState): void {
   else delete stored.clientInformation;
 }
 
+function matchingLiveClient(
+  stored: MCPAuthState,
+  redirectUrl: string,
+): OAuthClientInformationFull | undefined {
+  const live = stored.clientInformation;
+  if (live === undefined || !redirectUrisInclude(live, redirectUrl)) return undefined;
+  return live;
+}
+
+function persistMatchingLiveClient(
+  stored: MCPAuthState,
+  next: MCPAuthState,
+  redirectUrl: string,
+): void {
+  const live = matchingLiveClient(stored, redirectUrl);
+  if (live === undefined) return;
+  next.clientInformation = live;
+}
+
 export async function createOAuthProvider(
   opts: OAuthProviderOptions,
 ): Promise<CorbitsOAuthProvider> {
@@ -84,14 +105,39 @@ export async function createOAuthProvider(
   );
 
   const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
-    const next = await updateAuthState(identity, mutator, home);
+    const next = await updateAuthState(
+      identity,
+      (state) => {
+        mutator(state);
+        persistMatchingLiveClient(stored, state, opts.redirectUrl);
+      },
+      home,
+    );
     assignTokens(stored, next);
-    assignClient(stored, next);
+    if (matchingLiveClient(stored, opts.redirectUrl) === undefined) {
+      assignClient(stored, next);
+    }
   };
 
+  // Cheap staleness guard: statSync per getter, sync read only when the file's
+  // mtime or size changed. Stamp commits only after a successful read so a
+  // failed/unreadable file is retried on the next getter call.
+  const authPath = authFilePath(identity, home);
+  let seenStamp: string | undefined;
   const refreshDurableFromDisk = (): void => {
+    let stamp: string | undefined;
+    try {
+      const stat = statSync(authPath);
+      stamp = `${String(stat.mtimeMs)}:${String(stat.size)}`;
+    } catch {
+      if (seenStamp === undefined) return;
+      seenStamp = undefined;
+      return;
+    }
+    if (stamp === seenStamp) return;
     const next = tryLoadAuthStateSync(identity, home);
     if (next === undefined) return;
+    seenStamp = stamp;
     const adoptClient = shouldAdoptClient(stored, next, opts.redirectUrl);
     assignTokens(stored, next);
     if (adoptClient) assignClient(stored, next);
