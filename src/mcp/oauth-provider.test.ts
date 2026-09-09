@@ -407,6 +407,78 @@ describe("createOAuthProvider", () => {
     ]);
   });
 
+  test("idle tokens getter adopts a sibling's completed auth without rewriting matching DCR", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(a, clientInfo(62000));
+    await a.saveTokens({
+      access_token: "tok-a",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-a",
+    });
+
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(b, clientInfo(60435));
+    await b.saveTokens({
+      access_token: "tok-b",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-b",
+    });
+
+    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-b");
+    const disk = await loadAuthState(linear, home);
+    expect(disk.tokens?.access_token).toBe("tok-b");
+    expect(disk.clientInformation?.client_id).toBe("client-on-60435");
+    expect(disk.clientInformation?.redirect_uris).toEqual(["http://127.0.0.1:60435/callback"]);
+  });
+
+  test("same-port DCR rotation after a different-port sibling saveClient keeps the new client", async () => {
+    const home = await tempHome();
+    const v1 = { ...clientInfo(62000), client_id: "client-on-62000-v1" };
+    const v2 = { ...clientInfo(62000), client_id: "client-on-62000-v2" };
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(a, v1);
+
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(b, clientInfo(60435));
+    await saveClient(a, v2);
+
+    const info = await syncValue(a.clientInformation());
+    expect(info?.client_id).toBe("client-on-62000-v2");
+    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
+      "http://127.0.0.1:62000/callback",
+    ]);
+    const disk = await loadAuthState(linear, home);
+    expect(disk.clientInformation?.client_id).toBe("client-on-62000-v2");
+    expect(disk.clientInformation?.redirect_uris).toEqual(["http://127.0.0.1:62000/callback"]);
+  });
+
   test("sync getters fall back to the in-memory mirror when the auth file disappears", async () => {
     const home = await tempHome();
     const provider = await createOAuthProvider({
