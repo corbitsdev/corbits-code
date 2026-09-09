@@ -88,6 +88,9 @@ describe("codex-responses buildRequest", () => {
     expect(body["tool_choice"]).toBe("auto");
   });
 
+  // Adapter mapping only: compacted history still uses instructions, not a
+  // developer item. ChatDirector tests own the lock that infer carries the
+  // constructor systemPrompt after compaction or recovery.
   test("sends compacted history with the system prompt as instructions and no developer item", () => {
     const systemPrompt = "Corbits operating prompt";
     const turns: ConversationTurn[] = [
