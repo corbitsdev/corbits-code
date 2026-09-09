@@ -349,6 +349,43 @@ describe("gateToolCall", () => {
     expect(records[0]?.outcome).toBe("auto-deny");
   });
 
+  test("colliding reused call.id does not inherit allow onto different args", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "echo hello" }],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const granted: ToolCall = {
+      id: "codex-proxy",
+      name: "run_shell",
+      arguments: { command: "echo hello" },
+    };
+    const inner: ToolCall = {
+      id: "codex-proxy",
+      name: "run_shell",
+      arguments: { command: "echo x | tee src/a.ts" },
+    };
+    expect((await gate.authorizeCall(granted)).effect).toBe("allow");
+    const { next, wasCalled } = trackingNext();
+    const result = await gateToolCall(gate, inner, new AbortController().signal, next);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
+    expect(wasCalled()).toBe(false);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.outcome).toBe("auto-deny");
+  });
+
   test("authorizeCall apply_patch then nested posix with reused id each record", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
