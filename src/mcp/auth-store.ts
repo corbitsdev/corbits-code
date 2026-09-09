@@ -51,8 +51,9 @@ export function authFilePath(identity: MCPAuthIdentity, home: string = homedir()
 }
 
 // Synchronous mirror of loadAuthState for the SDK's sync getters (tokens(),
-// clientInformation(), codeVerifier()), which cannot await disk I/O. A missing or
-// corrupt file yields empty state, matching loadAuthState's tolerance.
+// clientInformation(), codeVerifier()), which cannot await disk I/O. Tolerates
+// a missing (ENOENT) or corrupt file with empty state, matching loadAuthState;
+// other read errors propagate to the caller.
 export function loadAuthStateSync(
   identity: MCPAuthIdentity,
   home: string = homedir(),
@@ -60,8 +61,16 @@ export function loadAuthStateSync(
   let raw: string;
   try {
     raw = readFileSync(authFilePath(identity, home), "utf8");
-  } catch {
-    return {};
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "ENOENT"
+    ) {
+      return {};
+    }
+    throw err;
   }
   try {
     const parsed: unknown = JSON.parse(raw);

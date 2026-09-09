@@ -97,8 +97,16 @@ export async function createOAuthProvider(
       return;
     }
     if (stamp === seenStamp) return;
+    let next: MCPAuthState;
+    try {
+      next = loadAuthStateSync(identity, home);
+    } catch {
+      // Unreadable rather than missing: leave the stamp stale so the next
+      // getter call retries instead of pinning an empty state over the mirror.
+      return;
+    }
     seenStamp = stamp;
-    replaceStored(stored, loadAuthStateSync(identity, home));
+    replaceStored(stored, next);
   };
 
   let oauthState: string | undefined;

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAuthState, saveAuthState, deleteAuthState } from "./auth-store.js";
+import { authFilePath, loadAuthState, saveAuthState, deleteAuthState } from "./auth-store.js";
 import { createOAuthProvider } from "./oauth-provider.js";
 
 async function tempHome(): Promise<string> {
@@ -252,6 +252,29 @@ describe("createOAuthProvider", () => {
 
     expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
     expect(await syncValue(provider.clientInformation())).toBeUndefined();
+  });
+
+  test("keeps the mirror through an unreadable auth file and recovers once readable", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
+
+    // Force a stat change so the mtime guard actually attempts the read.
+    const path = authFilePath(linear, home);
+    await appendFile(path, " ");
+    await chmod(path, 0o000);
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+
+    await chmod(path, 0o600);
+    await saveAuthState(linear, { tokens: { access_token: "fresh", token_type: "bearer" } }, home);
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh");
   });
 
   test("does not delete scoped state whose filename stem is another provider name", async () => {
