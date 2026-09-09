@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
-import { createIsogitStore } from "@intx/storage-isogit/node";
+import git from "isomorphic-git";
+import { createIsogitStore, type CommitSigner } from "@intx/storage-isogit/node";
 import {
   ContentBlock,
+  type AuditStore,
   type ConnectorThreadState,
   type ConversationTurn,
   type PendingOperation,
@@ -17,8 +19,10 @@ import {
   readExtraSegmentTexts,
   segmentFileName,
 } from "./incremental-jsonl.js";
-import type { ContextCommit, ContextStore } from "@intx/types/runtime";
+import type { ContextStore } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { loadOrCreateCommitSigner } from "./commit-signer.js";
+import { withResolvedDirLock } from "./session-dir-lock.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -29,15 +33,13 @@ const TOOL_OUTPUT_DIR = "tool-output";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
-export interface CheckpointAuthor {
-  name: string;
-  email: string;
-}
-
-const HARNESS_AUTHOR: CheckpointAuthor = {
-  name: "interchange-harness",
-  email: "harness@interchange.local",
-};
+const VENDOR_COMMIT_ROOT_FILES = new Set([
+  TURNS_FILE,
+  PROMPT_FILE,
+  RESPONSE_FILE,
+  MANIFEST_FILE,
+  METADATA_FILE,
+]);
 
 const BLOB_EXTENSIONS: Readonly<Record<string, string>> = {
   "text/plain": ".txt",
@@ -304,73 +306,17 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
   return turns;
 }
 
-async function runGit(
-  dir: string,
-  args: string[],
-  author?: CheckpointAuthor,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<string> {
-  const proc = Bun.spawn(["git", "-C", dir, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: {
-      ...env,
-      ...(author === undefined
-        ? {}
-        : {
-            GIT_AUTHOR_NAME: author.name,
-            GIT_AUTHOR_EMAIL: author.email,
-            GIT_COMMITTER_NAME: author.name,
-            GIT_COMMITTER_EMAIL: author.email,
-          }),
-    },
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${stderr.trim() || stdout.trim()}`);
+async function listIndexPaths(dir: string): Promise<Set<string>> {
+  try {
+    return new Set(await git.listFiles({ fs, dir }));
+  } catch {
+    return new Set();
   }
-  return stdout.trimEnd();
 }
 
-async function gitConfigGlobal(key: string, env: NodeJS.ProcessEnv): Promise<string | null> {
-  const proc = Bun.spawn(["git", "config", "--global", "--get", key], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env,
-  });
-  const [exitCode, stdout] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  if (exitCode !== 0) return null;
-  const value = stdout.trim();
-  return value.length > 0 ? value : null;
-}
-
-// Operator commit-author hooks see a real identity; machines without both
-// global user.name and user.email still checkpoint via the harness fallback.
-async function resolveCheckpointAuthor(env: NodeJS.ProcessEnv): Promise<CheckpointAuthor> {
-  const [name, email] = await Promise.all([
-    gitConfigGlobal("user.name", env),
-    gitConfigGlobal("user.email", env),
-  ]);
-  if (name === null || email === null) return HARNESS_AUTHOR;
-  return { name, email };
-}
-
-/**
- * Names of the tail turn segments (`turns-0001.jsonl`, ...) present in a commit
- * tree, in segment order. The base store reads the zeroth segment itself; these
- * are the segments it does not know about.
- */
 async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<string[]> {
-  const listing = await runGit(dir, ["ls-tree", "--name-only", hash]);
-  const present = new Set(listing.split("\n").filter((line) => line.length > 0));
+  const listing = await git.listFiles({ fs, dir, ref: hash });
+  const present = new Set(listing);
   const names: string[] = [];
   for (let index = 1; ; index++) {
     const name = segmentFileName(TURNS_FILE, index);
@@ -380,20 +326,23 @@ async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<str
   return names;
 }
 
-async function describeHead(dir: string, message: string): Promise<ContextCommit> {
-  const [hash, seconds, parents] = (await runGit(dir, ["log", "-1", "--format=%H%n%ct%n%P"])).split(
-    "\n",
-  );
-  if (hash === undefined || hash.length === 0 || seconds === undefined) {
-    throw new Error("Unexpected log state after commit: no HEAD");
+async function blobTextAtCommit(dir: string, hash: string, filepath: string): Promise<string> {
+  const { blob } = await git.readBlob({ fs, dir, oid: hash, filepath });
+  return new TextDecoder().decode(blob);
+}
+
+async function resetIndexPaths(dir: string, filepaths: readonly string[]): Promise<void> {
+  for (const filepath of filepaths) {
+    try {
+      await git.resetIndex({ fs, dir, filepath });
+    } catch {
+      // Not in the index; vendor restore already covers its own paths.
+    }
   }
-  const parentHash = parents?.split(" ")[0];
-  const base = { hash, message: message.trimEnd(), timestamp: Number(seconds) * 1000 };
-  return parentHash !== undefined && parentHash.length > 0 ? { ...base, parentHash } : base;
 }
 
 /**
- * Stage every contiguous on-disk segment for `baseName` and `git rm` any
+ * Stage every contiguous on-disk segment for `baseName` and unstage any
  * higher-numbered or gapped segment still on disk or tracked after a rewrite
  * deleted it — even when the in-memory pending set was lost (process died
  * between heal unlink and commit). Gapped strays are unlinked, not re-added.
@@ -411,6 +360,7 @@ async function reconcileSegmentStaging(
   // tails begin at 1. Empty contiguous (no base) still sweeps numbered files.
   const startIndex = Math.max(contiguous.length, 1);
   const highestDisk = await highestSegmentIndex(dir, baseName);
+  const tracked = await listIndexPaths(dir);
 
   for (let index = startIndex; ; index++) {
     const name = segmentFileName(baseName, index);
@@ -421,8 +371,7 @@ async function reconcileSegmentStaging(
       toRemove.push(name);
       continue;
     }
-    const tracked = await runGit(dir, ["ls-files", "--", name]);
-    if (tracked.length === 0) {
+    if (!tracked.has(name)) {
       if (index > highestDisk) break;
       continue;
     }
@@ -430,19 +379,27 @@ async function reconcileSegmentStaging(
   }
 }
 
+function extraCommitPaths(paths: readonly string[]): string[] {
+  return paths.filter((filepath) => !VENDOR_COMMIT_ROOT_FILES.has(filepath));
+}
+
+export type SessionStores = {
+  storage: ContextStore;
+  audit: AuditStore;
+};
+
 /**
  * Local wrapper around the Interchange git store that avoids O(session length)
  * work per reactor checkpoint. Turns and prompt snapshots are written as rolling
- * segment files so `git add` re-hashes only the small active segment, and only
- * spilled tool-output blobs that are new since the last commit are staged.
+ * segment files so only the small active extra segment is re-hashed, then
+ * `base.commit()` takes the vendor lock, durable commit, signing, and GC.
  */
-export async function createOptimizedContextStore(
+export async function createSessionStores(
   dir: string,
-  opts?: { author?: CheckpointAuthor; env?: NodeJS.ProcessEnv },
-): Promise<ContextStore> {
-  const gitEnv = opts?.env ?? process.env;
-  const author = opts?.author ?? (await resolveCheckpointAuthor(gitEnv));
-  const base = await createIsogitStore(dir);
+  opts?: { signer?: CommitSigner },
+): Promise<SessionStores> {
+  const signer = opts?.signer ?? (await loadOrCreateCommitSigner(dir));
+  const base = await createIsogitStore(dir, signer);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
   const writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
@@ -488,7 +445,7 @@ export async function createOptimizedContextStore(
     return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
   }
 
-  return {
+  const store: ContextStore & AuditStore = {
     // Full-history read. Called by the reactor during initialization, where
     // the complete turn history is the actual live conversation state, not an
     // optional convenience — callers that only need a recent tail (e.g. TUI
@@ -551,7 +508,7 @@ export async function createOptimizedContextStore(
       // malformed. Prefer the longest well-formed prefix; no on-disk side effects.
       const parsedExtras: ConversationTurn[][] = [];
       for (const name of extraNames) {
-        const text = await runGit(dir, ["show", `${hash}:${name}`]);
+        const text = await blobTextAtCommit(dir, hash, name);
         parsedExtras.push(parseSegmentTurns(text, false, name));
       }
       const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
@@ -570,41 +527,61 @@ export async function createOptimizedContextStore(
       const filename = `${sanitizeCallId(key)}${blobExtensionFor(contentType)}`;
       pendingBlobFilepaths.add(`${TOOL_OUTPUT_DIR}/${filename}`);
     },
-    async commit(options, _signal) {
-      const toAdd: string[] = [];
-      const toRemove: string[] = [];
+    async commit(options, signal) {
+      return withResolvedDirLock(dir, async () => {
+        const toAdd: string[] = [];
+        const toRemove: string[] = [];
 
-      const rewrittenEachCycle = [RESPONSE_FILE, MANIFEST_FILE, METADATA_FILE];
-      for (const filepath of rewrittenEachCycle) {
-        if (await pathExists(path.join(dir, filepath))) toAdd.push(filepath);
-      }
+        for (const filepath of [...pendingSegmentPaths, ...pendingBlobFilepaths]) {
+          if (await pathExists(path.join(dir, filepath))) toAdd.push(filepath);
+          else toRemove.push(filepath);
+        }
 
-      for (const filepath of [...pendingSegmentPaths, ...pendingBlobFilepaths]) {
-        if (await pathExists(path.join(dir, filepath))) toAdd.push(filepath);
-        else toRemove.push(filepath);
-      }
+        // Disk is source of truth for which turn/prompt segments should remain
+        // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
+        await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
+        await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
 
-      // Disk is source of truth for which turn/prompt segments should remain
-      // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
-      await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
-      await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
+        const add = extraCommitPaths([...new Set(toAdd)]);
+        const remove = extraCommitPaths([...new Set(toRemove)]).filter((p) => !add.includes(p));
+        const extraPaths = [...new Set([...add, ...remove])];
 
-      const add = [...new Set(toAdd)];
-      const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
-
-      if (add.length > 0) await runGit(dir, ["add", "--", ...add]);
-      if (remove.length > 0) {
-        await runGit(dir, ["rm", "--cached", "--ignore-unmatch", "--", ...remove]);
-      }
-      await runGit(
-        dir,
-        ["commit", "-m", options.message, `--author=${author.name} <${author.email}>`],
-        author,
-        gitEnv,
-      );
-      pendingBlobFilepaths.clear();
-      pendingSegmentPaths.clear();
-      return describeHead(dir, options.message);
+        try {
+          for (const filepath of add) {
+            await git.add({ fs, dir, filepath });
+          }
+          for (const filepath of remove) {
+            try {
+              await git.remove({ fs, dir, filepath });
+            } catch {
+              // Already absent from the index.
+            }
+          }
+          const committed = await base.commit(options, signal);
+          pendingBlobFilepaths.clear();
+          pendingSegmentPaths.clear();
+          return committed;
+        } catch (cause) {
+          await resetIndexPaths(dir, extraPaths);
+          throw cause;
+        }
+      });
     },
+    commitAudit: (records, signal) =>
+      withResolvedDirLock(dir, () => base.commitAudit(records, signal)),
+    commitErrors: (records, signal) =>
+      withResolvedDirLock(dir, () => base.commitErrors(records, signal)),
+    loadAudit: (sessionId, signal) => base.loadAudit(sessionId, signal),
   };
+
+  return { storage: store, audit: store };
 }
+
+export async function createOptimizedContextStore(
+  dir: string,
+  opts?: { signer?: CommitSigner },
+): Promise<ContextStore> {
+  const { storage } = await createSessionStores(dir, opts);
+  return storage;
+}
+
