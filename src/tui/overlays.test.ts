@@ -321,6 +321,46 @@ describe("overlay accept callbacks", () => {
     );
   });
 
+  test("gate accept with a painted value missing from live itemIds denies instead of remapping by index", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const accepted: OverlaySelection[] = [];
+          let cancelled = 0;
+          openPermissionsOverlay(shell, {
+            items: ["Reject", "Accept once"],
+            itemIds: ["req-b:__deny__", "req-b:__once__"],
+            isGate: true,
+            echoChoice: false,
+            onAccept: (s) => accepted.push(s),
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+          moveOverlaySelection(shell, 1);
+          const list = shell.overlayList;
+          if (!list) throw new Error("expected an open overlay list");
+          list.select.options = [
+            { name: "Reject", description: "", value: "req-a:__deny__" },
+            { name: "Accept once", description: "", value: "req-a:__once__" },
+          ];
+          list.select.setSelectedIndex(1);
+          acceptOverlaySelection(shell);
+          expect(accepted).toEqual([]);
+          expect(cancelled).toBe(1);
+          expect(shell.overlayList).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("sequential operator opens paint B's labels and ids, not A's", async () => {
     await withTestRenderer(
       async (h) => {

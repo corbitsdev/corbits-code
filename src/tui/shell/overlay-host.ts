@@ -776,7 +776,15 @@ export function acceptOverlaySelection(shell: AppShell): void {
 
   const painted = shell.overlayList.select.getSelectedOption()?.value;
   const itemIds = bag?.primaryBindings.itemIds ?? [];
-  const id = typeof painted === "string" && itemIds.includes(painted) ? painted : itemIds[idx];
+  const idKeyed = typeof painted === "string" && itemIds.includes(painted);
+  // Gate accept is id-keyed. A painted Select value missing from the live
+  // itemIds is a stale or mismatched row — remapping via index would bind
+  // Enter to the new question's same-index choice. Fail closed instead.
+  if (bag?.primaryBindings.isGate === true && !idKeyed) {
+    closeInsetOverlay(shell);
+    return;
+  }
+  const id = idKeyed ? painted : itemIds[idx];
   // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
   if (id === "") return;
   const value = bag?.primaryBindings.itemValues[idx];

@@ -458,6 +458,74 @@ describe("wireGates", () => {
     });
   });
 
+  test("sequential permission.gate asks paint B's labels and id-scoped values, not A's", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      const emitter = new EventEmitter();
+      let resolvedA: unknown;
+      let resolvedB: unknown;
+      try {
+        const dispose = wireGates(emitter, shell);
+        emitter.emit("permission.gate", {
+          request: baseRequest({
+            id: "req-a",
+            subject: "git status",
+            scopes: [{ id: "scope-a", label: "Allow git A", pattern: "git A*" }],
+          }),
+          resolve: (outcome: unknown) => {
+            resolvedA = outcome;
+          },
+        });
+        expect(shell.overlayKind).toBe("permissions");
+        expect(shell.overlayList?.select.options.map((option) => option.name)).toEqual([
+          "Reject",
+          "Accept once",
+          "Allow git A",
+        ]);
+
+        closeInsetOverlay(shell);
+        expect(resolvedA).toEqual({ allow: false });
+        expect(shell.overlayList).toBeNull();
+
+        emitter.emit("permission.gate", {
+          request: baseRequest({
+            id: "req-b",
+            subject: "git push",
+            scopes: [{ id: "scope-b", label: "Allow git B", pattern: "git B*" }],
+          }),
+          resolve: (outcome: unknown) => {
+            resolvedB = outcome;
+          },
+        });
+        expect(shell.overlayKind).toBe("permissions");
+        const painted = shell.overlayList?.select.options ?? [];
+        expect(painted.map((option) => option.name)).toEqual([
+          "Reject",
+          "Accept once",
+          "Allow git B",
+        ]);
+        expect(painted.map((option) => option.value)).toEqual([
+          `req-b:${PERMISSION_DENY_ID}`,
+          `req-b:${PERMISSION_ONCE_ID}`,
+          "req-b:scope-b",
+        ]);
+        expect(painted.map((option) => option.value)).not.toContain(`req-a:${PERMISSION_DENY_ID}`);
+        expect(painted.map((option) => option.value)).not.toContain(`req-a:${PERMISSION_ONCE_ID}`);
+        expect(painted.map((option) => option.value)).not.toContain("req-a:scope-a");
+
+        acceptOverlaySelection(shell);
+        expect(resolvedB).toEqual({ allow: false });
+
+        dispose();
+      } finally {
+        shell.dispose();
+      }
+    });
+  });
+
   test("operator.gate without id cancels without opening", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
