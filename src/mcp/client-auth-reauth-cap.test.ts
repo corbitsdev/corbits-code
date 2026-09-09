@@ -8,9 +8,13 @@ let connectFailuresLeft = 0;
 let listFailuresLeft = 0;
 let callFailuresLeft = 0;
 let callToolCalls = 0;
+let callRedirectsLeft = Number.POSITIVE_INFINITY;
 let redirectsPerFailure = 1;
 let redirectOnListFailure = false;
 let redirectConcurrently = false;
+let saveThenRedirectPair = false;
+let overlappingSDKSaves = false;
+let redirectVerifier: string | undefined;
 let providerCreates = 0;
 let refreshCalls = 0;
 let refreshSucceeds = false;
@@ -18,11 +22,22 @@ let authEvents: string[] = [];
 let authURLCount = 0;
 let authorizedCount = 0;
 let waitForCodeCalls = 0;
+let storedCodeVerifier: string | undefined;
+let exchangedCodeVerifier: string | undefined;
+let emittedAuthURL: string | undefined;
+let saveStarted = 0;
 let refreshGate: Promise<void> | undefined;
 let releaseRefresh: (() => void) | undefined;
 let callbackGate: Promise<void> | undefined;
 let releaseCallback: (() => void) | undefined;
-let liveProvider: { redirectToAuthorization?: (url: URL) => void | Promise<void> } | undefined;
+let saveGate: Promise<void> | undefined;
+let releaseSave: (() => void) | undefined;
+interface MockAuthProvider {
+  redirectToAuthorization?: (url: URL) => void | Promise<void>;
+  saveCodeVerifier?: (codeVerifier: string) => void | Promise<void>;
+  codeVerifier?: () => string | undefined;
+}
+let liveProvider: MockAuthProvider | undefined;
 
 const fakeProvider = {
   resetAuthorization: async () => undefined,
@@ -34,11 +49,46 @@ const fakeProvider = {
     if (!refreshSucceeds) throw new UnauthorizedError("refresh rejected");
     return { access_token: "fresh", refresh_token: "refresh-me" };
   },
+  saveCodeVerifier: async (codeVerifier: string) => {
+    storedCodeVerifier = codeVerifier;
+    saveStarted += 1;
+    await saveGate;
+  },
+  codeVerifier: () => storedCodeVerifier,
 };
 
-async function emitRedirects(
-  provider: { redirectToAuthorization?: (url: URL) => void | Promise<void> } | undefined,
+async function saveThenRedirect(
+  provider: MockAuthProvider | undefined,
+  verifier: string,
 ): Promise<void> {
+  await provider?.saveCodeVerifier?.(verifier);
+  await provider?.redirectToAuthorization?.(
+    new URL(`https://auth.test/authorize?v=${encodeURIComponent(verifier)}`),
+  );
+}
+
+async function emitRedirects(provider: MockAuthProvider | undefined): Promise<void> {
+  if (overlappingSDKSaves) {
+    const first = saveThenRedirect(provider, "v1");
+    while (saveStarted === 0) await Promise.resolve();
+    const second = saveThenRedirect(provider, "v2");
+    await Promise.resolve();
+    releaseSave?.();
+    await Promise.all([first, second]);
+    return;
+  }
+  if (saveThenRedirectPair) {
+    const first = saveThenRedirect(provider, "v1");
+    await Promise.resolve();
+    await Promise.all([first, saveThenRedirect(provider, "v2")]);
+    return;
+  }
+  if (redirectVerifier !== undefined) {
+    const verifier = redirectVerifier;
+    redirectVerifier = undefined;
+    await saveThenRedirect(provider, verifier);
+    return;
+  }
   const redirect = () =>
     provider?.redirectToAuthorization?.(new URL("https://auth.test/authorize"));
   if (redirectConcurrently) {
@@ -69,11 +119,7 @@ await withMockedModule(
   (real: typeof import("@modelcontextprotocol/sdk/client/index.js")) => ({
     ...real,
     Client: class {
-      async connect(transport?: {
-        provider?: {
-          redirectToAuthorization?: (url: URL) => void | Promise<void>;
-        };
-      }): Promise<void> {
+      async connect(transport?: { provider?: MockAuthProvider }): Promise<void> {
         liveProvider = transport?.provider;
         if (connectFailuresLeft > 0) {
           connectFailuresLeft -= 1;
@@ -95,7 +141,10 @@ await withMockedModule(
         callToolCalls += 1;
         if (callFailuresLeft > 0) {
           callFailuresLeft -= 1;
-          await emitRedirects(liveProvider);
+          if (callRedirectsLeft > 0) {
+            callRedirectsLeft -= 1;
+            await emitRedirects(liveProvider);
+          }
           throw new UnauthorizedError("authorization required");
         }
         return { content: [] };
@@ -110,21 +159,13 @@ await withMockedModule(
   (real: typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js")) => ({
     ...real,
     StreamableHTTPClientTransport: class {
-      provider?: {
-        redirectToAuthorization?: (url: URL) => void | Promise<void>;
-      };
-      constructor(
-        _url: URL,
-        options?: {
-          authProvider?: {
-            redirectToAuthorization?: (url: URL) => void | Promise<void>;
-          };
-        },
-      ) {
+      provider?: MockAuthProvider;
+      constructor(_url: URL, options?: { authProvider?: MockAuthProvider }) {
         if (options?.authProvider !== undefined) this.provider = options.authProvider;
       }
       async finishAuth(): Promise<void> {
         finishAuthCalls += 1;
+        exchangedCodeVerifier = this.provider?.codeVerifier?.();
         if (finishAuthError !== undefined) throw finishAuthError;
       }
       get sessionId(): string | undefined {
@@ -195,9 +236,13 @@ describe("HTTP MCP re-auth loop prevention", () => {
     listFailuresLeft = 0;
     callFailuresLeft = 0;
     callToolCalls = 0;
+    callRedirectsLeft = Number.POSITIVE_INFINITY;
     redirectsPerFailure = 1;
     redirectOnListFailure = false;
     redirectConcurrently = false;
+    saveThenRedirectPair = false;
+    overlappingSDKSaves = false;
+    redirectVerifier = undefined;
     finishAuthCalls = 0;
     finishAuthError = new Error("finishAuth exploded");
     providerCreates = 0;
@@ -208,15 +253,22 @@ describe("HTTP MCP re-auth loop prevention", () => {
     authURLCount = 0;
     authorizedCount = 0;
     waitForCodeCalls = 0;
+    storedCodeVerifier = undefined;
+    exchangedCodeVerifier = undefined;
+    emittedAuthURL = undefined;
+    saveStarted = 0;
     refreshGate = undefined;
     releaseRefresh = undefined;
     callbackGate = undefined;
     releaseCallback = undefined;
+    saveGate = undefined;
+    releaseSave = undefined;
     resetBrowserAuthState();
     setSystemTime();
   });
 
   afterEach(() => {
+    resetBrowserAuthState();
     setSystemTime();
   });
 
@@ -501,5 +553,181 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(result.error).toContain("finishAuth exploded");
     expect(finishAuthCalls).toBe(promptsBefore + 1);
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS + 1);
+  });
+
+  test("first in-episode saveCodeVerifier wins until the episode ends", async () => {
+    finishAuthError = undefined;
+    saveThenRedirectPair = true;
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        authURLCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 1;
+
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+
+    expect(authURLCount).toBe(1);
+    expect(waitForCodeCalls).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+    expect(exchangedCodeVerifier).toBe("v1");
+    expect(storedCodeVerifier).toBe("v1");
+  });
+
+  test("overlapping SDK-order saves emit the first verifier's authorize URL", async () => {
+    finishAuthError = undefined;
+    overlappingSDKSaves = true;
+    saveGate = new Promise((resolve) => {
+      releaseSave = resolve;
+    });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: (_name, url) => {
+        authURLCount += 1;
+        emittedAuthURL = url;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 1;
+
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+
+    expect(authURLCount).toBe(1);
+    expect(waitForCodeCalls).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+    expect(exchangedCodeVerifier).toBe("v1");
+    expect(storedCodeVerifier).toBe("v1");
+    expect(emittedAuthURL).toBe("https://auth.test/authorize?v=v1");
+  });
+
+  test("refresh-skip unfreezes so a later browser episode can save a new verifier", async () => {
+    refreshSucceeds = true;
+    finishAuthError = undefined;
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        authURLCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+
+    refreshGate = new Promise((resolve) => {
+      releaseRefresh = resolve;
+    });
+    redirectsPerFailure = 0;
+    callFailuresLeft = 1;
+    const first = connected.client.call("first", {}, new AbortController().signal);
+    while (refreshCalls === 0) await Promise.resolve();
+
+    const skipped = saveThenRedirect(liveProvider, "v-refresh");
+    await Promise.resolve();
+    expect(authURLCount).toBe(0);
+
+    releaseRefresh?.();
+    await skipped;
+    await expect(first).resolves.toBe("");
+    expect(authURLCount).toBe(0);
+    expect(waitForCodeCalls).toBe(0);
+    expect(storedCodeVerifier).toBe("v-refresh");
+
+    refreshSucceeds = false;
+    redirectVerifier = "v-later";
+    redirectsPerFailure = 1;
+    callFailuresLeft = 1;
+    await expect(connected.client.call("second", {}, new AbortController().signal)).resolves.toBe(
+      "",
+    );
+
+    expect(authURLCount).toBe(1);
+    expect(waitForCodeCalls).toBe(1);
+    expect(exchangedCodeVerifier).toBe("v-later");
+    expect(storedCodeVerifier).toBe("v-later");
+  });
+
+  test("does not clear the cap or fire onAuthorized until a retried tool call succeeds", async () => {
+    finishAuthError = undefined;
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        authURLCount += 1;
+      },
+      onAuthorized: () => {
+        authorizedCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+
+    callFailuresLeft = 2;
+    callRedirectsLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "authorization required",
+    );
+    expect(authorizedCount).toBe(0);
+    expect(authURLCount).toBe(1);
+    expect(waitForCodeCalls).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+
+    finishAuthError = new Error("finishAuth exploded");
+    callRedirectsLeft = Number.POSITIVE_INFINITY;
+    for (let episode = 0; episode < 2; episode += 1) {
+      callFailuresLeft = 1;
+      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+        "finishAuth exploded",
+      );
+    }
+    expect(authURLCount).toBe(3);
+    expect(authorizedCount).toBe(0);
+
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "retrying paused",
+    );
+    expect(authURLCount).toBe(3);
+    expect(authorizedCount).toBe(0);
+  });
+
+  test("clears the cap and fires onAuthorized after a retried tool call succeeds", async () => {
+    finishAuthError = undefined;
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        authURLCount += 1;
+      },
+      onAuthorized: () => {
+        authorizedCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+
+    callFailuresLeft = 2;
+    callRedirectsLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "authorization required",
+    );
+    expect(authorizedCount).toBe(0);
+
+    callRedirectsLeft = Number.POSITIVE_INFINITY;
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+    expect(authorizedCount).toBe(1);
+    expect(authURLCount).toBe(2);
+
+    finishAuthError = new Error("finishAuth exploded");
+    for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
+      callFailuresLeft = 1;
+      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+        "finishAuth exploded",
+      );
+    }
+    expect(authURLCount).toBe(2 + MAX_BROWSER_AUTH_ATTEMPTS);
+
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "retrying paused",
+    );
+    expect(authURLCount).toBe(2 + MAX_BROWSER_AUTH_ATTEMPTS);
+    expect(authorizedCount).toBe(1);
   });
 });

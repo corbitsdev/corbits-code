@@ -79,6 +79,10 @@ interface HTTPAuthCoordinator {
   inFlight?: Promise<void>;
   refreshInFlight?: Promise<boolean>;
   browserFlow?: BrowserAuthFlow;
+  pkceFrozen?: boolean;
+  pkceSavePromise?: Promise<void>;
+  pendingAttempt?: { clear(): void };
+  notified?: boolean;
   probe(): Promise<void>;
 }
 
@@ -157,22 +161,45 @@ function getOrStartRefresh(context: HTTPAuthContext): Promise<boolean> {
 
 function gateRedirectToAuthorization(context: HTTPAuthContext): void {
   const inner = context.authProvider.redirectToAuthorization.bind(context.authProvider);
+  const innerSave = context.authProvider.saveCodeVerifier?.bind(context.authProvider);
+  if (innerSave !== undefined) {
+    context.authProvider.saveCodeVerifier = (codeVerifier: string) => {
+      const coordinator = context.coordinator;
+      if (coordinator.pkceFrozen) return coordinator.pkceSavePromise ?? Promise.resolve();
+      coordinator.pkceFrozen = true;
+      coordinator.pkceSavePromise = Promise.resolve(innerSave(codeVerifier));
+      return coordinator.pkceSavePromise;
+    };
+  }
   context.authProvider.redirectToAuthorization = async (authorizationUrl: URL) => {
     const coordinator = context.coordinator;
     if (coordinator.browserFlow !== undefined) return coordinator.browserFlow.promptEmitted;
     const refresh = coordinator.refreshInFlight;
-    if (refresh !== undefined && (await refresh)) return;
+    if (refresh !== undefined && (await refresh)) {
+      coordinator.pkceFrozen = false;
+      delete coordinator.pkceSavePromise;
+      return;
+    }
     const concurrentBrowserFlow = coordinator.browserFlow as BrowserAuthFlow | undefined;
     if (concurrentBrowserFlow !== undefined) return concurrentBrowserFlow.promptEmitted;
-    if (!context.interactive)
+    if (!context.interactive) {
+      coordinator.pkceFrozen = false;
+      delete coordinator.pkceSavePromise;
       throw new Error("Authorization required but no interactive handler is available.");
+    }
 
-    const attempt = beginBrowserAuth(context);
-    const startPrompt = Promise.withResolvers<void>();
-    const promptEmitted = startPrompt.promise.then(() => inner(authorizationUrl));
-    coordinator.browserFlow = { attempt, promptEmitted };
-    startPrompt.resolve();
-    return promptEmitted;
+    try {
+      const attempt = beginBrowserAuth(context);
+      const startPrompt = Promise.withResolvers<undefined>();
+      const promptEmitted = startPrompt.promise.then(() => inner(authorizationUrl));
+      coordinator.browserFlow = { attempt, promptEmitted };
+      startPrompt.resolve(undefined);
+      return promptEmitted;
+    } catch (err) {
+      coordinator.pkceFrozen = false;
+      delete coordinator.pkceSavePromise;
+      throw err;
+    }
   };
 }
 
@@ -236,7 +263,6 @@ async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPA
   if (coordinator.browserFlow === undefined) {
     try {
       await coordinator.probe();
-      resetAfterVerifiedRecovery(context);
       return;
     } catch (probeErr) {
       if (!isRecoverableAuthError(probeErr)) throw probeErr;
@@ -252,11 +278,14 @@ async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPA
     streamableHTTPTransportOptions(context.authProvider, coordinator.requestSignal),
   ).finishAuth(code);
   await coordinator.probe();
-  resetAfterVerifiedRecovery(context);
 }
 
-function resetAfterVerifiedRecovery(context: HTTPAuthContext): void {
-  context.coordinator.browserFlow?.attempt.clear();
+function completeVerifiedRecovery(context: HTTPAuthContext): void {
+  const coordinator = context.coordinator;
+  if (coordinator.notified) return;
+  coordinator.notified = true;
+  coordinator.pendingAttempt?.clear();
+  delete coordinator.pendingAttempt;
   context.onAuthorized?.(context.serverName);
 }
 
@@ -266,10 +295,16 @@ function getOrStartRecovery(
 ): Promise<void> {
   const coordinator = context.coordinator;
   if (coordinator.inFlight !== undefined) return coordinator.inFlight;
+  coordinator.notified = false;
+  delete coordinator.pendingAttempt;
   const shared = Promise.resolve().then(() => driveRecovery(err, context));
   coordinator.inFlight = shared;
   const clear = () => {
     if (coordinator.inFlight !== shared) return;
+    if (coordinator.browserFlow?.attempt !== undefined)
+      coordinator.pendingAttempt = coordinator.browserFlow.attempt;
+    coordinator.pkceFrozen = false;
+    delete coordinator.pkceSavePromise;
     delete coordinator.inFlight;
     delete coordinator.refreshInFlight;
     delete coordinator.browserFlow;
@@ -313,8 +348,11 @@ async function withHTTPAuthorizationRecovery<T>(
     return await operation();
   } catch (err) {
     if (context === undefined || !isRecoverableAuthError(err)) throw err;
-    await awaitRecovery(getOrStartRecovery(err, context), signal);
-    return operation();
+    return retryAfterInteractiveAuth(
+      () => awaitRecovery(getOrStartRecovery(err, context), signal),
+      operation,
+      () => completeVerifiedRecovery(context),
+    );
   }
 }
 
@@ -423,18 +461,16 @@ async function connectHttp(
         redirectUrl: callback.redirectUrl,
         onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
         onAuthorizationState: callback.expectState,
-        ...(options.signal === undefined
-          ? { fetchFn: fetchWithConnectAbort(lifecycle.signal) }
-          : { fetchFn: fetchWithConnectAbort(options.signal) }),
+        fetchFn: fetchWithConnectAbort(lifecycle.signal),
       });
       makeTransport = () =>
         new StreamableHTTPClientTransport(
           url,
-          streamableHTTPTransportOptions(authProvider, options.signal),
+          streamableHTTPTransportOptions(authProvider, lifecycle.signal),
         ) as unknown as Transport;
       const coordinator: HTTPAuthCoordinator = {
         lifecycle,
-        requestSignal: options.signal ?? lifecycle.signal,
+        requestSignal: lifecycle.signal,
         probe: async () => {
           const probeClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
           try {

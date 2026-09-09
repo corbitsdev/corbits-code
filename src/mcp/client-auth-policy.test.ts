@@ -259,7 +259,8 @@ describe("HTTP MCP auth policy", () => {
     );
     while (tokenExchangeSignals.length === 0) await Promise.resolve();
 
-    expect(tokenExchangeSignals[0]).toBe(abort.signal);
+    expect(tokenExchangeSignals[0]).toBeDefined();
+    expect(tokenExchangeSignals[0]?.aborted).toBe(false);
     abort.abort(new Error("toolset disposed"));
     const result = await connection;
 
@@ -280,12 +281,17 @@ describe("HTTP MCP auth policy", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(transportOptions).toEqual([
-      { authProvider, requestInit: { signal: abort.signal }, fetch: expect.any(Function) },
+      {
+        authProvider,
+        requestInit: { signal: expect.any(AbortSignal) },
+        fetch: expect.any(Function),
+      },
     ]);
 
     const call = result.client.call("ping", {}, abort.signal);
     while (tokenRefreshSignals.length === 0) await Promise.resolve();
-    expect(tokenRefreshSignals[0]).toBe(abort.signal);
+    expect(tokenRefreshSignals[0]).toBeDefined();
+    expect(tokenRefreshSignals[0]?.aborted).toBe(false);
     abort.abort(new Error("toolset disposed"));
     await expect(call).rejects.toThrow("toolset disposed");
     expect(tokenRefreshAborts).toBe(1);
@@ -310,7 +316,49 @@ describe("HTTP MCP auth policy", () => {
     expect(callbackStarts).toBe(1);
     expect(providerCreates).toBe(1);
     expect(providerServerURL).toBe("https://custom.example/mcp?mode=full");
-    expect(transportOptions).toEqual([{ authProvider }]);
+    expect(transportOptions).toEqual([
+      {
+        authProvider,
+        requestInit: { signal: expect.any(AbortSignal) },
+        fetch: expect.any(Function),
+      },
+    ]);
+  });
+
+  test("client close aborts in-flight OAuth without aborting the connect signal", async () => {
+    const connectAbort = new AbortController();
+    const result = await connectMCPServer(
+      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      { signal: connectAbort.signal },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const transport = transportOptions[0] as {
+      requestInit?: { signal?: AbortSignal };
+      fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>;
+    };
+    expect(transport.requestInit?.signal).toBeDefined();
+    expect(transport.requestInit?.signal).not.toBe(connectAbort.signal);
+    expect(transport.fetch).toBeTypeOf("function");
+
+    const call = result.client.call("ping", {}, new AbortController().signal);
+    while (tokenRefreshSignals.length === 0) await Promise.resolve();
+    expect(tokenRefreshSignals[0]).not.toBe(connectAbort.signal);
+    expect(tokenRefreshSignals[0]?.aborted).toBe(false);
+    expect(connectAbort.signal.aborted).toBe(false);
+
+    await result.client.close();
+
+    await expect(call).rejects.toThrow();
+    expect(tokenRefreshAborts).toBe(1);
+    expect(connectAbort.signal.aborted).toBe(false);
+    expect(transport.requestInit?.signal?.aborted).toBe(true);
+    const fetchFn = transport.fetch;
+    expect(fetchFn).toBeTypeOf("function");
+    if (fetchFn === undefined) return;
+    await expect(fetchFn("https://auth.test/token")).rejects.toThrow();
+    expect(connectAbort.signal.aborted).toBe(false);
   });
 });
 
