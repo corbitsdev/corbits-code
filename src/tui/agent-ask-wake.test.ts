@@ -5,7 +5,13 @@ import { createAppShell } from "./shell/index";
 import { withTestRenderer } from "./harness";
 import type { PendingAskWake } from "../subagent/fleet-report.js";
 import { classifySubmission, createSubmitHandler } from "./runner/submit.js";
-import { routeQueuedDelivery } from "./queued-delivery.js";
+import {
+  createDeliveryGeneration,
+  createLeftoverSend,
+  routeQueuedDelivery,
+} from "./queued-delivery.js";
+import { createSessionOperationQueue } from "./session-operation-queue.js";
+import { ingestOperatorPrompt } from "./prompt-attachments.js";
 import {
   armFeedbackCapture,
   cancelFeedbackCapture,
@@ -474,6 +480,86 @@ describe("agent ask wake delivery", () => {
           expect(
             shell.streamLog.filter((row) => row.role === "user").map((row) => row.text),
           ).toEqual([wakeText, "hello"]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("idle leftover wake keeps an @path in the question raw and consumes the echo", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const sent: string[] = [];
+        const attachments: number[] = [];
+        const ingested: string[] = [];
+        const queue = createSessionOperationQueue();
+        const leftoverSend = createLeftoverSend({
+          enqueue: queue.enqueue,
+          ingest: async (text, pending) => {
+            ingested.push(text);
+            return ingestOperatorPrompt(
+              text,
+              "/repo",
+              async () => {
+                throw new Error("wake leftover must not load image paths");
+              },
+              pending,
+            );
+          },
+          send: (text, pending) => {
+            sent.push(text);
+            attachments.push(pending.length);
+          },
+          captureGeneration: createDeliveryGeneration().capture,
+          onFailure: (error) => {
+            throw error;
+          },
+        });
+        const send = (text: string) => {
+          leftoverSend(text);
+        };
+        const bridge = attachSessionBridge(
+          shell,
+          createLiveSessionPort({
+            send,
+            deliver: routeQueuedDelivery({
+              send,
+              deliverSteer: () => {
+                throw new Error("wake must not live-inject");
+              },
+              parentCycleLive: () => bridge.parentCycleLive,
+            }),
+            interrupt: () => {},
+          }),
+        );
+        try {
+          const ask = {
+            ...wake("a1", "q1"),
+            question: "Should I edit @src/foo.ts?",
+          };
+          bridge.handle({ type: "agent-ask", asks: [ask] });
+          await queue.awaitTail();
+          expect(sent).toHaveLength(1);
+          const wakeText = sent[0];
+          if (wakeText === undefined) throw new Error("expected wake text");
+          expect(wakeText).toContain("@src/foo.ts");
+          expect(wakeText).not.toContain("(not found)");
+          expect(attachments).toEqual([0]);
+          expect(ingested).toEqual([]);
+          expect(shell.streamLog.filter((row) => row.role === "user")).toHaveLength(1);
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: wakeText } },
+          });
+          expect(shell.streamLog.filter((row) => row.role === "user")).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();
