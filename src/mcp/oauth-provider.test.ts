@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAuthState, saveAuthState } from "./auth-store.js";
+import { loadAuthState, saveAuthState, deleteAuthState } from "./auth-store.js";
 import { createOAuthProvider } from "./oauth-provider.js";
 
 async function tempHome(): Promise<string> {
@@ -206,6 +206,52 @@ describe("createOAuthProvider", () => {
     expect(await syncValue(emptyName.tokens())).toBeUndefined();
     expect(await readFile(join(dir, "exa.json"), "utf8")).toBe(legacy);
     expect(await readFile(join(dir, ".json"), "utf8")).toBe(legacy);
+  });
+
+  test("propagates tokens saved by one provider to an existing sibling provider", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect(await syncValue(b.tokens())).toBeUndefined();
+
+    await a.saveTokens({
+      access_token: "fresh",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "fresh-refresh",
+    });
+
+    expect((await syncValue(b.tokens()))?.access_token).toBe("fresh");
+  });
+
+  test("sync getters fall back to the in-memory mirror when the auth file disappears", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+
+    await deleteAuthState(linear, home);
+
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    expect(await syncValue(provider.clientInformation())).toBeUndefined();
   });
 
   test("does not delete scoped state whose filename stem is another provider name", async () => {

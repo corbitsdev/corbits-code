@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
@@ -41,12 +42,35 @@ export function normalizeMCPServerURL(serverURL: string): string {
   return url.toString();
 }
 
-function authFilePath(identity: MCPAuthIdentity, home: string): string {
+export function authFilePath(identity: MCPAuthIdentity, home: string = homedir()): string {
   const normalizedURL = normalizeMCPServerURL(identity.serverURL);
   const digest = createHash("sha256")
     .update(JSON.stringify([identity.serverName, normalizedURL]))
     .digest("hex");
   return join(mcpAuthDir(home), `${serverDisplaySlug(identity.serverName)}-${digest}.json`);
+}
+
+// Synchronous mirror of loadAuthState for the SDK's sync getters (tokens(),
+// clientInformation(), codeVerifier()), which cannot await disk I/O. A missing or
+// corrupt file yields empty state, matching loadAuthState's tolerance.
+export function loadAuthStateSync(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): MCPAuthState {
+  let raw: string;
+  try {
+    raw = readFileSync(authFilePath(identity, home), "utf8");
+  } catch {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null) return parsed as MCPAuthState;
+  } catch {
+    // A corrupt auth file should not wedge the session; treat it as no state and
+    // let a fresh authorization overwrite it.
+  }
+  return {};
 }
 
 export async function loadAuthState(

@@ -5,7 +5,15 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { updateAuthState, type MCPAuthIdentity, type MCPAuthState } from "./auth-store.js";
+import {
+  authFilePath,
+  loadAuthStateSync,
+  updateAuthState,
+  type MCPAuthIdentity,
+  type MCPAuthState,
+} from "./auth-store.js";
+import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
 export interface OAuthProviderOptions {
@@ -54,20 +62,43 @@ export async function createOAuthProvider(
     serverName: opts.serverName,
     serverURL: opts.serverURL,
   };
+  const home = opts.home ?? homedir();
   // Load + scrub stale DCR under the per-file chain so concurrent providers see
-  // the same cleaned state. Mutations always re-read disk; this in-memory mirror
-  // only serves the SDK's sync getters (tokens / clientInformation / codeVerifier).
+  // the same cleaned state. Mutations always re-read disk; the in-memory mirror
+  // serves the SDK's sync getters, refreshed from disk when the auth file
+  // changes so tokens saved by another session are picked up immediately.
   const stored: MCPAuthState = await updateAuthState(
     identity,
     (state) => {
       dropStaleClientRegistration(state, opts.redirectUrl);
     },
-    opts.home,
+    home,
   );
 
   const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
-    const next = await updateAuthState(identity, mutator, opts.home);
+    const next = await updateAuthState(identity, mutator, home);
     replaceStored(stored, next);
+  };
+
+  // Cheap staleness guard: statSync per getter, sync read only when the file's
+  // mtime or size changed. A vanished file keeps the mirror rather than throwing.
+  const authPath = authFilePath(identity, home);
+  let seenStamp: string | undefined;
+  const refreshFromDisk = (): void => {
+    let stamp: string | undefined;
+    try {
+      const stat = statSync(authPath);
+      stamp = `${String(stat.mtimeMs)}:${String(stat.size)}`;
+    } catch {
+      // File gone (or unreadable): keep serving the in-memory mirror rather
+      // than throwing from a sync getter.
+      if (seenStamp === undefined) return;
+      seenStamp = undefined;
+      return;
+    }
+    if (stamp === seenStamp) return;
+    seenStamp = stamp;
+    replaceStored(stored, loadAuthStateSync(identity, home));
   };
 
   let oauthState: string | undefined;
@@ -89,6 +120,7 @@ export async function createOAuthProvider(
       };
     },
     clientInformation(): OAuthClientInformationMixed | undefined {
+      refreshFromDisk();
       return stored.clientInformation;
     },
     saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
@@ -97,6 +129,7 @@ export async function createOAuthProvider(
       });
     },
     tokens(): OAuthTokens | undefined {
+      refreshFromDisk();
       return stored.tokens;
     },
     saveTokens(tokens: OAuthTokens): Promise<void> {
@@ -115,6 +148,7 @@ export async function createOAuthProvider(
       });
     },
     codeVerifier(): string {
+      refreshFromDisk();
       if (stored.codeVerifier === undefined)
         throw new Error("No PKCE code verifier saved for this authorization.");
       return stored.codeVerifier;
