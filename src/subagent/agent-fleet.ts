@@ -337,6 +337,10 @@ class FleetMailbox {
       overlay.tombstoned !== true && session !== undefined && sessionWait === status
         ? session
         : undefined;
+    const stopReason =
+      overlay.tombstoned !== true && !isLiveWaitStatus(status)
+        ? (payload?.stopReason ?? session?.stopReason)
+        : payload?.stopReason;
     const ask = status === "awaiting_director" ? this.sessions.peekAsk(id) : undefined;
     return {
       status,
@@ -345,7 +349,7 @@ class FleetMailbox {
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
       ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
-      ...(payload?.stopReason !== undefined ? { stopReason: payload.stopReason } : {}),
+      ...(stopReason !== undefined ? { stopReason } : {}),
       ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
       ...(ask !== undefined ? { question: ask.question, questionId: ask.questionId } : {}),
       ...(status === "awaiting_director" && session !== undefined
@@ -466,7 +470,8 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
     `the workers — they keep running and remain waitable. Live wait status includes "queued" (waiting for a burst ` +
     `slot), "running", and "awaiting_director". interrupt_agent and close_agent unblock this wait immediately with ` +
-    `status "interrupted". awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
+    `status "interrupted". Terminal JSON includes stop_reason when the session recorded one ` +
+    `(interrupted, cancelled, incomplete-report, and similar). awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
     `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
     `queued, running, or awaiting a director answer, not "try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
     `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,

@@ -999,10 +999,15 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     const waited = await waiting;
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { agent_id: string; status: string }[];
-    expect(results).toEqual([{ agent_id: id, status: "interrupted" }]);
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      stop_reason?: string;
+    }[];
+    expect(results).toEqual([{ agent_id: id, status: "interrupted", stop_reason: "interrupted" }]);
     expect(deps.sessions.get(id)?.lifecycleStatus).toBe("interrupted");
     expect(deps.sessions.get(id)?.status).toBe("running");
+    expect(deps.sessions.get(id)?.stopReason).toBe("interrupted");
   });
 
   test("an interrupted run result terminalizes a still-running fleet record", async () => {
@@ -1135,8 +1140,12 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { agent_id: string; status: string }[];
-    expect(results).toEqual([{ agent_id: id, status: "interrupted" }]);
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      stop_reason?: string;
+    }[];
+    expect(results).toEqual([{ agent_id: id, status: "interrupted", stop_reason: "interrupted" }]);
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
     expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
 

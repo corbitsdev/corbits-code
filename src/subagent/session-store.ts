@@ -1382,6 +1382,7 @@ export function createSubAgentSessionStore(
               ...(s.report !== undefined ? { report: s.report } : {}),
             };
             s.finishedAt = s.finishedAt ?? now();
+            s.stopReason = "interrupted";
           });
           pruneRetained();
           return { ok: true };
@@ -1396,6 +1397,7 @@ export function createSubAgentSessionStore(
           ...(s.report !== undefined ? { report: s.report } : {}),
         };
         s.finishedAt = s.finishedAt ?? now();
+        s.stopReason = "interrupted";
       });
       pruneRetained();
       return { ok: true };

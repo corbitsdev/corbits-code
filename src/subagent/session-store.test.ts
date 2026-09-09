@@ -299,6 +299,15 @@ describe("terminal stop reasons", () => {
     store.cancel(bare.id);
     expect(store.get(bare.id)?.stopReason).toBe("cancelled");
   });
+
+  test("interruptOne records stopReason interrupted", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.stopReason).toBe("interrupted");
+  });
 });
 
 describe("CL-6943 reusable worker sessions", () => {
