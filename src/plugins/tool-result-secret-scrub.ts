@@ -70,3 +70,21 @@ export function scrubSecretShapedContent(text: string): string {
 
   return result;
 }
+
+/**
+ * Structure-preserving scrub for validated JSON-shaped tool results. String
+ * leaves are scrubbed in place; objects/arrays keep their shape. Never
+ * stringifies a Record into the result content.
+ */
+export function scrubSecretShapedValue(value: unknown): unknown {
+  if (typeof value === "string") return scrubSecretShapedContent(value);
+  if (Array.isArray(value)) return value.map((item) => scrubSecretShapedValue(item));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      out[key] = scrubSecretShapedValue(child);
+    }
+    return out;
+  }
+  return value;
+}

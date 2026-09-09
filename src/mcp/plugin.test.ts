@@ -21,6 +21,7 @@ function fakeClient(reply: string): MCPClient {
       },
     ],
     call: async () => reply,
+    callBlocks: async () => [{ type: "text", text: reply }],
     close: async () => undefined,
   };
 }

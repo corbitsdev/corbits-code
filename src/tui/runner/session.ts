@@ -59,6 +59,7 @@ import {
   resolveLiveSessionSources,
   type LiveSessionSources,
 } from "../../session/assemble-runtime.js";
+import type { CompactionArchive } from "../../session/compaction-archive.js";
 import { createApprovalResume } from "../../session/approval-resume.js";
 import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
@@ -302,6 +303,7 @@ export async function assembleTUISession(
   // submit_output's handler complete the live workflow without a
   // construction-order cycle.
   const workflowHostHolder: { instance?: WorkflowHost } = {};
+  const evidenceArchiveHolder: { current?: CompactionArchive } = {};
 
   const toolsetHolder: {
     current?: Awaited<ReturnType<typeof createAgentToolset>>;
@@ -331,6 +333,7 @@ export async function assembleTUISession(
         liveAgent(state).deliver(buildShellBackgroundMessage(exit)),
       );
     },
+    getEvidenceArchive: () => evidenceArchiveHolder.current,
     isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
     completeWorkflowStep: (stepId) =>
       workflowHostHolder.instance?.complete(stepId) ?? "not-current",
@@ -568,6 +571,7 @@ export async function assembleTUISession(
       state.currentAgent = agent;
       state.currentStorage = storage;
     },
+    evidenceArchiveHolder,
   });
 
   const sessionCost = createSessionCostAccumulator({

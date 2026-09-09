@@ -8,6 +8,7 @@ import {
   type MaterializedToolResult,
 } from "./tool-result-materialize.js";
 import { scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
+import { hashAuthorizedBytes, type CompactionArchive } from "../session/compaction-archive.js";
 
 // Characters, not tokens — conversion ratio is roughly 4 chars/token.
 // Match the reactor's default size-cap (vendor/intx-inference assembly.ts) so
@@ -216,6 +217,23 @@ export interface ResultTruncationPluginOptions {
   // Live getter for the absolute session context dir, re-read like
   // getBlobWriter so rotation picks up the new path for the notice.
   getContextDir?: () => string | undefined;
+  /** Primary-only evidence archive; workers omit this getter. */
+  getEvidenceArchive?: () => CompactionArchive | undefined;
+}
+
+async function archiveAuthorizedResult(
+  archive: CompactionArchive | undefined,
+  callId: string,
+  content: string | Record<string, unknown>,
+  isError: boolean | undefined,
+): Promise<void> {
+  if (archive === undefined) return;
+  await archive.recordAuthorizedPayload({
+    kind: "tool_result",
+    payload: content,
+    callId,
+    provenance: isError === true ? "posix:error" : "posix:post-policy-pre-truncation",
+  });
 }
 
 function spillOptionsForCall(
@@ -271,6 +289,59 @@ export async function applyToolResultTruncation(
   return result;
 }
 
+async function archiveThenTruncate(
+  result: ToolResult,
+  callId: string,
+  options: ResultTruncationPluginOptions,
+): Promise<ToolResult> {
+  const archive = options.getEvidenceArchive?.();
+  try {
+    if (typeof result.content === "string") {
+      await archiveAuthorizedResult(
+        archive,
+        callId,
+        result.content,
+        result.isError,
+      );
+    } else if (result.content !== null && typeof result.content === "object") {
+      await archiveAuthorizedResult(
+        archive,
+        callId,
+        result.content as Record<string, unknown>,
+        result.isError,
+      );
+    }
+  } catch {
+    // Archive write must not fail a successful tool result.
+  }
+
+  const before = result.content;
+  const truncated = await applyToolResultTruncation(
+    result,
+    spillOptionsForCall(callId, options),
+  );
+  if (
+    archive !== undefined &&
+    typeof before === "string" &&
+    typeof truncated.content === "string" &&
+    truncated.content !== before &&
+    before.length > MAX_RESULT_CHARS
+  ) {
+    try {
+      await archive.recordExistingBlobReference({
+        kind: "overflow_blob",
+        blobKey: spillBlobKey(callId),
+        contentHash: hashAuthorizedBytes(new TextEncoder().encode(before)),
+        callId,
+        provenance: "result-truncation:full",
+      });
+    } catch {
+      // Archive write must not fail a successful tool result.
+    }
+  }
+  return truncated;
+}
+
 /**
  * Wrap an AgentTool so its result hits {@link applyToolResultTruncation}.
  * `kind: "string"` handlers are lifted to `kind: "full"` so the spill can use
@@ -286,10 +357,7 @@ export function wrapAgentToolResultTruncation(
     return {
       ...tool,
       handler: async (call: ToolCall, signal: AbortSignal) =>
-        applyToolResultTruncation(
-          await inner(call, signal),
-          spillOptionsForCall(call.id, options),
-        ),
+        archiveThenTruncate(await inner(call, signal), call.id, options),
     };
   }
   const inner = tool.handler;
@@ -297,9 +365,10 @@ export function wrapAgentToolResultTruncation(
     kind: "full",
     definition: tool.definition,
     handler: async (call: ToolCall, signal: AbortSignal) =>
-      applyToolResultTruncation(
+      archiveThenTruncate(
         { callId: call.id, content: await inner(call.arguments, signal) },
-        spillOptionsForCall(call.id, options),
+        call.id,
+        options,
       ),
   };
 }
@@ -317,10 +386,7 @@ export function resultTruncationPlugin(
   return {
     middleware: (next) => async (call, signal) => {
       const result = await next(call, signal);
-      return applyToolResultTruncation(
-        result,
-        spillOptionsForCall(call.id, options),
-      );
+      return archiveThenTruncate(result, call.id, options);
     },
   };
 }

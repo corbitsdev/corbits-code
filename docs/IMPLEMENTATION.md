@@ -80,6 +80,8 @@ src/
     state.ts              RunState JSON save/load
     compactor.ts          Context compactor
     summarizer.ts         Model-backed structured compaction summary (+ deterministic fallback)
+    compaction-archive.ts Primary-only authorized evidence archive (post-policy capture)
+    compaction-archive-schema.ts Archive occurrence / completeness certificate schemas
     run-sink.ts           Run-level event sink
     stream-consumer.ts    Async stream consumer with error handling
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary

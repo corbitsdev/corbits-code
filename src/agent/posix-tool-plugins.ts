@@ -27,6 +27,7 @@ import {
 } from "../plugins/read-file-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
+import type { CompactionArchive } from "../session/compaction-archive.js";
 
 export interface CorePosixToolPluginsArgs {
   cwd: string;
@@ -44,6 +45,8 @@ export interface CorePosixToolPluginsArgs {
   // Live getter for the background-shell registry (run_shell background:true).
   // Omitted makes background runs fail closed in shell-guard.
   getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
+  /** Primary-only evidence archive; workers omit this getter. */
+  getEvidenceArchive?: () => CompactionArchive | undefined;
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -81,6 +84,7 @@ export function buildCorePosixToolPlugins(
     getContextDir,
     shellEnv,
     getBackgroundShellRegistry,
+    getEvidenceArchive,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
   // cwd are not hard-denied after the gate already auto-allows. Pass a live
@@ -89,10 +93,11 @@ export function buildCorePosixToolPlugins(
   // regardless.
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
   const truncationOptions =
-    getBlobWriter !== undefined || getContextDir !== undefined
+    getBlobWriter !== undefined || getContextDir !== undefined || getEvidenceArchive !== undefined
       ? {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
+          ...(getEvidenceArchive !== undefined ? { getEvidenceArchive } : {}),
         }
       : {};
   return [
