@@ -4,6 +4,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import type { SkillSummary } from "../extensions/skills.js";
+import { rankLexicalMatches } from "./lexical-search.js";
 
 // Catalog lookup for skills. Names live in the system prompt; this tool returns
 // matching name + description so the model can choose. Bodies load via use_skill.
@@ -33,10 +34,6 @@ export interface CreateSkillSearchToolArgs {
   allowedNames?: readonly string[];
 }
 
-function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-}
-
 function visibleSkills(
   skills: readonly SkillSummary[],
   allowedNames: readonly string[] | undefined,
@@ -44,20 +41,6 @@ function visibleSkills(
   if (allowedNames === undefined) return skills;
   const allowed = new Set(allowedNames);
   return skills.filter((skill) => allowed.has(skill.name));
-}
-
-function scoreSkill(skill: SkillSummary, queryTokens: string[], rawQuery: string): number {
-  const nameTokens = tokenize(skill.name);
-  const descTokens = new Set(tokenize(skill.description));
-  let total = 0;
-  for (const token of queryTokens) {
-    if (nameTokens.includes(token)) total += 3;
-    else if (descTokens.has(token)) total += 1;
-    else if (skill.name.toLowerCase().includes(token)) total += 0.75;
-    else if (skill.description.toLowerCase().includes(token)) total += 0.25;
-  }
-  if (skill.name.toLowerCase().includes(rawQuery)) total += 1;
-  return total;
 }
 
 const SkillSearchArgs = type({ query: "string" });
@@ -75,17 +58,12 @@ export function createSkillSearchTool(args: CreateSkillSearchToolArgs): AgentToo
       }
       const query = parsed.query.trim();
       if (query.length === 0) return "Error: skill_search requires a non-empty query.";
-      const rawQuery = query.toLowerCase();
-      const queryTokens = tokenize(query);
-      if (queryTokens.length === 0) {
-        return `No skills matched "${query}". Try different keywords describing the capability.`;
-      }
-      const matches = catalog
-        .map((skill) => ({ skill, score: scoreSkill(skill, queryTokens, rawQuery) }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, DEFAULT_LIMIT)
-        .map((entry) => entry.skill);
+      const matches = rankLexicalMatches(
+        catalog,
+        (skill) => ({ name: skill.name, text: skill.description }),
+        query,
+        DEFAULT_LIMIT,
+      );
       if (matches.length === 0) {
         return `No skills matched "${query}". Try different keywords describing the capability.`;
       }

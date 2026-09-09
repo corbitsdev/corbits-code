@@ -3,11 +3,8 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
+import { rankLexicalMatches, tokenize } from "./lexical-search.js";
 import type { AgentProfile } from "./profiles.js";
-
-function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-}
 
 function profileSearchText(profile: AgentProfile): string {
   const parts = [profile.id, profile.description ?? "", profile.systemPromptRole ?? ""];
@@ -18,36 +15,22 @@ export interface AgentIndex {
   search(query: string, limit?: number): AgentProfile[];
 }
 
-// Lexical ranker over id, description, and role text — same spirit as tool_search.
+// Lexical ranker over id, description, and role text — same weights as
+// tool_search / skill_search, shared via lexical-search.ts.
 export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): AgentIndex {
-  const score = (profile: AgentProfile, queryTokens: string[], rawQuery: string): number => {
-    const idTokens = tokenize(profile.id);
-    const blob = profileSearchText(profile).toLowerCase();
-    const blobTokens = new Set(tokenize(blob));
-    let total = 0;
-    for (const token of queryTokens) {
-      if (idTokens.includes(token)) total += 3;
-      else if (blobTokens.has(token)) total += 1;
-      else if (profile.id.toLowerCase().includes(token)) total += 0.75;
-      else if (blob.includes(token)) total += 0.25;
-    }
-    if (profile.id.toLowerCase().includes(rawQuery)) total += 1;
-    if ((profile.description ?? "").toLowerCase().includes(rawQuery)) total += 0.5;
-    return total;
-  };
-
   return {
     search(query: string, limit = 12): AgentProfile[] {
-      const rawQuery = query.toLowerCase().trim();
-      const queryTokens = tokenize(query);
       const profiles = getProfiles();
-      if (queryTokens.length === 0) return profiles.slice(0, limit);
-      return profiles
-        .map((p) => ({ profile: p, score: score(p, queryTokens, rawQuery) }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
-        .map((entry) => entry.profile);
+      if (tokenize(query).length === 0) return profiles.slice(0, limit);
+      return rankLexicalMatches(
+        profiles,
+        (profile) => ({ name: profile.id, text: profileSearchText(profile) }),
+        query,
+        limit,
+        // A raw-query hit in the description outranks a role-text-only hit.
+        (profile, rawQuery) =>
+          (profile.description ?? "").toLowerCase().includes(rawQuery) ? 0.5 : 0,
+      );
     },
   };
 }
