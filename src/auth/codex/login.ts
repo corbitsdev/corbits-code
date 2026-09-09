@@ -1,28 +1,16 @@
+// Codex login flow — see the shared factory in ./provider.ts.
 import { openInBrowser } from "../oauth/browser.js";
-import {
-  startOAuthLogin,
-  type OAuthLoginHandle,
-  type StartOAuthLoginOptions,
-} from "../oauth/login.js";
+import type { OAuthLoginHandle, StartOAuthLoginOptions } from "../oauth/login.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "./constants.js";
-import { startCodexCallbackServer } from "./callback-server.js";
-import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";
-import { saveCodexProfile, type CodexTokens } from "./store.js";
+import { codexAuth } from "./provider.js";
+import type { CodexTokens } from "./provider.js";
 
 export { openInBrowser };
 
 export type CodexLoginHandle = OAuthLoginHandle<CodexTokens>;
 export type StartCodexLoginOptions = StartOAuthLoginOptions;
 
-// Drive the loopback PKCE login for a Codex profile.
-export async function startCodexLogin(opts: StartCodexLoginOptions): Promise<CodexLoginHandle> {
-  return startOAuthLogin(opts, {
-    startCallbackServer: startCodexCallbackServer,
-    buildAuthorizeUrl,
-    exchangeCode,
-    saveProfile: saveCodexProfile,
-  });
-}
+export const startCodexLogin = codexAuth.startLogin;
 
 // Metadata describing the Codex provider surface, used when projecting a logged
 // in profile into the provider catalog.

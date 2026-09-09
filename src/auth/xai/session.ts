@@ -1,23 +1,14 @@
-import { createTokenSession } from "../oauth/session.js";
-import { XAI_REFRESH_SKEW_MS } from "./constants.js";
-import { refreshTokens } from "./oauth.js";
-import { loadXaiProfile, updateXaiTokens, type XaiTokens } from "./store.js";
+// xAI token session — see the shared factory in ./provider.ts.
+import { xaiAuth } from "./provider.js";
 
-export class XaiAuthError extends Error {
-  readonly profile: string;
-  readonly reason: "missing" | "refresh-failed";
+export const XaiAuthError = xaiAuth.AuthError;
+export type XaiAuthError = InstanceType<typeof XaiAuthError>;
 
-  constructor(profile: string, reason: "missing" | "refresh-failed", message: string) {
-    super(message);
-    this.name = "XaiAuthError";
-    this.profile = profile;
-    this.reason = reason;
-  }
-}
+export type { XaiAccess } from "./provider.js";
 
-export interface XaiAccess {
-  access: string;
-}
+export const isXaiTokenExpired = xaiAuth.session.isExpired;
+export const getValidXaiToken = xaiAuth.session.getValidToken;
+export const refreshStagedXaiTokens = xaiAuth.refreshStaged;
 
 // The grok proxy wants the caller's user id in the x-grok-user-id header. The
 // access token is a JWT whose `sub` claim is that id; decode it rather than
@@ -33,33 +24,4 @@ export function xaiUserIdFromAccessToken(access: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-const session = createTokenSession<XaiTokens, XaiAccess>({
-  skewMs: XAI_REFRESH_SKEW_MS,
-  loadProfile: loadXaiProfile,
-  updateTokens: updateXaiTokens,
-  refreshTokens,
-  toAccess: (tokens) => ({ access: tokens.access }),
-  missingError: (name) =>
-    new XaiAuthError(name, "missing", `xAI profile "${name}" is not authorized. Log in again.`),
-  refreshFailedError: (name, err) =>
-    new XaiAuthError(
-      name,
-      "refresh-failed",
-      `xAI profile "${name}" could not be refreshed (${err instanceof Error ? err.message : String(err)}). Log in again.`,
-    ),
-});
-
-export const isXaiTokenExpired = session.isExpired;
-export const getValidXaiToken = session.getValidToken;
-
-export async function refreshStagedXaiTokens(
-  tokens: XaiTokens,
-  now: number = Date.now(),
-): Promise<XaiTokens> {
-  if (!isXaiTokenExpired(tokens, now)) return tokens;
-  const refreshed = await refreshTokens(tokens.refresh, now);
-  Object.assign(tokens, refreshed);
-  return tokens;
 }

@@ -1,24 +1,13 @@
-import {
-  startOAuthLogin,
-  type OAuthLoginHandle,
-  type StartOAuthLoginOptions,
-} from "../oauth/login.js";
+// xAI login flow — see the shared factory in ./provider.ts.
+import type { OAuthLoginHandle, StartOAuthLoginOptions } from "../oauth/login.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "./constants.js";
-import { startXaiCallbackServer } from "./callback-server.js";
-import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";
-import { saveXaiProfile, type XaiTokens } from "./store.js";
+import { xaiAuth } from "./provider.js";
+import type { XaiTokens } from "./provider.js";
 
 export type XaiLoginHandle = OAuthLoginHandle<XaiTokens>;
 export type StartXaiLoginOptions = StartOAuthLoginOptions;
 
-export async function startXaiLogin(opts: StartXaiLoginOptions): Promise<XaiLoginHandle> {
-  return startOAuthLogin(opts, {
-    startCallbackServer: startXaiCallbackServer,
-    buildAuthorizeUrl,
-    exchangeCode,
-    saveProfile: saveXaiProfile,
-  });
-}
+export const startXaiLogin = xaiAuth.startLogin;
 
 export const xaiProviderSurface = {
   baseURL: XAI_BASE_URL,
