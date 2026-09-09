@@ -115,8 +115,8 @@ export function createApprovalResume(args: {
   // TUI session queue. When present, each decision is awaited through this
   // seam; exec omits it and uses getAgent().deliver.
   deliver?: (message: InboundMessage, stillCurrent: () => boolean) => void | Promise<void>;
-  // TUI: capture at handle() start so /clear during the overlay drops the
-  // decision instead of delivering into the new session. Exec omits this.
+  // TUI: capture at handle() start so /clear or interrupt during the overlay
+  // drops the decision instead of delivering into the rebuilt agent. Exec omits this.
   captureGeneration?: () => () => boolean;
   gate: PermissionGate;
 }): ApprovalResume {

@@ -236,4 +236,46 @@ describe("approval resume generation capture", () => {
       outcome: "approved",
     });
   });
+
+  async function interruptDuringOverlayThenDecide(outcome: { allow: boolean; message?: string }) {
+    const generation = createDeliveryGeneration();
+    const deliveredA: unknown[] = [];
+    const deliveredB: unknown[] = [];
+    const agentA = {
+      deliver: (message: unknown) => deliveredA.push(message),
+      history: async () => [userTurn()],
+    };
+    const agentB = {
+      deliver: (message: unknown) => deliveredB.push(message),
+      history: async () => [userTurn()],
+    };
+    let current: typeof agentA | typeof agentB = agentA;
+    const resume = createApprovalResume({
+      getAgent: () => current,
+      captureGeneration: generation.capture,
+      deliver: (message, stillCurrent) => {
+        if (!stillCurrent()) return;
+        current.deliver(message);
+      },
+      gate: {
+        resolveSuspended: async () => {
+          generation.bump();
+          current = agentB;
+          return outcome;
+        },
+      } as unknown as PermissionGate,
+    });
+
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    expect(deliveredA).toEqual([]);
+    expect(deliveredB).toEqual([]);
+  }
+
+  test("interrupt during overlay then accept does not deliver to the rebuilt agent", async () => {
+    await interruptDuringOverlayThenDecide({ allow: true });
+  });
+
+  test("interrupt during overlay then decline does not deliver to the rebuilt agent", async () => {
+    await interruptDuringOverlayThenDecide({ allow: false, message: "not today" });
+  });
 });

@@ -401,6 +401,9 @@ export async function createRunLifecycle(
   // Close it, drain the old stream, and rebuild a fresh agent so the next send
   // works.
   const interrupt = (): void => {
+    // Overlay stays open across interrupt; bump so a later accept/decline
+    // cannot late-bind into the rebuilt agent.
+    services.deliveryGeneration.bump();
     state.sendAborted = true;
     void enqueueOp(async () => {
       try {
