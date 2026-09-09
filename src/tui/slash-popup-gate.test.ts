@@ -100,6 +100,7 @@ function emitPermissionGate(
       action: "Run shell command",
       subject: "bun test",
       scopes: [],
+      id: extra?.tool ?? "req-1",
     },
     resolve,
     ...(extra?.timeoutMs !== undefined ? { timeoutMs: extra.timeoutMs } : {}),

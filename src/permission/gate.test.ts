@@ -236,3 +236,39 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
     expect(prompts).toBe(1);
   });
 });
+
+describe("ask decision mints request.id", () => {
+  test("the copy handed to requestApproval has a non-empty id", async () => {
+    let captured: PermissionRequest | undefined;
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async (request) => {
+        captured = request;
+        return { allow: true };
+      },
+    });
+    const verdict = await gate.evaluate(shellCall("npm test || true"));
+    expect(verdict.allowed).toBe(true);
+    expect(captured?.id).toEqual(expect.any(String));
+    expect(captured?.id?.length).toBeGreaterThan(0);
+  });
+
+  test("authorizeCall ask request carries a minted id", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => ({ allow: true }),
+    });
+    const result = await gate.authorizeCall(shellCall("npm test || true"));
+    expect(result.effect).toBe("ask");
+    if (result.effect !== "ask") throw new Error("expected ask");
+    const id = result.request.id;
+    expect(id).toEqual(expect.any(String));
+    expect(id?.length).toBeGreaterThan(0);
+  });
+});

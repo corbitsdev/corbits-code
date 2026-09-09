@@ -774,7 +774,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return;
   }
 
-  const id = bag?.primaryBindings.itemIds[idx];
+  const painted = shell.overlayList.select.getSelectedOption()?.value;
+  const itemIds = bag?.primaryBindings.itemIds ?? [];
+  const id = typeof painted === "string" && itemIds.includes(painted) ? painted : itemIds[idx];
   // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
   if (id === "") return;
   const value = bag?.primaryBindings.itemValues[idx];

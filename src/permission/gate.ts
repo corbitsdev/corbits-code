@@ -1,5 +1,6 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { isAbsolute, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import type {
   Approval,
   ApprovalOutcome,
@@ -47,6 +48,12 @@ import { NOOP_APPROVAL_LOG, type ApprovalLog, type ApprovalOutcomeKind } from ".
 // autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
 // finish() usage); anything else that denies is a plain operator/unavailable
 // decision.
+function withRequestId(request: PermissionRequest): PermissionRequest {
+  return request.id !== undefined && request.id.length > 0
+    ? request
+    : { ...request, id: randomUUID() };
+}
+
 function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeKind {
   if (outcome === undefined) return "deny";
   if (!outcome.allow) {
@@ -664,7 +671,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
         return {
           kind: "ask",
-          request: requestForOperator,
+          request: withRequestId(requestForOperator),
           anySecret,
           segmentCount: segments.length,
         };
@@ -692,7 +699,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         };
       }
 
-      return { kind: "ask", request, anySecret: false, segmentCount: 0 };
+      return { kind: "ask", request: withRequestId(request), anySecret: false, segmentCount: 0 };
     }
     return { kind: "allow" };
   };

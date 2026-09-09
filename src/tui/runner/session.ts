@@ -9,6 +9,7 @@
  */
 
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
   localSettingsPath,
@@ -273,6 +274,7 @@ export async function assembleTUISession(
         });
         const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
+          id: randomUUID(),
           question,
           options,
           resolve: finish,
@@ -295,6 +297,7 @@ export async function assembleTUISession(
         });
         const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
+          id: randomUUID(),
           question:
             `Trust local MCP server "${server.name}" for this project?` +
             (server.command !== undefined

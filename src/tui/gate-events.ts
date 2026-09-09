@@ -2,6 +2,8 @@ import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js"
 import type { OperatorResult } from "../agent/tools.js";
 
 export interface OperatorGateEvent {
+  /** Minted by the session emitter, never by the TUI overlay. */
+  id: string;
   question: string;
   options: string[];
   resolve: (result: OperatorResult) => void;

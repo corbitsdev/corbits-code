@@ -321,6 +321,42 @@ describe("overlay accept callbacks", () => {
     );
   });
 
+  test("sequential operator opens paint B's labels and ids, not A's", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          openOperatorOverlay(shell, {
+            body: "Ask A?",
+            choices: ["Stay on A", "Leave A"],
+            itemIds: ["ask-a:0", "ask-a:1"],
+          });
+          expect(shell.overlayList?.select.options.map((option) => option.name)).toEqual([
+            "Stay on A",
+            "Leave A",
+          ]);
+          closeInsetOverlay(shell);
+
+          openOperatorOverlay(shell, {
+            body: "Ask B?",
+            choices: ["Go with B", "Skip B"],
+            itemIds: ["ask-b:0", "ask-b:1"],
+          });
+          const painted = shell.overlayList?.select.options ?? [];
+          expect(painted.map((option) => option.name)).toEqual(["Go with B", "Skip B"]);
+          expect(painted.map((option) => option.value)).toEqual(["ask-b:0", "ask-b:1"]);
+          expect(painted.map((option) => option.value)).not.toContain("ask-a:0");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("operator accept fires shell-level onOperator when no per-open", async () => {
     await withTestRenderer(
       async (h) => {

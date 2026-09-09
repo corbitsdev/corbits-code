@@ -22,6 +22,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   not a second copy of `env.authorize`: it consumes the prior verdict when the
   same call (id, name, and arguments) is cached, and decides on a cache miss.
 
+### Fixed
+
+- Sequential TUI ask and permission selectors paint the live question's option
+  labels. Rows bind by ask and request id rather than render-order index, so a
+  later question cannot keep the previous question's choices.
+
 ## [0.3.18] - 2026-09-08
 
 ### Added

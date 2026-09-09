@@ -258,6 +258,7 @@ describe("@ popup narrows as you type", () => {
             action: "Run shell command",
             subject: "bun test",
             scopes: [],
+            id: "req-1",
           },
           resolve: (outcome: unknown) => {
             resolved = outcome;
@@ -310,6 +311,7 @@ describe("@ popup narrows as you type", () => {
             action: "Run shell command",
             subject: "bun test",
             scopes: [],
+            id: "req-1",
           },
           resolve: () => {},
         });

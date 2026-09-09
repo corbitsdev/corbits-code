@@ -222,6 +222,7 @@ describe("gate-wire approval overflow on short terminal", () => {
           label: `Always allow scope ${i}`,
           pattern: `p${i}`,
         })),
+        id: "req-1",
       };
       try {
         primeSession(shell);
@@ -269,6 +270,7 @@ describe("gate-wire approval overflow on short terminal", () => {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
         emitter.emit("operator.gate", {
+          id: "ask-1",
           question: tallBody,
           options: [...options],
           resolve: (result: unknown) => {
@@ -276,7 +278,7 @@ describe("gate-wire approval overflow on short terminal", () => {
           },
         });
 
-        const choices = operatorChoicesFromOptions(options);
+        const choices = operatorChoicesFromOptions(options, "ask-1");
         expect(shell.overlayKind).toBe("operator");
         expect(shell.overlayItems).toEqual([...choices.items]);
         const list = shell.overlayList!;
@@ -308,6 +310,7 @@ describe("gate-wire approval overflow on short terminal", () => {
         action: "Run shell command",
         subject: 'git commit -m "line one\nline two\nline three\nline four\nline five"',
         scopes: [{ id: "session", label: "Allow for session", pattern: "git *" }],
+        id: "req-1",
       };
       try {
         primeSession(shell);

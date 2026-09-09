@@ -33,6 +33,7 @@ const hintRequest: PermissionRequest = {
       hint: HINT,
     },
   ],
+  id: "req-1",
 };
 
 function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderable {

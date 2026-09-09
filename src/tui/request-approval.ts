@@ -70,6 +70,11 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
         kind: "permission",
       });
       const timeout = args.approvalTimeout();
+      if (request.id === undefined || request.id.length === 0) {
+        logger.warn("permission gate request missing id for {tool}; emitting without minting", {
+          tool: request.tool,
+        });
+      }
       const event: PermissionGateEvent = {
         request,
         resolve: finish,

@@ -342,6 +342,9 @@ viewport kit: shared windowing, keep-active-visible, and page/jump behavior.
 There is exactly one scroll lease at a time; keyboard paging and the mouse
 wheel both follow whichever surface currently holds it, so a modal open on
 top of the transcript never lets the wheel move the transcript underneath it.
+Ask and permission rows bind by ask/request id, never render-order index;
+painted labels are the live payload, and stale rows whose ids are not in the
+new payload are dropped.
 
 "Current" is never inferred. For the model picker, the row marked
 `(current)` is read live from the session's actual active provider/model on

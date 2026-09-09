@@ -99,6 +99,39 @@ describe("createGateRequestApproval", () => {
     captured?.resolve({ allow: true });
     expect((await pending).allow).toBe(true);
   });
+
+  test("forwards the gate-minted request id without minting a replacement", async () => {
+    const withId: PermissionRequest = { ...request, id: "req-from-gate" };
+    let captured: PermissionGateEvent | undefined;
+    const requestApproval = createGateRequestApproval({
+      emitGate: (event) => {
+        captured = event;
+        return true;
+      },
+      approvalTimeout: noTimeout,
+    });
+    const pending = requestApproval(withId);
+    expect(captured?.request).toBe(withId);
+    expect(captured?.request.id).toBe("req-from-gate");
+    captured?.resolve({ allow: true });
+    await pending;
+  });
+
+  test("does not mint an id when the request has none", async () => {
+    let captured: PermissionGateEvent | undefined;
+    const requestApproval = createGateRequestApproval({
+      emitGate: (event) => {
+        captured = event;
+        return true;
+      },
+      approvalTimeout: noTimeout,
+    });
+    const pending = requestApproval(request);
+    expect(captured?.request).toBe(request);
+    expect(captured?.request.id).toBeUndefined();
+    captured?.resolve({ allow: false });
+    await pending;
+  });
 });
 
 // attachApprovalBudget is the mechanism createGateRequestApproval builds on

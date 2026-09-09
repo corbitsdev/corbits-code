@@ -24,6 +24,7 @@ export interface OverlayTitlePresentation extends Pick<
 export interface OverlayListPresentation {
   readonly kind: PrimaryOverlayKind | null;
   readonly items: readonly string[];
+  readonly itemIds?: readonly string[];
   readonly paletteCommands: readonly Pick<PaletteCommand, "label">[];
   readonly list: OverlayList | null;
   readonly bodyLines: readonly string[];
@@ -356,10 +357,12 @@ export function createOverlayView(ctx: RenderContext) {
     // second row of air — nothing wraps, nothing clips.
     list.setHeight(list.height, decision ? DECISION_CHOICE_ROWS : 1);
     list.select.showSelectionIndicator = true;
-    list.select.options = presentation.items.map((label) => ({
-      name: label,
-      description: "",
-    }));
+    list.select.options = presentation.items.map((label, i) => {
+      const id = presentation.itemIds?.[i];
+      return id === undefined
+        ? { name: label, description: "" }
+        : { name: label, description: "", value: id };
+    });
     // An empty list renders nothing — the renderable would still claim a row
     // for its background, spending layout budget a chooser with no choices did
     // not reserve.
