@@ -254,6 +254,19 @@ export function liveAgent(state: RunnerState): Agent {
   return agent;
 }
 
+export async function runWhileAgentBusy<T>(
+  state: Pick<RunnerState, "inFlight" | "reloadIfIdle">,
+  op: () => Promise<T>,
+): Promise<T> {
+  state.inFlight++;
+  try {
+    return await op();
+  } finally {
+    state.inFlight--;
+    state.reloadIfIdle?.();
+  }
+}
+
 export function hostOf(state: RunnerState): RunnerHost {
   const host = state.host;
   if (host === undefined) {

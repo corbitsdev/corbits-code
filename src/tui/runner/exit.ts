@@ -30,6 +30,7 @@ import {
   hostOf,
   liveAgent,
   recordRunError,
+  runWhileAgentBusy,
   type RunnerServices,
   type RunnerState,
   type SnapshotExtra,
@@ -339,15 +340,11 @@ export async function createRunLifecycle(
         services.emitter.emit("session.title", truncateSessionLabel(state.runTaskTitle));
         void persistRunSnapshot("running");
       }
-      state.inFlight++;
-      try {
+      return await runWhileAgentBusy(state, async () => {
         await refreshCodexBeforeSend();
         await refreshXaiBeforeSend();
         return await liveAgent(state).send(content, opts);
-      } finally {
-        state.inFlight--;
-        reloadIfIdle();
-      }
+      });
     },
     stream: () => liveAgent(state).stream(),
     deliver: (message) => {
