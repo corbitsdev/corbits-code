@@ -760,6 +760,9 @@ export function createSubAgentSessionStore(
     mutate(id, (s) => {
       if (s.lifecycle.state !== "running" && s.lifecycle.state !== "pending_init") {
         s.finishedAt = s.finishedAt ?? now();
+        if (restore === "interrupted" && s.stopReason === undefined) {
+          s.stopReason = "interrupted";
+        }
         return;
       }
       if (restore === "interrupted") {
@@ -767,6 +770,7 @@ export function createSubAgentSessionStore(
           state: "interrupted",
           ...(s.report !== undefined ? { report: s.report } : {}),
         };
+        s.stopReason = "interrupted";
       } else {
         s.lifecycle = { state: "completed", report: s.report ?? "" };
       }

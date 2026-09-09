@@ -149,7 +149,6 @@ describe("skywalkerPackage", () => {
   test("systemPrompt fail-then-successor is distinct from operator-cancel wait", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("incomplete-report");
-    expect(p).toContain("interrupted-incomplete");
     expect(p).toContain("MAY `spawn_agent` **one** successor");
     expect(p).toContain("changed** brief");
     expect(p).toContain("wait for the operator");
@@ -158,6 +157,17 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Operator-cancel is not a re-dispatch");
     expect(p).not.toContain("Then start the next worker");
     expect(p).not.toContain("if the job still needs doing");
+    expect(p).not.toContain("interrupted-incomplete");
+  });
+
+  test("systemPrompt treats parent interrupt as resume, not successor spawn", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Parent-initiated interrupt");
+    expect(p).toContain("resume_agent");
+    expect(p).toContain("still-live worker");
+    expect(p).toContain("no longer resumable");
+    expect(p).toContain("interrupt_agent");
+    expect(p).toContain("stop_reason: interrupted");
   });
 
   test("systemPrompt simple path skips explorer+critic for tiny work", () => {

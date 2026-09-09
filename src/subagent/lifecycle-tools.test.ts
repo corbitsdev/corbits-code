@@ -419,7 +419,38 @@ describe("resume_agent", () => {
     }[];
     expect(results[0]!.status).toBe("done");
     expect(results[0]!.report).toBe("resumed report");
-    expect(results[0]!.stop_reason).not.toBe("interrupted");
+    expect(results[0]!.stop_reason).toBeUndefined();
+  });
+
+  test("followup throw after interrupt wait still has stop_reason interrupted", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerInterrupt(worker.id, () => {});
+    sessions.registerFollowup(worker.id, async () => {
+      throw new Error("send failed");
+    });
+    fleetRecords.register(worker.id);
+
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+
+    await callTool(sendInput, { target: worker.id, message: "stop that", interrupt: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const collected = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    expect(collected.timed_out).toBe(false);
+    const results = collected.results as {
+      status: string;
+      stop_reason?: string;
+    }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(results[0]!.stop_reason).toBe("interrupted");
   });
 
   test("resume followup rejection invokes close; close_agent tears down leftover", async () => {

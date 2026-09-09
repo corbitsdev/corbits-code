@@ -221,8 +221,9 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
     expect(outcome.stopReason).toBe("interrupted");
     expect(outcome.stopReason).not.toBe("cancelled");
     expect(outcome.interrupted).toBe(true);
-    expect(outcome.report).toContain("MAY spawn one successor");
-    expect(outcome.report).toContain("changed brief");
+    expect(outcome.report).toContain("resume_agent");
+    expect(outcome.report).toContain("still-live");
+    expect(outcome.report).not.toContain("MAY spawn one successor");
     expect(outcome.report).not.toContain("wait for the operator");
   });
 

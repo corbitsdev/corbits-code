@@ -477,6 +477,24 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(store.interruptOne(session.id)).toEqual({ ok: false, status: "completed" });
   });
 
+  test("rejected followup after interrupt restamps stopReason interrupted", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, async () => {
+      throw new Error("send failed");
+    });
+    expect(store.sendInputOne(session.id, "stop that", { interrupt: true })).toEqual({
+      ok: true,
+      status: "interrupted",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const after = store.get(session.id);
+    expect(after?.lifecycle.state).toBe("interrupted");
+    expect(after?.stopReason).toBe("interrupted");
+  });
+
   test("interrupt then abort does not overwrite interrupted stamp to completed", async () => {
     let rejectFollowup: (err: unknown) => void = () => {};
     const store = createSubAgentSessionStore();

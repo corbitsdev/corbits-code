@@ -208,6 +208,9 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
 const FAIL_THEN_SUCCESSOR_BLOCKERS =
   "Diagnose from Findings; MAY spawn one successor with a changed brief. Do not repeat the same brief. Do not start a diagnostic wave.";
 
+const INTERRUPT_RESUME_BLOCKERS =
+  "Parent-initiated pause; the worker is still resumable. Call resume_agent (changed follow-up into retained context) or re-wait. Do not spawn_agent a successor against this still-live session. Successor only if the session is no longer resumable.";
+
 function forcedStopBlockers(reason: ForcedStopReason): string {
   switch (reason) {
     case "cancelled":
@@ -217,6 +220,7 @@ function forcedStopBlockers(reason: ForcedStopReason): string {
     case "stalled":
       return "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish this lane or check on the background work directly. Do not start a diagnostic wave.";
     case "interrupted":
+      return INTERRUPT_RESUME_BLOCKERS;
     case "incomplete-report":
       return FAIL_THEN_SUCCESSOR_BLOCKERS;
   }
@@ -272,8 +276,9 @@ const DEADLINE_PARENT_HINT =
 const CANCELLED_PARENT_HINT =
   "[Sub-agent was cancelled before finishing. Synthesize Findings and Paths rather than redoing completed work; wait for the operator instead of auto-starting another specialist.]";
 
-const FAIL_THEN_SUCCESSOR_PARENT_HINT =
-  "[Sub-agent stopped before finishing. Diagnose from Findings; MAY spawn one successor with a changed brief. Do not repeat the same brief. Do not start a diagnostic wave.]";
+const FAIL_THEN_SUCCESSOR_PARENT_HINT = `[Sub-agent stopped before finishing. ${FAIL_THEN_SUCCESSOR_BLOCKERS}]`;
+
+const INTERRUPT_RESUME_PARENT_HINT = `[Sub-agent was interrupted before finishing. ${INTERRUPT_RESUME_BLOCKERS}]`;
 
 /** Options for parent-hint stacking (session re-dispatch ledger state). */
 export interface SubAgentParentHintOptions {
@@ -301,6 +306,7 @@ export function appendSubAgentParentHints(
     case "cancelled":
       return `${CANCELLED_PARENT_HINT}\n\n${report}`;
     case "interrupted":
+      return `${INTERRUPT_RESUME_PARENT_HINT}\n\n${report}`;
     case "incomplete-report":
       return `${FAIL_THEN_SUCCESSOR_PARENT_HINT}\n\n${report}`;
     default:

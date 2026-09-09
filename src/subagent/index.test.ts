@@ -406,11 +406,13 @@ describe("sub-agent stop helpers", () => {
 
     const interrupted = forcedStopReport("interrupted", "Partial work");
     const interruptedParsed = parseSubAgentReport(interrupted);
-    expect(interruptedParsed.blockers).toContain("one successor");
-    expect(interruptedParsed.blockers).toContain("changed brief");
+    expect(interruptedParsed.blockers).toContain("resume_agent");
+    expect(interruptedParsed.blockers).toContain("still-live");
+    expect(interruptedParsed.blockers).not.toContain("MAY spawn one successor");
     expect(interruptedParsed.blockers).not.toContain("wait for the operator");
     const interruptedWithHint = appendSubAgentParentHints(interrupted, "interrupted");
-    expect(interruptedWithHint).toContain("MAY spawn one successor");
+    expect(interruptedWithHint).toContain("resume_agent");
+    expect(interruptedWithHint).not.toContain("MAY spawn one successor");
     expect(interruptedWithHint).not.toContain("wait for the operator instead of auto-starting");
 
     const stalled = forcedStopReport("stalled", "parked");

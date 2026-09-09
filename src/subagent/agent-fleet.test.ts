@@ -1368,6 +1368,54 @@ describe("list_agents", () => {
     gate.resolve({ report: "done" });
   });
 
+  test("includes stop_reason after interrupt_agent", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => "",
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-list-1", name: "interrupt_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+    if (list.kind !== "full") throw new Error("expected full tool");
+    const raw = await list.handler(
+      { id: "list-stop-1", name: "list_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const parsed = JSON.parse(content) as {
+      agents: { agent_id: string; status: string; stop_reason?: string }[];
+    };
+    expect(parsed.agents).toHaveLength(1);
+    expect(parsed.agents[0]!.agent_id).toBe(id);
+    expect(parsed.agents[0]!.status).toBe("interrupted");
+    expect(parsed.agents[0]!.stop_reason).toBe("interrupted");
+    expect(list.definition.description).toContain("stop_reason");
+    gate.resolve({ report: "done" });
+  });
+
   test("projects question and question_id while awaiting_director", async () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async (params) => {
