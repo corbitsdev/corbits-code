@@ -313,7 +313,9 @@ tracks the skip-unchanged-history patch.
 `reactor.ts` — `executeCompact` persists blobs, stages `writeTurns`, and
 leaves reactor memory on the old generation until `commitCycle` publishes.
 `replaceTurns` runs only after a successful commit. `commitCycle` must not
-`writeTurns` live (old) memory over that staging.
+`writeTurns` live (old) memory over that staging. A failed commit clears
+`pendingCompactOutput` so a later infer/tools cycle writes live history and
+does not `replaceTurns` with the unpublished compact.
 
 **Disposition:** Promotion candidate. Compaction durability — an interrupt
 between stage and commit must resume the complete old generation, not a

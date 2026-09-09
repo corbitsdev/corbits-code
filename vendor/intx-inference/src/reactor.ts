@@ -1098,6 +1098,9 @@ export function createReactor(config: ReactorConfig): Reactor {
         `Cycle commit failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         false,
       );
+      // A staged compact must not leak into a later infer/tools cycle: skip-write
+      // plus replaceTurns would publish stale compact output over live memory.
+      pendingCompactOutput = null;
       resetCycleAccumulators();
       return;
     }

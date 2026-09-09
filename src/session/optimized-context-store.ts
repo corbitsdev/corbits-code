@@ -438,7 +438,7 @@ export async function createSessionStores(
   const base = await createIsogitStore(dir, signer);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
-  const writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
+  let writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
   const writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
   let liveTurnRefs: readonly ConversationTurn[] | null = null;
   let unpublishedRewrite: ConversationTurn[] | null = null;
@@ -641,10 +641,9 @@ export async function createSessionStores(
     },
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
-        if (unpublishedRewrite !== null) {
-          await writeSegmented(writeTurnsSegmented, unpublishedRewrite);
-          liveTurnRefs = unpublishedRewrite;
-          unpublishedRewrite = null;
+        const stagedRewrite = unpublishedRewrite;
+        if (stagedRewrite !== null) {
+          await writeSegmented(writeTurnsSegmented, stagedRewrite);
         }
         const toAdd: string[] = [];
         const toRemove: string[] = [];
@@ -686,9 +685,16 @@ export async function createSessionStores(
           const committed = await base.commit(options, signal);
           pendingBlobFilepaths.clear();
           pendingSegmentPaths.clear();
+          if (stagedRewrite !== null) {
+            liveTurnRefs = stagedRewrite;
+            unpublishedRewrite = null;
+          }
           return committed;
         } catch (cause) {
           await resetIndexPaths(dir, extraPaths);
+          if (stagedRewrite !== null) {
+            liveTurnRefs = null;
+          }
           throw cause;
         }
       });

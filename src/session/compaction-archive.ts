@@ -25,6 +25,7 @@ import {
   type ArchiveKind,
   type ToolRecordingLifecycle,
 } from "./compaction-archive-schema.js";
+import { parseAgedImageMarker } from "./attachment-uri.js";
 
 const INDEX_DIR = "evidence-archive";
 const INDEX_FILE = "index.jsonl";
@@ -626,10 +627,12 @@ function textKindForRole(role: ConversationTurn["role"]): ArchiveKind {
 
 function coveringOccurrence(
   units: readonly {
-    kind: "text" | "tool_call" | "tool_result";
+    kind: "text" | "tool_call" | "tool_result" | "image";
     text?: string;
     role?: ConversationTurn["role"];
     callId?: string;
+    data?: string;
+    blobKey?: string;
   }[],
   occurrences: readonly ArchiveOccurrence[],
 ): { ids: string[]; unmatched: boolean } {
@@ -638,6 +641,12 @@ function coveringOccurrence(
   for (const unit of units) {
     const match = occurrences.find((occ) => {
       if (used.has(occ.occurrenceId) || occ.gap === true) return false;
+      if (unit.kind === "image") {
+        if (occ.kind !== "attachment") return false;
+        if (unit.blobKey !== undefined) return occ.blobKey === unit.blobKey;
+        if (unit.data === undefined) return false;
+        return occ.contentHash === hashAuthorizedBytes(new TextEncoder().encode(unit.data));
+      }
       if (unit.kind === "text") {
         if (unit.role === undefined || unit.text === undefined) return false;
         if (occ.kind !== textKindForRole(unit.role)) return false;
@@ -655,25 +664,40 @@ function coveringOccurrence(
 }
 
 function droppedContentUnits(dropped: readonly ConversationTurn[]): {
-  kind: "text" | "tool_call" | "tool_result";
+  kind: "text" | "tool_call" | "tool_result" | "image";
   text?: string;
   role?: ConversationTurn["role"];
   callId?: string;
+  data?: string;
+  blobKey?: string;
 }[] {
   const units: {
-    kind: "text" | "tool_call" | "tool_result";
+    kind: "text" | "tool_call" | "tool_result" | "image";
     text?: string;
     role?: ConversationTurn["role"];
     callId?: string;
+    data?: string;
+    blobKey?: string;
   }[] = [];
   for (const turn of dropped) {
     for (const block of turn.content) {
       if (block.type === "text" && block.text.length > 0) {
-        units.push({ kind: "text", role: turn.role, text: block.text });
+        const marker = parseAgedImageMarker(block.text);
+        if (marker !== undefined) {
+          units.push({ kind: "image", blobKey: marker.id });
+        } else {
+          units.push({ kind: "text", role: turn.role, text: block.text });
+        }
       } else if (block.type === "tool_call") {
         units.push({ kind: "tool_call", callId: block.id });
       } else if (block.type === "tool_result") {
         units.push({ kind: "tool_result", callId: block.callId });
+      } else if (block.type === "image") {
+        if (block.source.kind === "base64") {
+          units.push({ kind: "image", data: block.source.data });
+        } else {
+          units.push({ kind: "image" });
+        }
       }
     }
   }

@@ -680,4 +680,44 @@ describe("wrapCompactorWithCompletenessGate", () => {
     expect(result.output).toHaveLength(1);
     expect(result.record.reason).toBe("compact");
   });
+
+  test("image-only dropped turns require covering attachment evidence", async () => {
+    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { archive } = memoryArchive();
+    const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
+    const png = "iVBORw0KGgo=";
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { kind: "base64", mimeType: "image/png", data: png },
+          },
+        ],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "keep" }],
+        timestamp: 2,
+      },
+    ];
+
+    const blocked = await wrapped.apply(turns, ctx);
+    expect(blocked.output).toBe(turns);
+    expect(blocked.record.reason).toBe("incomplete-evidence-archive");
+
+    await archive.recordAuthorizedPayload({
+      kind: "attachment",
+      payload: png,
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "keep",
+    });
+    const allowed = await wrapped.apply(turns, ctx);
+    expect(allowed.output).toHaveLength(1);
+    expect(allowed.record.reason).toBe("compact");
+  });
 });

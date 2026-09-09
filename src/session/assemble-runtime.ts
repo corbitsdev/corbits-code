@@ -58,6 +58,7 @@ import {
   applyRecordingPolicyToText,
   createCompactionArchive,
   createPrimaryDeliveryAdmission,
+  hashAuthorizedBytes,
   wrapAuthorizeWithEvidenceArchive,
   wrapCompactorWithCompletenessGate,
   type CompactionArchive,
@@ -491,6 +492,16 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ? storage
         : {
             ...storage,
+            async writeBlob(key, bytes, contentType, signal) {
+              await storage.writeBlob(key, bytes, contentType, signal);
+              if (!key.startsWith("img-")) return;
+              await primaryArchive.recordExistingBlobReference({
+                kind: "attachment",
+                blobKey: key,
+                contentHash: hashAuthorizedBytes(bytes),
+                provenance: "persistBlobs:aged-image",
+              });
+            },
             async writeResponse(turn, signal) {
               const content = turn.content.map((block) => {
                 if (block.type !== "text") return block;

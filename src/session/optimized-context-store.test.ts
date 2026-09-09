@@ -782,6 +782,29 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
     expect(turnTexts(loaded.turns)).toEqual(["old-a", "old-b"]);
   });
 
+  test("git commit failure after rewrite lands keeps load on HEAD", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const original = [turn("keep-a"), turn("keep-b"), turn("drop-me")];
+    await store.writeTurns(original);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const published = await store.commit({ message: "published original" });
+
+    await store.writeTurns([turn("[Compacted prior context]"), turn("keep-b")]);
+
+    const hookDir = path.join(dir, ".git", "hooks");
+    fs.mkdirSync(hookDir, { recursive: true });
+    const hook = path.join(hookDir, "commit-msg");
+    fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+    fs.chmodSync(hook, 0o755);
+
+    await expect(store.commit({ message: "publish compact" })).rejects.toThrow();
+
+    const loaded = await store.load();
+    expect(turnTexts(loaded.turns)).toEqual(["keep-a", "keep-b", "drop-me"]);
+    expect(turnTexts(await store.readAt(published.hash))).toEqual(["keep-a", "keep-b", "drop-me"]);
+  });
+
   test("append writeTurns is still visible before commit", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
