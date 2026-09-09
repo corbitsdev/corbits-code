@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
 import { killProcessTree, type BackgroundShellRegistry } from "../shell/background-shell.js";
@@ -207,9 +207,32 @@ export class BoundedShellOutput {
   }
 }
 
+function waitChildClose(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
+
+const SHELL_GUARD_DISPOSE_REAP_MS = 2_000;
+
+async function reapLiveChildren(liveChildren: Set<ChildProcess>): Promise<void> {
+  const remaining = [...liveChildren];
+  for (const child of remaining) killProcessTree(child);
+  if (remaining.length === 0) return;
+  await Promise.race([
+    Promise.all(remaining.map(waitChildClose)),
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, SHELL_GUARD_DISPOSE_REAP_MS);
+      if (typeof timer.unref === "function") timer.unref();
+    }),
+  ]);
+}
 export async function runGuardedShell(
   args: RunShellArgs,
   signal: AbortSignal,
+  liveChildren?: Set<ChildProcess>,
 ): Promise<GuardedShellResult> {
   signal.throwIfAborted();
 
@@ -230,8 +253,13 @@ export async function runGuardedShell(
       // settings.env overrides layered on top.
       env: args.env !== undefined ? { ...process.env, ...args.env } : undefined,
     });
+    liveChildren?.add(child);
+    const dropLive = () => {
+      liveChildren?.delete(child);
+    };
 
     if (child.stdout === null || child.stderr === null) {
+      dropLive();
       reject(new Error("child process streams are null; stdio misconfigured"));
       return;
     }
@@ -300,10 +328,12 @@ export async function runGuardedShell(
     };
 
     child.on("error", (err) => {
+      dropLive();
       settle(new Error(`failed to spawn command: ${args.command}`, { cause: err }));
     });
 
     child.on("close", (code, sig) => {
+      dropLive();
       if (settled) return;
       const exitCode = code ?? (sig !== null ? 128 : 1);
       finishOutput(exitCode, false);
@@ -347,6 +377,8 @@ export function shellGuardPlugin(
   const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
+  const liveChildren = new Set<ChildProcess>();
+  let disposal: Promise<void> | undefined;
   // Serialize run_shell so concurrent tools cannot race retained cwd updates
   // (last-writer-wins or a non-cd call finishing after a cd and resetting cwd).
   let shellChain: Promise<unknown> = Promise.resolve();
@@ -442,6 +474,7 @@ export function shellGuardPlugin(
                 ...(env !== undefined ? { env } : {}),
               },
               signal,
+              liveChildren,
             );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
@@ -526,6 +559,11 @@ export function shellGuardPlugin(
       }
 
       return next(call, signal);
+    },
+    dispose: () => {
+      if (disposal !== undefined) return disposal;
+      disposal = reapLiveChildren(liveChildren);
+      return disposal;
     },
   };
 }

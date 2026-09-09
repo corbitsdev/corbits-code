@@ -96,9 +96,10 @@ describe("sub-agent teardown", () => {
     expect(snapshot().inFlightToolCalls).toBe(0);
   });
 
-  test("teardown limits document missing global spawn registry", () => {
+  test("teardown limits document shell-guard dispose reaping", () => {
     expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("posixTools.dispose");
-    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("spawn hooks");
+    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("shell-guard");
+    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("ripgrep");
   });
 });
 

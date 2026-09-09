@@ -747,4 +747,35 @@ describe("shellGuardPlugin", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/aborted/);
   });
+
+  test("dispose without abort kills tagged grandchildren and is idempotent", async () => {
+    if (process.platform === "win32") return;
+    const plugin = shellGuardPlugin(process.cwd());
+    const handler = plugin.middleware!(fallback);
+    const token = `ic_guard_dispose_${randomUUID()}`;
+    const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
+    const running = handler(
+      { id: "dispose-live", name: "run_shell", arguments: { command: cmd } },
+      neverAbort(),
+    );
+    try {
+      const started = Date.now();
+      while (Date.now() - started < 5_000) {
+        const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+        if ((probe.stdout?.trim() ?? "").length > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(spawnSync("pgrep", ["-f", token], { encoding: "utf8" }).stdout?.trim() ?? "").not.toBe("");
+      expect(plugin.dispose).toBeDefined();
+      await plugin.dispose!();
+      await new Promise((r) => setTimeout(r, 300));
+      const after = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+      expect(after.stdout?.trim() ?? "").toBe("");
+      expect(after.status).not.toBe(0);
+      await plugin.dispose!();
+      await running;
+    } finally {
+      spawnSync("pkill", ["-9", "-f", token]);
+    }
+  });
 });
