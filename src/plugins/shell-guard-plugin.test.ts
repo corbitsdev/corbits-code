@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
-
-import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { createBackgroundShellRegistry } from "../shell/background-shell.js";
@@ -14,6 +14,7 @@ import {
   MAX_SHELL_OUTPUT_BYTES,
   advertiseShellGuardTimeout,
   resolveShellTimeoutMs,
+  reapLiveChildren,
   runGuardedShell,
   shellGuardPlugin,
 } from "./shell-guard-plugin.js";
@@ -780,4 +781,15 @@ describe("shellGuardPlugin", () => {
       spawnSync("pkill", ["-9", "-f", token]);
     }
   });
+
+  test("dispose fails when a child survives the reap window", async () => {
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: () => true,
+    }) as ChildProcess;
+    await expect(reapLiveChildren(new Set([child]))).rejects.toThrow(
+      /still live after 2000ms reap/,
+    );
+  }, 10_000);
 });
