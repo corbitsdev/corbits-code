@@ -8,7 +8,12 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor } from "./compaction.js";
 import { compactionResumeDeltaFor, compactionThresholdFor } from "../provider/context-window.js";
-import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
+import {
+  COMPACTOR_KEEP_RECENT_TURNS,
+  COMPACT_SPACER_TEXT,
+  LEGACY_COMPACT_SPACER_TEXT,
+  compactorNoOpFloor,
+} from "../session/compactor.js";
 
 const capabilities = {
   infer: (options?: unknown) => ({ type: "infer", ...(options !== undefined ? { options } : {}) }),
@@ -37,10 +42,16 @@ function turnsOfLength(count: number, textLength: number): ConversationTurn[] {
   })) as unknown as ConversationTurn[];
 }
 
-function inferenceDone(input: number): Extract<ReactorInboundEvent, { type: "inference.done" }> {
+function inferenceDone(
+  input: number,
+  text = "",
+): Extract<ReactorInboundEvent, { type: "inference.done" }> {
   return {
     type: "inference.done",
-    turn: { role: "assistant", content: [] },
+    turn: {
+      role: "assistant",
+      content: text.length > 0 ? [{ type: "text", text }] : [],
+    },
     usage: usage(input),
     source: { sourceId: "s", provider: "p", model: "m" },
   } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
@@ -442,5 +453,50 @@ describe("compaction governor", () => {
     const actions = governor.interceptOverflow(overflowError(), capabilities);
     expect(actions).not.toBeNull();
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("consecutive threshold and idle compacts are bounded without a non-echo turn", () => {
+    const governor = createCompactionGovernor(() => {});
+    const echo = LEGACY_COMPACT_SPACER_TEXT;
+    governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
+    governor.noteInferenceDone(inferenceDone(overThreshold + resumeDelta, echo), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold + resumeDelta, echo), tenTurns);
+    governor.noteInferenceDone(inferenceDone(overThreshold + 2 * resumeDelta, echo), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+    governor.noteIdleTurn(inferenceDone(overThreshold + 2 * resumeDelta, echo), [
+      { type: "reply", content: "done" },
+    ]);
+    expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
+
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + 3 * resumeDelta, "real work"),
+      tenTurns,
+    );
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+  });
+
+  test("spacer-echo terminal does not arm idle compact", () => {
+    let continuations = 0;
+    const governor = createCompactionGovernor(() => continuations++);
+    governor.noteInferenceDone(inferenceDone(overThreshold, LEGACY_COMPACT_SPACER_TEXT), tenTurns);
+    governor.noteIdleTurn(inferenceDone(overThreshold, LEGACY_COMPACT_SPACER_TEXT), [
+      { type: "reply", content: LEGACY_COMPACT_SPACER_TEXT },
+    ]);
+    expect(continuations).toBe(0);
+    governor.noteIdleTurn(inferenceDone(overThreshold, COMPACT_SPACER_TEXT), [
+      { type: "reply", content: COMPACT_SPACER_TEXT },
+    ]);
+    expect(continuations).toBe(0);
+    expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
+
+    governor.noteIdleTurn(inferenceDone(overThreshold, "done"), [
+      { type: "reply", content: "done" },
+    ]);
+    expect(continuations).toBe(1);
   });
 });

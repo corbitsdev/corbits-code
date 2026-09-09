@@ -10,7 +10,12 @@ import {
   compactionThresholdFor,
   contextTokensFromUsage,
 } from "../provider/context-window.js";
-import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
+import {
+  COMPACTOR_KEEP_RECENT_TURNS,
+  assistantTextIsCompactSpacerEcho,
+  compactorNoOpFloor,
+  isCompactSpacerEchoTurn,
+} from "../session/compactor.js";
 import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
 import { onTurnBoundary } from "./reactor-events.js";
 
@@ -22,6 +27,7 @@ const COMPACTOR_NAME = "pruning-compactor";
 // would spend a reactor cycle that shrinks nothing.
 const MIN_TURNS_TO_COMPACT = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
 const MAX_OVERFLOW_RECOVERIES = 2;
+const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
 
 // A compact action runs in its own reactor cycle, after which the reactor
 // idles until the next inbound event. Worker loops (sub-agents, the coding
@@ -45,6 +51,7 @@ export function createCompactionGovernor(
   // operator question to answer). Distinct from postCompactInfer.
   let postCompactMeter = false;
   let overflowRecoveries = 0;
+  let consecutiveThresholdCompacts = 0;
   // Set whenever the arming decision fell back to the local estimate because
   // the provider omitted usage or reported zero, so callers rendering a meter
   // can flag the number as approximate instead of implying provider-grade
@@ -90,11 +97,28 @@ export function createCompactionGovernor(
     awaitingPostCompactMeasurement = true;
   }
 
+  function atThresholdCompactCap(): boolean {
+    return consecutiveThresholdCompacts >= MAX_CONSECUTIVE_THRESHOLD_COMPACTS;
+  }
+
+  function issueThresholdCompact(): void {
+    consecutiveThresholdCompacts++;
+    noteCompactIssued();
+  }
+
+  function isSpacerEchoTerminal(event: ReactorInboundEvent, actions: ReactorAction[]): boolean {
+    if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn)) return true;
+    return actions.some((a) => a.type === "reply" && assistantTextIsCompactSpacerEcho(a.content));
+  }
+
   function noteInferenceDone(
     event: Extract<ReactorInboundEvent, { type: "inference.done" }>,
     turns: readonly ConversationTurn[],
   ): void {
     overflowRecoveries = 0;
+    if (!isCompactSpacerEchoTurn(event.turn)) {
+      consecutiveThresholdCompacts = 0;
+    }
     if (requestContinuation === undefined) return;
     syncFromTurns(turns);
     lastModel = event.source?.model;
@@ -138,9 +162,10 @@ export function createCompactionGovernor(
     if (event.type !== "tool.done") return null;
     if (!pending && !(usingEstimate && isOverThreshold(estimate.tokens))) return null;
     if (!actions.some((a) => a.type === "infer")) return null;
+    if (atThresholdCompactCap()) return null;
     pending = false;
     postCompactInfer = true;
-    noteCompactIssued();
+    issueThresholdCompact();
     requestContinuation?.();
     return [
       ...actions.filter((a) => a.type !== "infer"),
@@ -154,7 +179,9 @@ export function createCompactionGovernor(
   // compact when it (or the operator's next message) arrives.
   function noteIdleTurn(event: ReactorInboundEvent, actions: ReactorAction[]): void {
     if (!pending || idlePending || requestContinuation === undefined) return;
+    if (atThresholdCompactCap()) return;
     if (!onTurnBoundary(event)) return;
+    if (isSpacerEchoTerminal(event, actions)) return;
     const terminal =
       actions.some((a) => a.type === "reply" || a.type === "wait") &&
       !actions.some((a) => a.type === "infer" || a.type === "execute_tools");
@@ -168,6 +195,10 @@ export function createCompactionGovernor(
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
     if (!idlePending || event.type !== "message.received") return null;
+    if (atThresholdCompactCap()) {
+      idlePending = false;
+      return null;
+    }
     idlePending = false;
     pending = false;
     const content = typeof event.message.content === "string" ? event.message.content : "";
@@ -180,7 +211,7 @@ export function createCompactionGovernor(
     } else {
       postCompactMeter = true;
     }
-    noteCompactIssued();
+    issueThresholdCompact();
     requestContinuation?.();
     return [capabilities.compact(COMPACTOR_NAME, "context-threshold")];
   }

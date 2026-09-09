@@ -10,7 +10,11 @@ import type {
   ConversationTurn,
   RetryPolicy,
 } from "@intx/types/runtime";
-import { type SessionMetadata, type TaskBoundary } from "../session/compactor.js";
+import {
+  type SessionMetadata,
+  type TaskBoundary,
+  isCompactSpacerEchoTurn,
+} from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
 import { onTurnBoundary } from "./reactor-events.js";
@@ -98,6 +102,9 @@ function ensureCycleSettlesWithReply(
 const MAX_OPEN_TASK_NUDGES = 3;
 const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
 const MAX_INFERENCE_RECOVERIES = 2;
+const MAX_SPACER_ECHO_NUDGES = 2;
+
+const SPACER_ECHO_NUDGE = "Continue the task. Do not repeat internal markers.";
 
 const IDLE_OPEN_TASK_NUDGE =
   "\n\nYou are ending your turn while tasks are still open (todo/doing). " +
@@ -394,6 +401,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private idleTerminationNudges = 0;
   private declinedTerminationNudges = 0;
   private inferenceRecoveries = 0;
+  private spacerEchoNudges = 0;
   private lastInferenceTurnHadContent = false;
   private operatorJustResponded = false;
   private tasks: Task[] = [];
@@ -633,6 +641,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
       this.inferenceRecoveries = 0;
+      this.spacerEchoNudges = 0;
       this.toolOnlyStreak = 0;
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
@@ -682,9 +691,10 @@ class ChatDirectorImpl extends DefaultDirector {
     if (onTurnBoundary(event)) {
       this.turnCount++;
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
-      const hasText = event.turn.content.some(
-        (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
-      );
+      const hasText =
+        event.turn.content.some(
+          (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
+        ) && !isCompactSpacerEchoTurn(event.turn);
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
 
       // toolOnlyStreak is narration-sensitive: any turn with text clears it
@@ -793,6 +803,14 @@ class ChatDirectorImpl extends DefaultDirector {
     this.compaction.syncFromTurns(turns);
     if (onTurnBoundary(event)) {
       this.compaction.noteInferenceDone(event, turns);
+    }
+
+    if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn)) {
+      if (this.spacerEchoNudges < MAX_SPACER_ECHO_NUDGES) {
+        this.spacerEchoNudges++;
+        return inferWithNudge(capabilities, SPACER_ECHO_NUDGE);
+      }
+      return capabilities.wait();
     }
 
     const base = await super.decide(event, state, capabilities);

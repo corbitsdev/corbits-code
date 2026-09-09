@@ -221,7 +221,10 @@ export const COMPACTED_PREFIX = "[Compacted prior context]";
 
 // Inserted between a frozen prefix that ends on a user summary and a newly
 // appended user summary so the assembled history stays role-alternating.
-export const COMPACT_SPACER_TEXT = "[compaction]";
+// Non-lexical so the model does not copy it as a finished reply; still a
+// non-empty text block so Chat Completions adapters keep the assistant turn.
+export const COMPACT_SPACER_TEXT = "\u2063";
+export const LEGACY_COMPACT_SPACER_TEXT = "[compaction]";
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
@@ -699,15 +702,39 @@ function firstTextBlock(turn: ConversationTurn): string | undefined {
   return undefined;
 }
 
+function joinedTextBlocks(turn: ConversationTurn): string {
+  let out = "";
+  for (const block of turn.content) {
+    if (block.type === "text") out += block.text;
+  }
+  return out;
+}
+
+export function assistantTextIsCompactSpacerEcho(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed === COMPACT_SPACER_TEXT || trimmed === LEGACY_COMPACT_SPACER_TEXT;
+}
+
+export function isCompactSpacerEchoTurn(turn: ConversationTurn): boolean {
+  for (const block of turn.content) {
+    if (block.type === "tool_call") return false;
+  }
+  return assistantTextIsCompactSpacerEcho(joinedTextBlocks(turn));
+}
+
 function isCompactedSummaryTurn(turn: ConversationTurn): boolean {
   if (turn.role !== "user") return false;
   const text = firstTextBlock(turn);
   return text !== undefined && text.startsWith(COMPACTED_PREFIX);
 }
 
-function isCompactSpacerTurn(turn: ConversationTurn): boolean {
+// Harness spacers omit `model`; model-produced assistant turns always have it.
+// Matching on text alone would freeze a model echo of the marker into the prefix.
+export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
   if (turn.role !== "assistant") return false;
-  return firstTextBlock(turn) === COMPACT_SPACER_TEXT;
+  if (turn.model !== undefined) return false;
+  const text = firstTextBlock(turn);
+  return text === COMPACT_SPACER_TEXT || text === LEGACY_COMPACT_SPACER_TEXT;
 }
 
 // Leading run of prior summaries plus the spacers between them. Walks from
@@ -718,7 +745,7 @@ function frozenPrefixLength(turns: readonly ConversationTurn[]): number {
   let i = 0;
   while (i < turns.length && isCompactedSummaryTurn(turns[i]!)) {
     i++;
-    if (i < turns.length && isCompactSpacerTurn(turns[i]!)) i++;
+    if (i < turns.length && isHarnessCompactSpacer(turns[i]!)) i++;
   }
   return i;
 }
@@ -736,7 +763,7 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
 
   return {
     name: "pruning-compactor",
-    version: "1.4.0",
+    version: "1.4.1",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
