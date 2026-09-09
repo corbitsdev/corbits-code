@@ -165,7 +165,7 @@ export function pendingAskWakeText(wake: PendingAskWake): string {
     "",
     wake.question,
     "",
-    `The worker — not the operator — raised this. Answer it with send_input (soft) targeting agent_id ${wake.sessionId}; do not relay to the operator unless it genuinely needs them.`,
+    `The worker — not the operator — raised this. Answer it with send_input (soft) using target ${wake.sessionId}; do not relay to the operator unless it genuinely needs them.`,
   ].join("\n");
 }
 
