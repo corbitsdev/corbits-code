@@ -110,7 +110,6 @@ test("corbits-skills catalog lists 20 skills with name and description", async (
   }
 });
 
-
 test("first-party skills are how-to playbooks, not director personas", async () => {
   const gaasOverlap = new Set([
     "ast-grep",
