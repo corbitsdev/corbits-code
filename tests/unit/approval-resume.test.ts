@@ -5,6 +5,7 @@ import type { ConversationTurn, InboundMessage } from "@intx/types/runtime";
 
 import type { PermissionGate } from "../../src/permission/gate.js";
 import { createApprovalResume } from "../../src/session/approval-resume.js";
+import { createDeliveryGeneration } from "../../src/tui/queued-delivery.js";
 
 const SUSPENDED: SendResult = {
   type: "suspended",
@@ -182,5 +183,57 @@ describe("approval resume late-bind", () => {
       outcome: "approved",
     });
     expect(correlationHeaders(delivered[0]).interchangeCorrelationId).toBe("corr-1");
+  });
+});
+
+describe("approval resume generation capture", () => {
+  test("overlay accept after a generation bump does not deliver", async () => {
+    const generation = createDeliveryGeneration();
+    const delivered: unknown[] = [];
+    const agent = {
+      deliver: (message: unknown) => delivered.push(message),
+      history: async () => [userTurn()],
+    };
+    const resume = createApprovalResume({
+      getAgent: () => agent,
+      captureGeneration: generation.capture,
+      deliver: (message, stillCurrent) => {
+        if (!stillCurrent()) return;
+        delivered.push(message);
+      },
+      gate: {
+        resolveSuspended: async () => {
+          generation.bump();
+          return { allow: true };
+        },
+      } as unknown as PermissionGate,
+    });
+
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    expect(delivered).toEqual([]);
+  });
+
+  test("a live generation still delivers after the overlay", async () => {
+    const generation = createDeliveryGeneration();
+    const delivered: unknown[] = [];
+    const agent = {
+      deliver: (message: unknown) => delivered.push(message),
+      history: async () => [userTurn()],
+    };
+    const resume = createApprovalResume({
+      getAgent: () => agent,
+      captureGeneration: generation.capture,
+      deliver: (message, stillCurrent) => {
+        if (!stillCurrent()) return;
+        delivered.push(message);
+      },
+      gate: { resolveSuspended: async () => ({ allow: true }) } as unknown as PermissionGate,
+    });
+
+    expect(await resume.handle(SUSPENDED)).toBe(true);
+    expect(delivered).toHaveLength(1);
+    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+      outcome: "approved",
+    });
   });
 });

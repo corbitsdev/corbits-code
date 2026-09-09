@@ -375,8 +375,8 @@ export async function assembleTUISession(
   const deliveryGeneration = createDeliveryGeneration();
   const approvalResume = createApprovalResume({
     getAgent: () => state.agentProxy ?? state.currentAgent,
-    deliver: (message) => {
-      const stillCurrent = deliveryGeneration.capture();
+    captureGeneration: deliveryGeneration.capture,
+    deliver: (message, stillCurrent) => {
       return sessionOps.enqueue(async () => {
         if (!stillCurrent()) return;
         if (state.fatalBuildError !== null) throw state.fatalBuildError;

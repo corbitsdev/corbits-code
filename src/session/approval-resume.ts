@@ -114,7 +114,10 @@ export function createApprovalResume(args: {
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
   // TUI session queue. When present, each decision is awaited through this
   // seam; exec omits it and uses getAgent().deliver.
-  deliver?: (message: InboundMessage) => void | Promise<void>;
+  deliver?: (message: InboundMessage, stillCurrent: () => boolean) => void | Promise<void>;
+  // TUI: capture at handle() start so /clear during the overlay drops the
+  // decision instead of delivering into the new session. Exec omits this.
+  captureGeneration?: () => () => boolean;
   gate: PermissionGate;
 }): ApprovalResume {
   const { getAgent, gate } = args;
@@ -127,18 +130,20 @@ export function createApprovalResume(args: {
     return agent;
   };
 
-  const deliverDecision = async (message: InboundMessage): Promise<void> => {
-    if (args.deliver !== undefined) {
-      await args.deliver(message);
-      return;
-    }
-    requireAgent().deliver(message);
-  };
-
   return {
     handle: async (result) => {
       if (result.type !== "suspended") return false;
+      const stillCurrent = args.captureGeneration?.() ?? (() => true);
       const { correlationId, approvalSnapshot } = result;
+
+      const deliverDecision = async (message: InboundMessage): Promise<void> => {
+        if (!stillCurrent()) return;
+        if (args.deliver !== undefined) {
+          await args.deliver(message, stillCurrent);
+          return;
+        }
+        requireAgent().deliver(message);
+      };
 
       // Turn-count watermark for the settled guard below: a "approval timed
       // out" tool result appended after this point means the reactor settled
@@ -164,6 +169,7 @@ export function createApprovalResume(args: {
       }
 
       const outcome = await gate.resolveSuspended(request);
+      if (!stillCurrent()) return true;
       if (settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)) {
         // The reactor already answered the parked call (its approval timeout
         // fired while the surface was still up). Delivering now would append
