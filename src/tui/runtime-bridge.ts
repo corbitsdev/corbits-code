@@ -221,6 +221,12 @@ export interface SessionBridge {
    */
   beginSystemContinuation: (text: string) => void;
   /**
+   * Occupancy send failed after beginSystemContinuation. Re-arm the dry-open
+   * latch, drop the continuation hold, and idle so follow-ups can drain and a
+   * later settle can take another occupancy shot.
+   */
+  abortSystemContinuation: () => void;
+  /**
    * Occupancy owner for dry+open continuation. Called once from
    * settleRunToIdle when a latched fleet-dry edge is still dry. Return true
    * if a continuation was sent (run stays busy).
@@ -1602,10 +1608,24 @@ export function attachSessionBridge(
       const t = text.trim();
       if (t.length === 0) return;
       bag.pendingEchoes.push(t);
+      bag.lastSentMessage = t;
       bag.awaitingContinuationInference = true;
       shell.session = setRunState(shell.session, "busy");
       bag.turn = turnStateOnSubmit(bag.turn, now());
       paintChrome(shell);
+      paintPhase();
+    },
+    abortSystemContinuation: () => {
+      if (bag.disposed) return;
+      bag.awaitingContinuationInference = false;
+      bag.pendingDryOpenDrive = true;
+      bag.lastSentMessage = "";
+      flushOpenRow(shell, bag);
+      bag.turnThinking = null;
+      shell.inFlightTool = null;
+      shell.session = setRunState(shell.session, "idle");
+      drainAtBoundary(shell, bag);
+      bag.turn = turnStateOnInterrupt(bag.turn, now());
       paintPhase();
     },
     setDryOpenTaskDriver: (driver) => {

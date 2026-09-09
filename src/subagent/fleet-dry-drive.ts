@@ -166,6 +166,7 @@ export function driveOpenTasksAfterFleetDry(args: {
   lanes: readonly FleetDryLane[];
   beginSystemContinuation: (prompt: string) => void;
   send: (prompt: string) => unknown;
+  onSendFailure?: () => void;
 }): boolean {
   const tasks = [...args.openTasks];
   if (
@@ -186,6 +187,10 @@ export function driveOpenTasksAfterFleetDry(args: {
       args.mailbox?.take(report.agent_id);
     }
   };
+  const fail = (): boolean => {
+    args.onSendFailure?.();
+    return false;
+  };
   try {
     args.beginSystemContinuation(prompt);
     const sent = args.send(prompt);
@@ -193,14 +198,18 @@ export function driveOpenTasksAfterFleetDry(args: {
       void sent.then(
         (result) => {
           if (result !== false) takeReports();
+          else args.onSendFailure?.();
         },
-        () => undefined,
+        () => {
+          args.onSendFailure?.();
+        },
       );
       return true;
     }
-    if (sent !== false) takeReports();
+    if (sent === false) return fail();
+    takeReports();
   } catch {
-    return false;
+    return fail();
   }
   return true;
 }

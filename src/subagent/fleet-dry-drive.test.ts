@@ -502,4 +502,103 @@ describe("driveOpenTasksAfterFleetDry", () => {
     await Promise.resolve();
     expect(records.get("w1")?.collected).toBe(true);
   });
+
+  test("sync send false returns false, calls onSendFailure, and leaves mailbox uncollected", () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    let failures = 0;
+    const driven = driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => false,
+      onSendFailure: () => {
+        failures += 1;
+      },
+    });
+    expect(driven).toBe(false);
+    expect(failures).toBe(1);
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
+  test("sync send throw calls onSendFailure", () => {
+    let failures = 0;
+    const driven = driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox: undefined,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => {
+        throw new Error("send failed");
+      },
+      onSendFailure: () => {
+        failures += 1;
+      },
+    });
+    expect(driven).toBe(false);
+    expect(failures).toBe(1);
+  });
+
+  test("TUI send false after handleSendFailure calls onSendFailure", async () => {
+    let failures = 0;
+    const driven = driveOpenTasksAfterFleetDry({
+      deferredDryEdge: true,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox: undefined,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: async () => false,
+      onSendFailure: () => {
+        failures += 1;
+      },
+    });
+    expect(driven).toBe(true);
+    expect(failures).toBe(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(failures).toBe(1);
+  });
+
+  test("TUI send rejection calls onSendFailure", async () => {
+    let failures = 0;
+    const driven = driveOpenTasksAfterFleetDry({
+      deferredDryEdge: true,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox: undefined,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: async () => {
+        await Promise.resolve();
+        throw new Error("agentProxy.send failed");
+      },
+      onSendFailure: () => {
+        failures += 1;
+      },
+    });
+    expect(driven).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(failures).toBe(1);
+  });
 });

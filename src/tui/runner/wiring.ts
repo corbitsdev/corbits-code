@@ -180,6 +180,9 @@ export function wirePostStartup(
         sessionBridge.beginSystemContinuation(prompt);
       },
       send: (prompt) => send(buildFleetDryContinuationMessage(prompt)),
+      onSendFailure: () => {
+        sessionBridge.abortSystemContinuation();
+      },
     });
   });
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
