@@ -154,6 +154,8 @@ export function pendingAskSnapshot(
   return asks;
 }
 
+export const ASK_DIRECTOR_WAKE_PREFIX = "ask_director wake";
+
 /**
  * The wake turn text. It must read as the worker's question reaching the
  * parent, not as the operator being asked — the parent answers via
@@ -161,7 +163,7 @@ export function pendingAskSnapshot(
  */
 export function pendingAskWakeText(wake: PendingAskWake): string {
   return [
-    `ask_director wake — worker ${wake.agentId} (${wake.description}) parked question ${wake.questionId} while this session was not collecting:`,
+    `${ASK_DIRECTOR_WAKE_PREFIX} — worker ${wake.agentId} (${wake.description}) parked question ${wake.questionId} while this session was not collecting:`,
     "",
     wake.question,
     "",
