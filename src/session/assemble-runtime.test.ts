@@ -223,7 +223,7 @@ describe("assembleChatAgent", () => {
             expect(agentSessionIds).toEqual(["build-session"]);
             expect(agentStorages).toEqual([fakeStorage]);
             expect(agentAudits).toEqual([fakeStorage]);
-            expect(agentAudits[0]).toBe(agentStorages[0]);
+            expect(Object.is(agentAudits[0], agentStorages[0])).toBe(true);
             expect(agentCompactors).toEqual([builtCompactor]);
           },
         );

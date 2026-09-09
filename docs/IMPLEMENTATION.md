@@ -424,9 +424,10 @@ segments (`turns-0001.jsonl`, ...) that seal at 256KB, so `git add` re-hashes on
 the small active segment instead of the whole growing file. Segment zero keeps the
 original filename, so a legacy monolithic `turns.jsonl` reads back as its own first
 segment. `load` and `readAt` concatenate every segment in order; a torn final line
-in the active segment (from a crash mid-write) is dropped on resume. Only tool-output
-blobs new since the last commit are staged, and stale segments deleted by a
-history rewrite (compaction) are removed from the tree on the next commit. The
+in the active segment (from a crash mid-write) is dropped on resume. The wrapper
+stages extra tool-output blobs it wrote since the last commit; vendor
+`base.commit()` also stages the whole `tool-output/` tree. Stale segments deleted
+by a history rewrite (compaction) are removed from the tree on the next commit. The
 per-commit git tree still grows one entry per spilled tool-output blob across the
 session; that tree re-write is inherent to git and left as residual cost.
 

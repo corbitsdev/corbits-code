@@ -307,11 +307,7 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
 }
 
 async function listIndexPaths(dir: string): Promise<Set<string>> {
-  try {
-    return new Set(await git.listFiles({ fs, dir }));
-  } catch {
-    return new Set();
-  }
+  return new Set(await git.listFiles({ fs, dir }));
 }
 
 async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<string[]> {
@@ -383,10 +379,10 @@ function extraCommitPaths(paths: readonly string[]): string[] {
   return paths.filter((filepath) => !VENDOR_COMMIT_ROOT_FILES.has(filepath));
 }
 
-export type SessionStores = {
+export interface SessionStores {
   storage: ContextStore;
   audit: AuditStore;
-};
+}
 
 /**
  * Local wrapper around the Interchange git store that avoids O(session length)

@@ -588,7 +588,7 @@ describe("createSessionStores", () => {
   test("exposes the same object as ContextStore and AuditStore", async () => {
     const dir = tempDir();
     const { storage, audit } = await createSessionStores(dir);
-    expect(storage).toBe(audit);
+    expect(Object.is(storage, audit)).toBe(true);
     expect(typeof audit.commitAudit).toBe("function");
     expect(typeof audit.commitErrors).toBe("function");
     expect(typeof audit.loadAudit).toBe("function");

@@ -35,7 +35,16 @@ async function loadPersistedKeyPair(
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
     throw cause;
   }
-  const parsed = PersistedKeyPair(JSON.parse(raw) as unknown);
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch (cause) {
+    if (cause instanceof SyntaxError) {
+      throw new Error(`Invalid commit signing key at ${filePath}`, { cause });
+    }
+    throw cause;
+  }
+  const parsed = PersistedKeyPair(parsedJson);
   if (parsed instanceof type.errors) {
     throw new Error(`Invalid commit signing key at ${filePath}: ${parsed.summary}`);
   }
@@ -52,16 +61,27 @@ export async function loadOrCreateCommitSigner(dir: string): Promise<CommitSigne
   if (keyPair === null) {
     const generated = await generateKeyPair();
     await fs.promises.mkdir(keyDir, { recursive: true });
-    await fs.promises.writeFile(
-      filePath,
-      JSON.stringify({
-        privateKey: Buffer.from(generated.privateKey).toString("base64"),
-        publicKey: Buffer.from(generated.publicKey).toString("base64"),
-      }),
-      { encoding: "utf8", mode: 0o600 },
-    );
-    log.debug?.("wrote session commit signing key");
-    keyPair = generated;
+    try {
+      await fs.promises.writeFile(
+        filePath,
+        JSON.stringify({
+          privateKey: Buffer.from(generated.privateKey).toString("base64"),
+          publicKey: Buffer.from(generated.publicKey).toString("base64"),
+        }),
+        { encoding: "utf8", mode: 0o600, flag: "wx" },
+      );
+      log.debug?.("wrote session commit signing key");
+      keyPair = generated;
+    } catch (cause) {
+      if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") {
+        keyPair = await loadPersistedKeyPair(filePath);
+        if (keyPair === null) {
+          throw new Error(`Commit signing key missing after EEXIST at ${filePath}`);
+        }
+      } else {
+        throw cause;
+      }
+    }
   }
   return (payload) => createSSHSignature(payload, keyPair.privateKey, keyPair.publicKey);
 }
