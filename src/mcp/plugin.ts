@@ -1,7 +1,7 @@
 import type { AgentTool } from "@intx/agent";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { PermissionGate } from "../permission/gate.js";
-import { gateToolCall } from "../plugins/permission-plugin.js";
+import { gateAgentTools } from "../plugins/permission-plugin.js";
 import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import {
   truncateToolResultContent,
@@ -27,14 +27,7 @@ function sanitizeMcpResultContent(
   return truncateToolResultContent(scrubSecretShapedContent(content), undefined, spill);
 }
 
-// Convert a connected client's tools into AgentTools for the dynamic runner used
-// by the TUI. These tools live in a separate runner from the posix tool plugin
-// chain, so each handler is wrapped with the permission gate directly.
-export function mcpClientToAgentTools(
-  client: MCPClient,
-  gate: PermissionGate,
-  spillOptions: McpSpillOptions = {},
-): AgentTool[] {
+export function mcpClientTools(client: MCPClient, spillOptions: McpSpillOptions = {}): AgentTool[] {
   const { getBlobWriter, getContextDir, excludeToolNames = [] } = spillOptions;
   const excluded = new Set(excludeToolNames);
 
@@ -47,28 +40,38 @@ export function mcpClientToAgentTools(
         description: `[${client.serverName}] ${tool.description}`,
         inputSchema: tool.inputSchema,
       },
-      handler: (call: ToolCall, signal: AbortSignal): Promise<ToolResult> =>
-        gateToolCall(gate, call, signal, async () => {
-          try {
-            const content = await client.call(tool.name, call.arguments, signal);
-            const writeBlob = getBlobWriter?.();
-            const contextDir = getContextDir?.();
-            const spill =
-              writeBlob !== undefined
-                ? {
-                    callId: call.id,
-                    writeBlob,
-                    ...(contextDir !== undefined ? { contextDir } : {}),
-                  }
-                : undefined;
-            return { callId: call.id, content: await sanitizeMcpResultContent(content, spill) };
-          } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
-          }
-        }),
+      handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
+        try {
+          const content = await client.call(tool.name, call.arguments, signal);
+          const writeBlob = getBlobWriter?.();
+          const contextDir = getContextDir?.();
+          const spill =
+            writeBlob !== undefined
+              ? {
+                  callId: call.id,
+                  writeBlob,
+                  ...(contextDir !== undefined ? { contextDir } : {}),
+                }
+              : undefined;
+          return { callId: call.id, content: await sanitizeMcpResultContent(content, spill) };
+        } catch (err) {
+          return {
+            callId: call.id,
+            content: err instanceof Error ? err.message : String(err),
+            isError: true,
+          };
+        }
+      },
     }));
+}
+
+// Convert a connected client's tools into AgentTools for the dynamic runner used
+// by the TUI. These tools live in a separate runner from the posix tool plugin
+// chain, so each handler is wrapped with the permission gate directly.
+export function mcpClientToAgentTools(
+  client: MCPClient,
+  gate: PermissionGate,
+  spillOptions: McpSpillOptions = {},
+): AgentTool[] {
+  return gateAgentTools(mcpClientTools(client, spillOptions), gate);
 }

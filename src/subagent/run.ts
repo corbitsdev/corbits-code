@@ -537,7 +537,7 @@ async function runSubAgentInner(
       ),
     }));
 
-    const inherited = params.inheritMcpTools?.() ?? [];
+    const inherited = params.inheritMcpTools?.(permissionGate) ?? [];
     tools = [
       ...tools,
       ...coreSubAgentWebTools(inherited),

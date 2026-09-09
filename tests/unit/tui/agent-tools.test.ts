@@ -73,6 +73,7 @@ await withMockedModule(
 );
 
 await withMockedModule(import.meta.resolve("../../../src/mcp/plugin.js"), () => ({
+  mcpClientTools: () => [],
   mcpClientToAgentTools: () => [],
 }));
 
@@ -90,6 +91,7 @@ await withMockedModule(import.meta.resolve("../../../src/plugins/verify-plugin.j
 
 await withMockedModule(import.meta.resolve("../../../src/plugins/permission-plugin.js"), () => ({
   permissionPlugin: () => ({}),
+  gateAgentTools: (tools: unknown) => tools,
   gateToolCall: async (
     _gate: unknown,
     call: ToolCall,

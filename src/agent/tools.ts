@@ -32,8 +32,9 @@ import {
   EXA_MCP_SERVER_NAME,
   isBuiltinExaMCPServer,
 } from "../mcp/exa.js";
-import { mcpClientToAgentTools } from "../mcp/plugin.js";
+import { mcpClientTools } from "../mcp/plugin.js";
 import { parseMcpToolName } from "../mcp/tool-name.js";
+import { gateAgentTools } from "../plugins/permission-plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
 import {
@@ -436,7 +437,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       fleetSessionsForDispose = fleetSessions;
       const fleetDeps = {
         permissionGate,
-        inheritMcpTools: () => inheritedMcpTools,
+        inheritMcpTools: (gate: PermissionGate) => gateAgentTools(inheritedMcpTools, gate),
         ...(shellTimeout !== undefined ? { shellTimeout } : {}),
         ...(shellEnv !== undefined ? { shellEnv } : {}),
         ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
@@ -836,12 +837,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return;
         }
         permissionGate.registerMcpClient(result.client);
-        const mcpTools = mcpClientToAgentTools(result.client, permissionGate, {
+        const mcpTools = mcpClientTools(result.client, {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
           ...(isBuiltinExaMCPServer(config) ? { excludeToolNames: ["web_fetch_exa"] } : {}),
         });
-        dynamicRunner.addTools(mcpTools);
+        dynamicRunner.addTools(gateAgentTools(mcpTools, permissionGate));
         inheritedMcpTools.push(...mcpTools);
         connectedClients.set(config.name, result.client);
       } catch (err) {

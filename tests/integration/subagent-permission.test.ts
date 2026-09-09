@@ -264,8 +264,7 @@ test.serial(
           close: async () => undefined,
         };
         params.permissionGate.registerMcpClient(client);
-        const tools = mcpClientToAgentTools(client, params.permissionGate);
-        params.inheritMcpTools = () => tools;
+        params.inheritMcpTools = (gate) => mcpClientToAgentTools(client, gate);
         harness.scenario.replyOnce("openai", {
           toolCalls: [{ name: "mcp__probe__mutate", args: {} }],
         });
@@ -274,6 +273,66 @@ test.serial(
         expect(calls).toBe(0);
         expect(asks).toBe(0);
         expect((await audit())[0]?.authz?.effect).toBe("deny");
+      },
+      (cwd) =>
+        createPermissionGate({
+          cwd,
+          approvals: [],
+          interactive: true,
+          auto: false,
+          skipPermissions: false,
+          reactorGated: false,
+          requestApproval: async () => {
+            asks++;
+            return { allow: true };
+          },
+        }),
+    );
+  },
+  20000,
+);
+
+test.serial(
+  "allowed inherited MCP call with middleware-gated parent does not requestApproval",
+  async () => {
+    let asks = 0;
+    await withWorker(
+      async ({ harness, params, audit }) => {
+        let calls = 0;
+        const client = {
+          serverName: "probe",
+          tools: [
+            {
+              name: "mutate",
+              description: "mutates",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+          call: async () => {
+            calls++;
+            return "changed";
+          },
+          close: async () => undefined,
+        };
+        params.permissionGate.registerMcpClient(client);
+        params.permissionGate.setSeededApprovals([
+          { tool: "mcp__probe__mutate", pattern: "mcp__probe__mutate" },
+        ]);
+        const authorize = params.permissionGate.authorizeCall;
+        params.permissionGate.authorizeCall = async (call) => {
+          const result = await authorize(call);
+          params.permissionGate.setSeededApprovals([]);
+          return result;
+        };
+        params.inheritMcpTools = (gate) => mcpClientToAgentTools(client, gate);
+        harness.scenario.replyOnce("openai", {
+          toolCalls: [{ name: "mcp__probe__mutate", args: {} }],
+        });
+        harness.scenario.replyOnce("openai", { text: report });
+        await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+        expect(calls).toBe(1);
+        expect(asks).toBe(0);
+        expect((await audit())[0]?.authz?.effect).toBe("allow");
       },
       (cwd) =>
         createPermissionGate({
