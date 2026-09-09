@@ -518,7 +518,10 @@ describe("chatDirector compaction", () => {
   }
 
   test("compacts at the tool.done pause once over threshold", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = createChatDirector("Corbits operating prompt", [], {
+      onTasksChange: () => {},
+      requestContinuation: () => {},
+    });
     await director.decide(overThresholdToolTurn(), longState, mockCapabilities);
     const actions = actionsArray(
       await director.decide(makeToolDoneEvent("t1"), longState, mockCapabilities),
@@ -535,6 +538,10 @@ describe("chatDirector compaction", () => {
       await director.decide(messageReceived(""), longState, mockCapabilities),
     );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
+    const infer = resumed.find((a) => a.type === "infer");
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
+    expect(options?.systemPrompt).toBe("Corbits operating prompt");
   });
 
   // CL-6910: `timeout`/`retryable` are owned entirely by the harness's own
@@ -602,7 +609,10 @@ describe("chatDirector compaction", () => {
 
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
     let continuations = 0;
-    const director = chatDirectorWithContinuation(() => continuations++);
+    const director = createChatDirector("Corbits operating prompt", [], {
+      onTasksChange: () => {},
+      requestContinuation: () => continuations++,
+    });
     const actions = actionsArray(
       await director.decide(overflowError(), longState, mockCapabilities),
     );
@@ -615,6 +625,10 @@ describe("chatDirector compaction", () => {
       await director.decide(messageReceived(""), longState, mockCapabilities),
     );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
+    const infer = resumed.find((a) => a.type === "infer");
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
+    expect(options?.systemPrompt).toBe("Corbits operating prompt");
   });
 
   test("overflow recovery is bounded so an incompressible history cannot loop forever", async () => {
@@ -1038,7 +1052,7 @@ describe("transient nudges", () => {
       source: "test",
     }) as unknown as ReactorInboundEvent;
 
-  test("open-task nudge uses ephemeralTurns, not systemPrompt", async () => {
+  test("open-task nudge uses ephemeralTurns and keeps the stable system prompt", async () => {
     const director = createChatDirector("stable-base", [], { onTasksChange: () => {} });
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
     const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
@@ -1050,6 +1064,6 @@ describe("transient nudges", () => {
     expect(options?.ephemeralTurns?.length ?? 0).toBeGreaterThan(0);
     const nudgeText = options?.ephemeralTurns?.[0]?.content?.find((b) => b.type === "text");
     expect(nudgeText?.type === "text" ? nudgeText.text : "").toContain("tasks are still open");
-    expect(options?.systemPrompt).toBeUndefined();
+    expect(options?.systemPrompt).toBe("stable-base");
   });
 });
