@@ -261,6 +261,10 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "load a listed skill's full instructions before doing work it covers",
   skill_search:
     "look up skill descriptions by capability (catalog — call directly, do not tool_search for this)",
+  search_archive:
+    "search this session's compaction evidence archive; returns archive:///{occurrenceId} refs only",
+  read_archive:
+    "read one evidence-archive occurrence by archive:///{occurrenceId} from search_archive",
 };
 
 export function buildAvailableTools(

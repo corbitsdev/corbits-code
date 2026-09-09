@@ -280,6 +280,8 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "use_skill",
   "skill_search",
   "search_agents",
+  "search_archive",
+  "read_archive",
   "spawn_agent",
   "wait_agents",
 ]);

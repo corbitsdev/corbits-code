@@ -1,6 +1,7 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import { evidenceArchivePathGuardPlugin } from "../plugins/evidence-archive-path-guard.js";
 import { deleteFilePlugin } from "../plugins/delete-file-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
@@ -104,6 +105,7 @@ export function buildCorePosixToolPlugins(
     resultTruncationPlugin(truncationOptions),
     toolResultSecretScrubPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd), { allowOutside }),
+    evidenceArchivePathGuardPlugin(),
     deleteFilePlugin(cwd, { allowOutside }),
     toolOutputUriPlugin(),
     secretGuardPlugin(),

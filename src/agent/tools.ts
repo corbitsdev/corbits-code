@@ -102,6 +102,7 @@ import { createUseSkillTool } from "./use-skill.js";
 import { createSkillSearchTool } from "./skill-search.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
+import { createSearchArchiveTool, createReadArchiveTool } from "./archive-tools.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
 import {
   createCodexToolProxies,
@@ -573,6 +574,9 @@ export async function createAgentToolset(
       : createWebFetchTool(),
     createWebSearchTool(),
     ...orchestratorTools,
+    ...(getEvidenceArchive !== undefined
+      ? [createSearchArchiveTool(getEvidenceArchive), createReadArchiveTool(getEvidenceArchive)]
+      : []),
     stringTool({
       definition: shellCollect.definition,
       handler: shellCollect.handler,

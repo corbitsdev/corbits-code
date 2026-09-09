@@ -110,6 +110,8 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "list_dir",
   "web_fetch",
   "web_search",
+  "search_archive",
+  "read_archive",
   "skill_search",
 ];
 
