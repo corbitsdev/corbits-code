@@ -132,6 +132,7 @@ export function wirePostStartup(
       services.subAgentSessions.cancelAll("Session closed");
     },
     closeAgent: () => liveAgent(state).close(),
+    disposeToolset: () => services.toolset.dispose(),
   });
   state.shutdownRuntime = shutdownRuntime;
   services.crashGuard.setDisposeHost(() => {

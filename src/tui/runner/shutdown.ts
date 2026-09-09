@@ -2,6 +2,14 @@ export interface RuntimeShutdownDeps {
   disposeHost: () => void;
   cancelWorkers: () => void;
   closeAgent: () => Promise<void>;
+  disposeToolset: () => Promise<void>;
+}
+
+function rethrowShutdownFailures(failures: unknown[]): void {
+  const first = failures[0];
+  if (first === undefined) return;
+  if (failures.length === 1) throw first;
+  throw new AggregateError(failures, "runtime shutdown failed");
 }
 
 /** Start every process-owned teardown path once, even when exit races a signal. */
@@ -13,21 +21,32 @@ export function createRuntimeShutdown(deps: RuntimeShutdownDeps): () => Promise<
     if (started) return completion;
     started = true;
 
+    const failures: unknown[] = [];
+
     try {
       deps.disposeHost();
-    } catch {
-      // Every teardown leg is best-effort; one failure must not strand the rest.
+    } catch (err) {
+      failures.push(err);
     }
     try {
       deps.cancelWorkers();
-    } catch {
-      // The primary agent still needs its abort even if a worker hook misbehaves.
+    } catch (err) {
+      failures.push(err);
     }
-    try {
-      completion = deps.closeAgent().catch(() => undefined);
-    } catch {
-      completion = Promise.resolve();
-    }
+
+    completion = (async () => {
+      try {
+        await deps.closeAgent();
+      } catch (err) {
+        failures.push(err);
+      }
+      try {
+        await deps.disposeToolset();
+      } catch (err) {
+        failures.push(err);
+      }
+      rethrowShutdownFailures(failures);
+    })();
     return completion;
   };
 }
