@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authFilePath, loadAuthState, saveAuthState, deleteAuthState } from "./auth-store.js";
@@ -23,6 +24,15 @@ const linear = { serverName: "linear", serverURL: "https://mcp.linear.app/mcp" }
 
 async function syncValue<T>(value: T | Promise<T>): Promise<T> {
   return await value;
+}
+
+async function saveClient(
+  provider: Awaited<ReturnType<typeof createOAuthProvider>>,
+  info: ReturnType<typeof clientInfo>,
+): Promise<void> {
+  const save = provider.saveClientInformation;
+  if (save === undefined) throw new Error("saveClientInformation is required");
+  await save(info);
 }
 
 describe("createOAuthProvider", () => {
@@ -236,6 +246,60 @@ describe("createOAuthProvider", () => {
     expect((await syncValue(b.tokens()))?.access_token).toBe("fresh");
   });
 
+  test("does not replace an in-progress PKCE verifier from a different-port sibling", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(a, clientInfo(62000));
+    await a.saveCodeVerifier("pkce-a");
+
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect(a.codeVerifier()).toBe("pkce-a");
+
+    await b.saveCodeVerifier("pkce-b");
+    expect(a.codeVerifier()).toBe("pkce-a");
+    expect(b.codeVerifier()).toBe("pkce-b");
+  });
+
+  test("does not adopt a different-port sibling DCR client without tokens", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(a, clientInfo(62000));
+
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    expect((await syncValue(a.clientInformation()))?.client_id).toBe("client-on-62000");
+
+    await saveClient(b, clientInfo(60435));
+    const info = await syncValue(a.clientInformation());
+    expect(info?.client_id).toBe("client-on-62000");
+    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
+      "http://127.0.0.1:62000/callback",
+    ]);
+  });
+
   test("sync getters fall back to the in-memory mirror when the auth file disappears", async () => {
     const home = await tempHome();
     const provider = await createOAuthProvider({
@@ -254,6 +318,22 @@ describe("createOAuthProvider", () => {
     expect(await syncValue(provider.clientInformation())).toBeUndefined();
   });
 
+  test("keeps live tokens when the auth file is corrupt", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
+
+    const path = authFilePath(linear, home);
+    await writeFile(path, "{not-json");
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+  });
+
   test("keeps the mirror through an unreadable auth file and recovers once readable", async () => {
     const home = await tempHome();
     const provider = await createOAuthProvider({
@@ -265,14 +345,26 @@ describe("createOAuthProvider", () => {
     });
     await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
 
-    // Force a stat change so the mtime guard actually attempts the read.
     const path = authFilePath(linear, home);
-    await appendFile(path, " ");
     await chmod(path, 0o000);
-    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
-    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
-
-    await chmod(path, 0o600);
+    try {
+      try {
+        readFileSync(path, "utf8");
+        // Owner-read still succeeds (root or platforms that ignore mode) — skip.
+        return;
+      } catch (err) {
+        expect(
+          typeof err === "object" &&
+            err !== null &&
+            "code" in err &&
+            (err as { code?: unknown }).code === "EACCES",
+        ).toBe(true);
+      }
+      expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+      expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    } finally {
+      await chmod(path, 0o600);
+    }
     await saveAuthState(linear, { tokens: { access_token: "fresh", token_type: "bearer" } }, home);
     expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh");
   });

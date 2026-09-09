@@ -50,28 +50,16 @@ export function authFilePath(identity: MCPAuthIdentity, home: string = homedir()
   return join(mcpAuthDir(home), `${serverDisplaySlug(identity.serverName)}-${digest}.json`);
 }
 
-// Synchronous mirror of loadAuthState for the SDK's sync getters (tokens(),
-// clientInformation(), codeVerifier()), which cannot await disk I/O. Tolerates
-// a missing (ENOENT) or corrupt file with empty state, matching loadAuthState;
-// other read errors propagate to the caller.
-export function loadAuthStateSync(
-  identity: MCPAuthIdentity,
-  home: string = homedir(),
-): MCPAuthState {
-  let raw: string;
-  try {
-    raw = readFileSync(authFilePath(identity, home), "utf8");
-  } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return {};
-    }
-    throw err;
-  }
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+function parseAuthState(raw: string): MCPAuthState | undefined {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null) return parsed as MCPAuthState;
@@ -79,35 +67,63 @@ export function loadAuthStateSync(
     // A corrupt auth file should not wedge the session; treat it as no state and
     // let a fresh authorization overwrite it.
   }
-  return {};
+  return undefined;
+}
+
+function stateFromRaw(raw: string | undefined): MCPAuthState {
+  if (raw === undefined) return {};
+  return parseAuthState(raw) ?? {};
+}
+
+function readAuthFileSync(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    if (isEnoent(err)) return undefined;
+    throw err;
+  }
+}
+
+async function readAuthFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (err) {
+    if (isEnoent(err)) return undefined;
+    throw err;
+  }
+}
+
+// Synchronous connect-contract load. Tolerates a missing (ENOENT) or corrupt
+// file with empty state, matching loadAuthState; other read errors propagate.
+export function loadAuthStateSync(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): MCPAuthState {
+  return stateFromRaw(readAuthFileSync(authFilePath(identity, home)));
 }
 
 export async function loadAuthState(
   identity: MCPAuthIdentity,
   home: string = homedir(),
 ): Promise<MCPAuthState> {
-  let raw: string;
+  return stateFromRaw(await readAuthFile(authFilePath(identity, home)));
+}
+
+// Cache refresh for a live provider: missing, unreadable, or corrupt files
+// return undefined so the caller keeps its in-memory mirror. Empty-on-corrupt
+// is loadAuthState's connect contract, not cache invalidation.
+export function tryLoadAuthStateSync(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): MCPAuthState | undefined {
+  let raw: string | undefined;
   try {
-    raw = await readFile(authFilePath(identity, home), "utf8");
-  } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return {};
-    }
-    throw err;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) return parsed as MCPAuthState;
+    raw = readAuthFileSync(authFilePath(identity, home));
   } catch {
-    // A corrupt auth file should not wedge the session; treat it as no state and
-    // let a fresh authorization overwrite it.
+    return undefined;
   }
-  return {};
+  if (raw === undefined) return undefined;
+  return parseAuthState(raw);
 }
 
 // pid alone is not unique per call — concurrent saves in one process must not
@@ -207,14 +223,7 @@ async function unlinkAuthFile(path: string): Promise<void> {
   try {
     await unlink(path);
   } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return;
-    }
+    if (isEnoent(err)) return;
     throw err;
   }
 }
