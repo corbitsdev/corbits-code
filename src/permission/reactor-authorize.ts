@@ -18,6 +18,7 @@ import { type } from "arktype";
 
 import type { AuthzCallResult } from "@intx/inference";
 import type { PermissionGate } from "./gate.js";
+import { getSubAgentIdentity } from "../subagent/identity-context.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "authz"]);
 
@@ -53,5 +54,15 @@ export function createReactorAuthorize(
       case "ask":
         return { effect: "ask", matchingGrants: [], resolvedBy: null };
     }
+  };
+}
+
+export function createWorkerAuthorize(gate: PermissionGate) {
+  const authorize = createReactorAuthorize(gate);
+  return async (resource: string, action: string, context: unknown): Promise<AuthzCallResult> => {
+    const verdict = await authorize(resource, action, context);
+    if (verdict.effect !== "ask") return verdict;
+    logger.warn`worker authz denied unresolved approval worker=${getSubAgentIdentity()} resource=${resource}; parent must grant permission and retry`;
+    return { ...verdict, effect: "deny" };
   };
 }

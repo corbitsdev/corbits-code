@@ -298,8 +298,9 @@ export interface PermissionGateOptions {
   // seam (env.authorize) instead of evaluate() in the tool-runner middleware.
   // Set for the main session so approved re-dispatches skip the middleware
   // prompt; kept false for sub-agents, which still gate via evaluate().
-  // Required so a caller cannot silently fall back to middleware gating by
-  // omitting it.
+  // Workers own reactor enforcement via their execution identity regardless
+  // of this flag. Required so a caller cannot silently fall back to
+  // middleware gating by omitting it.
   reactorGated: boolean;
   // Ask/settle event log (see approval-log.ts): one record per consequential
   // decision, auto or interactive. Defaults to a no-op so nothing depends on

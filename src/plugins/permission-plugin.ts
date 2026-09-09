@@ -2,6 +2,7 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { BLOCKED_BY_POLICY_PREFIX } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
+import { getSubAgentIdentity } from "../subagent/identity-context.js";
 
 function blockedByPolicy(call: ToolCall, reason: string): ToolResult {
   return {
@@ -27,7 +28,7 @@ export async function gateToolCall(
   signal: AbortSignal,
   next: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>,
 ): Promise<ToolResult> {
-  if (gate.isReactorGated()) {
+  if (gate.isReactorGated() || getSubAgentIdentity()?.reactorOwnsPermissions === true) {
     const verdict = await gate.executionVerdict(call);
     if (verdict.effect === "deny") {
       return blockedByPolicy(call, verdict.reason);
