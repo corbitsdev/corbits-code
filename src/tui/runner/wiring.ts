@@ -135,9 +135,7 @@ export function wirePostStartup(
     disposeToolset: () => services.toolset.dispose(),
   });
   state.shutdownRuntime = shutdownRuntime;
-  services.crashGuard.setDisposeHost(() => {
-    void shutdownRuntime();
-  });
+  services.crashGuard.setDisposeHost(() => shutdownRuntime());
   setActiveDisposeHost(() => services.crashGuard.invokeDisposeHost());
 
   // Harness inference.error events omit providerId; stamp the live catalog id

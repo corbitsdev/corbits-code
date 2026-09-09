@@ -355,7 +355,10 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   // every operator already knows across two keys, and Ctrl+D stays the
   // prompt's delete-character-under-cursor.
 
+  let disposed = false;
   const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
     stopBranchWatch();
     deps.eventEmitter.off("event", onCostEvent);
     deps.eventEmitter.off("session.clear", onSessionClear);

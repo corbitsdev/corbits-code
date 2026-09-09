@@ -61,11 +61,17 @@ export interface ResolveExitCodeArgs {
   runError: string | undefined;
   sinkError: string | undefined;
   status: RunSummary["status"];
+  teardownFailed?: boolean;
 }
 
 export function resolveExitCode(args: ResolveExitCodeArgs): number {
-  const { runError, sinkError, status } = args;
-  if (runError !== undefined || sinkError !== undefined || status !== "done") {
+  const { runError, sinkError, status, teardownFailed } = args;
+  if (
+    teardownFailed === true ||
+    runError !== undefined ||
+    sinkError !== undefined ||
+    status !== "done"
+  ) {
     return 1;
   }
   return 0;
@@ -549,9 +555,17 @@ export async function finalizeTUIRun(
   services: RunnerServices,
 ): Promise<number> {
   await hostOf(state).waitUntilExit();
+  await services.sessionOps.awaitTail();
   // Stop inference and every worker before persistence, hooks, or telemetry can
   // delay process exit. Closing the terminal is a process-lifetime boundary.
-  await state.shutdownRuntime?.();
+  // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
+  // share one owner.
+  let teardownFailed = false;
+  try {
+    await state.shutdownRuntime?.();
+  } catch {
+    teardownFailed = true;
+  }
   state.stopFleetReporting?.();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.
@@ -613,17 +627,16 @@ export async function finalizeTUIRun(
   // PerfTrace OTEL export runs once at process exit in main (flushPerfToOtel).
   await getTelemetry().flush();
 
-  await services.sessionOps.awaitTail();
   try {
     await state.streamPromise;
   } catch {
     // ignore
   }
-  await services.toolset.dispose();
 
   return resolveExitCode({
     runError: state.runError,
     sinkError,
     status: services.runSink.getStatus(),
+    teardownFailed,
   });
 }

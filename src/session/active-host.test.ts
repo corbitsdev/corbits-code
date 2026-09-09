@@ -33,4 +33,16 @@ describe("active-host", () => {
     setActiveDisposeHost(second);
     expect(getActiveDisposeHost()).toBe(second);
   });
+
+  test("accepts an async dispose handle", async () => {
+    let ran = false;
+    const handle = async () => {
+      ran = true;
+    };
+    setActiveDisposeHost(handle);
+    const active = getActiveDisposeHost();
+    expect(active).toBe(handle);
+    await active?.();
+    expect(ran).toBe(true);
+  });
 });

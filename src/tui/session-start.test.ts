@@ -63,4 +63,23 @@ describe("createTUICrashGuard", () => {
       },
     );
   });
+
+  test("invokeDisposeHost returns an async dispose handle", async () => {
+    const { createTUICrashGuard } = await import("./session-start.js");
+    const guard = createTUICrashGuard(() => ({
+      cwd: "/cwd",
+      sessionId: "session",
+      startedAt: 1,
+      runTaskTitle: "task",
+      providerName: "provider",
+      model: "model",
+    }));
+    let ran = false;
+    guard.setDisposeHost(async () => {
+      await Promise.resolve();
+      ran = true;
+    });
+    await guard.invokeDisposeHost();
+    expect(ran).toBe(true);
+  });
 });

@@ -199,7 +199,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // short-circuits once the clean path has marked the run finalized, and a
     // throw after that point still has to give the terminal back.
     try {
-      start.crashGuard.invokeDisposeHost();
+      await start.crashGuard.invokeDisposeHost();
     } catch (disposeErr: unknown) {
       tuiLogger.warn("crash finalize: host dispose failed: {error}", {
         error: disposeErr instanceof Error ? disposeErr.message : String(disposeErr),

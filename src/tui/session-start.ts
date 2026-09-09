@@ -69,8 +69,8 @@ export interface TUICrashGuard {
   isFinalized: () => boolean;
   markFinalized: () => void;
   setPartialFlush: (flush: () => Promise<void>) => void;
-  invokeDisposeHost: () => void;
-  setDisposeHost: (dispose: () => void) => void;
+  invokeDisposeHost: () => void | Promise<void>;
+  setDisposeHost: (dispose: () => void | Promise<void>) => void;
   bindLiveSession: (get: () => TUILiveSession) => void;
   finalizeOnCrash: (err: unknown) => Promise<void>;
 }
@@ -87,7 +87,7 @@ export function createTUICrashGuard(getLiveSession: () => TUILiveSession): TUICr
   // Bound once the host is mounted. Without this the crash path leaves the
   // renderer alive, so the alternate screen, mouse reporting and raw mode are
   // never disabled and the operator's terminal is left wedged.
-  let disposeHost: () => void = () => {};
+  let disposeHost: () => void | Promise<void> = () => {};
   let getSession = getLiveSession;
 
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
@@ -146,9 +146,7 @@ export function createTUICrashGuard(getLiveSession: () => TUILiveSession): TUICr
     setPartialFlush: (flush) => {
       flushPartialOnCrash = flush;
     },
-    invokeDisposeHost: () => {
-      disposeHost();
-    },
+    invokeDisposeHost: () => disposeHost(),
     setDisposeHost: (dispose) => {
       disposeHost = dispose;
     },

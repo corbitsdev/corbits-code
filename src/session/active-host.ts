@@ -5,9 +5,11 @@
 // has mounted. Cleared the moment runTUI itself finalizes (normally or via
 // its own crash path) so a signal arriving after teardown has nothing left
 // to call.
-let activeDisposeHost: (() => void) | null = null;
+export type ActiveDisposeHost = () => void | Promise<void>;
 
-export function setActiveDisposeHost(disposeHost: () => void): void {
+let activeDisposeHost: ActiveDisposeHost | null = null;
+
+export function setActiveDisposeHost(disposeHost: ActiveDisposeHost): void {
   activeDisposeHost = disposeHost;
 }
 
@@ -15,6 +17,6 @@ export function clearActiveDisposeHost(): void {
   activeDisposeHost = null;
 }
 
-export function getActiveDisposeHost(): (() => void) | null {
+export function getActiveDisposeHost(): ActiveDisposeHost | null {
   return activeDisposeHost;
 }

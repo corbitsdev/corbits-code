@@ -118,6 +118,28 @@ export async function main(argv: readonly string[]): Promise<number> {
 // the process down) can't re-enter either path a second time.
 let terminating = false;
 
+export const RUNTIME_TEARDOWN_DEADLINE_MS = 2_000;
+
+async function awaitActiveDisposeHost(context: string): Promise<void> {
+  const dispose = getActiveDisposeHost();
+  if (dispose === null) return;
+  try {
+    await Promise.race([
+      Promise.resolve(dispose()),
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(`runtime teardown exceeded ${RUNTIME_TEARDOWN_DEADLINE_MS}ms`));
+        }, RUNTIME_TEARDOWN_DEADLINE_MS);
+        if (typeof timer.unref === "function") timer.unref();
+      }),
+    ]);
+  } catch (disposeErr: unknown) {
+    process.stderr.write(
+      `host dispose failed ${context}: ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}\n`,
+    );
+  }
+}
+
 // Exported so an integration test can register these process-level handlers
 // and inject a crash without spawning the full TUI stack.
 export async function handleFatal(kind: CrashKind, error: unknown): Promise<void> {
@@ -129,20 +151,11 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
   // escapes runTUI's own try/catch (e.g. inside a fire-and-forget `void`
   // call) leaves the alternate screen and raw mode stuck. disposeHost is
   // idempotent, so this is safe even if runTUI's own catch block already
-  // ran it moments earlier.
-  try {
-    getActiveDisposeHost()?.();
-  } catch (disposeErr: unknown) {
-    process.stderr.write(
-      `host dispose failed during fatal handling: ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}\n`,
-    );
-  }
-  // Flip this before any awaits below so any snapshot write still queued
-  // behind another one in state.ts's per-session chain sees it and steps
-  // aside the moment it's next in line, rather than racing saveCrashState's
-  // rename() below. See markCrashed's doc comment for the residual window
-  // this cannot close.
+  // ran it moments earlier. Start teardown immediately, but flip isCrashed
+  // before awaiting so queued snapshot writes still observe the fence.
+  const teardown = awaitActiveDisposeHost("during fatal handling");
   markCrashed();
+  await teardown;
   process.stderr.write(
     `${kind}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
   );
@@ -271,19 +284,17 @@ export function installSignalHandlers(): void {
     process.on(signal, () => {
       if (terminating) return;
       terminating = true;
-      try {
-        getActiveDisposeHost()?.();
-      } catch (disposeErr: unknown) {
-        process.stderr.write(
-          `host dispose failed handling ${signal}: ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}\n`,
-        );
-      }
-      // Same fence as handleFatal: any snapshot still queued in writeChains must
-      // see isCrashed and step aside before saveCrashState renames run.json.
-      markCrashed();
-      void finalizeActiveRunOnSignal(signal).finally(() => {
+      void (async () => {
+        // Same fence as handleFatal: start teardown, then flip isCrashed
+        // before awaiting so queued snapshot writes cannot clobber the
+        // terminal write. See markCrashed's doc comment for the residual
+        // window this cannot close.
+        const teardown = awaitActiveDisposeHost(`handling ${signal}`);
+        markCrashed();
+        await teardown;
+        await finalizeActiveRunOnSignal(signal);
         process.exit(128 + SIGNAL_EXIT_NUMBER[signal]);
-      });
+      })();
     });
   }
 }
