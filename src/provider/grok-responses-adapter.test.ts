@@ -162,4 +162,11 @@ describe("createGrokResponsesAdapter", () => {
     expect(body.reasoning).toEqual({ summary: "detailed" });
     expect(body.reasoning?.effort).toBeUndefined();
   });
+
+  test("extracts Retry-After pacing from response headers", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after": "7" }))).toBe(7_000);
+    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" }))).toBe(1_500);
+    expect(adapter.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
+  });
 });

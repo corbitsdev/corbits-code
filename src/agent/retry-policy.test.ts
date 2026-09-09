@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AdmissionQueue } from "../subagent/admission.js";
-import {
-  createCorbitsRetryPolicy,
-  MAX_BLIND_WAIT_MS,
-  type CorbitsRetryPolicyOptions,
-} from "./retry-policy.js";
+import { createCorbitsRetryPolicy, type CorbitsRetryPolicyOptions } from "./retry-policy.js";
 
 const HTML_503 = `<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>`;
 
@@ -108,9 +104,9 @@ describe("createCorbitsRetryPolicy", () => {
         raw: { error: { message: "Too Many Requests" } },
       },
     });
-    // Remapped to retryable -> paced retry capped at the blind-wait ceiling,
-    // not abort on moderate Retry-After.
-    expect(decision).toEqual({ kind: "retry", delayMs: MAX_BLIND_WAIT_MS });
+    // Remapped to retryable -> paced retry honors the server's Retry-After,
+    // not abort on moderate Retry-After and not a capped 30s wait.
+    expect(decision).toEqual({ kind: "retry", delayMs: 45_000 });
   });
 
   test("stamped Codex usage-limit 429 retries as retryable, not long-quota abort", async () => {
@@ -125,7 +121,7 @@ describe("createCorbitsRetryPolicy", () => {
         raw: "You have hit your ChatGPT usage limit",
       },
     });
-    expect(decision).toEqual({ kind: "retry", delayMs: MAX_BLIND_WAIT_MS });
+    expect(decision).toEqual({ kind: "retry", delayMs: 45_000 });
   });
 
   test("stamped xAI usage/quota body still aborts on long retryAfterMs", async () => {
@@ -179,7 +175,7 @@ describe("createCorbitsRetryPolicy", () => {
     };
     expect(await decide(bare429)).toEqual({ kind: "abort" });
     current = "xai/thegreataxios";
-    expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: MAX_BLIND_WAIT_MS });
+    expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: 45_000 });
   });
 
   // CL-6910: the harness only surfaces `inference.error` to the director
@@ -247,7 +243,7 @@ describe("createCorbitsRetryPolicy", () => {
         raw: { error: { message: "Too Many Requests" } },
       },
     };
-    expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: MAX_BLIND_WAIT_MS });
+    expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: 45_000 });
     current = "openai";
     expect(await decide(bare429)).toEqual({ kind: "abort" });
   });
@@ -321,7 +317,7 @@ describe("createCorbitsRetryPolicy", () => {
     expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
-  test("retryable 429 caps a long Retry-After at the blind-wait ceiling", async () => {
+  test("retryable 429 honors a Retry-After above the blind-wait ceiling", async () => {
     const decide = policy({ providerId: "codex/abk-labs" });
     const decision = await decide({
       attempt: 1,
@@ -333,7 +329,22 @@ describe("createCorbitsRetryPolicy", () => {
         retryAfterMs: 120_000,
       },
     });
-    expect(decision).toEqual({ kind: "retry", delayMs: MAX_BLIND_WAIT_MS });
+    expect(decision).toEqual({ kind: "retry", delayMs: 120_000 });
+  });
+
+  test("retryable 429 with a day-long Retry-After aborts instead of hanging", async () => {
+    const decide = policy({ providerId: "codex/abk-labs" });
+    const decision = await decide({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "retryable" as const,
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 86_400_000,
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
   });
 
   test("retryable 429 without Retry-After keeps the fixed backoff", async () => {
