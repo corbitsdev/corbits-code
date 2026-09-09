@@ -432,6 +432,17 @@ test("sub-agent prompt does not advertise tool_search (it gets the full toolset)
   expect(prompt).toContain("your full toolset");
 });
 
+test("worker prompt does not advertise archive:///; primary chat prompt does", () => {
+  const worker = buildSubAgentSystemPrompt();
+  expect(worker).not.toContain("archive:///");
+  const primary = buildChatSystemPrompt();
+  expect(primary).toContain("archive:///");
+  expect(buildAvailableTools(["read_file", "grep", "search_files"])).not.toContain("archive:///");
+  expect(
+    buildAvailableTools(["read_file", "grep", "search_files"], { advertiseArchive: true }),
+  ).toContain("archive:///");
+});
+
 // Pins the appendix-last invariant for JS-plugin agents: regardless of how the
 // systemPromptRole is sourced (data-only markdown vs. a JS plugin's
 // `agentPlugin.agents[i].systemPromptRole`), `buildSubAgentSystemPrompt` is

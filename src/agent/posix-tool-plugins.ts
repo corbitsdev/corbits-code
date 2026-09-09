@@ -106,7 +106,6 @@ export function buildCorePosixToolPlugins(
     resultTruncationPlugin(truncationOptions),
     toolResultSecretScrubPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd), { allowOutside }),
-    ...(getEvidenceArchive !== undefined ? [evidenceArchiveSearchPlugin(getEvidenceArchive)] : []),
     evidenceArchivePathGuardPlugin(),
     deleteFilePlugin(cwd, { allowOutside }),
     toolOutputUriPlugin(),
@@ -119,6 +118,9 @@ export function buildCorePosixToolPlugins(
         ? { getBackgroundShellRegistry }
         : {}),
     }),
+    ...(getEvidenceArchive !== undefined
+      ? [evidenceArchiveSearchPlugin(getEvidenceArchive)]
+      : []),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
     // Verify wraps the line-range short-circuit (composeMiddleware runs plugins

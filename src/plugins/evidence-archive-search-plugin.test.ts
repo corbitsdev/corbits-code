@@ -210,6 +210,87 @@ describe("evidenceArchiveSearchPlugin", () => {
     );
     expect(result.content).toBe("passthrough:grep");
   });
+
+  test("grep pattern archive searches payloads and metadata, not the URI line", async () => {
+    const archive = memoryArchive("sess-uri");
+    const occ = await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "plain-payload-without-scheme",
+    });
+    const plugin = evidenceArchiveSearchPlugin(() => archive);
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+
+    const uriHits = await handler(
+      makeCall("grep", { pattern: "archive", path: "archive:///" }),
+      new AbortController().signal,
+    );
+    expect(String(uriHits.content)).toContain("no matches");
+    expect(String(uriHits.content)).not.toContain(formatArchiveRef(occ.occurrenceId));
+
+    const payloadHits = await handler(
+      makeCall("grep", { pattern: "plain-payload-without-scheme", path: "archive:///" }),
+      new AbortController().signal,
+    );
+    expect(String(payloadHits.content)).toContain(formatArchiveRef(occ.occurrenceId));
+    expect(String(payloadHits.content)).toContain("plain-payload-without-scheme");
+  });
+
+  test("archive grep and search_files honor abort before loading remaining payloads", async () => {
+    const archive = memoryArchive("sess-abort");
+    const first = await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "abort-first",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "assistant_text",
+      payload: "abort-second",
+    });
+    const plugin = evidenceArchiveSearchPlugin(() => archive);
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const controller = new AbortController();
+    const reads: string[] = [];
+    const orig = archive.readAuthorizedPayload.bind(archive);
+    archive.readAuthorizedPayload = async (occurrenceId) => {
+      reads.push(occurrenceId);
+      if (reads.length === 1) controller.abort();
+      return orig(occurrenceId);
+    };
+
+    const grepResult = await handler(
+      makeCall("grep", { pattern: "abort-second", path: "archive:///" }),
+      controller.signal,
+    );
+    expect(grepResult.isError).toBe(true);
+    expect(String(grepResult.content).toLowerCase()).toMatch(/abort/);
+    expect(reads).toEqual([first.occurrenceId]);
+
+    const searchController = new AbortController();
+    searchController.abort();
+    const searchResult = await handler(
+      makeCall("search_files", { pattern: "*", path: "archive:///" }),
+      searchController.signal,
+    );
+    expect(searchResult.isError).toBe(true);
+    expect(String(searchResult.content).toLowerCase()).toMatch(/abort/);
+  });
+
+  test("archive grep includes posix-style context around payload matches", async () => {
+    const archive = memoryArchive("sess-context");
+    const occ = await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "alpha\nbeta-hit\ngamma",
+    });
+    const plugin = evidenceArchiveSearchPlugin(() => archive);
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const hits = await handler(
+      makeCall("grep", { pattern: "beta-hit", path: "archive:///", context: 1 }),
+      new AbortController().signal,
+    );
+    const ref = formatArchiveRef(occ.occurrenceId);
+    expect(String(hits.content)).toContain(`${ref}-1-alpha`);
+    expect(String(hits.content)).toContain(`${ref}:2:beta-hit`);
+    expect(String(hits.content)).toContain(`${ref}-3-gamma`);
+  });
 });
 
 describe("createAgentToolset archive mount", () => {
@@ -233,6 +314,14 @@ describe("createAgentToolset archive mount", () => {
       .currentDefinitions()
       .find((d) => d.name === "read_file");
     expect(workerRead?.description ?? "").not.toContain("archive:///");
+    const workerGrep = worker.dynamicRunner.currentDefinitions().find((d) => d.name === "grep");
+    expect(workerGrep?.description ?? "").not.toContain("archive:///");
+    expect(JSON.stringify(workerGrep?.inputSchema ?? {})).not.toContain("archive:///");
+    const workerSearch = worker.dynamicRunner
+      .currentDefinitions()
+      .find((d) => d.name === "search_files");
+    expect(workerSearch?.description ?? "").not.toContain("archive:///");
+    expect(JSON.stringify(workerSearch?.inputSchema ?? {})).not.toContain("archive:///");
     await worker.dispose();
 
     const primary = await createAgentToolset({

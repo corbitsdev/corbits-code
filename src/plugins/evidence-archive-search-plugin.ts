@@ -174,7 +174,13 @@ export function evidenceArchiveSearchPlugin(
           const maxResults = num(call.arguments.max_results) ?? SEARCH_DEFAULT_MAX;
           return {
             callId: call.id,
-            content: await searchArchiveFiles(archive, pattern, target.occurrenceId, maxResults),
+            content: await searchArchiveFiles(
+              archive,
+              pattern,
+              target.occurrenceId,
+              maxResults,
+              signal,
+            ),
           };
         }
         const pattern = str(call.arguments.pattern);
@@ -187,9 +193,19 @@ export function evidenceArchiveSearchPlugin(
         }
         const maxResults = num(call.arguments.max_results) ?? GREP_DEFAULT_MAX;
         const glob = str(call.arguments.glob);
+        const contextArg = num(call.arguments.context);
+        const context = contextArg !== undefined && contextArg > 0 ? Math.floor(contextArg) : 0;
         return {
           callId: call.id,
-          content: await grepArchive(archive, pattern, target.occurrenceId, maxResults, glob),
+          content: await grepArchive(
+            archive,
+            pattern,
+            target.occurrenceId,
+            maxResults,
+            glob,
+            context,
+            signal,
+          ),
         };
       } catch (err) {
         return {
@@ -232,10 +248,13 @@ async function searchArchiveFiles(
   pattern: string,
   occurrenceId: string | undefined,
   maxResults: number,
+  signal: AbortSignal,
 ): Promise<string> {
+  signal.throwIfAborted();
   const occurrences = await selectOccurrences(archive, occurrenceId);
   const hits: string[] = [];
   for (const occ of occurrences) {
+    signal.throwIfAborted();
     if (hits.length >= maxResults) break;
     if (!matchesArchiveName(pattern, occ)) continue;
     hits.push(formatArchiveRef(occ.occurrenceId));
@@ -246,13 +265,58 @@ async function searchArchiveFiles(
   return hits.join("\n");
 }
 
+function grepPayloadHits(
+  ref: string,
+  lines: string[],
+  regex: RegExp,
+  context: number,
+  remaining: number,
+): string[] {
+  if (remaining <= 0) return [];
+  const matchLines: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (regex.test(lines[i] ?? "")) matchLines.push(i);
+    if (matchLines.length >= remaining) break;
+  }
+  if (matchLines.length === 0) return [];
+  if (context <= 0) {
+    return matchLines.map((i) => `${ref}:${i + 1}:${lines[i] ?? ""}`);
+  }
+  const matchSet = new Set(matchLines);
+  const ranges: { start: number; end: number }[] = [];
+  for (const i of matchLines) {
+    const start = Math.max(0, i - context);
+    const end = Math.min(lines.length - 1, i + context);
+    const prev = ranges[ranges.length - 1];
+    if (prev !== undefined && start <= prev.end + 1) {
+      prev.end = end;
+    } else {
+      ranges.push({ start, end });
+    }
+  }
+  const out: string[] = [];
+  let first = true;
+  for (const range of ranges) {
+    if (!first) out.push("--");
+    first = false;
+    for (let i = range.start; i <= range.end; i++) {
+      const sep = matchSet.has(i) ? ":" : "-";
+      out.push(`${ref}${sep}${i + 1}${sep}${lines[i] ?? ""}`);
+    }
+  }
+  return out;
+}
+
 async function grepArchive(
   archive: CompactionArchive,
   pattern: string,
   occurrenceId: string | undefined,
   maxResults: number,
   glob: string | undefined,
+  context: number,
+  signal: AbortSignal,
 ): Promise<string> {
+  signal.throwIfAborted();
   let regex: RegExp;
   try {
     regex = new RegExp(pattern);
@@ -262,10 +326,11 @@ async function grepArchive(
   const occurrences = await selectOccurrences(archive, occurrenceId);
   const hits: string[] = [];
   for (const occ of occurrences) {
+    signal.throwIfAborted();
     if (hits.length >= maxResults) break;
     if (glob !== undefined && !matchesArchiveName(glob, occ)) continue;
     const ref = formatArchiveRef(occ.occurrenceId);
-    if (regex.test(metadataBlob(occ)) || regex.test(formatHit(occ))) {
+    if (regex.test(metadataBlob(occ))) {
       hits.push(`${ref}:1:${formatHit(occ)}`);
       continue;
     }
@@ -273,15 +338,14 @@ async function grepArchive(
     let payload: string;
     try {
       payload = await archive.readAuthorizedPayload(occ.occurrenceId);
-    } catch {
+    } catch (err) {
+      if (signal.aborted) throw err;
       continue;
     }
-    const lines = payload.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      if (hits.length >= maxResults) break;
-      const line = lines[i] ?? "";
-      if (regex.test(line)) hits.push(`${ref}:${i + 1}:${line}`);
-    }
+    signal.throwIfAborted();
+    hits.push(
+      ...grepPayloadHits(ref, payload.split("\n"), regex, context, maxResults - hits.length),
+    );
   }
   if (hits.length === 0) return `no matches for /${pattern}/`;
   return hits.join("\n");
