@@ -1123,15 +1123,19 @@ async function runSubAgentInner(
     if (params.onAgentReady !== undefined) {
       const boundedClose = async (deadlineMs = DEFAULT_CLOSE_DEADLINE_MS): Promise<void> => {
         if (!runController.signal.aborted) runController.abort(new Error("closed by close_agent"));
+        let disposeError: unknown;
         const teardown = disposeSubAgentSession({
           signal: runController.signal,
           ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
           agent,
           ...(streamPromise !== undefined ? { streamPromise } : {}),
           posixTools,
-        }).catch(() => {
-          // Best-effort: a wedged descendant must not reject the caller.
-        });
+        }).then(
+          () => undefined,
+          (err: unknown) => {
+            disposeError = err;
+          },
+        );
         await Promise.race([
           teardown,
           new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
@@ -1140,6 +1144,7 @@ async function runSubAgentInner(
         // for a persisted session (see runController.dispose's doc); now that
         // this session is actually closing, tear it down for real.
         runController.dispose();
+        if (disposeError !== undefined) throw disposeError;
       };
       // Interrupt only fires interruptController — never runController/
       // close, so it cannot hit the close()-ordering wedge documented in

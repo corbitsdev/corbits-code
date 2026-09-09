@@ -53,6 +53,38 @@ describe("primary fleet verb mount", () => {
     await toolset.dispose();
   });
 
+  test("createAgentToolset dispose rejects when a fleet closeOne throws leftover children", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
+    const { createAgentToolset } = await import("./tools.js");
+    const permissionGate = {
+      check: async () => ({ allowed: true }),
+      getSkipPermissions: () => false,
+    } as never;
+    const sessions = createSubAgentSessionStore();
+    const worker = sessions.start({ description: "d", agentId: "a", brief: "b" });
+    sessions.markRunning(worker.id);
+    sessions.registerClose(worker.id, async () => {
+      throw new Error("1 shell child process still live after 2000ms reap");
+    });
+
+    const toolset = await createAgentToolset({
+      cwd,
+      permissionGate,
+      onOperatorGate: async () => ({ kind: "option", index: 0 }),
+      subAgent: {
+        provider: {
+          providerName: "test",
+          baseURL: "http://127.0.0.1:0",
+          model: "test-model",
+        },
+        getWorkdirBase: () => cwd,
+        sessions,
+      },
+    });
+
+    await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
+  });
+
   test("createAgentToolset omits fleet verbs when subAgent is not set", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
     const { createAgentToolset } = await import("./tools.js");

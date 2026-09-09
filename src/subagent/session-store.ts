@@ -1226,12 +1226,17 @@ export function createSubAgentSessionStore(
       // Bounded here too, defense-in-depth against a caller-registered
       // close that does not honor its own deadline argument — a wedged
       // descendant must not hang the whole close_agent call.
+      let closeError: unknown;
       await Promise.race([
-        close(deadlineMs).catch((err: unknown) => {
-          log.warn("session close raced deadline: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }),
+        close(deadlineMs).then(
+          () => undefined,
+          (err: unknown) => {
+            closeError = err;
+            log.warn("session close raced deadline: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        ),
         new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
       ]);
       if (keepFailed) {
@@ -1243,6 +1248,7 @@ export function createSubAgentSessionStore(
         deliverHandles.delete(id);
         runInFlight.delete(id);
         pruneCompleted();
+        if (closeError !== undefined) throw closeError;
         const after = sessions.get(id);
         return after === undefined ? "not_found" : projectLifecycleStatus(after.lifecycle);
       }
@@ -1266,6 +1272,7 @@ export function createSubAgentSessionStore(
       deliverHandles.delete(id);
       runInFlight.delete(id);
       pruneCompleted();
+      if (closeError !== undefined) throw closeError;
       return "shutdown";
     },
 
