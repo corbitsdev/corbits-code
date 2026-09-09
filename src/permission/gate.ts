@@ -307,17 +307,20 @@ export interface PermissionGateOptions {
   approvalLog?: ApprovalLog;
 }
 
+export type AuthorizeVerdict =
+  | { effect: "allow" }
+  | { effect: "deny"; reason: string }
+  | { effect: "ask"; request: PermissionRequest };
+
 export interface PermissionGate {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
   // Reactor-path policy: the same decision evaluate() makes, as the effect the
   // vendored before-tool authz hook consumes (see authorizeCall above).
-  authorizeCall: (
-    call: ToolCall,
-  ) => Promise<
-    | { effect: "allow" }
-    | { effect: "deny"; reason: string }
-    | { effect: "ask"; request: PermissionRequest }
-  >;
+  authorizeCall: (call: ToolCall) => Promise<AuthorizeVerdict>;
+  // Execution-time backstop for reactor-gated posix/MCP middleware: consume the
+  // authorizeCall verdict when one exists; decide only when there is no prior
+  // verdict (nested posix whose outer tool is not run_shell, and tests).
+  executionVerdict: (call: ToolCall) => Promise<AuthorizeVerdict>;
   // Resolve a suspended reactor approval against the operator (and mint the
   // outcome's grant). Returns undefined when no outcome arrived.
   resolveSuspended: (request: PermissionRequest) => Promise<ApprovalOutcome | undefined>;
@@ -471,20 +474,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // settled all collapse to now. Interactive prompts use approvalLog.ask
   // directly (see below) so their real queued/displayed/settled timestamps
   // are captured.
-  //
-  // Recording owns uniqueness: reactor-gated calls run decide() twice (env.authorize
-  // then gateToolCall) and decide() is not otherwise idempotent. A second pass
-  // for the same call.id must still return deny, but must not append a second
-  // JSONL record.
-  const recordedCallIds = new Set<string>();
   const recordAutoDecision = (
-    callId: string,
     tool: string,
     rule: string | undefined,
     outcome: ApprovalOutcomeKind,
   ): void => {
-    if (recordedCallIds.has(callId)) return;
-    recordedCallIds.add(callId);
     approvalLog
       .ask({
         tool,
@@ -493,6 +487,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       })
       .settle(outcome);
   };
+
+  // Consume-once handoff from env.authorize to execution-time middleware.
+  // Not session-lifetime uniqueness: call.id is reused for every Codex proxy
+  // inner posix op, so a lasting set would mute later JSONL records. reset()
+  // clears leftovers (outer tools that never hit posix middleware).
+  const authorizedByCallId = new Map<string, AuthorizeVerdict>();
 
   // Non-blocking policy decision for one tool call: everything the gate owns —
   // tier pre-filter, auto rules, pre-grant guards, grants, headless denial —
@@ -555,15 +555,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // a secret path is ask so an explicit one-time approval can pass it.
         const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
         if (shellRule?.effect === "deny") {
-          recordAutoDecision(call.id, call.name, shellRule.name, "auto-deny");
+          recordAutoDecision(call.name, shellRule.name, "auto-deny");
           return { kind: "deny", reason: shellRule.reason };
         }
         if (shellRule === undefined) {
-          recordAutoDecision(call.id, call.name, undefined, "auto-allow");
+          recordAutoDecision(call.name, undefined, "auto-allow");
           return { kind: "allow" };
         }
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
-        recordAutoDecision(call.id, call.name, "auto-allowed-tool", "auto-allow");
+        recordAutoDecision(call.name, "auto-allowed-tool", "auto-allow");
         return { kind: "allow" };
       }
       // Any other tool in auto mode (MCP or unknown built-in) is not
@@ -642,7 +642,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const askRule = anySecret ? "sensitive-path" : undefined;
 
         if (!interactive || requestApproval === undefined) {
-          recordAutoDecision(call.id, request.tool, askRule ?? "non-interactive", "deny");
+          recordAutoDecision(request.tool, askRule ?? "non-interactive", "deny");
           return {
             kind: "deny",
             reason: anySecret
@@ -677,7 +677,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       }
 
       if (!interactive || requestApproval === undefined) {
-        recordAutoDecision(call.id, request.tool, "non-interactive", "deny");
+        recordAutoDecision(request.tool, "non-interactive", "deny");
         return {
           kind: "deny",
           reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
@@ -729,7 +729,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   // Middleware path: blocking evaluation used by tool-runner consumers whose
   // calls never pass through the reactor (sub-agents). When the gate is
-  // reactor-gated, gateToolCall uses authorizeCall instead of evaluate() so
+  // reactor-gated, gateToolCall uses executionVerdict instead of evaluate() so
   // deny still blocks and ask never re-prompts (see gateToolCall).
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     const decision = await decide(call);
@@ -751,14 +751,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // vendored before-tool authz hook consumes. `allow` proceeds, `deny` becomes
   // an upstream `block`, and `ask` suspends the call as a PendingOperation
   // keyed by the hook-minted correlationId — no resolve closure is held here.
-  const authorizeCall = async (
-    call: ToolCall,
-  ): Promise<
-    | { effect: "allow" }
-    | { effect: "deny"; reason: string }
-    | { effect: "ask"; request: PermissionRequest }
-  > => {
-    const decision = await decide(call);
+  // Stashes the verdict for gateToolCall to consume so middleware is not a
+  // second copy of env.authorize.
+  const mapAuthorizeVerdict = (decision: GateDecision): AuthorizeVerdict => {
     switch (decision.kind) {
       case "allow":
         return { effect: "allow" };
@@ -767,6 +762,21 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       case "ask":
         return { effect: "ask", request: decision.request };
     }
+  };
+
+  const authorizeCall = async (call: ToolCall): Promise<AuthorizeVerdict> => {
+    const verdict = mapAuthorizeVerdict(await decide(call));
+    authorizedByCallId.set(call.id, verdict);
+    return verdict;
+  };
+
+  const executionVerdict = async (call: ToolCall): Promise<AuthorizeVerdict> => {
+    const cached = authorizedByCallId.get(call.id);
+    if (cached !== undefined) {
+      authorizedByCallId.delete(call.id);
+      return cached;
+    }
+    return mapAuthorizeVerdict(await decide(call));
   };
 
   // Resolve a suspended reactor approval once the operator answers. The
@@ -792,6 +802,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       if (index !== -1) approvals.splice(index, 1);
     }
     sessionGrants.length = 0;
+    authorizedByCallId.clear();
   };
 
   const sameApproval = (a: Approval, b: Approval): boolean =>
@@ -824,6 +835,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   return {
     evaluate,
     authorizeCall,
+    executionVerdict,
     resolveSuspended,
     isReactorGated: () => reactorGated,
     getApprovals: () => approvals,

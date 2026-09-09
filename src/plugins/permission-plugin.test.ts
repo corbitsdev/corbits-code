@@ -232,6 +232,122 @@ describe("gateToolCall", () => {
     expect(records[0]?.outcome).toBe("deny");
   });
 
+  test("nested posix with reused call.id records each auto-allow", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const first: ToolCall = {
+      id: "codex-proxy",
+      name: "write_file",
+      arguments: { path: "src/a.ts", content: "x" },
+    };
+    const second: ToolCall = {
+      id: "codex-proxy",
+      name: "write_file",
+      arguments: { path: "src/b.ts", content: "y" },
+    };
+    const { next, wasCalled } = trackingNext();
+    expect((await gateToolCall(gate, first, new AbortController().signal, next)).isError).not.toBe(
+      true,
+    );
+    expect((await gateToolCall(gate, second, new AbortController().signal, next)).isError).not.toBe(
+      true,
+    );
+    expect(wasCalled()).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(2);
+    expect(records[0]?.outcome).toBe("auto-allow");
+    expect(records[1]?.outcome).toBe("auto-allow");
+  });
+
+  test("nested posix with reused call.id records each auto-deny and blocks", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const first: ToolCall = {
+      id: "codex-proxy",
+      name: "run_shell",
+      arguments: { command: "echo x | tee src/a.ts" },
+    };
+    const second: ToolCall = {
+      id: "codex-proxy",
+      name: "run_shell",
+      arguments: { command: "echo y | tee src/b.ts" },
+    };
+    const run = trackingNext();
+    const firstResult = await gateToolCall(gate, first, new AbortController().signal, run.next);
+    const secondResult = await gateToolCall(gate, second, new AbortController().signal, run.next);
+    expect(firstResult.isError).toBe(true);
+    expect(secondResult.isError).toBe(true);
+    expect(firstResult.content).toContain(BLOCKED_BY_POLICY_PREFIX);
+    expect(secondResult.content).toContain(BLOCKED_BY_POLICY_PREFIX);
+    expect(run.wasCalled()).toBe(false);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(2);
+    expect(records[0]?.outcome).toBe("auto-deny");
+    expect(records[1]?.outcome).toBe("auto-deny");
+  });
+
+  test("reset does not mute a later auto-decision with a reused call.id", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const call: ToolCall = {
+      id: "write-1",
+      name: "write_file",
+      arguments: { path: "src/a.ts", content: "x" },
+    };
+    expect((await gate.authorizeCall(call)).effect).toBe("allow");
+    const firstRun = trackingNext();
+    await gateToolCall(gate, call, new AbortController().signal, firstRun.next);
+    expect(firstRun.wasCalled()).toBe(true);
+    gate.reset();
+    expect((await gate.authorizeCall(call)).effect).toBe("allow");
+    const secondRun = trackingNext();
+    await gateToolCall(gate, call, new AbortController().signal, secondRun.next);
+    expect(secondRun.wasCalled()).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(2);
+    expect(records[0]?.outcome).toBe("auto-allow");
+    expect(records[1]?.outcome).toBe("auto-allow");
+  });
+
   test("sub-agent path still evaluates and denies authz hard-deny", async () => {
     const gate = createPermissionGate({
       approvals: [],

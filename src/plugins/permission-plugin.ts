@@ -3,14 +3,23 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { BLOCKED_BY_POLICY_PREFIX } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
 
+function blockedByPolicy(call: ToolCall, reason: string): ToolResult {
+  return {
+    callId: call.id,
+    content: `${BLOCKED_BY_POLICY_PREFIX}${reason}`,
+    isError: true,
+  };
+}
+
 // Run a tool call past the gate, invoking `next` only if it is allowed. Shared by
 // the posix middleware and the late-connected MCP tools (which are not part of
 // the posix runner the middleware wraps) so both produce the same denial result.
 //
-// Under reactor gating, authorizeCall still enforces decide() deny (authz,
-// auto-shell, headless). Ask/allow skip the middleware prompt so an approved
-// re-dispatch never re-asks — evaluate() is not used here because it would
-// prompt again.
+// Under reactor gating this is an execution backstop, not a second env.authorize.
+// Consume the prior authorizeCall verdict when one exists; decide only when there
+// is no prior verdict — nested posix whose outer tool is not run_shell (Codex
+// apply_patch proxy) and tests. Deny blocks next; ask/allow skip the middleware
+// prompt so an approved re-dispatch never re-asks.
 export async function gateToolCall(
   gate: PermissionGate,
   call: ToolCall,
@@ -18,23 +27,15 @@ export async function gateToolCall(
   next: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>,
 ): Promise<ToolResult> {
   if (gate.isReactorGated()) {
-    const verdict = await gate.authorizeCall(call);
+    const verdict = await gate.executionVerdict(call);
     if (verdict.effect === "deny") {
-      return {
-        callId: call.id,
-        content: `${BLOCKED_BY_POLICY_PREFIX}${verdict.reason}`,
-        isError: true,
-      };
+      return blockedByPolicy(call, verdict.reason);
     }
     return next(call, signal);
   }
   const verdict = await gate.evaluate(call);
   if (!verdict.allowed) {
-    return {
-      callId: call.id,
-      content: `${BLOCKED_BY_POLICY_PREFIX}${verdict.reason}`,
-      isError: true,
-    };
+    return blockedByPolicy(call, verdict.reason);
   }
   return next(call, signal);
 }

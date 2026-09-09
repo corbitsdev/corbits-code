@@ -18,7 +18,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Reactor-gated tool middleware still blocks policy denials. A `decide()` deny
   (authorization hard-deny, auto-shell deny, or headless deny) returns a
   blocked tool error and does not run the call. Ask and allow still skip the
-  middleware prompt so an approved re-dispatch never re-asks.
+  middleware prompt so an approved re-dispatch never re-asks. Middleware is
+  not a second copy of `env.authorize`: it consumes the prior verdict when one
+  exists, and decides only for inner posix runs whose outer tool is not
+  `run_shell` (Codex apply_patch proxy).
 
 ## [0.3.18] - 2026-09-08
 
