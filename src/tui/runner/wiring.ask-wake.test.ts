@@ -301,7 +301,7 @@ test("same catalog workers answer by session, reconcile one resolution and repla
         ask("session-two", "replacement-question");
         bridge.handle({ type: "inference.done", data: {} });
         expect(sends).toHaveLength(1);
-        expect(sends[0]).toContain("targeting agent_id session-two");
+        expect(sends[0]).toContain("using target session-two");
         expect(sends[0]).toContain("replacement-question");
         expect(sends[0]).not.toContain("question-session-two");
         expect(sends[0]).not.toContain("question-session-one");

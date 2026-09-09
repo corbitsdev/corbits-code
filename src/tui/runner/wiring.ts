@@ -64,7 +64,7 @@ export function createFleetWakePublisher(
     // Reconcile even an empty snapshot before a fleet drop can settle the parent.
     const asks = pendingAskSnapshot(lanes, (id) => sessions.peekAsk(id));
     emitter.emit("event", { type: "agent-ask", asks });
-    const fleet = liveFleetCount(sessions.list());
+    const fleet = liveFleetCount(lanes);
     if (fleet !== lastLiveFleet) {
       lastLiveFleet = fleet;
       emitter.emit("event", { type: "fleet", running: fleet });
