@@ -120,9 +120,5 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
   } catch {
     // ignore
   }
-  try {
-    await input.posixTools.dispose();
-  } catch {
-    // LSP shutdown can fail when several sub-agents exit together.
-  }
+  await input.posixTools.dispose();
 }

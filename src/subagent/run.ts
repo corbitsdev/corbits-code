@@ -1106,12 +1106,6 @@ async function runSubAgentInner(
         } catch {
           // close is idempotent; ignore races with disposeSubAgentSession.
         }
-        try {
-          backgroundShells.disposeAll("sub-agent closed");
-          await posixTools.dispose();
-        } catch {
-          // ignore
-        }
       })();
     };
     if (runController.signal.aborted) {

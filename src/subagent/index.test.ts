@@ -72,6 +72,21 @@ describe("sub-agent teardown", () => {
     expect(disposeCount).toBe(2);
   });
 
+  test("disposeSubAgentSession does not treat a throwing posix dispose as success", async () => {
+    const posixTools = {
+      dispose: async () => {
+        throw new Error("1 shell child process still live after 2000ms reap");
+      },
+    };
+
+    await expect(
+      disposeSubAgentSession({
+        agent: { close: async () => undefined },
+        posixTools,
+      }),
+    ).rejects.toThrow(/still live after 2000ms reap/);
+  });
+
   test("spawn registry tracks in-flight plugin tool calls", async () => {
     const { plugin, snapshot } = createSubAgentSpawnRegistryPlugin();
     expect(plugin.middleware).toBeDefined();
