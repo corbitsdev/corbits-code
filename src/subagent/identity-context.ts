@@ -5,16 +5,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface SubAgentIdentity {
   description: string;
   cwd: string;
-  // Worker reactor authorization must not be repeated by parent middleware.
-  reactorOwnsPermissions?: boolean;
 }
 
 const subAgentIdentityAls = new AsyncLocalStorage<SubAgentIdentity>();
 
-export function runWithSubAgentIdentity<T>(
-  identity: SubAgentIdentity,
-  fn: () => Promise<T>,
-): Promise<T> {
+export function runWithSubAgentIdentity<T>(identity: SubAgentIdentity, fn: () => T): T {
   return subAgentIdentityAls.run(identity, fn);
 }
 

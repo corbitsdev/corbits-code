@@ -84,6 +84,20 @@ upstream adopts; downstream users whose `authorize` ignores the context
 are unaffected. **Removal path:** Upstream PR to `@intx/inference`
 documenting/populating the per-call context at the `authorize` call site.
 
+## authz-ts-deny-reason
+
+`authz-extension.ts` — `AuthzCallResult` may carry an optional `reason`. A
+`deny` effect that includes a non-empty reason uses it as the model-facing
+block text (`Denied by policy: ${reason}`) instead of the generic
+`resource/action` form. Callers that omit `reason` keep the upstream wording.
+Consumed by worker permission authorization so an unresolved ask names the
+permission subject.
+
+**Disposition:** Promotion candidate. Requires upstream to accept a deny-reason
+passthrough on `AuthzCallResult`. **Removal path:** Upstream PR adding
+`reason?: string` and using it in `formatBlockReason`.
+**Re-carry:** new after `0205b07b`. Low risk — additive optional field.
+
 ## assembly-ts-deps-context-transforms
 
 `assembly.ts` — Resolves `contextTransforms` from either the direct assembly
@@ -348,6 +362,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | Patch | Upstream ask | Upstream contact | Tracking | Revisit |
 | --- | --- | --- | --- | --- |
 | adapter-ts-stream-terminal-detector (+ harness-ts-is-stream-terminal) | Add an `isStreamTerminal`/`StreamTerminalDetector` hook to `ProviderAdapter` for semantic end-of-stream protocols | Alexander Guy <alexander.guy@pm.me> | This ledger (vendor/intx-inference/PATCHES.md#adapter-ts-stream-terminal-detector) | Next vendored sync |
+| authz-ts-deny-reason | Optional `AuthzCallResult.reason` used as the deny block text | Alexander Guy <alexander.guy@pm.me> | This ledger (#authz-ts-deny-reason) | Next vendored sync |
 | errors-ts-classify-abort-reason | Add optional `reason` param to `classifyAbortError`, carried as `raw: { origin }` | Alexander Guy <alexander.guy@pm.me> | This ledger (#errors-ts-classify-abort-reason) | Next vendored sync |
 | harness-ts-inactivity-on-semantic-progress | Gate the inactivity watchdog's re-arm on parsed events, not raw SSE bytes | Alexander Guy <alexander.guy@pm.me> | This ledger (#harness-ts-inactivity-on-semantic-progress) | Next vendored sync |
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |

@@ -7,6 +7,10 @@ import { type } from "arktype";
 import { createIsogitStore } from "@intx/storage-isogit/node";
 import { ErrorRecord, type AuditRecord } from "@intx/types/audit";
 import { createPermissionGate, type PermissionGate } from "../../src/permission/gate.js";
+import {
+  DENIED_BY_POLICY_MARKER,
+  WORKER_CANNOT_COMPLETE_APPROVAL,
+} from "../../src/permission/decline-markers.js";
 import { runSubAgent, type RunSubAgentParams } from "../../src/subagent/run.js";
 import { withMockedModuleDuring } from "../helpers/mock-module.js";
 import { mcpClientToAgentTools } from "../../src/mcp/plugin.js";
@@ -113,6 +117,11 @@ for (const interactive of [false, true]) {
             authz: { effect: "deny", blocked: true },
             result: { isError: true },
           });
+          expect(String(records[0]?.result.content)).toContain(DENIED_BY_POLICY_MARKER);
+          if (interactive) {
+            expect(String(records[0]?.result.content)).toContain("probe.txt");
+            expect(String(records[0]?.result.content)).toContain(WORKER_CANNOT_COMPLETE_APPROVAL);
+          }
           expect(records[0]?.callId.length).toBeGreaterThan(0);
           expect(records[0]?.sessionId.length).toBeGreaterThan(0);
         },
@@ -516,6 +525,174 @@ test.serial(
       await expect(runSubAgent(params)).rejects.toThrow();
       expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(false);
     });
+  },
+  20000,
+);
+
+for (const mode of [
+  { interactive: true, auto: false },
+  { interactive: false, auto: true },
+] as const) {
+  test.serial(
+    `leaf worker submit_result succeeds with empty parent approvals (interactive=${mode.interactive} auto=${mode.auto})`,
+    async () => {
+      let asks = 0;
+      await withWorker(
+        async ({ harness, params, audit }) => {
+          params.tier = "leaf";
+          harness.scenario.replyOnce("openai", {
+            toolCalls: [{ name: "submit_result", args: { turn_token: "stale", result: {} } }],
+          });
+          harness.scenario.replyOnce("openai", { text: report });
+          await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+          expect(asks).toBe(0);
+          const record = (await audit())[0];
+          expect(record?.tool).toBe("submit_result");
+          expect(record?.authz?.effect).toBe("allow");
+          expect(record?.authz?.blocked).toBe(false);
+          expect(String(record?.result.content)).toContain("turn_token");
+        },
+        (cwd) =>
+          createPermissionGate({
+            cwd,
+            approvals: [],
+            interactive: mode.interactive,
+            auto: mode.auto,
+            skipPermissions: false,
+            reactorGated: mode.interactive,
+            requestApproval: async () => {
+              asks++;
+              return { allow: true };
+            },
+          }),
+      );
+    },
+    20000,
+  );
+}
+
+test.serial(
+  "leaf worker ask_director reaches the parent mailbox with empty parent approvals",
+  async () => {
+    let asks = 0;
+    await withWorker(
+      async ({ harness, params, audit }) => {
+        params.tier = "leaf";
+        let registered: { question: string; questionId: string } | undefined;
+        params.askDirectorPort = {
+          register: async (input) => {
+            registered = input;
+            return "src/foo.ts";
+          },
+          cancel: () => undefined,
+        };
+        harness.scenario.replyOnce("openai", {
+          toolCalls: [{ name: "ask_director", args: { question: "which file?" } }],
+        });
+        harness.scenario.replyOnce("openai", { text: report });
+        await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+        expect(asks).toBe(0);
+        expect(registered?.question).toBe("which file?");
+        expect((await audit())[0]).toMatchObject({
+          tool: "ask_director",
+          authz: { effect: "allow", blocked: false },
+        });
+      },
+      (cwd) =>
+        createPermissionGate({
+          cwd,
+          approvals: [],
+          interactive: true,
+          auto: false,
+          skipPermissions: false,
+          reactorGated: false,
+          requestApproval: async () => {
+            asks++;
+            return { allow: true };
+          },
+        }),
+    );
+  },
+  20000,
+);
+
+test.serial(
+  "nested orchestrator wait_agents allows with only a spawn_agent grant",
+  async () => {
+    let asks = 0;
+    await withWorker(
+      async ({ cwd, harness, params, audit }) => {
+        const sessions = createSubAgentSessionStore();
+        let handles: Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0] | undefined;
+        params.permissionGate.setSeededApprovals([{ tool: "spawn_agent", pattern: "*" }]);
+        const parent = fromHost("api.openai.com");
+        const child = fromHost("nested.invalid");
+        harness.scenario.replyOnce("openai", {
+          predicate: parent,
+          toolCalls: [
+            {
+              name: "spawn_agent",
+              args: {
+                description: "nested probe",
+                prompt: "Report only.",
+                intent: "implement",
+                success_criteria: ["Report"],
+              },
+            },
+          ],
+        });
+        harness.scenario.replyOnce("openai", {
+          predicate: parent,
+          toolCalls: [{ name: "wait_agents", args: { timeout_ms: 8000 } }],
+        });
+        harness.scenario.replyOnce("openai", { predicate: parent, text: report });
+        harness.scenario.replyOnce("openai", { predicate: child, text: report });
+        try {
+          await Promise.all([
+            runSubAgent({
+              ...params,
+              persist: true,
+              orchestrator: true,
+              orchestratorTier: "nested-orchestrator",
+              onAgentReady: (value) => {
+                handles = value;
+              },
+              nestedDispatch: {
+                permissionGate: params.permissionGate,
+                sessions,
+                useWorktree: false,
+                getWorkdirBase: () => params.workdirBase,
+                provider: { ...params.provider, baseURL: "https://nested.invalid/v1" },
+              },
+            }),
+            harness.run({ wallClockBudgetMs: 15000 }),
+          ]);
+          expect(asks).toBe(0);
+          expect(sessions.list()).toHaveLength(1);
+          const records = await audit();
+          expect(records.find((record) => record.tool === "wait_agents")?.authz?.effect).toBe(
+            "allow",
+          );
+          expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(false);
+        } finally {
+          sessions.cancelAll("test cleanup");
+          await handles?.close();
+        }
+      },
+      (cwd) =>
+        createPermissionGate({
+          cwd,
+          approvals: [],
+          interactive: true,
+          auto: false,
+          skipPermissions: false,
+          reactorGated: false,
+          requestApproval: async () => {
+            asks++;
+            return { allow: true };
+          },
+        }),
+    );
   },
   20000,
 );

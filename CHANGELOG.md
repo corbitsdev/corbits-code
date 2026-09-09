@@ -34,6 +34,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   sentinel. Spacer-only replies are incomplete and stay on open-task and
   workflow rails. Frozen-prefix matching ignores model-emitted copies of the
   marker.
+- Spawned workers enforce the parent permission gate. Unresolved worker
+  approvals deny with a reason that names the permission subject so the parent
+  can grant and retry, without hanging on operator approval.
 
 ### Changed
 

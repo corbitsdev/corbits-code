@@ -31,3 +31,6 @@ export const APPROVER_REJECTION_MARKER = "denied by approver";
 
 /** vendor/intx-inference reactor.ts — timed-out approval suspension result. */
 export const APPROVAL_TIMEOUT_RESULT_TEXT = "approval timed out";
+
+/** Worker unresolved-ask deny — parent grants the named subject and retries. */
+export const WORKER_CANNOT_COMPLETE_APPROVAL = "workers cannot complete operator approval.";
