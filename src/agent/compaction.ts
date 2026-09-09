@@ -27,6 +27,11 @@ const COMPACTOR_NAME = "pruning-compactor";
 // would spend a reactor cycle that shrinks nothing.
 const MIN_TURNS_TO_COMPACT = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
 const MAX_OVERFLOW_RECOVERIES = 2;
+// Last-ditch bound on compact→infer→compact when the post-compact infer never
+// occupies the loop. Reset on tool-call occupancy or when a post-compact
+// measurement lands at or under the high watermark (that infer is not itself
+// a compact). Do not reset merely because assistant text ≠ spacer. Overflow
+// recoveries (above) reset on any successful inference.done instead.
 const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
 
 // A compact action runs in its own reactor cycle, after which the reactor
@@ -107,6 +112,9 @@ export function createCompactionGovernor(
   }
 
   function isSpacerEchoTerminal(event: ReactorInboundEvent, actions: ReactorAction[]): boolean {
+    // Fail-closed only. ChatDirector owns spacer-echo completeness (nudge, then
+    // loop-protection / workflow / open-task rails). This just refuses to treat
+    // that incomplete wait or reply as an idle-compact pause.
     if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn)) return true;
     return actions.some((a) => a.type === "reply" && assistantTextIsCompactSpacerEcho(a.content));
   }
@@ -116,7 +124,7 @@ export function createCompactionGovernor(
     turns: readonly ConversationTurn[],
   ): void {
     overflowRecoveries = 0;
-    if (!isCompactSpacerEchoTurn(event.turn)) {
+    if (event.turn.content.some((block) => block.type === "tool_call")) {
       consecutiveThresholdCompacts = 0;
     }
     if (requestContinuation === undefined) return;
@@ -133,6 +141,7 @@ export function createCompactionGovernor(
     }
     if (contextTokens <= compactionThresholdFor(lastModel)) {
       tokensAtLastCompact = undefined;
+      consecutiveThresholdCompacts = 0;
     }
     // Assign, don't OR: an under-threshold follow-up must disarm a sticky
     // pending left from an earlier over-threshold turn (e.g. after the

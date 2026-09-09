@@ -14,6 +14,12 @@ import {
   THINKING_ONLY_OMITTED,
   withReplaySanitizer,
 } from "./replay-sanitizer.js";
+import {
+  COMPACT_SPACER_TEXT,
+  COMPACTED_PREFIX,
+  HARNESS_COMPACT_SPACER_MODEL,
+  isHarnessCompactSpacer,
+} from "../session/compactor.js";
 
 const GROK_SIGNATURE = "grok-opaque-signature-blob";
 
@@ -399,5 +405,33 @@ describe("withReplaySanitizer", () => {
 
     expect(body.input.some((item) => item.type === "reasoning")).toBe(true);
     expect(body.input.some((item) => item.type === "function_call")).toBe(true);
+  });
+
+  it("keeps a harness compact spacer as a role-alternating assistant turn", () => {
+    const spacer: ConversationTurn = {
+      role: "assistant",
+      model: HARNESS_COMPACT_SPACER_MODEL,
+      content: [{ type: "text", text: COMPACT_SPACER_TEXT }],
+      timestamp: 2,
+    };
+    const turns = sanitizeReplayTurns(
+      [
+        {
+          role: "user",
+          content: [{ type: "text", text: `${COMPACTED_PREFIX} earlier` }],
+          timestamp: 1,
+        },
+        spacer,
+        {
+          role: "user",
+          content: [{ type: "text", text: `${COMPACTED_PREFIX} later` }],
+          timestamp: 3,
+        },
+      ],
+      "claude-opus-4",
+    );
+    expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns[1]?.content).toEqual([{ type: "text", text: COMPACT_SPACER_TEXT }]);
+    expect(isHarnessCompactSpacer(turns[1]!)).toBe(true);
   });
 });

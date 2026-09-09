@@ -9,6 +9,7 @@ import {
   COMPACTED_PREFIX,
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
+  HARNESS_COMPACT_SPACER_MODEL,
   isHarnessCompactSpacer,
   type SessionMetadata,
 } from "./session/compactor.js";
@@ -629,13 +630,13 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     ).toBe(true);
   });
 
-  test("harness spacer has no model and uses the non-lexical sentinel", async () => {
+  test("harness spacer is stamped with the reserved producer id and a visible sentinel", async () => {
     const compactor = createPruningCompactor({ keepRecentTurns: 2, summaryMaxChars: 500 });
     const output1 = (await compactor.apply(grow([], 16, "round1"), mockStrategyCtx)).output;
     const output2 = (await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)).output;
     const spacer = output2.find(isHarnessCompactSpacer);
     expect(spacer).toBeDefined();
-    expect(spacer?.model).toBeUndefined();
+    expect(spacer!.model).toBe(HARNESS_COMPACT_SPACER_MODEL);
     expect(firstText(spacer!)).toBe(COMPACT_SPACER_TEXT);
     expect(firstText(spacer!)).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
     expect(COMPACT_SPACER_TEXT).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
@@ -665,11 +666,40 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     expect(output2.slice(0, frozenLen)).not.toContain(echo);
     expect(isHarnessCompactSpacer(echo)).toBe(false);
     const harness = output2.find(isHarnessCompactSpacer);
-    if (harness !== undefined) {
-      expect(harness.model).toBeUndefined();
-      expect(firstText(harness)).toBe(COMPACT_SPACER_TEXT);
-      expect(harness).not.toBe(echo);
+    expect(harness).toBeDefined();
+    expect(harness!.model).toBe(HARNESS_COMPACT_SPACER_MODEL);
+    expect(firstText(harness!)).toBe(COMPACT_SPACER_TEXT);
+    expect(harness).not.toBe(echo);
+  });
+
+  test("frozen prefix does not absorb a model-stamped new-sentinel echo", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 2, summaryMaxChars: 500 });
+    const output1 = (await compactor.apply(grow([], 16, "round1"), mockStrategyCtx)).output;
+    const summary = output1.find((t) => firstText(t).startsWith(COMPACTED_PREFIX));
+    expect(summary).toBeDefined();
+    const echo = makeTurn({
+      role: "assistant",
+      model: "omen-alpha",
+      content: [{ type: "text", text: COMPACT_SPACER_TEXT }],
+    });
+    const output2 = (await compactor.apply(grow([summary!, echo], 16, "round2"), mockStrategyCtx))
+      .output;
+
+    let frozenLen = 0;
+    while (
+      frozenLen < output2.length &&
+      firstText(output2[frozenLen]!).startsWith(COMPACTED_PREFIX)
+    ) {
+      frozenLen++;
+      if (frozenLen < output2.length && isHarnessCompactSpacer(output2[frozenLen]!)) frozenLen++;
     }
+    expect(output2.slice(0, frozenLen)).not.toContain(echo);
+    expect(isHarnessCompactSpacer(echo)).toBe(false);
+    const harness = output2.find(isHarnessCompactSpacer);
+    expect(harness).toBeDefined();
+    expect(harness!.model).toBe(HARNESS_COMPACT_SPACER_MODEL);
+    expect(firstText(harness!)).toBe(COMPACT_SPACER_TEXT);
+    expect(harness).not.toBe(echo);
   });
 
   test("legacy harness spacer without model still freezes", async () => {

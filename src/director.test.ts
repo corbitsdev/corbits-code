@@ -1177,4 +1177,51 @@ describe("chatDirector spacer echo", () => {
     );
     expect(afterReset.some((a) => a.type === "infer")).toBe(true);
   });
+
+  test("after echo-cap with open tasks, falls through to open-task rails", async () => {
+    const director = createChatDirector("base", [], { onTasksChange: () => {} });
+    await director.decide(
+      makeInferenceDoneEvent([
+        {
+          id: "mt",
+          name: "manage_tasks",
+          args: { action: "create", tasks: [{ id: "t1", title: "work", status: "doing" }] },
+        },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(
+        await director.decide(
+          spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
+          mockState,
+          mockCapabilities,
+        ),
+      );
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+    }
+    const afterCap = actionsArray(
+      await director.decide(spacerInferenceDone(COMPACT_SPACER_TEXT), mockState, mockCapabilities),
+    );
+    expect(afterCap.some((a) => a.type === "infer")).toBe(true);
+    expect(afterCap.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(
+      false,
+    );
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(
+        await director.decide(
+          spacerInferenceDone(COMPACT_SPACER_TEXT),
+          mockState,
+          mockCapabilities,
+        ),
+      );
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+    }
+    const exhausted = actionsArray(
+      await director.decide(spacerInferenceDone(COMPACT_SPACER_TEXT), mockState, mockCapabilities),
+    );
+    expect(exhausted.some((a) => a.type === "infer")).toBe(false);
+    expect(exhausted.some((a) => a.type === "reply")).toBe(true);
+  });
 });

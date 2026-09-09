@@ -57,6 +57,20 @@ function inferenceDone(
   } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
 }
 
+function inferenceDoneWithTools(
+  input: number,
+): Extract<ReactorInboundEvent, { type: "inference.done" }> {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      content: [{ type: "tool_call", id: "c1", name: "read_file", arguments: { path: "a.ts" } }],
+    },
+    usage: usage(input),
+    source: { sourceId: "s", provider: "p", model: "m" },
+  } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
+}
+
 function inferenceDoneWithoutUsage(): Extract<ReactorInboundEvent, { type: "inference.done" }> {
   return {
     type: "inference.done",
@@ -455,7 +469,7 @@ describe("compaction governor", () => {
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 
-  test("consecutive threshold and idle compacts are bounded without a non-echo turn", () => {
+  test("consecutive threshold and idle compacts are bounded until occupancy", () => {
     const governor = createCompactionGovernor(() => {});
     const echo = LEGACY_COMPACT_SPACER_TEXT;
     governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
@@ -477,6 +491,9 @@ describe("compaction governor", () => {
       inferenceDone(overThreshold + 3 * resumeDelta, "real work"),
       tenTurns,
     );
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    governor.noteInferenceDone(inferenceDoneWithTools(overThreshold + 4 * resumeDelta), tenTurns);
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
   });
 

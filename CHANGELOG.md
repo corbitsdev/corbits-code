@@ -30,9 +30,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   impersonating Reject; Escape still denies.
 - After context compaction, ChatGPT Codex requests keep the operating prompt as
   instructions.
-- Compaction spacers are a non-lexical harness sentinel rather than
-  model-echoable prose. Spacer-only replies are treated as incomplete.
-  Frozen-prefix matching ignores model-emitted copies of the marker.
+- Compaction spacers stamp a reserved harness producer id and a visible
+  sentinel. Spacer-only replies are incomplete and stay on open-task and
+  workflow rails. Frozen-prefix matching ignores model-emitted copies of the
+  marker.
 
 ## [0.3.18] - 2026-09-08
 
