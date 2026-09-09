@@ -16,7 +16,8 @@ const permissionGate = createPermissionGate({
 
 test("runSubAgent threads the isogit audit store and session id into createAgent", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "corbits-run-audit-"));
-  const fakeStore = { readBlob: async () => new Uint8Array() } as unknown as ContextStore & AuditStore;
+  const fakeStore = { readBlob: async () => new Uint8Array() } as unknown as ContextStore &
+    AuditStore;
   let seen: { audit: AuditStore; sessionId?: string; storage: ContextStore } | undefined;
 
   await withMockedModuleDuring(

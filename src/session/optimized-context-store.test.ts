@@ -570,7 +570,10 @@ describe("createOptimizedContextStore checkpoint", () => {
           ? cmd.cmd.map(String)
           : [];
       if (argv[0] === "git" || argv[0]?.endsWith("/git")) gitSpawns.push(argv);
-      return original(cmd as Parameters<typeof original>[0], opts as Parameters<typeof original>[1]);
+      return original(
+        cmd as Parameters<typeof original>[0],
+        opts as Parameters<typeof original>[1],
+      );
     }) as typeof Bun.spawn;
     try {
       await commitEmptyCheckpoint(dir);
