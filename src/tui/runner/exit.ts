@@ -43,18 +43,20 @@ const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 export function resetSessionForRotation(
   state: Pick<RunnerState, "withFleetPublicationSuspended">,
   services: Pick<RunnerServices, "deliveryGeneration" | "emitter" | "subAgentSessions">,
-): void {
+): Promise<string[]> {
+  let cancelledWorkers: Promise<string[]> = Promise.resolve([]);
   const reset = (): void => {
     services.deliveryGeneration.bump();
     cancelFeedbackCapture();
     services.emitter.emit("session.clear");
-    services.subAgentSessions.cancelAll("Session cleared");
+    cancelledWorkers = services.subAgentSessions.cancelAll("Session cleared");
   };
   if (state.withFleetPublicationSuspended === undefined) {
     reset();
   } else {
     state.withFleetPublicationSuspended(reset);
   }
+  return cancelledWorkers;
 }
 
 export interface ResolveExitCodeArgs {
@@ -471,12 +473,13 @@ export async function createRunLifecycle(
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
-    resetSessionForRotation(state, services);
+    const cancelledWorkers = resetSessionForRotation(state, services);
     // Backend rotation is always enqueued regardless of contention; the queue
     // serialises it behind any in-progress op. Sub-agents nest under the new
     // session automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
+        await cancelledWorkers;
         // Tear the old agent down and dispose the recorder before workdir is
         // repointed: the pump can deliver stray deltas until the stream
         // settles, and a dead cycle's partial must land in the session that

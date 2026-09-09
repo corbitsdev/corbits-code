@@ -7,7 +7,9 @@ describe("runtime shutdown", () => {
     const calls: string[] = [];
     const shutdown = createRuntimeShutdown({
       disposeHost: () => calls.push("host"),
-      cancelWorkers: () => calls.push("workers"),
+      cancelWorkers: () => {
+        calls.push("workers");
+      },
       closeAgent: async () => {
         calls.push("agent");
       },
@@ -25,7 +27,9 @@ describe("runtime shutdown", () => {
     const calls: string[] = [];
     const shutdown = createRuntimeShutdown({
       disposeHost: () => calls.push("host"),
-      cancelWorkers: () => calls.push("workers"),
+      cancelWorkers: () => {
+        calls.push("workers");
+      },
       closeAgent: async () => {
         calls.push("agent");
       },
@@ -46,7 +50,9 @@ describe("runtime shutdown", () => {
         calls.push("host");
         throw new Error("renderer failure");
       },
-      cancelWorkers: () => calls.push("workers"),
+      cancelWorkers: () => {
+        calls.push("workers");
+      },
       closeAgent: async () => {
         calls.push("agent");
       },
@@ -63,7 +69,9 @@ describe("runtime shutdown", () => {
     const calls: string[] = [];
     const shutdown = createRuntimeShutdown({
       disposeHost: () => calls.push("host"),
-      cancelWorkers: () => calls.push("workers"),
+      cancelWorkers: () => {
+        calls.push("workers");
+      },
       closeAgent: async () => {
         calls.push("agent");
       },
@@ -77,6 +85,26 @@ describe("runtime shutdown", () => {
     expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
   });
 
+  test("rejects when async cancelWorkers throws leftover children", async () => {
+    const calls: string[] = [];
+    const shutdown = createRuntimeShutdown({
+      disposeHost: () => calls.push("host"),
+      cancelWorkers: async () => {
+        calls.push("workers");
+        throw new Error("1 shell child process still live after 2000ms reap");
+      },
+      closeAgent: async () => {
+        calls.push("agent");
+      },
+      disposeToolset: async () => {
+        calls.push("toolset");
+      },
+    });
+
+    await expect(shutdown()).rejects.toThrow(/still live after 2000ms reap/);
+    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+  });
+
   test("awaits an async toolset dispose before resolving", async () => {
     const calls: string[] = [];
     let resolveToolset!: () => void;
@@ -85,7 +113,9 @@ describe("runtime shutdown", () => {
     });
     const shutdown = createRuntimeShutdown({
       disposeHost: () => calls.push("host"),
-      cancelWorkers: () => calls.push("workers"),
+      cancelWorkers: () => {
+        calls.push("workers");
+      },
       closeAgent: async () => {
         calls.push("agent");
       },

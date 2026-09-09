@@ -128,9 +128,10 @@ export function execUserFailureMessage(
 
 /**
  * Headless analogue of TUI `runtime-shutdown`: abort live workers, then close
- * the primary agent and dispose the toolset. `cancelAll` is fire-and-forget —
- * it does not serialize `closeOne`. Once-only per runtime object so the send
- * path, `finally`, and signal host cannot double-dispose.
+ * the primary agent and dispose the toolset. `cancelAll` is awaited so a
+ * leftover-child throw is visible; hang-forever close is still deadline-bounded.
+ * Once-only per runtime object so the send path, `finally`, and signal host
+ * cannot double-dispose.
  */
 const execDisposeInFlight = new WeakMap<object, Promise<void>>();
 
@@ -164,7 +165,7 @@ async function runExecDispose(args: {
 }): Promise<void> {
   const failures: unknown[] = [];
   try {
-    args.subAgentSessions?.cancelAll("Session closed");
+    await args.subAgentSessions?.cancelAll("Session closed");
   } catch (err) {
     failures.push(err);
   }

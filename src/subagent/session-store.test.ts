@@ -574,6 +574,41 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(store.resumeOne("missing", "more")).toEqual({ ok: false, status: "not_found" });
   });
 
+  test("cancelAll then closeOne does not swallow a leftover-child throw as shutdown success", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.registerClose(session.id, async () => {
+      throw new Error("1 shell child process still live after 2000ms reap");
+    });
+    store.complete(session.id, "done", { agentRetained: true });
+
+    const leftover = /still live after 2000ms reap/;
+    let cancelThrew = false;
+    try {
+      await store.cancelAll("parent stop");
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(leftover);
+      cancelThrew = true;
+    }
+    let closeThrew = false;
+    let closeStatus: string | undefined;
+    try {
+      closeStatus = await store.closeOne(session.id, 1000);
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(leftover);
+      closeThrew = true;
+    }
+    expect(cancelThrew || closeThrew).toBe(true);
+    expect(cancelThrew === false && closeThrew === false && closeStatus === "shutdown").toBe(false);
+  });
+
   test("closeOne is bounded by its deadline when the registered close hangs forever", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });

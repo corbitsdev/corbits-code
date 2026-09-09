@@ -1,6 +1,6 @@
 export interface RuntimeShutdownDeps {
   disposeHost: () => void;
-  cancelWorkers: () => void;
+  cancelWorkers: () => void | Promise<void>;
   closeAgent: () => Promise<void>;
   disposeToolset: () => Promise<void>;
 }
@@ -22,6 +22,7 @@ export function createRuntimeShutdown(deps: RuntimeShutdownDeps): () => Promise<
     started = true;
 
     const failures: unknown[] = [];
+    let cancelWorkersResult: void | Promise<void> = undefined;
 
     try {
       deps.disposeHost();
@@ -29,12 +30,17 @@ export function createRuntimeShutdown(deps: RuntimeShutdownDeps): () => Promise<
       failures.push(err);
     }
     try {
-      deps.cancelWorkers();
+      cancelWorkersResult = deps.cancelWorkers();
     } catch (err) {
       failures.push(err);
     }
 
     completion = (async () => {
+      try {
+        if (cancelWorkersResult !== undefined) await cancelWorkersResult;
+      } catch (err) {
+        failures.push(err);
+      }
       try {
         await deps.closeAgent();
       } catch (err) {

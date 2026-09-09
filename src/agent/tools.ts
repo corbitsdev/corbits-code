@@ -984,7 +984,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     disposal = (async () => {
       const fleetSessions = fleetSessionsForDispose;
       if (fleetSessions !== undefined) {
-        fleetSessions.cancelAll("parent session closed");
+        await fleetSessions.cancelAll("parent session closed");
         for (const session of [...fleetSessions.list()].reverse()) {
           await fleetSessions.closeOne(session.id, DEFAULT_CLOSE_DEADLINE_MS);
         }

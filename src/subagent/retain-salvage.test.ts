@@ -24,7 +24,7 @@ describe("retained session lifecycle", () => {
     expect(outcome.ok).toBe(false);
   });
 
-  test("cancelAll does not close retained completed sessions", () => {
+  test("cancelAll does not close retained completed sessions", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
     const s = store.start({
       description: "worker",
@@ -37,7 +37,7 @@ describe("retained session lifecycle", () => {
       closed = true;
     });
     store.complete(s.id, "done");
-    const cancelled = store.cancelAll("parent stop");
+    const cancelled = await store.cancelAll("parent stop");
     console.log("cancelAll returned:", cancelled, "| close invoked:", closed);
     expect(closed).toBe(true);
   });
@@ -67,7 +67,7 @@ describe("retained session lifecycle", () => {
     expect(store.list().length).toBeLessThanOrEqual(3);
   });
 
-  test("a genuinely retained clean completion IS resumable, and cancelAll releases it", () => {
+  test("a genuinely retained clean completion IS resumable, and cancelAll releases it", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
     const s = store.start({
       description: "worker",
@@ -86,7 +86,7 @@ describe("retained session lifecycle", () => {
     store.registerFollowup(s.id, async () => "next");
     expect(store.resumeOne(s.id, "more").ok).toBe(true);
     expect(closed).toBe(false);
-    store.cancelAll("parent stop");
+    await store.cancelAll("parent stop");
     expect(closed).toBe(true);
   });
 

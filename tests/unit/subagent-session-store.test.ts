@@ -225,7 +225,7 @@ describe("createSubAgentSessionStore", () => {
     expect(aborted).toBe(1);
   });
 
-  test("cancelAll aborts every running session", () => {
+  test("cancelAll aborts every running session", async () => {
     let n = 0;
     const store = createSubAgentSessionStore({
       createId: () => `s-${++n}`,
@@ -238,7 +238,7 @@ describe("createSubAgentSessionStore", () => {
     store.registerCancel("s-1", () => aborted.push("s-1"));
     store.registerCancel("s-2", () => aborted.push("s-2"));
     store.registerCancel("s-3", () => aborted.push("s-3")); // already done — ignored
-    const cancelled = store.cancelAll("Parent stop");
+    const cancelled = await store.cancelAll("Parent stop");
     expect(cancelled.sort()).toEqual(["s-1", "s-2"]);
     expect(aborted.sort()).toEqual(["s-1", "s-2"]);
     expect(store.get("s-1")?.status).toBe("cancelled");

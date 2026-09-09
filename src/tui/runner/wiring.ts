@@ -128,8 +128,8 @@ export function wirePostStartup(
 
   const shutdownRuntime = createRuntimeShutdown({
     disposeHost: hostOf(state).dispose,
-    cancelWorkers: () => {
-      services.subAgentSessions.cancelAll("Session closed");
+    cancelWorkers: async () => {
+      await services.subAgentSessions.cancelAll("Session closed");
     },
     closeAgent: () => liveAgent(state).close(),
     disposeToolset: () => services.toolset.dispose(),

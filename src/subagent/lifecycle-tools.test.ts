@@ -90,6 +90,45 @@ describe("close_agent", () => {
     expect(Date.now() - started).toBeLessThan(500);
     expect(childStatus).toBe("shutdown");
   });
+
+  test("closes remaining siblings after a leftover-child throw, then fails", async () => {
+    const sessions = createSubAgentSessionStore();
+    const parent = sessions.start({ description: "parent", agentId: "a", brief: "b" });
+    const leftover = sessions.start({
+      description: "leftover",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: parent.id,
+    });
+    const sibling = sessions.start({
+      description: "sibling",
+      agentId: "a",
+      brief: "b",
+      parentSessionId: parent.id,
+    });
+    const closedOrder: string[] = [];
+    sessions.registerClose(leftover.id, async () => {
+      closedOrder.push(leftover.id);
+      throw new Error("1 shell child process still live after 2000ms reap");
+    });
+    sessions.registerClose(sibling.id, async () => {
+      closedOrder.push(sibling.id);
+    });
+    sessions.registerClose(parent.id, async () => {
+      closedOrder.push(parent.id);
+    });
+
+    const closeAgent = createCloseAgentTool({
+      sessions,
+      fleetRecords: createFleetMailbox(sessions),
+    });
+    await expect(callTool(closeAgent, { target: parent.id })).rejects.toThrow(
+      /still live after 2000ms reap/,
+    );
+    expect(closedOrder).toContain(leftover.id);
+    expect(closedOrder).toContain(sibling.id);
+    expect(closedOrder).toContain(parent.id);
+  });
 });
 
 describe("resume_agent", () => {
