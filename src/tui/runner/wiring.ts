@@ -171,8 +171,6 @@ export function wirePostStartup(
     const send = state.sendWithAttemptIdentity;
     if (send === undefined) return false;
     return driveOpenTasksAfterFleetDry({
-      previousRunning: 0,
-      running: 0,
       deferredDryEdge: true,
       openTasks: services.directorHolder.instance?.getTasks() ?? [],
       parentProcessing: false,
@@ -181,9 +179,7 @@ export function wirePostStartup(
       beginSystemContinuation: (prompt) => {
         sessionBridge.beginSystemContinuation(prompt);
       },
-      send: (prompt) => {
-        void send(buildFleetDryContinuationMessage(prompt));
-      },
+      send: (prompt) => send(buildFleetDryContinuationMessage(prompt)),
     });
   });
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {

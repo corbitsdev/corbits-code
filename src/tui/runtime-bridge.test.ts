@@ -1476,6 +1476,17 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           settleToollessTurn(bridge);
           expect(drives).toBe(1);
           expect(shell.session.run).toBe("busy");
+          bridge.submit("when it finishes, summarize", "queue");
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          bridge.handle({ type: "connector.reply", data: { content: "" } });
+          expect(shell.session.run).toBe("busy");
+          expect(badgeCount(shell.session)).toBe(1);
+          expect(port.calls.some((c) => c.op === "deliver")).toBe(false);
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("idle");
+          expect(badgeCount(shell.session)).toBe(0);
         } finally {
           bridge.dispose();
           shell.dispose();

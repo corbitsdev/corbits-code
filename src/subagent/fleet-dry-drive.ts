@@ -46,15 +46,21 @@ export interface CollectedWorkerReport {
 }
 
 export function shouldDriveOpenTasks(input: {
-  previousRunning: number;
-  running: number;
+  previousRunning?: number | undefined;
+  running?: number | undefined;
   hasOpenTasks: boolean;
   parentProcessing: boolean;
   deferredDryEdge?: boolean;
 }): boolean {
-  const wentDry = input.running === 0 && input.previousRunning > 0;
+  const running = input.running ?? 0;
+  const previousRunning = input.previousRunning ?? 0;
+  const wentDry = running === 0 && previousRunning > 0;
   const dryEdge = wentDry || input.deferredDryEdge === true;
-  return dryEdge && input.running === 0 && input.hasOpenTasks && !input.parentProcessing;
+  return dryEdge && running === 0 && input.hasOpenTasks && !input.parentProcessing;
+}
+
+function isPromiseLike(value: unknown): value is Promise<unknown> {
+  return typeof value === "object" && value !== null && "then" in value;
 }
 
 function clipField(text: string | undefined): string | undefined {
@@ -112,7 +118,7 @@ function clipCollectedReport(report: CollectedWorkerReport): CollectedWorkerRepo
 export function collectUncollectedTerminals(
   mailbox: FleetDryMailbox | undefined,
   lanes: readonly FleetDryLane[],
-  consume = true,
+  consume: boolean,
 ): CollectedWorkerReport[] {
   if (mailbox === undefined) return [];
   const byId = new Map(lanes.map((lane) => [lane.id, lane]));
@@ -151,15 +157,15 @@ export function buildFleetDryContinuationPrompt(
 }
 
 export function driveOpenTasksAfterFleetDry(args: {
-  previousRunning: number;
-  running: number;
+  previousRunning?: number | undefined;
+  running?: number | undefined;
   openTasks: readonly Task[];
   parentProcessing: boolean;
   deferredDryEdge?: boolean;
   mailbox: FleetDryMailbox | undefined;
   lanes: readonly FleetDryLane[];
   beginSystemContinuation: (prompt: string) => void;
-  send: (prompt: string) => void;
+  send: (prompt: string) => unknown;
 }): boolean {
   const tasks = [...args.openTasks];
   if (
@@ -175,14 +181,26 @@ export function driveOpenTasksAfterFleetDry(args: {
   }
   const reports = collectUncollectedTerminals(args.mailbox, args.lanes, false);
   const prompt = buildFleetDryContinuationPrompt(tasks, reports);
+  const takeReports = (): void => {
+    for (const report of reports) {
+      args.mailbox?.take(report.agent_id);
+    }
+  };
   try {
     args.beginSystemContinuation(prompt);
-    args.send(prompt);
+    const sent = args.send(prompt);
+    if (isPromiseLike(sent)) {
+      void sent.then(
+        (result) => {
+          if (result !== false) takeReports();
+        },
+        () => undefined,
+      );
+      return true;
+    }
+    if (sent !== false) takeReports();
   } catch {
     return false;
-  }
-  for (const report of reports) {
-    args.mailbox?.take(report.agent_id);
   }
   return true;
 }

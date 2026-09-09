@@ -74,6 +74,13 @@ describe("shouldDriveOpenTasks", () => {
     ).toBe(true);
     expect(
       shouldDriveOpenTasks({
+        hasOpenTasks: true,
+        parentProcessing: false,
+        deferredDryEdge: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDriveOpenTasks({
         previousRunning: 0,
         running: 0,
         hasOpenTasks: true,
@@ -158,7 +165,7 @@ describe("collectUncollectedTerminals", () => {
       }),
     ).toBe(true);
 
-    const reports = collectUncollectedTerminals(mailbox, sessions.list());
+    const reports = collectUncollectedTerminals(mailbox, sessions.list(), true);
     expect(reports.map((r) => r.agent_id).sort()).toEqual(["done", "fail"]);
     expect(reports.find((r) => r.agent_id === "done")).toEqual({
       agent_id: "done",
@@ -194,9 +201,11 @@ describe("collectUncollectedTerminals", () => {
         return taken;
       },
     };
-    const reports = collectUncollectedTerminals(mailbox, [
-      { id: "ghost", description: "from store", report: "store report" },
-    ]);
+    const reports = collectUncollectedTerminals(
+      mailbox,
+      [{ id: "ghost", description: "from store", report: "store report" }],
+      true,
+    );
     expect(reports).toEqual([
       {
         agent_id: "ghost",
@@ -217,9 +226,29 @@ describe("collectUncollectedTerminals", () => {
       peek: (id) => records.get(id),
       take: (id) => records.get(id),
     };
-    const reports = collectUncollectedTerminals(mailbox, []);
+    const reports = collectUncollectedTerminals(mailbox, [], true);
     expect(reports[0]?.report?.length).toBe(FLEET_DRY_REPORT_CHARS);
     expect(reports[0]?.report?.endsWith("…")).toBe(true);
+  });
+
+  test("consume false peeks without take", () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    const reports = collectUncollectedTerminals(mailbox, [], false);
+    expect(reports).toEqual([{ agent_id: "w1", status: "done", report: "ok" }]);
+    expect(records.get("w1")?.collected).not.toBe(true);
   });
 });
 
@@ -367,5 +396,110 @@ describe("driveOpenTasksAfterFleetDry", () => {
     });
     expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
+  test("TUI sendWithAttemptIdentity rejection leaves mailbox uncollected", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    const sendWithAttemptIdentity = async (): Promise<boolean> => {
+      await Promise.resolve();
+      throw new Error("agentProxy.send failed");
+    };
+    const driven = driveOpenTasksAfterFleetDry({
+      deferredDryEdge: true,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => sendWithAttemptIdentity(),
+    });
+    expect(driven).toBe(true);
+    expect(records.get("w1")?.collected).not.toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
+  test("TUI sendWithAttemptIdentity false after handleSendFailure leaves mailbox uncollected", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    const sendWithAttemptIdentity = async (): Promise<boolean> => {
+      await Promise.resolve();
+      return false;
+    };
+    const driven = driveOpenTasksAfterFleetDry({
+      deferredDryEdge: true,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => sendWithAttemptIdentity(),
+    });
+    expect(driven).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
+  test("TUI sendWithAttemptIdentity true takes mailbox after send resolves", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    let resolveSend: ((ok: boolean) => void) | undefined;
+    const sendWithAttemptIdentity = (): Promise<boolean> =>
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      });
+    const driven = driveOpenTasksAfterFleetDry({
+      deferredDryEdge: true,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => sendWithAttemptIdentity(),
+    });
+    expect(driven).toBe(true);
+    expect(records.get("w1")?.collected).not.toBe(true);
+    resolveSend?.(true);
+    await Promise.resolve();
+    expect(records.get("w1")?.collected).toBe(true);
   });
 });

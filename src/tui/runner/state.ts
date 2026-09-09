@@ -222,7 +222,7 @@ export interface RunnerState {
     attempt: InferenceAttemptIdentity,
     providerFailure: ProviderFailureAttempt,
   ) => void;
-  sendWithAttemptIdentity?: (message: InboundMessage) => Promise<void>;
+  sendWithAttemptIdentity?: (message: InboundMessage) => Promise<boolean>;
   sendUserPrompt?: (text: string, pending: readonly PendingImageAttachment[]) => Promise<void>;
   dispatchCommand?: (name: string, args: string) => void;
   newSession?: () => void;

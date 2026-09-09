@@ -255,7 +255,7 @@ export function createSubmitPath(
   };
   state.handleSendFailure = handleSendFailure;
 
-  const sendWithAttemptIdentity = async (message: InboundMessage): Promise<void> => {
+  const sendWithAttemptIdentity = async (message: InboundMessage): Promise<boolean> => {
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
     try {
@@ -265,8 +265,10 @@ export function createSubmitPath(
       // decision on the correlationId signal channel so the parked run
       // resumes.
       await services.approvalResume.handle(result);
+      return true;
     } catch (error) {
       handleSendFailure(error, attempt, providerFailure);
+      return false;
     } finally {
       services.providerFailureAttempts.sendSettled(providerFailure);
     }

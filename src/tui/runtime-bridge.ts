@@ -387,6 +387,12 @@ export interface BridgeBag {
    * once, and a later settle cannot loop.
    */
   pendingDryOpenDrive: boolean;
+  /**
+   * beginSystemContinuation re-armed the turn during the previous cycle's
+   * settle. Late connector.reply from that cycle must not settle this one
+   * until its own inference.start arrives.
+   */
+  awaitingContinuationInference: boolean;
   /** Occupancy driver: collect+send when settle takes the deferred dry shot. */
   dryOpenTaskDriver: (() => boolean) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
@@ -953,6 +959,7 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     if (driven) return;
   }
   shell.session = setRunState(shell.session, "idle");
+  bag.awaitingContinuationInference = false;
   // Full drain: soft steers first, then follow-ups (drainOrder).
   drainAtBoundary(shell, bag);
   bag.flushPendingAskWake?.();
@@ -1082,6 +1089,7 @@ export function attachSessionBridge(
     deliveredAskWake: new Map(),
     flushPendingAskWake: null,
     pendingDryOpenDrive: false,
+    awaitingContinuationInference: false,
     dryOpenTaskDriver: undefined,
     lastSentMessage: "",
     lastSentOrigin: null,
@@ -1254,7 +1262,12 @@ export function attachSessionBridge(
 
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return;
-    const settled = noteEvent(event);
+    if (event.type === "inference.start") {
+      bag.awaitingContinuationInference = false;
+    }
+    const staleContinuationReply =
+      event.type === "connector.reply" && bag.awaitingContinuationInference;
+    const settled = staleContinuationReply ? false : noteEvent(event);
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
       if (consumePendingEchoEvent(bag, event)) {
@@ -1428,6 +1441,7 @@ export function attachSessionBridge(
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
     recordLastSent(null);
+    bag.awaitingContinuationInference = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
     flushPendingAskWake();
@@ -1441,6 +1455,7 @@ export function attachSessionBridge(
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
     bag.pendingDryOpenDrive = false;
+    bag.awaitingContinuationInference = false;
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
@@ -1587,6 +1602,7 @@ export function attachSessionBridge(
       const t = text.trim();
       if (t.length === 0) return;
       bag.pendingEchoes.push(t);
+      bag.awaitingContinuationInference = true;
       shell.session = setRunState(shell.session, "busy");
       bag.turn = turnStateOnSubmit(bag.turn, now());
       paintChrome(shell);
