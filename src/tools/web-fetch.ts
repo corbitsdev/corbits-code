@@ -5,6 +5,7 @@ import type { ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { checkUrlForSsrf } from "./ssrf-guard.js";
 import { htmlToMarkdown, htmlToText } from "./html-convert.js";
+import { readCappedBody } from "../util/capped-body.js";
 import { COMMAND_NAME } from "../branding.js";
 import type { MCPClient } from "../mcp/client.js";
 import pkg from "../../package.json" with { type: "json" };
@@ -61,44 +62,6 @@ function acceptHeaderFor(format: WebFetchFormat): string {
 // reject an unfamiliar browser UA string but allow declared bots/tools.
 function looksLikeBotBlock(status: number): boolean {
   return status === 403 || status === 429 || status === 999;
-}
-
-async function readCapped(
-  response: Response,
-  capBytes: number,
-): Promise<{ text: string; truncated: boolean }> {
-  const body = response.body;
-  if (body === null) return { text: await response.text(), truncated: false };
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let truncated = false;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value === undefined) continue;
-    const remaining = capBytes - total;
-    if (remaining <= 0) {
-      truncated = true;
-      await reader.cancel().catch(() => undefined);
-      break;
-    }
-    const slice = value.byteLength > remaining ? value.slice(0, remaining) : value;
-    chunks.push(slice);
-    total += slice.byteLength;
-    if (slice.byteLength < value.byteLength) {
-      truncated = true;
-      await reader.cancel().catch(() => undefined);
-      break;
-    }
-  }
-  const buffer = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return { text: new TextDecoder().decode(buffer), truncated };
 }
 
 async function fetchOnce(
@@ -176,14 +139,14 @@ export async function runWebFetch(
     }
 
     if (!response.ok) {
-      const { text } = await readCapped(response, 8192);
+      const { text } = await readCappedBody(response, 8192);
       return {
         ok: false,
         error: `Fetch of ${currentUrl} failed with status ${response.status}: ${text.slice(0, 500)}`,
       };
     }
 
-    const { text: body, truncated } = await readCapped(response, MAX_FETCH_BYTES);
+    const { text: body, truncated } = await readCappedBody(response, MAX_FETCH_BYTES);
     const contentType = response.headers.get("content-type") ?? "";
     const isHtml = contentType.includes("html") || /^\s*<(!doctype|html)/i.test(body);
 

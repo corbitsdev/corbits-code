@@ -5,6 +5,7 @@ import {
   OPENCODE_GO_MODEL_IDS,
 } from "../../packages/opencode-go/src/index.js";
 import { requestModelsEndpoint } from "./models-endpoint.js";
+import { readCappedBody } from "../util/capped-body.js";
 
 const GoModelsResponse = type({
   data: type({ id: "string" }).array(),
@@ -49,48 +50,19 @@ async function readCatalogJson(
     return { ok: false, message: oversizeMessage("bytes") };
   }
 
-  const body = response.body;
-  if (body === null) {
-    try {
-      const text = await response.text();
-      if (new TextEncoder().encode(text).byteLength > MAX_GO_CATALOG_BYTES) {
-        return { ok: false, message: oversizeMessage("bytes") };
-      }
-      const value: unknown = JSON.parse(text);
-      return { ok: true, value };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
+  let text: string;
+  let truncated: boolean;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value === undefined) continue;
-      total += value.byteLength;
-      if (total > MAX_GO_CATALOG_BYTES) {
-        await reader.cancel().catch(() => undefined);
-        return { ok: false, message: oversizeMessage("bytes") };
-      }
-      chunks.push(value);
-    }
+    ({ text, truncated } = await readCappedBody(response, MAX_GO_CATALOG_BYTES));
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
-
-  const buffer = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset);
-    offset += chunk.byteLength;
+  if (truncated) {
+    return { ok: false, message: oversizeMessage("bytes") };
   }
 
   try {
-    const value: unknown = JSON.parse(new TextDecoder().decode(buffer));
+    const value: unknown = JSON.parse(text);
     return { ok: true, value };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
