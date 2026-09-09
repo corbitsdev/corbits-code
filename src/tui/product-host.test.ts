@@ -191,9 +191,9 @@ describe("mountProductHost", () => {
         action: "run",
         subject: "ls",
         scopes: [],
-        id: "req-1",
       };
       emitter.emit("permission.gate", {
+        id: "req-1",
         request,
         resolve: (outcome: unknown) => {
           resolved = outcome;

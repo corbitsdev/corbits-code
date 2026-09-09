@@ -1,6 +1,9 @@
 import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 import type { OperatorResult } from "../agent/tools.js";
 
+/** Fail-closed settle when no approval UI can bind the operator's accept. */
+export const APPROVAL_UNAVAILABLE_MESSAGE = "no approval UI available; request denied" as const;
+
 export interface OperatorGateEvent {
   /** Minted by the session emitter, never by the TUI overlay. */
   id: string;
@@ -23,6 +26,8 @@ export interface OperatorGateEvent {
 }
 
 export interface PermissionGateEvent {
+  /** Minted at overlay-open by the TUI emitter, never on PermissionRequest. */
+  id: string;
   request: PermissionRequest;
   resolve: (outcome: ApprovalOutcome) => void;
   /**

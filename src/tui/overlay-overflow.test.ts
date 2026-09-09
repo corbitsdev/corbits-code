@@ -222,19 +222,19 @@ describe("gate-wire approval overflow on short terminal", () => {
           label: `Always allow scope ${i}`,
           pattern: `p${i}`,
         })),
-        id: "req-1",
       };
       try {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
         emitter.emit("permission.gate", {
+          id: "req-1",
           request,
           resolve: (outcome: unknown) => {
             resolved = outcome;
           },
         });
 
-        const choices = permissionChoicesFromRequest(request);
+        const choices = permissionChoicesFromRequest(request, "req-1");
         expect(shell.overlayKind).toBe("permissions");
         expect(shell.overlayItems).toEqual([...choices.items]);
         const list = shell.overlayList!;
@@ -310,12 +310,11 @@ describe("gate-wire approval overflow on short terminal", () => {
         action: "Run shell command",
         subject: 'git commit -m "line one\nline two\nline three\nline four\nline five"',
         scopes: [{ id: "session", label: "Allow for session", pattern: "git *" }],
-        id: "req-1",
       };
       try {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
-        emitter.emit("permission.gate", { request, resolve: () => {} });
+        emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
 
         const body = permissionBodyFromRequest(request, { hint: true });
         // The raw body still carries the collapsed-command hint — only what

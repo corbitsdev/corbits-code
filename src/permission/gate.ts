@@ -1,6 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { isAbsolute, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 import type {
   Approval,
   ApprovalOutcome,
@@ -43,28 +42,6 @@ import { NOOP_APPROVAL_LOG, type ApprovalLog, type ApprovalOutcomeKind } from ".
 // Closes out an operator prompt: ends the wait span and records the outcome.
 // buildRequests yields at most one request per tool call, and the two prompt
 // sites below are mutually exclusive, so this runs once per prompt shown.
-// Classifies a settled ApprovalOutcome into the approval-log taxonomy.
-// gate-wire.ts's timeout/abort auto-denies carry a fixed message text (see
-// autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
-// finish() usage); anything else that denies is a plain operator/unavailable
-// decision.
-function withRequestId(request: PermissionRequest): PermissionRequest {
-  return request.id !== undefined && request.id.length > 0
-    ? request
-    : { ...request, id: randomUUID() };
-}
-
-function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeKind {
-  if (outcome === undefined) return "deny";
-  if (!outcome.allow) {
-    const message = outcome.message ?? "";
-    if (message.includes("timed out")) return "timeout";
-    if (message.includes("no longer running")) return "abort";
-    return "deny";
-  }
-  return outcome.persist !== undefined ? "allow-with-scope" : "allow-once";
-}
-
 function finishApprovalWait(
   telemetry: Telemetry,
   waitSpanId: string,
@@ -77,6 +54,22 @@ function finishApprovalWait(
     decision,
     permission_kind: classifyPermissionKind(tool),
   });
+}
+
+// Classifies a settled ApprovalOutcome into the approval-log taxonomy.
+// gate-wire.ts's timeout/abort auto-denies carry a fixed message text (see
+// autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
+// finish() usage); anything else that denies is a plain operator/unavailable
+// decision.
+function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeKind {
+  if (outcome === undefined) return "deny";
+  if (!outcome.allow) {
+    const message = outcome.message ?? "";
+    if (message.includes("timed out")) return "timeout";
+    if (message.includes("no longer running")) return "abort";
+    return "deny";
+  }
+  return outcome.persist !== undefined ? "allow-with-scope" : "allow-once";
 }
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
@@ -671,7 +664,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
         return {
           kind: "ask",
-          request: withRequestId(requestForOperator),
+          request: requestForOperator,
           anySecret,
           segmentCount: segments.length,
         };
@@ -699,7 +692,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         };
       }
 
-      return { kind: "ask", request: withRequestId(request), anySecret: false, segmentCount: 0 };
+      return { kind: "ask", request, anySecret: false, segmentCount: 0 };
     }
     return { kind: "allow" };
   };

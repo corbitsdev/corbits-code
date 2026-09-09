@@ -18,7 +18,11 @@ import {
   setOverlayBody,
 } from "./shell/overlay-host.js";
 import { EXPAND_KEY } from "./stream.js";
-import type { OperatorGateEvent, PermissionGateEvent } from "./gate-events.js";
+import {
+  APPROVAL_UNAVAILABLE_MESSAGE,
+  type OperatorGateEvent,
+  type PermissionGateEvent,
+} from "./gate-events.js";
 import {
   createPermissionRequestQueue,
   wirePermissionGrantReconciliation,
@@ -40,13 +44,13 @@ export const PERMISSION_EXPAND_KEY = EXPAND_KEY;
 export interface PermissionGateChoices {
   readonly items: readonly string[];
   readonly itemIds: readonly string[];
-  /** Parallel to items — index into this on accept. */
+  /** Parallel to itemIds — looked up by selection id. */
   readonly outcomes: readonly ApprovalOutcome[];
 }
 
 export interface GateSelection {
   readonly index: number;
-  /** When present, preferred over index for outcome lookup. */
+  /** When present, the only lookup key. Omitted id fail-closes. */
   readonly id?: string;
 }
 
@@ -57,11 +61,14 @@ export interface GateSelection {
  * the list (see permissionBodyFromRequest) instead of being truncated inside
  * a choice row.
  */
-export function permissionChoicesFromRequest(request: PermissionRequest): PermissionGateChoices {
+export function permissionChoicesFromRequest(
+  request: PermissionRequest,
+  askId: string,
+): PermissionGateChoices {
   const items: string[] = [];
   const itemIds: string[] = [];
   const outcomes: ApprovalOutcome[] = [];
-  const rowId = (part: string): string => `${request.id}:${part}`;
+  const rowId = (part: string): string => `${askId}:${part}`;
 
   items.push("Reject");
   itemIds.push(rowId(PERMISSION_DENY_ID));
@@ -84,21 +91,21 @@ export function permissionChoicesFromRequest(request: PermissionRequest): Permis
 }
 
 /**
- * Map overlay selection index/id → ApprovalOutcome.
- * Unknown / out-of-range defaults to deny (safe closed).
+ * Map overlay selection id → ApprovalOutcome.
+ * Unknown or omitted id fail-closes as unavailable. No index fallback.
  */
 export function approvalOutcomeFromSelection(
   choices: PermissionGateChoices,
   selection: GateSelection,
 ): ApprovalOutcome {
-  if (selection.id !== undefined) {
-    const byId = choices.itemIds.indexOf(selection.id);
-    if (byId >= 0) {
-      return choices.outcomes[byId] ?? { allow: false };
-    }
-    return { allow: false };
+  if (selection.id === undefined) {
+    return { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
   }
-  return choices.outcomes[selection.index] ?? { allow: false };
+  const byId = choices.itemIds.indexOf(selection.id);
+  if (byId >= 0) {
+    return choices.outcomes[byId] ?? { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
+  }
+  return { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
 }
 
 export interface PermissionBodyOpts {
@@ -165,23 +172,20 @@ export function operatorChoicesFromOptions(
 
 /**
  * Map selection → OperatorResult.
- * Present unknown id → cancel (safe closed). No index fallback.
+ * Unknown or omitted id → cancel. No index fallback.
  */
 export function operatorResultFromSelection(
   choices: OperatorGateChoices,
   selection: GateSelection,
 ): OperatorResult {
-  if (selection.id !== undefined) {
-    const byId = choices.itemIds.indexOf(selection.id);
-    if (byId >= 0) {
-      return { kind: "option", index: byId };
-    }
+  if (selection.id === undefined) {
     return { kind: "cancel" };
   }
-  if (selection.index < 0 || selection.index >= choices.items.length) {
-    return { kind: "cancel" };
+  const byId = choices.itemIds.indexOf(selection.id);
+  if (byId >= 0) {
+    return { kind: "option", index: byId };
   }
-  return { kind: "option", index: selection.index };
+  return { kind: "cancel" };
 }
 
 export function operatorCancelResult(): OperatorResult {
@@ -294,11 +298,11 @@ export function wireGates(
   function onPermission(ev: PermissionGateEvent): void {
     hooks.onGateOpened();
     const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
-    if (ev.request.id === undefined || ev.request.id.length === 0) {
-      resolve({ allow: false });
+    if (typeof ev.id !== "string" || ev.id.length === 0) {
+      resolve({ allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE });
       return;
     }
-    const choices = permissionChoicesFromRequest(ev.request);
+    const choices = permissionChoicesFromRequest(ev.request, ev.id);
     const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true });
     // Nothing was collapsed → no expand affordance, so the overlay leaves the
     // bare key unclaimed.

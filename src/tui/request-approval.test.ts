@@ -100,37 +100,22 @@ describe("createGateRequestApproval", () => {
     expect((await pending).allow).toBe(true);
   });
 
-  test("forwards the gate-minted request id without minting a replacement", async () => {
-    const withId: PermissionRequest = { ...request, id: "req-from-gate" };
-    let captured: PermissionGateEvent | undefined;
+  test("mints a unique event id without reading PermissionRequest", async () => {
+    const ids: string[] = [];
     const requestApproval = createGateRequestApproval({
       emitGate: (event) => {
-        captured = event;
+        ids.push(event.id);
+        event.resolve({ allow: true });
         return true;
       },
       approvalTimeout: noTimeout,
     });
-    const pending = requestApproval(withId);
-    expect(captured?.request).toBe(withId);
-    expect(captured?.request.id).toBe("req-from-gate");
-    captured?.resolve({ allow: true });
-    await pending;
-  });
-
-  test("does not mint an id when the request has none", async () => {
-    let captured: PermissionGateEvent | undefined;
-    const requestApproval = createGateRequestApproval({
-      emitGate: (event) => {
-        captured = event;
-        return true;
-      },
-      approvalTimeout: noTimeout,
-    });
-    const pending = requestApproval(request);
-    expect(captured?.request).toBe(request);
-    expect(captured?.request.id).toBeUndefined();
-    captured?.resolve({ allow: false });
-    await pending;
+    expect((await requestApproval(request)).allow).toBe(true);
+    expect((await requestApproval(request)).allow).toBe(true);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toEqual(expect.any(String));
+    expect(ids[0]?.length).toBeGreaterThan(0);
+    expect(ids[1]).not.toBe(ids[0]);
   });
 });
 

@@ -33,7 +33,6 @@ const hintRequest: PermissionRequest = {
       hint: HINT,
     },
   ],
-  id: "req-1",
 };
 
 function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderable {
@@ -91,6 +90,7 @@ describe("decision choice rendering", () => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
       emitter.emit("permission.gate", {
+        id: "req-1",
         request: hintRequest,
         resolve: () => {},
       });

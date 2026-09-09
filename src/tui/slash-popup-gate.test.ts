@@ -95,12 +95,12 @@ function emitPermissionGate(
   extra?: { readonly timeoutMs?: number; readonly tool?: string },
 ): void {
   emitter.emit("permission.gate", {
+    id: extra?.tool ?? "req-1",
     request: {
       tool: extra?.tool ?? "run_shell",
       action: "Run shell command",
       subject: "bun test",
       scopes: [],
-      id: extra?.tool ?? "req-1",
     },
     resolve,
     ...(extra?.timeoutMs !== undefined ? { timeoutMs: extra.timeoutMs } : {}),

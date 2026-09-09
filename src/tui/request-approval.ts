@@ -1,8 +1,9 @@
 import { getLogger } from "@intx/log";
+import { randomUUID } from "node:crypto";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ApprovalOutcome, PermissionRequest, RequestApproval } from "../permission/types.js";
 import { getToolApprovalBudget } from "./tool-execution-watchdog.js";
-import type { PermissionGateEvent } from "./gate-events.js";
+import { APPROVAL_UNAVAILABLE_MESSAGE, type PermissionGateEvent } from "./gate-events.js";
 
 export interface CreateGateRequestApprovalArgs {
   /** Emits the gate event to the UI; returns false when nothing is listening. */
@@ -70,12 +71,8 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
         kind: "permission",
       });
       const timeout = args.approvalTimeout();
-      if (request.id === undefined || request.id.length === 0) {
-        logger.warn("permission gate request missing id for {tool}; emitting without minting", {
-          tool: request.tool,
-        });
-      }
       const event: PermissionGateEvent = {
+        id: randomUUID(),
         request,
         resolve: finish,
         ...(timeout !== undefined ? timeout : {}),
@@ -87,7 +84,7 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
         logger.warn("permission gate emitted with no listener for {tool}; denying", {
           tool: request.tool,
         });
-        finish({ allow: false, message: "no approval UI available; request denied" });
+        finish({ allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE });
       }
     });
 }

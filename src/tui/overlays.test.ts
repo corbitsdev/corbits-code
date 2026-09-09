@@ -321,7 +321,7 @@ describe("overlay accept callbacks", () => {
     );
   });
 
-  test("gate accept with a painted value missing from live itemIds denies instead of remapping by index", async () => {
+  test("gate accept with a painted value missing from live itemIds dispatches that id instead of remapping by index", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -350,8 +350,79 @@ describe("overlay accept callbacks", () => {
           ];
           list.select.setSelectedIndex(1);
           acceptOverlaySelection(shell);
-          expect(accepted).toEqual([]);
-          expect(cancelled).toBe(1);
+          expect(accepted).toEqual([
+            {
+              kind: "permissions",
+              index: 1,
+              label: "Accept once",
+              id: "req-a:__once__",
+            },
+          ]);
+          expect(cancelled).toBe(0);
+          expect(shell.overlayList).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("stranded operator gate Enter fail-closes via onAccept without id, not onCancel", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const accepted: OverlaySelection[] = [];
+          let cancelled = 0;
+          openOperatorOverlay(shell, {
+            body: "Proceed?",
+            choices: [],
+            isGate: true,
+            echoChoice: false,
+            onAccept: (s) => accepted.push(s),
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+          acceptOverlaySelection(shell);
+          expect(accepted).toEqual([{ kind: "operator", index: 0, label: "" }]);
+          expect(cancelled).toBe(0);
+          expect(shell.overlayList).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("gate Enter on an empty permission list fail-closes via onAccept without id, not onCancel", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const accepted: OverlaySelection[] = [];
+          let cancelled = 0;
+          openPermissionsOverlay(shell, {
+            items: [],
+            itemIds: [],
+            isGate: true,
+            echoChoice: false,
+            onAccept: (s) => accepted.push(s),
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+          acceptOverlaySelection(shell);
+          expect(accepted).toEqual([{ kind: "permissions", index: 0, label: "" }]);
+          expect(cancelled).toBe(0);
           expect(shell.overlayList).toBeNull();
         } finally {
           shell.dispose();

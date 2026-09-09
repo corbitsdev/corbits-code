@@ -25,8 +25,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Fixed
 
 - Sequential TUI ask and permission selectors paint the live question's option
-  labels. Rows bind by ask and request id rather than render-order index, so a
-  later question cannot keep the previous question's choices.
+  labels. Overlay rows bind by an ask id minted at emit, not render-order
+  index. A stale or empty accept fail-closes as unavailable rather than
+  impersonating Reject; Escape still denies.
 
 ## [0.3.18] - 2026-09-08
 
