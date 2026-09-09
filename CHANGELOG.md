@@ -11,6 +11,16 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Changed
+
+- wait_agents default timeout is 5 minutes (was 30 seconds) and the clamp is 30
+  minutes (was 5). While a targeted child has `run_shell` or `shell` in flight,
+  the wait extends in default-length slices until the shell ends, the worker
+  terminals, abort, or the 30-minute elapsed ceiling. Timeout, extend, and abort
+  still do not cancel workers.
+
 ## [0.3.18] - 2026-09-08
 
 ### Added

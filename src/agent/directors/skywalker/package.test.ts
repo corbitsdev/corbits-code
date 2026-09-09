@@ -130,6 +130,10 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("timeout_ms");
     expect(p).toContain("answer them first");
     expect(p).toContain("Enter can land");
+    expect(p).toContain("do not tight-loop wait_agents");
+    expect(p).toContain("extends while a targeted child has run_shell or shell in flight");
+    expect(p).not.toContain("timeout_ms: 1000");
+    expect(p).not.toContain("timeout_ms: MAX");
   });
 
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {

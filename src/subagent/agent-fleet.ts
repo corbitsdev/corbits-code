@@ -64,6 +64,7 @@ import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import {
   DEFAULT_CANCEL_REASON,
   type AgentLifecycleStatus,
+  type SubAgentSession,
   type SubAgentSessionStore,
 } from "./session-store.js";
 import { isLiveWaitStatus, projectWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
@@ -450,8 +451,31 @@ const WaitAgentsArgs = type({
   "mode?": "'any' | 'all'",
 });
 
-export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
-export const MAX_WAIT_TIMEOUT_MS = 300_000;
+export const DEFAULT_WAIT_TIMEOUT_MS = 300_000;
+export const MAX_WAIT_TIMEOUT_MS = 1_800_000;
+
+const IN_FLIGHT_SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(["run_shell", "shell"]);
+
+export function clampWaitTimeoutMs(requested: number): number {
+  return Math.min(Math.max(requested, 0), MAX_WAIT_TIMEOUT_MS);
+}
+
+export function nextWaitTimerMs(args: {
+  elapsed: number;
+  hasInFlightShell: boolean;
+  defaultMs: number;
+  maxMs: number;
+}): number | undefined {
+  if (args.elapsed >= args.maxMs) return undefined;
+  if (!args.hasInFlightShell) return undefined;
+  const delay = Math.min(args.defaultMs, args.maxMs - args.elapsed);
+  if (delay <= 0) return undefined;
+  return delay;
+}
+
+function sessionHasInFlightShell(session: SubAgentSession): boolean {
+  return session.outstandingTools.some((call) => IN_FLIGHT_SHELL_TOOL_NAMES.has(call.name));
+}
 
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
@@ -462,7 +486,10 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `Omit targets to wait on this caller's own uncollected fleet — the workers this spawn_agent/` +
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
-    `the workers — they keep running and remain waitable. Live wait status includes "queued" (waiting for a burst ` +
+    `the workers — they keep running and remain waitable. If a targeted child still has run_shell or ` +
+    `shell in flight, the wait extends in default-length slices until the shell ends, the worker ` +
+    `terminals, abort, or the max elapsed clamp — a timeout still does not touch workers and is not a ` +
+    `cue to retry immediately. Live wait status includes "queued" (waiting for a burst ` +
     `slot), "running", and "awaiting_director". interrupt_agent and close_agent unblock this wait immediately with ` +
     `status "interrupted". awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
     `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
@@ -1269,12 +1296,27 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
   return record !== undefined && !isLiveWaitStatus(record.status);
 }
 
+function targetedHasInFlightShell(
+  sessions: SubAgentSessionStore,
+  fleetRecords: FleetMailboxHandle,
+  targets: readonly string[],
+): boolean {
+  return targets.some((id) => {
+    const record = fleetRecords.peek(id);
+    if (record !== undefined && !isLiveWaitStatus(record.status)) return false;
+    const session = sessions.get(id);
+    return session !== undefined && sessionHasInFlightShell(session);
+  });
+}
+
 /**
  * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
  * elapses. Driven by the session store's mailbox (`subscribe`) raced against
- * a timer and the parent tool signal; never polls. Timeout and abort have no
- * side effects: workers keep running and remain waitable. Overlay writers
- * wake this wait via `sessions.wake()`.
+ * a timer and the parent tool signal; never polls. On timer fire, if a
+ * targeted live worker still has run_shell or shell in flight, the wait
+ * extends in default-length slices until elapsed hits MAX_WAIT_TIMEOUT_MS.
+ * Timeout and abort have no side effects: workers keep running and remain
+ * waitable. Overlay writers wake this wait via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
@@ -1293,8 +1335,10 @@ async function waitForTerminal(
   if (signal?.aborted) return true;
   if (ready()) return false;
 
+  const waitStartedAt = Date.now();
   return await new Promise<boolean>((resolve) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const finish = (timedOut: boolean): void => {
       if (settled) return;
       settled = true;
@@ -1307,7 +1351,28 @@ async function waitForTerminal(
     const onChange = (): void => {
       if (ready()) finish(false);
     };
-    const timer = setTimeout(() => finish(true), timeoutMs);
+    const onTimer = (): void => {
+      if (ready()) {
+        finish(false);
+        return;
+      }
+      if (signal?.aborted) {
+        finish(true);
+        return;
+      }
+      const next = nextWaitTimerMs({
+        elapsed: Date.now() - waitStartedAt,
+        hasInFlightShell: targetedHasInFlightShell(sessions, fleetRecords, targets),
+        defaultMs: DEFAULT_WAIT_TIMEOUT_MS,
+        maxMs: MAX_WAIT_TIMEOUT_MS,
+      });
+      if (next !== undefined) {
+        timer = setTimeout(onTimer, next);
+        return;
+      }
+      finish(true);
+    };
+    timer = setTimeout(onTimer, timeoutMs);
     const unsubscribeSessions = sessions.subscribe(onChange);
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) finish(true);
@@ -1323,7 +1388,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         return fleetResult(call.id, `Error: wait_agents arguments invalid: ${parsed.summary}`);
       }
       const requestedTimeout = parsed.timeout_ms ?? DEFAULT_WAIT_TIMEOUT_MS;
-      const timeoutMs = Math.min(Math.max(requestedTimeout, 0), MAX_WAIT_TIMEOUT_MS);
+      const timeoutMs = clampWaitTimeoutMs(requestedTimeout);
       const mode = parsed.mode ?? "any";
 
       const targets =
