@@ -213,6 +213,13 @@ export interface SessionBridge {
    * when the harness event omits `providerId`.
    */
   setInferenceProviderId: (id: string | undefined, displayLabel?: string) => void;
+  /**
+   * Mark the run busy for a system-originated continuation (fleet-dry open-task
+   * drive). Pushes `text` onto pendingEchoes so the inbound `message.received`
+   * is not painted as a user row. Does not send — the caller uses
+   * sendWithAttemptIdentity with a system mailbox message.
+   */
+  beginSystemContinuation: (text: string) => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -1539,6 +1546,16 @@ export function attachSessionBridge(
           bag.mapCtx.providerLabel = displayLabel;
         }
       }
+    },
+    beginSystemContinuation: (text) => {
+      if (bag.disposed) return;
+      const t = text.trim();
+      if (t.length === 0) return;
+      bag.pendingEchoes.push(t);
+      shell.session = setRunState(shell.session, "busy");
+      bag.turn = turnStateOnSubmit(bag.turn, now());
+      paintChrome(shell);
+      paintPhase();
     },
     dispose: () => {
       flushOpenRow(shell, bag);

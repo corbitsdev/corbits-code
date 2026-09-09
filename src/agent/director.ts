@@ -377,6 +377,12 @@ export interface ChatDirectorOptions {
   getProviderId?: (() => string | undefined) | undefined;
   /** Explicit retry policy; when set, skips the default Corbits policy. */
   retryPolicy?: RetryPolicy | undefined;
+  /**
+   * Live `status === "running"` fleet-lane count. When greater than zero the
+   * director allows a terminal wait/reply with open tasks (idle-with-fleet).
+   * Omitted or 0 keeps the open-task nudge. Exec omits this.
+   */
+  getLiveFleetCount?: (() => number) | undefined;
 }
 
 // The constructor takes the resolved ModelFamilyPolicy rather than the raw
@@ -415,6 +421,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly modelFamilyPolicy: ModelFamilyPolicy;
   private readonly retryPolicy: RetryPolicy;
+  private readonly getLiveFleetCount: (() => number) | undefined;
   // Consecutive assistant turns that contain tool calls and no text. Reset on
   // any turn with text and on every fresh user message — a weak model that
   // spins in place on one thread of tool calls still converges to the
@@ -448,6 +455,7 @@ class ChatDirectorImpl extends DefaultDirector {
     this.modelFamilyPolicy =
       options.modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
     this.retryPolicy = options.retryPolicy ?? createCorbitsRetryPolicy();
+    this.getLiveFleetCount = options.getLiveFleetCount;
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
@@ -883,6 +891,9 @@ class ChatDirectorImpl extends DefaultDirector {
     if (!atWorkflowGate && hasActiveTasks(this.tasks)) {
       const hasTerminal = baseActions.some((a) => a.type === "wait" || a.type === "reply");
       if (hasTerminal) {
+        if ((this.getLiveFleetCount?.() ?? 0) > 0) {
+          return base;
+        }
         if (this.idleTerminationNudges < MAX_OPEN_TASK_NUDGES) {
           this.idleTerminationNudges++;
           const passThrough = baseActions.filter(

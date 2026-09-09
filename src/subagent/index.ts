@@ -26,6 +26,16 @@ export {
   type PendingAskWake,
 } from "./fleet-report.js";
 export {
+  buildFleetDryContinuationPrompt,
+  collectUncollectedTerminals,
+  driveOpenTasksAfterFleetDry,
+  FLEET_DRY_CONTINUATION_PREFIX,
+  shouldDriveOpenTasks,
+  type CollectedWorkerReport,
+  type FleetDryLane,
+  type FleetDryMailbox,
+} from "./fleet-dry-drive.js";
+export {
   EMPTY_THRASH_STATE,
   nextThrashState,
   salvagePathsFromThrash,

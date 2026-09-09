@@ -59,6 +59,7 @@ import {
   createSpawnAgentTool,
   createWaitAgentsTool,
   createListAgentsTool,
+  type FleetMailboxHandle,
 } from "../subagent/agent-fleet.js";
 import { DEFAULT_CLOSE_DEADLINE_MS } from "../subagent/dispose.js";
 import {
@@ -252,6 +253,12 @@ export interface AgentToolset {
   setToolPromoter: (promote: (names: string[]) => void) => void;
   // Session-start skill snapshot shared with the prompt listing.
   skills: SkillSummary[];
+  /**
+   * The live wait mailbox this toolset already built for spawn_agent /
+   * wait_agents. Optional because a session without sub-agents has none.
+   * Callers must read this each time — do not capture a startup snapshot.
+   */
+  fleetRecords?: FleetMailboxHandle;
   dispose: () => Promise<void>;
 }
 
@@ -377,9 +384,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // spawn_agent/wait_agents.
   const orchestratorTools: AgentTool[] = [];
   let fleetSessionsForDispose: SubAgentSessionStore | undefined;
+  let fleetRecords: FleetMailboxHandle | undefined;
   if (subAgentsEnabled && args.subAgent !== undefined) {
     const sa = args.subAgent;
-    const fleetRecords = sa.sessions !== undefined ? createFleetMailbox(sa.sessions) : undefined;
+    fleetRecords = sa.sessions !== undefined ? createFleetMailbox(sa.sessions) : undefined;
     if (sa.profiles !== undefined) {
       orchestratorTools.push(
         createSearchAgentsTool(() => {
@@ -977,6 +985,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       promoter.promote = promote;
     },
     skills,
+    ...(fleetRecords !== undefined ? { fleetRecords } : {}),
     dispose,
   };
 }

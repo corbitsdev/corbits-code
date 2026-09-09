@@ -379,3 +379,23 @@ export function buildCompactionContinuationMessage(): InboundMessage {
     signatureStatus: "missing",
   };
 }
+
+/**
+ * System-originated inbound that re-enters the parent after the fleet goes dry
+ * with todo/doing tasks still open. No OPERATOR_ORIGINATED_FLAG — this is not
+ * an operator prompt and must not reset the tool-only loop-protection backstop.
+ */
+export function buildFleetDryContinuationMessage(text: string): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `fleet-dry-continue-${Date.now()}@local`,
+    },
+    flags: [],
+    content: text,
+    signatureStatus: "missing",
+  };
+}

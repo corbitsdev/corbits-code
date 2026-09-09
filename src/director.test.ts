@@ -244,6 +244,48 @@ describe("open-task termination guard", () => {
     expect(hasInfer(exhausted)).toBe(false);
   });
 
+  test("live fleet with open tasks allows terminal wait/reply and does not spend the nudge budget", async () => {
+    let live = 1;
+    const director = createChatDirector("base", [], {
+      onTasksChange: () => {},
+      getLiveFleetCount: () => live,
+    });
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    for (let i = 0; i < 4; i++) {
+      const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+      expect(hasInfer(actions)).toBe(false);
+      expect(hasReply(actions)).toBe(true);
+    }
+
+    live = 0;
+    for (let i = 0; i < 3; i++) {
+      const nudged = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+      expect(hasInfer(nudged)).toBe(true);
+      expect(hasReply(nudged)).toBe(false);
+    }
+    const exhausted = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasReply(exhausted)).toBe(true);
+    expect(hasInfer(exhausted)).toBe(false);
+  });
+
+  test("omitted or zero live fleet count still nudges while a task is open", async () => {
+    const omitted = createChatDirector("base", [], { onTasksChange: () => {} });
+    await omitted.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+    expect(
+      hasInfer(actionsArray(await omitted.decide(textTurn(), mockState, mockCapabilities))),
+    ).toBe(true);
+
+    const zero = createChatDirector("base", [], {
+      onTasksChange: () => {},
+      getLiveFleetCount: () => 0,
+    });
+    await zero.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+    expect(hasInfer(actionsArray(await zero.decide(textTurn(), mockState, mockCapabilities)))).toBe(
+      true,
+    );
+  });
+
   test("empty model turn settles with a valid empty reply", async () => {
     // DefaultDirector ends empty responses with bare wait; without a reply,
     // agent.send hangs and the TUI Working spinner sticks forever.

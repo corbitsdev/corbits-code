@@ -258,7 +258,10 @@ lane finishes
 (`N done · nothing running`; failed and cancelled counts appear only
 when non-zero, e.g. `N done, M failed, K cancelled · nothing running`).
 Per-lane `done — summary` walls and live `dispatched` re-announcements
-are never printed.
+are never printed. That dry-fleet line stays operator-facing. If tasks
+are still todo/doing, the runtime re-enters the parent with collected
+reports as a system continuation — it does not paint the report wall as
+a user message.
 
 `src/subagent/fleet-report.ts` is pure: it reads the same fleet-agent session
 store and the same `agentProgress()` stall definition. Store changes drive it;
@@ -582,7 +585,9 @@ there is no parent tool left to steer — while Alt+Enter follow-ups keep
 waiting for true session-idle. A steer still pending when the hold engages
 sends at once (the parent it was steering has stopped), and the last lane
 terminalizing releases the hold, drains follow-ups, and returns the session
-to idle.
+to idle — unless todo/doing tasks remain, in which case a system
+continuation starts before the fleet-0 event so the run stays busy and
+follow-ups wait one more turn.
 
 Interrupting (Ctrl+C) never discards a queued or steered message. It used to
 — the transcript literally said `interrupt — discarded N pending`, and an
