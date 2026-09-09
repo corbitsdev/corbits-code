@@ -38,6 +38,7 @@ import {
   createPrimaryDeliveryAdmission,
   hashAuthorizedBytes,
   wrapAuthorizeWithEvidenceArchive,
+  wrapCompactorWithCompletenessGate,
   type CompactionArchive,
 } from "../../src/session/compaction-archive.js";
 import { assertReplySend } from "../../src/subagent/run.js";
@@ -203,17 +204,20 @@ export async function openIntegrationSession(
       factories: [chatDirectorDef.factory],
       defaultId: `${ID_PREFIX}/chat`,
     }),
-    ...(opts.compactionCompletion !== undefined
+    ...(opts.compactionCompletion !== undefined && primaryArchive !== undefined
       ? {
           compactors: {
-            "pruning-compactor": createSessionPruningCompactor({
-              summarize: createModelSummarizer({
-                getSource: () => INTEGRATION_SOURCE,
-                deps: harness.deps,
-                complete: opts.compactionCompletion,
-                getArchive: () => evidenceArchiveHolder.current,
+            "pruning-compactor": wrapCompactorWithCompletenessGate(
+              createSessionPruningCompactor({
+                summarize: createModelSummarizer({
+                  getSource: () => INTEGRATION_SOURCE,
+                  deps: harness.deps,
+                  complete: opts.compactionCompletion,
+                  getArchive: () => evidenceArchiveHolder.current,
+                }),
               }),
-            }),
+              primaryArchive,
+            ),
           },
         }
       : {}),

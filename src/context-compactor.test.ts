@@ -866,6 +866,7 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       output2.some(
         (t) =>
           t.role === "user" &&
+          !firstText(t).startsWith(COMPACTED_PREFIX) &&
           t.content.some((b) => b.type === "text" && b.text === goal),
       ),
     ).toBe(true);

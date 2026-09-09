@@ -54,7 +54,25 @@ test("gap rows contribute metadata only", async () => {
   expect(excerpt).toContain("archive:///occ-gap");
 });
 
-test("later kinds yield when the budget is already full", async () => {
+test("includes attachments after user messages", async () => {
+  const excerpt = await buildArchiveSummaryExcerpt({
+    listOccurrences: async () => [
+      occ({ occurrenceId: "occ-asst", kind: "assistant_text" }),
+      occ({ occurrenceId: "occ-att", kind: "attachment" }),
+      occ({ occurrenceId: "occ-user", kind: "user_message" }),
+    ],
+    readAuthorizedPayload: async (id) => {
+      if (id === "occ-user") return "USER";
+      if (id === "occ-att") return "ATTACH";
+      return "ASSISTANT";
+    },
+  });
+  expect(excerpt.indexOf("USER")).toBeGreaterThanOrEqual(0);
+  expect(excerpt.indexOf("USER")).toBeLessThan(excerpt.indexOf("ATTACH"));
+  expect(excerpt.indexOf("ATTACH")).toBeLessThan(excerpt.indexOf("ASSISTANT"));
+});
+
+test("marks over-budget occurrences as omitted instead of dropping them silently", async () => {
   const excerpt = await buildArchiveSummaryExcerpt(
     {
       listOccurrences: async () => [
@@ -67,6 +85,7 @@ test("later kinds yield when the budget is already full", async () => {
   );
   expect(excerpt).toContain("USER");
   expect(excerpt).not.toContain("RESULT");
+  expect(excerpt).toMatch(/1 occurrence omitted/);
 });
 
 test("omits an occurrence whose full payload cannot fit, without slicing it", async () => {
@@ -84,4 +103,37 @@ test("omits an occurrence whose full payload cannot fit, without slicing it", as
   expect(excerpt).not.toContain("xxxxx");
   expect(excerpt).toContain("SMALL");
   expect(excerpt).toContain("archive:///occ-small");
+  expect(excerpt).toMatch(/1 occurrence omitted/);
+});
+
+test("a readAuthorizedPayload throw omits that occurrence and continues", async () => {
+  const excerpt = await buildArchiveSummaryExcerpt({
+    listOccurrences: async () => [
+      occ({ occurrenceId: "occ-bad", kind: "user_message" }),
+      occ({ occurrenceId: "occ-ok", kind: "user_message" }),
+    ],
+    readAuthorizedPayload: async (id) => {
+      if (id === "occ-bad") throw new Error("blob missing");
+      return "OK_BODY";
+    },
+  });
+  expect(excerpt).toContain("OK_BODY");
+  expect(excerpt).toContain("archive:///occ-ok");
+  expect(excerpt).toMatch(/1 occurrence omitted/);
+});
+
+test("join separators are not charged against the first section", async () => {
+  const excerpt = await buildArchiveSummaryExcerpt(
+    {
+      listOccurrences: async () => [
+        occ({ occurrenceId: "occ-a", kind: "user_message" }),
+        occ({ occurrenceId: "occ-b", kind: "user_message" }),
+      ],
+      readAuthorizedPayload: async (id) => (id === "occ-a" ? "AAAA" : "BB"),
+    },
+    "### user_message archive:///occ-a\nAAAA\n\n### user_message archive:///occ-b\nBB".length,
+  );
+  expect(excerpt).toContain("AAAA");
+  expect(excerpt).toContain("BB");
+  expect(excerpt).not.toMatch(/omitted/);
 });

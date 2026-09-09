@@ -11,12 +11,15 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
+import { createInboundTurn } from "@intx/inference";
+import { createInboundMessage } from "@intx/mime";
 import type {
   Compactor,
   ConversationTurn,
   InboundMessage,
   StrategyContext,
 } from "@intx/types/runtime";
+import { base64Decode } from "@intx/types";
 import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import {
   ArchiveOccurrence,
@@ -160,9 +163,10 @@ export function isControlOrEmptyInbound(message: InboundMessage): boolean {
 }
 
 /**
- * Primary admission hook (Corbits-owned). Produces the canonical admitted
- * representation that must enter history and the archive — same bytes, not a
- * divergent scrubbed copy. Workers omit this hook.
+ * Primary admission hook (Corbits-owned). Scrubs inbound content before it
+ * enters the reactor. History then envelopes that admitted content via
+ * `createInboundTurn`; the archive records that history text, not the
+ * pre-envelope inbound string. Workers omit this hook.
  */
 export function admitPrimaryInboundMessage(message: InboundMessage): InboundMessage {
   if (isControlOrEmptyInbound(message)) return message;
@@ -173,16 +177,23 @@ export function admitPrimaryInboundMessage(message: InboundMessage): InboundMess
   return { ...message, content: admittedContent };
 }
 
+function historyUserTexts(admitted: InboundMessage): string[] {
+  const turn = createInboundTurn(admitted);
+  if (turn === null) return [];
+  return turn.content.flatMap((entry) =>
+    entry.type === "text" && entry.text.length > 0 ? [entry.text] : [],
+  );
+}
+
 async function archiveAdmittedInbound(
   archive: CompactionArchive,
   admitted: InboundMessage,
 ): Promise<void> {
   if (isControlOrEmptyInbound(admitted)) return;
-  const content = admitted.content ?? "";
-  if (content.length > 0) {
+  for (const historyText of historyUserTexts(admitted)) {
     await archive.recordAuthorizedPayload({
       kind: "user_message",
-      payload: content,
+      payload: historyText,
       provenance: "primary-admission",
     });
   }
@@ -219,6 +230,17 @@ async function archiveAdmittedInbound(
   }
 }
 
+// Must match vendor/intx-agent send(string) synthesis (DEFAULT_SEND_FROM/TO)
+// so archive hashes equal createInboundTurn history text.
+function sendFromHeader(rest: readonly unknown[]): string {
+  const opts = rest[0];
+  if (opts !== undefined && typeof opts === "object" && opts !== null && "from" in opts) {
+    const from = opts.from;
+    if (typeof from === "string" && from.length > 0) return from;
+  }
+  return "user@local";
+}
+
 export function createPrimaryDeliveryAdmission<
   T extends {
     deliver: (message: InboundMessage) => void;
@@ -241,12 +263,17 @@ export function createPrimaryDeliveryAdmission<
         if (archive === undefined || admitted.length === 0) {
           return agent.send(admitted, ...rest);
         }
+        const from = sendFromHeader(rest as unknown[]);
         const run = async () => {
-          await archive.recordAuthorizedPayload({
-            kind: "user_message",
-            payload: admitted,
-            provenance: "primary-admission",
-          });
+          await archiveAdmittedInbound(
+            archive,
+            createInboundMessage({
+              from,
+              to: "agent@local",
+              content: admitted,
+              interchangeType: "conversation.message",
+            }),
+          );
           return agent.send(admitted, ...rest);
         };
         return run();
@@ -633,16 +660,19 @@ function textKindForRole(role: ConversationTurn["role"]): ArchiveKind {
   return "user_message";
 }
 
+interface ContentUnit {
+  kind: "text" | "tool_call" | "tool_result" | "image";
+  text?: string;
+  role?: ConversationTurn["role"];
+  callId?: string;
+  data?: string;
+  blobKey?: string;
+}
+
 function coveringOccurrence(
-  units: readonly {
-    kind: "text" | "tool_call" | "tool_result" | "image";
-    text?: string;
-    role?: ConversationTurn["role"];
-    callId?: string;
-    data?: string;
-    blobKey?: string;
-  }[],
+  units: readonly ContentUnit[],
   occurrences: readonly ArchiveOccurrence[],
+  attachmentByteHashes: ReadonlyMap<string, string>,
 ): { ids: string[]; unmatched: boolean } {
   const used = new Set<string>();
   const ids: string[] = [];
@@ -653,7 +683,11 @@ function coveringOccurrence(
         if (occ.kind !== "attachment") return false;
         if (unit.blobKey !== undefined) return occ.blobKey === unit.blobKey;
         if (unit.data === undefined) return false;
-        return occ.contentHash === hashAuthorizedBytes(new TextEncoder().encode(unit.data));
+        const liveHash = hashLiveImageData(unit.data);
+        if (liveHash === undefined) return false;
+        return (
+          occ.contentHash === liveHash || attachmentByteHashes.get(occ.occurrenceId) === liveHash
+        );
       }
       if (unit.kind === "text") {
         if (unit.role === undefined || unit.text === undefined) return false;
@@ -671,23 +705,75 @@ function coveringOccurrence(
   return { ids, unmatched: false };
 }
 
-function droppedContentUnits(dropped: readonly ConversationTurn[]): {
-  kind: "text" | "tool_call" | "tool_result" | "image";
-  text?: string;
-  role?: ConversationTurn["role"];
-  callId?: string;
-  data?: string;
-  blobKey?: string;
-}[] {
-  const units: {
-    kind: "text" | "tool_call" | "tool_result" | "image";
-    text?: string;
-    role?: ConversationTurn["role"];
-    callId?: string;
-    data?: string;
-    blobKey?: string;
-  }[] = [];
-  for (const turn of dropped) {
+function hashLiveImageData(data: string): string | undefined {
+  try {
+    return hashAuthorizedBytes(base64Decode(data));
+  } catch {
+    return undefined;
+  }
+}
+
+function attachmentPayloadByteHash(payload: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(payload);
+    if (parsed === null || typeof parsed !== "object") return undefined;
+    if (!("contentHash" in parsed)) return undefined;
+    const hash = parsed.contentHash;
+    return typeof hash === "string" && hash.length > 0 ? hash : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function attachmentByteHashes(
+  archive: CompactionArchive,
+  occurrences: readonly ArchiveOccurrence[],
+): Promise<Map<string, string>> {
+  const hashes = new Map<string, string>();
+  for (const occ of occurrences) {
+    if (occ.kind !== "attachment" || occ.gap === true) continue;
+    try {
+      const inner = attachmentPayloadByteHash(
+        await archive.readAuthorizedPayload(occ.occurrenceId),
+      );
+      if (inner !== undefined) hashes.set(occ.occurrenceId, inner);
+    } catch {
+      /* payload unreadable; occ.contentHash may still cover a bytes blob */
+    }
+  }
+  return hashes;
+}
+
+function sameContentUnit(a: ContentUnit, b: ContentUnit): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "image") {
+    if (a.blobKey !== undefined || b.blobKey !== undefined) return a.blobKey === b.blobKey;
+    return a.data === b.data;
+  }
+  if (a.kind === "text") return a.role === b.role && a.text === b.text;
+  return a.callId !== undefined && a.callId === b.callId;
+}
+
+function uncoveredContentUnits(
+  input: readonly ConversationTurn[],
+  output: readonly ConversationTurn[],
+): ContentUnit[] {
+  const proposed = contentUnits(output);
+  const used = new Set<number>();
+  const uncovered: ContentUnit[] = [];
+  for (const unit of contentUnits(input)) {
+    const idx = proposed.findIndex(
+      (candidate, i) => !used.has(i) && sameContentUnit(unit, candidate),
+    );
+    if (idx === -1) uncovered.push(unit);
+    else used.add(idx);
+  }
+  return uncovered;
+}
+
+function contentUnits(turns: readonly ConversationTurn[]): ContentUnit[] {
+  const units: ContentUnit[] = [];
+  for (const turn of turns) {
     for (const block of turn.content) {
       if (block.type === "text" && block.text.length > 0) {
         const marker = parseAgedImageMarker(block.text);
@@ -739,11 +825,14 @@ export function wrapCompactorWithCompletenessGate(
     async apply(turns: ConversationTurn[], ctx: StrategyContext) {
       await archive.awaitPendingWrites();
       const proposed = await inner.apply(turns, ctx);
-      const dropped = turns.filter((turn) => !proposed.output.includes(turn));
-      const units = droppedContentUnits(dropped);
+      const units = uncoveredContentUnits(turns, proposed.output);
       if (units.length === 0) return proposed;
       const occurrences = await archive.listOccurrences();
-      const covering = coveringOccurrence(units, occurrences);
+      const covering = coveringOccurrence(
+        units,
+        occurrences,
+        await attachmentByteHashes(archive, occurrences),
+      );
       if (covering.unmatched || covering.ids.length === 0) {
         return incompleteIdentity(inner, turns);
       }

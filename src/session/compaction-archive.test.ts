@@ -4,6 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { InboundMessage } from "@intx/types/runtime";
+import { base64Encode } from "@intx/types";
+import { createInboundTurn } from "@intx/inference";
 import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
 import {
   admitPrimaryInboundMessage,
@@ -180,7 +182,11 @@ describe("primary message admission", () => {
     expect(occurrences).toHaveLength(1);
     expect(occurrences[0]!.kind).toBe("user_message");
     const archived = await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId);
-    expect(archived).toBe(admitted);
+    const history = createInboundTurn(delivered[0]!);
+    const historyText = history?.content.find((block) => block.type === "text");
+    expect(historyText?.type === "text" ? historyText.text : undefined).toBe(archived);
+    expect(archived.startsWith("[From: user@local]\n\n")).toBe(true);
+    expect(archived.endsWith(admitted)).toBe(true);
   });
 
   test("send(string) admits and archives like InboundMessage", async () => {
@@ -217,7 +223,9 @@ describe("primary message admission", () => {
     expect(sent[0]).not.toContain(secret);
     const occurrences = await archive.listOccurrences();
     expect(occurrences).toHaveLength(1);
-    expect(await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId)).toBe(sent[0]!);
+    expect(await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId)).toBe(
+      `[From: user@local]\n\n${sent[0]!}`,
+    );
   });
 });
 
@@ -712,7 +720,8 @@ describe("wrapCompactorWithCompletenessGate", () => {
     const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
     const { archive } = memoryArchive();
     const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
-    const png = "iVBORw0KGgo=";
+    const pngBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+    const png = base64Encode(pngBytes);
     const turns: import("@intx/types/runtime").ConversationTurn[] = [
       {
         role: "user",
@@ -735,16 +744,140 @@ describe("wrapCompactorWithCompletenessGate", () => {
     expect(blocked.output).toBe(turns);
     expect(blocked.record.reason).toBe("incomplete-evidence-archive");
 
-    await archive.recordAuthorizedPayload({
-      kind: "attachment",
-      payload: png,
-    });
-    await archive.recordAuthorizedPayload({
-      kind: "user_message",
-      payload: "keep",
-    });
+    const agent = {
+      deliver(_message: InboundMessage) {
+        /* admission archives; history is the turns above */
+      },
+      async send(content: string | InboundMessage) {
+        return { ok: true as const, content };
+      },
+    };
+    const admitted = createPrimaryDeliveryAdmission(agent, archive);
+    await admitted.send(
+      inbound({
+        attachments: [{ name: "shot.png", contentType: "image/png", data: pngBytes }],
+      }),
+    );
     const allowed = await wrapped.apply(turns, ctx);
     expect(allowed.output).toHaveLength(1);
     expect(allowed.record.reason).toBe("compact");
+  });
+
+  test("dropped list_dir and write_file results fail-close until archived", async () => {
+    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { archive } = memoryArchive();
+    const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "do work" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "ld", name: "list_dir", arguments: { path: "." } }],
+        timestamp: 2,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "ld", content: [{ type: "text", text: "src/\n" }] },
+        ],
+        timestamp: 3,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "wf", name: "write_file", arguments: { path: "a.ts" } }],
+        timestamp: 4,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "wf", content: [{ type: "text", text: "wrote" }] },
+        ],
+        timestamp: 5,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "keep" }],
+        timestamp: 6,
+      },
+    ];
+
+    const blocked = await wrapped.apply(turns, ctx);
+    expect(blocked.output).toBe(turns);
+    expect(blocked.record.reason).toBe("incomplete-evidence-archive");
+
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "do work",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "tool_args",
+      payload: { name: "list_dir", arguments: { path: "." } },
+      callId: "ld",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "src/\n",
+      callId: "ld",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "tool_args",
+      payload: { name: "write_file", arguments: { path: "a.ts" } },
+      callId: "wf",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "wrote",
+      callId: "wf",
+    });
+
+    const allowed = await wrapped.apply(turns, ctx);
+    expect(allowed.output).toHaveLength(1);
+    expect(allowed.record.reason).toBe("compact");
+  });
+
+  test("cloned keep-window turns are not treated as dropped", async () => {
+    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { archive } = memoryArchive();
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "dropped-prefix",
+    });
+    const inner: import("@intx/types/runtime").Compactor = {
+      name: "pruning-compactor",
+      version: "1",
+      async apply(turns) {
+        const kept = turns.slice(-1).map((turn) => ({ ...turn, content: [...turn.content] }));
+        return {
+          output: kept,
+          record: {
+            strategy: "pruning-compactor",
+            version: "1",
+            parameters: {},
+            reason: "compact",
+            decisions: { dropped: turns.length - 1 },
+          },
+        };
+      },
+    };
+    const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "dropped-prefix" }],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "keep-window" }],
+        timestamp: 2,
+      },
+    ];
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.record.reason).toBe("compact");
+    expect(result.output).toHaveLength(1);
+    expect(result.output[0]).not.toBe(turns[1]);
   });
 });

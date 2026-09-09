@@ -13,6 +13,7 @@ export const SUMMARY_EXCERPT_DEFAULT_BUDGET_CHARS = 80_000;
 
 const KIND_PRIORITY: readonly ArchiveKind[] = [
   "user_message",
+  "attachment",
   "assistant_text",
   "tool_args",
   "tool_failure",
@@ -53,28 +54,44 @@ export async function buildArchiveSummaryExcerpt(
 
   const sections: string[] = [];
   let used = 0;
+  let omitted = 0;
 
   for (const kind of KIND_PRIORITY) {
     const group = byKind.get(kind);
     if (group === undefined) continue;
     for (const occ of group) {
       const remaining = budgetChars - used;
-      if (remaining <= 0) return sections.join("\n\n");
+      if (remaining <= 0) {
+        omitted++;
+        continue;
+      }
 
-      let body: string;
+      let body: string | undefined;
       if (occ.gap === true) {
         body = "(payload not stored)";
       } else {
-        const payload = await archive.readAuthorizedPayload(occ.occurrenceId);
-        body = payload;
+        try {
+          body = await archive.readAuthorizedPayload(occ.occurrenceId);
+        } catch {
+          omitted++;
+          continue;
+        }
       }
 
       const section = `${heading(occ)}\n${body}`;
-      if (section.length + (sections.length > 0 ? 2 : 0) > remaining) continue;
+      const separator = sections.length > 0 ? 2 : 0;
+      if (section.length + separator > remaining) {
+        omitted++;
+        continue;
+      }
       sections.push(section);
-      used += section.length + 2;
+      used += section.length + separator;
     }
   }
 
-  return sections.join("\n\n");
+  const excerpt = sections.join("\n\n");
+  if (omitted === 0) return excerpt;
+  const note = `${omitted} occurrence${omitted === 1 ? "" : "s"} omitted`;
+  if (excerpt.length === 0) return note;
+  return `${excerpt}\n\n${note}`;
 }
