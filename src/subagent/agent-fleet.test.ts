@@ -1195,6 +1195,181 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(doneResults[0]!.report).toBe("followup report");
   });
 
+  test("close_agent overlay survives a send_input followup completing in the close window", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const followupGate = deferred<string>();
+    const closeHold = deferred<void>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => closeHold.promise,
+        interrupt: () => {},
+        followup: async () => followupGate.promise,
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const close = createCloseAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
+    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    if (close.kind !== "full") throw new Error("expected full tool");
+    const closing = close.handler(
+      { id: "close-during-followup", name: "close_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+    followupGate.resolve("followup during close");
+    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
+
+    const waited = await waiting;
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
+
+    closeHold.resolve();
+    await closing;
+  });
+
+  test("completeAfterInterrupt does not clear a close overlay", () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    fleetRecords.register(worker.id);
+    fleetRecords.noteFollowup(worker.id);
+    fleetRecords.interrupt(worker.id);
+    expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
+    fleetRecords.completeAfterInterrupt(worker.id, "followup reply");
+    expect(fleetRecords.peek(worker.id)?.status).toBe("interrupted");
+  });
+
+  test("rejected send_input followup clears the lane so wait collects interrupted salvage", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const followupGate = deferred<string>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => {},
+        interrupt: () => {},
+        followup: async () => followupGate.promise,
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    followupGate.reject(new Error("followup failed"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    gate.resolve({
+      report: "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
+      interrupted: true,
+    } as RunSubAgentResult);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string; report?: string }[];
+    expect(results[0]!.status).toBe("interrupted");
+    expect(results[0]!.report).toContain("salvage");
+  });
+
+  test("send_input interrupt queued overlay clears when the followup is admitted", async () => {
+    const admission = createAdmissionQueue({ capacity: 1 });
+    const sessions = createSubAgentSessionStore({ admission });
+    const fleetRecords = createFleetMailbox(sessions);
+    admission.enqueue({
+      id: "holder",
+      provider: "p",
+      start: () => {},
+    });
+    const worker = sessions.start({
+      description: "looping",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+      provider: "p",
+    });
+    sessions.markRunning(worker.id);
+    fleetRecords.register(worker.id);
+    const followupGate = deferred<string>();
+    sessions.registerInterrupt(worker.id, () => {});
+    sessions.registerFollowup(worker.id, async () => followupGate.promise);
+
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const list = createListAgentsTool({ sessions, fleetRecords });
+
+    const sent = await callTool(sendInput, {
+      target: worker.id,
+      message: "stop that",
+      interrupt: true,
+    });
+    expect(sent.status).toBe("interrupted");
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("pending_init");
+
+    const queuedWait = await callTool(wait, { targets: [worker.id], timeout_ms: 50 });
+    expect(queuedWait.timed_out).toBe(true);
+    expect((queuedWait.results as { status: string }[])[0]!.status).toBe("queued");
+    const queuedList = await callTool(list, {});
+    const queuedEntry = (
+      queuedList.agents as { agent_id: string; status: string; lifecycle: string }[]
+    ).find((a) => a.agent_id === worker.id);
+    expect(queuedEntry?.status).toBe("queued");
+    expect(queuedEntry?.lifecycle).toBe("pending_init");
+
+    admission.release("holder");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+    const runningWait = await callTool(wait, { targets: [worker.id], timeout_ms: 50 });
+    expect(runningWait.timed_out).toBe(true);
+    expect((runningWait.results as { status: string }[])[0]!.status).toBe("running");
+    const runningList = await callTool(list, {});
+    const runningEntry = (
+      runningList.agents as { agent_id: string; status: string; lifecycle: string }[]
+    ).find((a) => a.agent_id === worker.id);
+    expect(runningEntry?.status).toBe("running");
+    expect(runningEntry?.lifecycle).toBe("running");
+
+    followupGate.resolve("later");
+  });
+
   test("soft-interrupt wait path collects so omitted re-wait does not re-deliver", async () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async (params) => {

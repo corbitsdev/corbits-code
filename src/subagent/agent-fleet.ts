@@ -248,8 +248,9 @@ class FleetMailbox {
 
   /**
    * send_input interrupt:true followup finished. Clear the followup lane flag
-   * (and any uncollected interrupted overlay) so wait projects session
-   * completed → done. No-op if wait_agents already collected the interrupt.
+   * (and any admission queued overlay) so wait can project the settled session.
+   * Leaves a close/interrupt overlay in place — a followup reply must not undo
+   * interrupt_agent or close_agent. No-op if wait_agents already collected.
    */
   completeAfterInterrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
@@ -259,8 +260,8 @@ class FleetMailbox {
       delete existing.followupLive;
       changed = true;
     }
-    if (existing.forceInterrupted === true) {
-      delete existing.forceInterrupted;
+    if (existing.forceQueued === true) {
+      delete existing.forceQueued;
       changed = true;
     }
     if (changed) this.sessions?.wake();

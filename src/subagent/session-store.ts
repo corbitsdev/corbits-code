@@ -245,7 +245,12 @@ export interface SubAgentSessionStore {
   sendInputOne(
     id: string,
     message: string,
-    opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
+    opts?: {
+      interrupt?: boolean;
+      onFollowupReply?: (reply: string) => void;
+      onStart?: () => void;
+      onFail?: (error: unknown) => void;
+    },
   ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
   /**
    * One pending ask_director per session. `sendInputOne` (soft) resolves it;
@@ -827,11 +832,8 @@ export function createSubAgentSessionStore(
         })
         .catch((err: unknown) => {
           runInFlight.delete(id);
-          if (opts?.onFail !== undefined) {
-            opts.onFail(err);
-          } else {
-            endFollowupTurn(id, failLifecycle);
-          }
+          opts?.onFail?.(err);
+          endFollowupTurn(id, failLifecycle);
           log.error("followup turn failed for {id}: {error}", {
             id,
             error: err instanceof Error ? err.message : String(err),
@@ -1285,7 +1287,12 @@ export function createSubAgentSessionStore(
     sendInputOne(
       id: string,
       message: string,
-      opts?: { interrupt?: boolean; onFollowupReply?: (reply: string) => void },
+      opts?: {
+        interrupt?: boolean;
+        onFollowupReply?: (reply: string) => void;
+        onStart?: () => void;
+        onFail?: (error: unknown) => void;
+      },
     ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
@@ -1302,7 +1309,9 @@ export function createSubAgentSessionStore(
         settleCancelsAsks(id, "cancelled by send_input interrupt");
         interrupt();
         queueFollowupTurn(id, message, "interrupted", {
+          ...(opts.onStart !== undefined ? { onStart: opts.onStart } : {}),
           ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
+          ...(opts.onFail !== undefined ? { onFail: opts.onFail } : {}),
         });
         // After beginFollowupTurn, which clears leftover stopReason. Stamp
         // here so an in-flight wait_agents overlay can project interrupted

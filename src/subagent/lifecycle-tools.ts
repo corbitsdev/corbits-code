@@ -308,7 +308,7 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
       }
       // Soft interrupt leaves the run in flight; projectWaitStatus treats
       // interrupted+inFlight as running so resume cannot collect a stale stamp.
-      // Flip the wait mailbox overlay here (same as send_input interrupt:true).
+      // Flip the wait mailbox overlay so in-flight wait_agents unblocks as interrupted.
       deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
@@ -382,8 +382,14 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
         ...(interrupt ? { interrupt: true } : {}),
         ...(interrupt && deps.fleetRecords !== undefined
           ? {
+              onStart: () => {
+                deps.fleetRecords?.clearQueued(target);
+              },
               onFollowupReply: (reply: string) => {
                 deps.fleetRecords?.completeAfterInterrupt(target, reply);
+              },
+              onFail: () => {
+                deps.fleetRecords?.completeAfterInterrupt(target);
               },
             }
           : {}),
