@@ -422,6 +422,51 @@ describe("resume_agent", () => {
     expect(results[0]!.stop_reason).toBeUndefined();
   });
 
+  test("send_input interrupt then successful follow-up wait is done without leftover interrupted stop_reason", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.registerInterrupt(worker.id, () => {});
+    let finish: (reply: string) => void = () => {};
+    sessions.registerFollowup(
+      worker.id,
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fleetRecords.register(worker.id);
+
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+
+    await callTool(sendInput, { target: worker.id, message: "stop that", interrupt: true });
+    const inflight = fleetRecords.peek(worker.id);
+    expect(inflight?.status).toBe("interrupted");
+    expect(inflight?.stopReason).toBe("interrupted");
+    expect(sessions.get(worker.id)?.stopReason).toBe("interrupted");
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+
+    finish("followup report");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const collected = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    expect(collected.timed_out).toBe(false);
+    const results = collected.results as {
+      status: string;
+      report?: string;
+      stop_reason?: string;
+    }[];
+    expect(results[0]!.status).toBe("done");
+    expect(results[0]!.report).toBe("followup report");
+    expect(results[0]!.stop_reason).toBeUndefined();
+  });
+
   test("followup throw after interrupt wait still has stop_reason interrupted", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);

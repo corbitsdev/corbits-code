@@ -818,6 +818,7 @@ export function createSubAgentSessionStore(
             s.lifecycle = { state: "completed", report: reply };
             s.finishedAt = now();
             s.report = reply;
+            delete s.stopReason;
             pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
           });
           runInFlight.delete(id);
