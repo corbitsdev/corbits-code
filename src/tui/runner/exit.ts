@@ -122,8 +122,8 @@ export function agentRebuildFailure(err: unknown): Error {
 
 /**
  * Hard-stop interrupt: bump delivery generation, then enqueue the agent rebuild.
- * Overlay stays open across interrupt; the bump must happen before enqueue so a
- * later accept/decline cannot late-bind into the rebuilt agent.
+ * The bump aborts the outstanding permission gate (overlay dismissed, no grant)
+ * before enqueue so a later accept cannot mint into the rebuilt identity.
  */
 export function startInterruptRebuild(args: {
   deliveryGeneration: { bump: () => void };
@@ -219,6 +219,10 @@ export async function createRunLifecycle(
     let eventForSink = event;
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
+      const correlationId = event.data.message.headers.interchangeCorrelationId;
+      if (correlationId !== undefined) services.correlationAcceptance.settle(correlationId);
+    } else if (event.type === "message.correlated") {
+      services.correlationAcceptance.settle(event.data.correlationId);
     } else if (event.type === "inference.start" || event.type === "inference.done") {
       providerFailureAttempts.reset();
     } else if (event.type === "inference.error") {

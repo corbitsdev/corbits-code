@@ -60,6 +60,7 @@ import { createModelSummarizer, type SummaryContext } from "../../session/summar
 import { createSessionCostAccumulator } from "../../cost/session-cost.js";
 import { createSessionOperationQueue } from "../session-operation-queue.js";
 import { createDeliveryGeneration } from "../queued-delivery.js";
+import { createCorrelationAcceptance } from "../correlation-acceptance.js";
 import { createAgentToolset, type MCPServerState, type OperatorResult } from "../../agent/tools.js";
 import type { ToolAvailability } from "../../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
@@ -124,6 +125,9 @@ export async function assembleTUISession(
   const approvalTimeout = (): { timeoutMs: number; timeoutMessage: string } | undefined =>
     undefined;
 
+  const correlationAcceptance = createCorrelationAcceptance();
+  const deliveryGeneration = createDeliveryGeneration(() => correlationAcceptance.settleAll());
+
   const { gate: permissionGate } = await assembleSessionGate({
     cwd: config.cwd,
     sessionId: state.sessionId,
@@ -133,6 +137,7 @@ export async function assembleTUISession(
     requestApproval: createGateRequestApproval({
       emitGate: (event) => emitter.emit("permission.gate", event),
       approvalTimeout,
+      identitySignal: () => deliveryGeneration.signal(),
     }),
     getActiveProviderModel: () => `${state.config.providerName}:${state.config.model}`,
     onPersistNotice: (text) => state.approvalPersistNotice.notify?.(text),
@@ -372,15 +377,24 @@ export async function assembleTUISession(
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
   // so a rebuild never races an in-flight deliver.
   const sessionOps = createSessionOperationQueue();
-  const deliveryGeneration = createDeliveryGeneration();
   const approvalResume = createApprovalResume({
     getAgent: () => state.agentProxy ?? state.currentAgent,
     captureGeneration: deliveryGeneration.capture,
+    onDropped: (text) => state.systemNotice?.(text),
     deliver: (message, stillCurrent) => {
       return sessionOps.enqueue(async () => {
         if (!stillCurrent()) return;
         if (state.fatalBuildError !== null) throw state.fatalBuildError;
-        liveAgent(state).deliver(message);
+        const correlationId = message.headers.interchangeCorrelationId;
+        const accepted =
+          correlationId === undefined ? undefined : correlationAcceptance.wait(correlationId);
+        try {
+          liveAgent(state).deliver(message);
+          await accepted;
+        } catch (err) {
+          if (correlationId !== undefined) correlationAcceptance.settle(correlationId);
+          throw err;
+        }
       });
     },
     gate: permissionGate,
@@ -522,6 +536,7 @@ export async function assembleTUISession(
     sessionCost,
     sessionOps,
     deliveryGeneration,
+    correlationAcceptance,
     buildSessionSources,
     providerFailureAttempts,
     baseToolCount,

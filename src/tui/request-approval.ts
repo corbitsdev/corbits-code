@@ -15,6 +15,12 @@ export interface CreateGateRequestApprovalArgs {
    * a future generalized auto-continue mechanism owns re-arming this.
    */
   approvalTimeout: () => { timeoutMs: number; timeoutMessage: string } | undefined;
+  /**
+   * Session-identity abort. A generation bump (interrupt, /clear, /new)
+   * aborts this signal so the outstanding overlay denies through the existing
+   * gate abort path instead of remaining as a ghost accept.
+   */
+  identitySignal?: () => AbortSignal;
 }
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "permission"]);
@@ -63,6 +69,12 @@ export function attachApprovalBudget<T>(
  * Always attaches the budget signal so a timeout with waitForApproval off
  * dismisses the modal instead of leaving a ghost.
  */
+function mergeAbortSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return AbortSignal.any([a, b]);
+}
+
 export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): RequestApproval {
   return (request: PermissionRequest) =>
     new Promise<ApprovalOutcome>((resolve) => {
@@ -71,12 +83,13 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
         kind: "permission",
       });
       const timeout = args.approvalTimeout();
+      const merged = mergeAbortSignals(signal, args.identitySignal?.());
       const event: PermissionGateEvent = {
         id: randomUUID(),
         request,
         resolve: finish,
         ...(timeout !== undefined ? timeout : {}),
-        ...(signal !== undefined ? { signal } : {}),
+        ...(merged !== undefined ? { signal: merged } : {}),
       };
       if (!args.emitGate(event)) {
         // Pre-mount or post-unmount: no gate queue exists, so the prompt would

@@ -67,7 +67,9 @@ function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeK
   if (!outcome.allow) {
     const message = outcome.message ?? "";
     if (message.includes("timed out")) return "timeout";
-    if (message.includes("no longer running")) return "abort";
+    if (message.includes("no longer running") || message.includes("identity changed")) {
+      return "abort";
+    }
     return "deny";
   }
   return outcome.persist !== undefined ? "allow-with-scope" : "allow-once";
@@ -325,8 +327,12 @@ export interface PermissionGate {
   // run_shell, colliding reused ids, and tests).
   executionVerdict: (call: ToolCall) => Promise<AuthorizeVerdict>;
   // Resolve a suspended reactor approval against the operator (and mint the
-  // outcome's grant). Returns undefined when no outcome arrived.
-  resolveSuspended: (request: PermissionRequest) => Promise<ApprovalOutcome | undefined>;
+  // outcome's grant when the session identity is still current). Returns
+  // undefined when no outcome arrived.
+  resolveSuspended: (
+    request: PermissionRequest,
+    stillCurrent?: () => boolean,
+  ) => Promise<ApprovalOutcome | undefined>;
   // True when this gate's decisions go through env.authorize (authorizeCall)
   // rather than evaluate() in the tool-runner middleware. Under reactor gating,
   // gateToolCall is an execution backstop: it consumes a matching cached
@@ -724,7 +730,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // span, await the requestApproval seam, settle the log/span, and mint any
   // grant the outcome carries (never for secret-path shell). Returns undefined
   // when no outcome arrived (timeout/abort auto-deny paths).
-  const resolveInteractiveAsk = async (decision: Extract<GateDecision, { kind: "ask" }>) => {
+  const resolveInteractiveAsk = async (
+    decision: Extract<GateDecision, { kind: "ask" }>,
+    stillCurrent?: () => boolean,
+  ) => {
     const { request, anySecret, segmentCount } = decision;
     const askRule = anySecret ? "sensitive-path" : undefined;
     const ask = approvalLog.ask({
@@ -752,7 +761,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
       ask.settle(classifyOutcome(outcome));
     }
-    if (outcome !== undefined && outcome.allow && !anySecret) {
+    if (outcome !== undefined && outcome.allow && !anySecret && (stillCurrent?.() ?? true)) {
       mintGrant(request.tool, outcome);
     }
     return outcome;
@@ -823,18 +832,21 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // Resolve a suspended reactor approval once the operator answers. The
   // request is the one authorizeCall built at decision time, so the ask log,
   // wait span, and grant minting are identical to the middleware path.
-  const resolveSuspended = (request: PermissionRequest) => {
+  const resolveSuspended = (request: PermissionRequest, stillCurrent?: () => boolean) => {
     const anySecret =
       request.tool === "run_shell" && commandReferencesSensitivePath(request.subject) !== undefined;
-    return resolveInteractiveAsk({
-      kind: "ask",
-      request,
-      anySecret,
-      segmentCount:
-        request.tool === "run_shell"
-          ? splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s)).length
-          : 0,
-    });
+    return resolveInteractiveAsk(
+      {
+        kind: "ask",
+        request,
+        anySecret,
+        segmentCount:
+          request.tool === "run_shell"
+            ? splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s)).length
+            : 0,
+      },
+      stillCurrent,
+    );
   };
 
   const reset = (): void => {

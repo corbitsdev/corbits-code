@@ -412,10 +412,15 @@ export function wireGates(
       settle({ allow: false, message });
     };
     function onAbort(): void {
-      autoDeny("tool no longer running; permission request denied");
+      const reason = ev.signal?.reason;
+      autoDeny(
+        typeof reason === "string" && reason.length > 0
+          ? reason
+          : "tool no longer running; permission request denied",
+      );
     }
     if (ev.signal?.aborted === true) {
-      autoDeny("tool no longer running; permission request denied");
+      onAbort();
       return;
     }
     ev.signal?.addEventListener("abort", onAbort, { once: true });

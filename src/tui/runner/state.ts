@@ -123,6 +123,9 @@ export interface RunnerServices {
     typeof import("../session-operation-queue.js").createSessionOperationQueue
   >;
   deliveryGeneration: ReturnType<typeof import("../queued-delivery.js").createDeliveryGeneration>;
+  correlationAcceptance: ReturnType<
+    typeof import("../correlation-acceptance.js").createCorrelationAcceptance
+  >;
   buildSessionSources: () => import("../../session/assemble-runtime.js").LiveSessionSources;
   providerFailureAttempts: ReturnType<
     typeof import("../provider/failure-attempt.js").createProviderFailureAttemptTracker

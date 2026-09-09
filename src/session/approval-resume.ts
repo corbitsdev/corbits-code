@@ -26,6 +26,8 @@ import type { PermissionRequest } from "../permission/types.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
+export const APPROVAL_DROPPED_NOTICE = "Approval dropped because the session changed.";
+
 const ApprovalSnapshotShape = type({
   name: "string",
   "arguments?": "Record<string, unknown>",
@@ -108,16 +110,19 @@ function decisionMessage(
 }
 
 export function createApprovalResume(args: {
-  // Late-bound: the live agent is read at history/deliver time so rebuilds
-  // (/clear, model switch) deliver through the current instance, not a
-  // snapshot taken at handle() start.
+  // Live agent at history/deliver time. TUI occupancy holds this identity
+  // until the correlated resume is accepted; a generation bump aborts the
+  // gate rather than retargeting a rebuilt agent.
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
   // TUI session queue. When present, each decision is awaited through this
   // seam; exec omits it and uses getAgent().deliver.
   deliver?: (message: InboundMessage, stillCurrent: () => boolean) => void | Promise<void>;
-  // TUI: capture at handle() start so /clear or interrupt during the overlay
-  // drops the decision instead of delivering into the rebuilt agent. Exec omits this.
+  // TUI: capture at handle() start so interrupt, /clear, or /new during the
+  // overlay aborts the gate and drops the decision. Exec omits this.
   captureGeneration?: () => () => boolean;
+  // TUI: operator-visible notice when an overlay decision is dropped after
+  // a generation bump.
+  onDropped?: (text: string) => void;
   gate: PermissionGate;
 }): ApprovalResume {
   const { getAgent, gate } = args;
@@ -149,6 +154,7 @@ export function createApprovalResume(args: {
       // out" tool result appended after this point means the reactor settled
       // this very correlation before our decision lands.
       const turnsAtSuspend = (await requireAgent().history()).length;
+      if (!stillCurrent()) return true;
 
       if (approvalSnapshot === undefined) {
         // A suspension without a snapshot cannot be surfaced; fail closed by
@@ -168,8 +174,11 @@ export function createApprovalResume(args: {
         return true;
       }
 
-      const outcome = await gate.resolveSuspended(request);
-      if (!stillCurrent()) return true;
+      const outcome = await gate.resolveSuspended(request, stillCurrent);
+      if (!stillCurrent()) {
+        args.onDropped?.(APPROVAL_DROPPED_NOTICE);
+        return true;
+      }
       if (settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)) {
         // The reactor already answered the parked call (its approval timeout
         // fired while the surface was still up). Delivering now would append

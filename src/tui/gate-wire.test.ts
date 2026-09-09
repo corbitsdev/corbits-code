@@ -19,6 +19,7 @@ import {
 import { moveOverlaySelection, toggleOverlayExpand } from "./shell/overlay-list.js";
 import { streamRowGutter } from "./stream.js";
 import { APPROVAL_UNAVAILABLE_MESSAGE } from "./gate-events.js";
+import { SESSION_IDENTITY_ABORT_REASON } from "./queued-delivery.js";
 import {
   approvalOutcomeFromSelection,
   operatorCancelResult,
@@ -1196,6 +1197,40 @@ describe("permission.gate auto-deny", () => {
         expect(resolved).toEqual({
           allow: false,
           message: "tool no longer running; permission request denied",
+        });
+        expect(shell.overlayList).toBeNull();
+      } finally {
+        shell.dispose();
+      }
+    });
+  });
+
+  test("identity abort reason auto-denies and closes the overlay", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      });
+      const emitter = new EventEmitter();
+      const controller = new AbortController();
+      let resolved: unknown;
+      try {
+        wireGates(emitter, shell);
+        emitter.emit("permission.gate", {
+          id: "req-1",
+          request: baseRequest(),
+          resolve: (outcome: unknown) => {
+            resolved = outcome;
+          },
+          signal: controller.signal,
+        });
+        expect(shell.overlayKind).toBe("permissions");
+
+        controller.abort(SESSION_IDENTITY_ABORT_REASON);
+
+        expect(resolved).toEqual({
+          allow: false,
+          message: SESSION_IDENTITY_ABORT_REASON,
         });
         expect(shell.overlayList).toBeNull();
       } finally {

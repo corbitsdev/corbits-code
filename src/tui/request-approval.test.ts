@@ -117,6 +117,30 @@ describe("createGateRequestApproval", () => {
     expect(ids[0]?.length).toBeGreaterThan(0);
     expect(ids[1]).not.toBe(ids[0]);
   });
+
+  test("merges identitySignal so a generation bump aborts the overlay signal", async () => {
+    const identity = new AbortController();
+    let captured: PermissionGateEvent | undefined;
+    const requestApproval = createGateRequestApproval({
+      emitGate: (event) => {
+        captured = event;
+        return true;
+      },
+      approvalTimeout: noTimeout,
+      identitySignal: () => identity.signal,
+    });
+    const pending = requestApproval(request);
+    expect(captured?.signal).toBeDefined();
+    expect(captured?.signal?.aborted).toBe(false);
+    identity.abort("session identity changed; approval request denied");
+    expect(captured?.signal?.aborted).toBe(true);
+    expect(captured?.signal?.reason).toBe("session identity changed; approval request denied");
+    captured?.resolve({
+      allow: false,
+      message: "session identity changed; approval request denied",
+    });
+    expect((await pending).allow).toBe(false);
+  });
 });
 
 // attachApprovalBudget is the mechanism createGateRequestApproval builds on

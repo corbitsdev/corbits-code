@@ -33,15 +33,25 @@ export function routeQueuedDelivery(args: RouteQueuedDeliveryArgs): ProductHostD
   };
 }
 
-export function createDeliveryGeneration() {
+export const SESSION_IDENTITY_ABORT_REASON = "session identity changed; approval request denied";
+
+export function createDeliveryGeneration(onBump?: () => void) {
   let generation = 0;
+  let identity = new AbortController();
   return {
     bump(): void {
       generation += 1;
+      const previous = identity;
+      identity = new AbortController();
+      previous.abort(SESSION_IDENTITY_ABORT_REASON);
+      onBump?.();
     },
     capture(): () => boolean {
       const captured = generation;
       return () => captured === generation;
+    },
+    signal(): AbortSignal {
+      return identity.signal;
     },
   };
 }

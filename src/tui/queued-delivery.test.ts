@@ -5,6 +5,7 @@ import {
   createLeftoverSend,
   createLiveSteerDeliver,
   routeQueuedDelivery,
+  SESSION_IDENTITY_ABORT_REASON,
 } from "./queued-delivery.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 
@@ -110,6 +111,16 @@ describe("createDeliveryGeneration", () => {
     generation.bump();
     expect(first()).toBe(false);
     expect(second()).toBe(false);
+  });
+
+  test("bump aborts the prior identity signal and mints a fresh one", () => {
+    const generation = createDeliveryGeneration();
+    const prior = generation.signal();
+    expect(prior.aborted).toBe(false);
+    generation.bump();
+    expect(prior.aborted).toBe(true);
+    expect(prior.reason).toBe(SESSION_IDENTITY_ABORT_REASON);
+    expect(generation.signal().aborted).toBe(false);
   });
 });
 

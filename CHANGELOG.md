@@ -44,6 +44,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   still errors.
 - Operator approval resume late-binds to the live agent and keeps the TUI
   busy across the overlay so a reload cannot drop the parked tool call.
+- Operator approval drops on session identity change. inFlight occupancy
+  owns idle rebuild; delivery generation owns session identity, so interrupt,
+  /clear, and /new abort the outstanding overlay, skip minting a grant, and
+  notify the operator instead of delivering into a rebuilt agent.
 
 ### Changed
 
