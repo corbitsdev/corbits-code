@@ -295,10 +295,11 @@ export interface PermissionGateOptions {
   // silent by construction.
   telemetry?: Telemetry | undefined;
   // This gate's decisions are consumed by the reactor's before-tool authz
-  // seam (env.authorize) instead of the tool-runner middleware. Set for the
-  // main session so approved re-dispatches skip the middleware gate; kept
-  // false for sub-agents, which still gate in the middleware. Required so a
-  // caller cannot silently fall back to middleware gating by omitting it.
+  // seam (env.authorize) instead of evaluate() in the tool-runner middleware.
+  // Set for the main session so approved re-dispatches skip the middleware
+  // prompt; kept false for sub-agents, which still gate via evaluate().
+  // Required so a caller cannot silently fall back to middleware gating by
+  // omitting it.
   reactorGated: boolean;
   // Ask/settle event log (see approval-log.ts): one record per consequential
   // decision, auto or interactive. Defaults to a no-op so nothing depends on
@@ -321,9 +322,9 @@ export interface PermissionGate {
   // outcome's grant). Returns undefined when no outcome arrived.
   resolveSuspended: (request: PermissionRequest) => Promise<ApprovalOutcome | undefined>;
   // True when this gate's decisions are consumed by the reactor's authz seam
-  // (env.authorize) rather than by the tool-runner middleware. Tool-runner
-  // gating (gateToolCall) is bypassed under reactor gating so an approved
-  // re-dispatch runs without a second prompt.
+  // (env.authorize) rather than by evaluate() in the tool-runner middleware.
+  // Under reactor gating, gateToolCall still blocks decide() deny; ask/allow
+  // skip the middleware prompt so an approved re-dispatch never re-asks.
   isReactorGated: () => boolean;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
@@ -718,9 +719,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   };
 
   // Middleware path: blocking evaluation used by tool-runner consumers whose
-  // calls never pass through the reactor (sub-agents, late MCP wrappers).
-  // When the gate is reactor-gated this is bypassed entirely — the reactor's
-  // before-tool authz hook owns the decision (see authorizeCall / gateToolCall).
+  // calls never pass through the reactor (sub-agents). When the gate is
+  // reactor-gated, gateToolCall uses authorizeCall instead of evaluate() so
+  // deny still blocks and ask never re-prompts (see gateToolCall).
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     const decision = await decide(call);
     if (decision.kind === "allow") return { allowed: true };

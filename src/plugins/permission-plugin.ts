@@ -7,11 +7,10 @@ import type { PermissionGate } from "../permission/gate.js";
 // the posix middleware and the late-connected MCP tools (which are not part of
 // the posix runner the middleware wraps) so both produce the same denial result.
 //
-// Under reactor gating the bypass is unconditional: the reactor's before-tool
-// authz hook already ran this gate's policy (evaluate and authorizeCall share
-// one decide), and an approved re-dispatch arrives here with the one-shot
-// bypass consumed — a second gate would re-ask the operator for a call the
-// reactor already approved.
+// Under reactor gating, authorizeCall still enforces decide() deny (authz,
+// auto-shell, headless). Ask/allow skip the middleware prompt so an approved
+// re-dispatch never re-asks — evaluate() is not used here because it would
+// prompt again.
 export async function gateToolCall(
   gate: PermissionGate,
   call: ToolCall,
@@ -19,6 +18,14 @@ export async function gateToolCall(
   next: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>,
 ): Promise<ToolResult> {
   if (gate.isReactorGated()) {
+    const verdict = await gate.authorizeCall(call);
+    if (verdict.effect === "deny") {
+      return {
+        callId: call.id,
+        content: `${BLOCKED_BY_POLICY_PREFIX}${verdict.reason}`,
+        isError: true,
+      };
+    }
     return next(call, signal);
   }
   const verdict = await gate.evaluate(call);

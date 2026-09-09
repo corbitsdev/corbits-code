@@ -11,6 +11,15 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Security
+
+- Reactor-gated tool middleware still blocks policy denials. A `decide()` deny
+  (authorization hard-deny, auto-shell deny, or headless deny) returns a
+  blocked tool error and does not run the call. Ask and allow still skip the
+  middleware prompt so an approved re-dispatch never re-asks.
+
 ## [0.3.18] - 2026-09-08
 
 ### Added
