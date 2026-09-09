@@ -1,5 +1,6 @@
 import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
+import { normalizeNullDeltaFields } from "./sse-delta-patch.js";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
 // (max_tokens, temperature, tools, messages, response_format) and ignores
@@ -58,37 +59,9 @@ export function createOpenAICompatibleAdapter(
     return ensureAccept(merged);
   };
 
-  // DeepSeek via NVIDIA NIM sends null for delta fields the upstream schema
-  // requires to be non-null (role: string, tool_calls: array). Fields that
-  // legitimately accept null (content, reasoning_content, etc.) are left alone.
-  const NULL_REJECTED_DELTA_FIELDS = new Set(["role", "tool_calls"]);
   const parseResponse: ProviderAdapter["parseResponse"] = (sseData: string) => {
     if (!needsDeepSeekPatch) return base.parseResponse(sseData);
-    let data = sseData;
-    try {
-      const parsed = JSON.parse(sseData) as Record<string, unknown>;
-      const choices = parsed["choices"];
-      if (Array.isArray(choices)) {
-        let patched = false;
-        for (const choice of choices) {
-          if (choice !== null && typeof choice === "object") {
-            const delta = (choice as Record<string, unknown>)["delta"];
-            if (delta !== null && typeof delta === "object") {
-              for (const key of NULL_REJECTED_DELTA_FIELDS) {
-                if ((delta as Record<string, unknown>)[key] === null) {
-                  Reflect.deleteProperty(delta as object, key);
-                  patched = true;
-                }
-              }
-            }
-          }
-        }
-        if (patched) data = JSON.stringify(parsed);
-      }
-    } catch {
-      /* not JSON — pass through */
-    }
-    return base.parseResponse(data);
+    return base.parseResponse(normalizeNullDeltaFields(sseData));
   };
 
   return { ...base, buildRequest, parseResponse };
