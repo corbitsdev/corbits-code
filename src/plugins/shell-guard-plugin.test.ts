@@ -765,7 +765,9 @@ describe("shellGuardPlugin", () => {
         if ((probe.stdout?.trim() ?? "").length > 0) break;
         await new Promise((r) => setTimeout(r, 50));
       }
-      expect(spawnSync("pgrep", ["-f", token], { encoding: "utf8" }).stdout?.trim() ?? "").not.toBe("");
+      expect(spawnSync("pgrep", ["-f", token], { encoding: "utf8" }).stdout?.trim() ?? "").not.toBe(
+        "",
+      );
       expect(plugin.dispose).toBeDefined();
       await plugin.dispose!();
       await new Promise((r) => setTimeout(r, 300));
