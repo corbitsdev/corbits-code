@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
-// Runs the test suite (`bun run test` — the same seeded, randomized command
-// CI runs) and fails the run if any test wrote into the real
-// ~/.corbits/projects directory. Tests must sandbox state under a temp
-// `home` (see src/session/index.ts's `home` overrides); nothing running
-// under this wrapper is allowed to fall back to the developer's own
-// session history.
+// Runs the test suite (`bun run test` — the seeded, randomized one-process
+// command whose path union CI shards via `test:paths`) and fails the run if
+// any test wrote into the real ~/.corbits/projects directory. Tests must
+// sandbox state under a temp `home` (see src/session/index.ts's `home`
+// overrides); nothing running under this wrapper is allowed to fall back to
+// the developer's own session history.
 //
 // This is a backstop, not a substitute for threading `home` correctly: a
 // leak is only caught after it already wrote into a real directory once,

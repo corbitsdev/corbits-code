@@ -202,9 +202,7 @@ describe("disconnectMCPServer", () => {
       });
 
       const names = acmeNames(toolset.dynamicRunner.currentDefinitions());
-      expect(names).toContain("mcp__acme__list");
-      expect(names).toContain("mcp__acme__search");
-      expect(names.filter((name) => name === "mcp__acme__list")).toHaveLength(1);
+      expect(names).toEqual(["mcp__acme__list", "mcp__acme__search"]);
 
       const list = toolset.dynamicRunner
         .currentDefinitions()
@@ -214,7 +212,7 @@ describe("disconnectMCPServer", () => {
 
       // The stale generation's client was closed and the drift was announced.
       expect(closedGenerations).toContain(1);
-      expect(acmeNames(announced.at(-1) ?? [])).toContain("mcp__acme__search");
+      expect(acmeNames(announced.at(-1) ?? [])).toEqual(["mcp__acme__list", "mcp__acme__search"]);
     } finally {
       await toolset.dispose();
     }

@@ -112,8 +112,6 @@ test("corbits-skills catalog lists 20 skills with name and description", async (
 
 
 test("first-party skills are how-to playbooks, not director personas", async () => {
-  // Forbidden-content policy: pins what must NEVER appear in a skill doc.
-  // Violations are collected and asserted once so a failure names the skill.
   const gaasOverlap = new Set([
     "ast-grep",
     "create-issue",
@@ -130,21 +128,15 @@ test("first-party skills are how-to playbooks, not director personas", async () 
     "style",
     "typescript",
   ]);
-  const violations: string[] = [];
   for (const name of SKILL_DIRS) {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
-    if (skill.includes("You are Skywalker") || /You are \w+Director/.test(skill)) {
-      violations.push(`${name}: director persona language`);
-    }
-    if (skill.includes("Host is Corbits")) {
-      violations.push(`${name}: host attribution`);
-    }
+    expect(skill).not.toContain("You are Skywalker");
+    expect(skill).not.toMatch(/You are \w+Director/);
+    expect(skill).not.toContain("Host is Corbits");
     if (gaasOverlap.has(name)) continue;
-    if (skill.includes("## Acknowledgment") || /I have reviewed the .+ skill/.test(skill)) {
-      violations.push(`${name}: GaaS acknowledgment ritual`);
-    }
+    expect(skill).not.toContain("## Acknowledgment");
+    expect(skill).not.toMatch(/I have reviewed the .+ skill/);
   }
-  expect(violations).toEqual([]);
 });
 
 test("use_skill-only skills set user-invocable: false without disable-model-invocation", async () => {
@@ -176,14 +168,10 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
 });
 
 test("review skill does not own GitHub posting or Linear In Review", async () => {
-  // Ownership-boundary policy: pins FORBIDDEN claims, not required copy.
   const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
-  const forbiddenClaims = [
-    "Post the Review on GitHub",
-    "`linear-issue-workflow` owns the In Review write",
-    "this skill does not set Linear state",
-  ];
-  expect(forbiddenClaims.filter((claim) => skill.includes(claim))).toEqual([]);
+  expect(skill).not.toContain("Post the Review on GitHub");
+  expect(skill).not.toContain("`linear-issue-workflow` owns the In Review write");
+  expect(skill).not.toContain("this skill does not set Linear state");
 });
 
 test("slash skills do not set user-invocable: false", async () => {

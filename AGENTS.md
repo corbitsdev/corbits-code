@@ -33,9 +33,9 @@ When refactoring replaces an old path, delete the old one. No back-compat shims,
 - Add or update tests with every behavior change.
 - Bug fixes start with a failing test that reproduces the bug. Do not start by patching.
 - `tests/unit/` shared unit tests and helpers · co-located `src/**/*.test.ts` for module logic · `tests/fixtures/` fixture repos · `tests/integration/` reactor/permission harness. Planned: `tests/e2e/` (fixture-repo runs).
-- A test must not depend on another file having run, or on the default file order. It must pass under `bun test ./src ./tests ./evals --randomize`. If a test mutates module-level state or calls `mock.module`, it must restore that state itself (`afterEach`/`afterAll`), not rely on the process happening to reset it. When capturing a module's real exports to restore later, shallow-copy them (`{ ...moduleNamespace }`) at capture time, whether the namespace came from `await import(path)` or a static `import * as ns from "path"` — Bun mutates the live namespace object in place when the module is mocked, so holding a bare reference to it (either form) silently turns into the mocked exports.
+- A test must not depend on another file having run, or on the default file order. It must pass under `bun test ./src ./tests ./evals ./scripts --randomize`. If a test mutates module-level state or calls `mock.module`, it must restore that state itself (`afterEach`/`afterAll`), not rely on the process happening to reset it. When capturing a module's real exports to restore later, shallow-copy them (`{ ...moduleNamespace }`) at capture time, whether the namespace came from `await import(path)` or a static `import * as ns from "path"` — Bun mutates the live namespace object in place when the module is mocked, so holding a bare reference to it (either form) silently turns into the mocked exports.
 - Never call `mock.module` directly. Bun runs every test file in one process, so a `mock.module` call without its own teardown stays installed for the rest of the run and silently replaces the real module for other files — producing failures in files the change never touched, with no obvious link to the cause and no signal from `tsc` or a per-file run (CL-6967). Use `withMockedModule`/`withMockedModuleDuring` from `tests/helpers/mock-module.ts`, which capture the real module and register their own restore. An eslint rule (`no-restricted-syntax` in `eslint.config.js`) rejects bare `mock.module` calls in `*.test.ts` files.
-- A test earns its place only if a real behavior change can fail it. Document copy, brand colors, marketing assets, and splash text are not behavior: assertions that pin an asset's literal wording, an exact palette hex/ANSI value, or rendered copy fail on copy/design edits and catch no regressions — assert the contract instead (parsing, formatting, ranges, aliases, invariants). Tests are code too: pinning a source file's own text is the same trap. An eslint rule (`corbits/no-content-pin-tests`, defined in `scripts/eslint-rules/no-content-pin-tests.ts`) rejects the known shapes in `*.test.ts` files; it is a heuristic shape match, not a semantic check, and its header documents what it does not catch.
+- A test earns its place only if a real behavior change can fail it. Document copy, brand colors, marketing assets, and splash text are not behavior: assertions that pin an asset's literal wording, an exact palette hex/ANSI value, or rendered copy fail on copy/design edits and catch no regressions — assert the contract instead (parsing, formatting, ranges, aliases, invariants). Tests are code too: pinning a source file's own text is the same trap. This bar is a review and authorship rule, not an eslint shape match.
 
 ## Build & Validation
 
@@ -49,10 +49,15 @@ the projects-dir sandbox guard — in that order, matching CI.
 
 Run the full suite before declaring any task complete. Do not substitute individual targets. If a failure is pre-existing and unrelated to your change, say so explicitly.
 
-`bun run test` runs `bun test ./src ./tests ./evals --randomize --seed 424242` —
-the same suite CI runs. A bare `bun test` also
-scans `vendor/`, adding hundreds of unrelated results and making pass/fail
-counts meaningless to compare across branches — always use `bun run test`.
+`bun run test` runs `bun test ./src ./tests ./evals ./scripts --randomize --seed 424242`
+as a single process. CI shards the same path union via `test:paths`
+(`.github/workflows/ci.yml`) for wall clock. Path-union is not the same
+isolation domain: a `mock.module` leak across `./src` vs `./tests` fails
+locally in the one-process suite but not in a CI shard (CL-6967). A bare
+`bun test` also scans `vendor/`, adding hundreds of unrelated results and
+making pass/fail counts meaningless to compare across branches — always use
+`bun run test`. `test:paths` with no path filters refuses to run for the
+same reason.
 
 ## Commits, pull requests, and issue tracking
 

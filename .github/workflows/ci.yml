@@ -31,15 +31,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          # The exact key keeps hits honest: only a cache built from this
-          # bun.lock restores. restore-keys falls back to the newest cache
-          # when the lockfile changed, so a dependency bump reinstalls the
-          # delta instead of cold-installing on every job at once. bun
-          # install --frozen-lockfile reconciles a stale tree to the new
-          # lockfile, so a partial hit never leaves wrong deps behind.
+          # Exact-key-only: a restore-keys prefix of bun- would hydrate
+          # node_modules from a different lockfile. bun install then has to
+          # reconcile a stale tree; missing that step leaves wrong deps.
           key: bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -77,8 +72,6 @@ jobs:
         with:
           path: node_modules
           key: bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -89,7 +82,7 @@ jobs:
   # The suite is sharded so the slowest slice, not the whole suite, sets the
   # wall clock. Every shard still goes through check:projects-dir-guard: the
   # guard forwards these path filters to the suite it wraps, and the union of
-  # the shards' filters is exactly ./src ./tests ./evals, so the gate covers
+  # the shards' filters is exactly ./src ./tests ./evals ./scripts, so the gate covers
   # the same tests as before, all of them sandboxed.
   test:
     runs-on: ubuntu-latest
@@ -100,8 +93,8 @@ jobs:
         shard:
           - name: src
             paths: ./src
-          - name: tests-and-evals
-            paths: ./tests ./evals
+          - name: tests-evals-and-scripts
+            paths: ./tests ./evals ./scripts
     name: test (${{ matrix.shard.name }})
     steps:
       - name: Checkout
@@ -127,8 +120,6 @@ jobs:
         with:
           path: node_modules
           key: bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
