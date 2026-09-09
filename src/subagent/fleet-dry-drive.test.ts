@@ -61,6 +61,45 @@ describe("shouldDriveOpenTasks", () => {
       }),
     ).toBe(false);
   });
+
+  test("deferred dry edge fires once when still dry+open and parent is idle", () => {
+    expect(
+      shouldDriveOpenTasks({
+        previousRunning: 0,
+        running: 0,
+        hasOpenTasks: true,
+        parentProcessing: false,
+        deferredDryEdge: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDriveOpenTasks({
+        previousRunning: 0,
+        running: 0,
+        hasOpenTasks: true,
+        parentProcessing: true,
+        deferredDryEdge: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldDriveOpenTasks({
+        previousRunning: 0,
+        running: 0,
+        hasOpenTasks: false,
+        parentProcessing: false,
+        deferredDryEdge: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldDriveOpenTasks({
+        previousRunning: 0,
+        running: 1,
+        hasOpenTasks: true,
+        parentProcessing: false,
+        deferredDryEdge: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("buildFleetDryContinuationPrompt", () => {
@@ -263,5 +302,70 @@ describe("driveOpenTasksAfterFleetDry", () => {
         ...noop,
       }),
     ).toBe(false);
+  });
+
+  test("deferred dry edge after parentProcessing still collects and sends", () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    const sent: string[] = [];
+    const driven = driveOpenTasksAfterFleetDry({
+      previousRunning: 0,
+      running: 0,
+      deferredDryEdge: true,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: (prompt) => {
+        sent.push(prompt);
+      },
+    });
+    expect(driven).toBe(true);
+    expect(sent[0]).toContain("w1");
+    expect(records.get("w1")?.collected).toBe(true);
+  });
+
+  test("send failure after take leaves reports waitable", () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox: FleetDryMailbox = {
+      ids: () => [...records.keys()],
+      peek: (id) => records.get(id),
+      take: (id) => {
+        const existing = records.get(id);
+        if (existing === undefined) return undefined;
+        const taken = { ...existing, collected: true };
+        records.set(id, taken);
+        return taken;
+      },
+    };
+    const driven = driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => {
+        throw new Error("send failed");
+      },
+    });
+    expect(driven).toBe(false);
+    expect(records.get("w1")?.collected).not.toBe(true);
   });
 });

@@ -167,25 +167,27 @@ export function wirePostStartup(
   let fleetSettle: ReturnType<typeof setTimeout> | null = null;
   const fleetWakePublisher = createFleetWakePublisher(services.subAgentSessions, services.emitter);
   state.withFleetPublicationSuspended = fleetWakePublisher.withSuspended;
-  const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
-    const { previousRunning, running } = fleetWakePublisher.publish();
+  sessionBridge.setDryOpenTaskDriver(() => {
     const send = state.sendWithAttemptIdentity;
-    if (send !== undefined) {
-      driveOpenTasksAfterFleetDry({
-        previousRunning,
-        running,
-        openTasks: services.directorHolder.instance?.getTasks() ?? [],
-        parentProcessing: sessionBridge.turn.isProcessing,
-        mailbox: services.toolset.fleetRecords,
-        lanes: services.subAgentSessions.list(),
-        beginSystemContinuation: (prompt) => {
-          sessionBridge.beginSystemContinuation(prompt);
-        },
-        send: (prompt) => {
-          void send(buildFleetDryContinuationMessage(prompt));
-        },
-      });
-    }
+    if (send === undefined) return false;
+    return driveOpenTasksAfterFleetDry({
+      previousRunning: 0,
+      running: 0,
+      deferredDryEdge: true,
+      openTasks: services.directorHolder.instance?.getTasks() ?? [],
+      parentProcessing: false,
+      mailbox: services.toolset.fleetRecords,
+      lanes: services.subAgentSessions.list(),
+      beginSystemContinuation: (prompt) => {
+        sessionBridge.beginSystemContinuation(prompt);
+      },
+      send: (prompt) => {
+        void send(buildFleetDryContinuationMessage(prompt));
+      },
+    });
+  });
+  const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
+    fleetWakePublisher.publish();
     if (fleetSettle !== null) return;
     fleetSettle = setTimeout(() => {
       fleetSettle = null;
@@ -199,6 +201,7 @@ export function wirePostStartup(
     clearInterval(fleetStallPoll);
     if (fleetSettle !== null) clearTimeout(fleetSettle);
     unsubscribeFleetReport();
+    sessionBridge.setDryOpenTaskDriver(undefined);
   };
 
   // Registered slash-command names only — bare skill/agent words stay unstyled.

@@ -220,6 +220,12 @@ export interface SessionBridge {
    * sendWithAttemptIdentity with a system mailbox message.
    */
   beginSystemContinuation: (text: string) => void;
+  /**
+   * Occupancy owner for dry+open continuation. Called once from
+   * settleRunToIdle when a latched fleet-dry edge is still dry. Return true
+   * if a continuation was sent (run stays busy).
+   */
+  setDryOpenTaskDriver: (driver: (() => boolean) | undefined) => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -375,6 +381,14 @@ export interface BridgeBag {
    * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
    */
   flushPendingAskWake: (() => void) | null;
+  /**
+   * One deferred occupancy shot for the last live-fleet → 0 edge. Consumed on
+   * settle so a missed wentDry while the parent was processing still drives
+   * once, and a later settle cannot loop.
+   */
+  pendingDryOpenDrive: boolean;
+  /** Occupancy driver: collect+send when settle takes the deferred dry shot. */
+  dryOpenTaskDriver: (() => boolean) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
   lastSentOrigin: "composer" | "internal" | null;
@@ -908,7 +922,9 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
  * session-idle. A live fleet holds the run busy after the parent turn settles
  * (idle-with-fleet): Enter upgrades to a new primary turn during the hold and
  * follow-ups keep waiting; the fleet event landing at zero re-enters here to
- * release the hold.
+ * release the hold. A latched dry edge with open tasks takes one occupancy
+ * shot here instead of idling, so a wentDry missed while processing cannot
+ * disagree with settle.
  */
 function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   if (shell.session.run !== "busy") return;
@@ -925,6 +941,16 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     drainSteersAtBoundary(shell, bag);
     bag.flushPendingAskWake?.();
     return;
+  }
+  if (bag.pendingDryOpenDrive) {
+    bag.pendingDryOpenDrive = false;
+    let driven = false;
+    try {
+      driven = bag.dryOpenTaskDriver?.() === true;
+    } catch {
+      driven = false;
+    }
+    if (driven) return;
   }
   shell.session = setRunState(shell.session, "idle");
   // Full drain: soft steers first, then follow-ups (drainOrder).
@@ -944,7 +970,13 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
     // queued follow-ups drain now. While the parent is still working the
     // count just updates — the ordinary turn settle does the draining.
     if (event.type === "fleet") {
+      const previous = bag.liveFleet;
       bag.liveFleet = event.running;
+      if (event.running > 0) {
+        bag.pendingDryOpenDrive = false;
+      } else if (previous > 0) {
+        bag.pendingDryOpenDrive = true;
+      }
       if (event.running === 0 && !bag.turn.isProcessing) {
         settleRunToIdle(shell, bag);
       }
@@ -1049,6 +1081,8 @@ export function attachSessionBridge(
     pendingAskWake: new Map(),
     deliveredAskWake: new Map(),
     flushPendingAskWake: null,
+    pendingDryOpenDrive: false,
+    dryOpenTaskDriver: undefined,
     lastSentMessage: "",
     lastSentOrigin: null,
     quotaFired: false,
@@ -1406,6 +1440,7 @@ export function attachSessionBridge(
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
+    bag.pendingDryOpenDrive = false;
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
@@ -1556,6 +1591,9 @@ export function attachSessionBridge(
       bag.turn = turnStateOnSubmit(bag.turn, now());
       paintChrome(shell);
       paintPhase();
+    },
+    setDryOpenTaskDriver: (driver) => {
+      bag.dryOpenTaskDriver = driver;
     },
     dispose: () => {
       flushOpenRow(shell, bag);

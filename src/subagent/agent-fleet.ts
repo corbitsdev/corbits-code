@@ -94,6 +94,7 @@ import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.
 import { isResolvedProviderFailureError } from "../inference-error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
+import { takeAndProjectMailboxRecord } from "./fleet-dry-drive.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 
@@ -1398,20 +1399,14 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         if (isLiveWaitStatus(record.status)) {
           return { agent_id: id, status: record.status };
         }
-        const taken = deps.fleetRecords.take(id) ?? record;
+        const projected = takeAndProjectMailboxRecord(deps.fleetRecords, id);
+        if (projected === undefined) {
+          return { agent_id: id, status: "unknown" as const };
+        }
         return {
-          agent_id: id,
-          status: taken.status,
-          ...(taken.question !== undefined ? { question: taken.question } : {}),
-          ...(taken.questionId !== undefined ? { question_id: taken.questionId } : {}),
-          ...(taken.description !== undefined ? { description: taken.description } : {}),
-          ...(taken.status !== "failed" && taken.report !== undefined
-            ? { report: taken.report }
-            : {}),
-          ...(taken.error !== undefined ? { error: taken.error } : {}),
-          ...(taken.stopReason !== undefined ? { stop_reason: taken.stopReason } : {}),
-          ...(taken.providerFailure === true ? { provider_failure: true } : {}),
-          ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
+          ...projected,
+          ...(record.question !== undefined ? { question: record.question } : {}),
+          ...(record.questionId !== undefined ? { question_id: record.questionId } : {}),
         };
       });
 

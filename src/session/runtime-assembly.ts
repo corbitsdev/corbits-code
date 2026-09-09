@@ -382,8 +382,10 @@ export function buildCompactionContinuationMessage(): InboundMessage {
 
 /**
  * System-originated inbound that re-enters the parent after the fleet goes dry
- * with todo/doing tasks still open. No OPERATOR_ORIGINATED_FLAG — this is not
- * an operator prompt and must not reset the tool-only loop-protection backstop.
+ * with todo/doing tasks still open. Not operator input, so no
+ * OPERATOR_ORIGINATED_FLAG. ChatDirector still resets idle and tool-only
+ * nudge counters on any message.received — occupancy therefore fires one
+ * deferred shot per dry edge rather than re-driving on every settle.
  */
 export function buildFleetDryContinuationMessage(text: string): InboundMessage {
   return {
