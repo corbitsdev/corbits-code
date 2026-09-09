@@ -609,15 +609,14 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(cancelThrew === false && closeThrew === false && closeStatus === "shutdown").toBe(false);
   });
 
-  test("closeOne is bounded by its deadline when the registered close hangs forever", async () => {
+  test("closeOne fails a hung close instead of reporting shutdown success", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.registerClose(session.id, () => new Promise<void>(() => {})); // never resolves
 
     const started = Date.now();
-    const status = await store.closeOne(session.id, 25);
+    await expect(store.closeOne(session.id, 25)).rejects.toThrow(/session close exceeded 25ms/);
     expect(Date.now() - started).toBeLessThan(500);
-    expect(status).toBe("shutdown");
     expect(store.get(session.id)?.lifecycleStatus).toBe("shutdown");
     expect(store.get(session.id)?.retained).toBe(false);
   });

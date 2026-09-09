@@ -190,9 +190,8 @@ export type RunSubAgentParams = {
    *
    * Always fired regardless of `persist`, so a caller can act on a
    * still-running session too, not only a retained one. The deadline
-   * argument to `close` bounds how long teardown may take; a wedged close is
-   * abandoned (not awaited further) once it elapses rather than hanging the
-   * caller.
+   * argument to `close` bounds how long teardown may take; a wedged close
+   * fails rather than reporting success while children may still be live.
    */
   onAgentReady?: (handles: {
     close: (deadlineMs?: number) => Promise<void>;

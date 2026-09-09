@@ -14,40 +14,30 @@ function rethrowShutdownFailures(failures: unknown[]): void {
 
 /** Start every process-owned teardown path once, even when exit races a signal. */
 export function createRuntimeShutdown(deps: RuntimeShutdownDeps): () => Promise<void> {
-  let started = false;
-  let completion = Promise.resolve();
+  let completion: Promise<void> | undefined;
 
   return (): Promise<void> => {
-    if (started) return completion;
-    started = true;
-
-    const failures: unknown[] = [];
-    let cancelWorkersResult: void | Promise<void> = undefined;
-
-    try {
-      deps.disposeHost();
-    } catch (err) {
-      failures.push(err);
-    }
-    try {
-      cancelWorkersResult = deps.cancelWorkers();
-    } catch (err) {
-      failures.push(err);
-    }
+    if (completion !== undefined) return completion;
 
     completion = (async () => {
+      const failures: unknown[] = [];
       try {
-        if (cancelWorkersResult !== undefined) await cancelWorkersResult;
-      } catch (err) {
-        failures.push(err);
-      }
-      try {
-        await deps.closeAgent();
+        deps.disposeHost();
       } catch (err) {
         failures.push(err);
       }
       try {
         await deps.disposeToolset();
+      } catch (err) {
+        failures.push(err);
+      }
+      try {
+        await deps.cancelWorkers();
+      } catch (err) {
+        failures.push(err);
+      }
+      try {
+        await deps.closeAgent();
       } catch (err) {
         failures.push(err);
       }

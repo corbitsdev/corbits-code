@@ -50,9 +50,13 @@ const countedDispose = async (): Promise<void> => {
 };
 
 const toolset = { dispose: countedDispose };
+const hungClose =
+  exitPath === "crash" || exitPath === "signal"
+    ? { close: () => new Promise<unknown>(() => undefined) }
+    : null;
 const host = (): Promise<void> =>
   disposeExecRuntime({
-    agent: null,
+    agent: hungClose,
     toolset,
     subAgentSessions: null,
   });

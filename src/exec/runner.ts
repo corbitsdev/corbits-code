@@ -127,11 +127,11 @@ export function execUserFailureMessage(
 }
 
 /**
- * Headless analogue of TUI `runtime-shutdown`: abort live workers, then close
- * the primary agent and dispose the toolset. `cancelAll` is awaited so a
- * leftover-child throw is visible; hang-forever close is still deadline-bounded.
- * Once-only per runtime object so the send path, `finally`, and signal host
- * cannot double-dispose.
+ * Headless analogue of TUI `runtime-shutdown`: dispose the toolset (posix
+ * process-group reap) before waiting on agent.close so a hung close cannot
+ * skip killing detached run_shell children. `cancelAll` is awaited so a
+ * leftover-child throw is visible. Once-only per runtime object so the send
+ * path, `finally`, and signal host cannot double-dispose.
  */
 const execDisposeInFlight = new WeakMap<object, Promise<void>>();
 
@@ -164,6 +164,16 @@ async function runExecDispose(args: {
   subAgentSessions: Pick<SubAgentSessionStore, "cancelAll"> | null;
 }): Promise<void> {
   const failures: unknown[] = [];
+  if (args.toolset !== null) {
+    try {
+      await args.toolset.dispose();
+    } catch (err: unknown) {
+      logger.debug("toolset.dispose during exec finally failed: {error}", {
+        error: formatCaughtError(err),
+      });
+      failures.push(err);
+    }
+  }
   try {
     await args.subAgentSessions?.cancelAll("Session closed");
   } catch (err) {
@@ -174,16 +184,6 @@ async function runExecDispose(args: {
       await args.agent.close();
     } catch (err: unknown) {
       logger.debug("agent.close during exec finally failed: {error}", {
-        error: formatCaughtError(err),
-      });
-      failures.push(err);
-    }
-  }
-  if (args.toolset !== null) {
-    try {
-      await args.toolset.dispose();
-    } catch (err: unknown) {
-      logger.debug("toolset.dispose during exec finally failed: {error}", {
         error: formatCaughtError(err),
       });
       failures.push(err);

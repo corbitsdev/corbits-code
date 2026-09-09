@@ -94,4 +94,59 @@ describe("persist close_agent leftover dispose", () => {
         ),
     );
   });
+
+  test("onAgentReady close reaps posix tools before a hung agent.close and fails the deadline", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-persist-close-hung-"));
+    let posixDisposed = false;
+
+    await withMockedModuleDuring(
+      import.meta.resolve("@intx/tools-posix"),
+      (real: typeof import("@intx/tools-posix")) => ({
+        ...real,
+        createPosixTools: (opts: Parameters<typeof real.createPosixTools>[0]) =>
+          Object.assign(real.createPosixTools(opts), {
+            dispose: async () => {
+              posixDisposed = true;
+            },
+          }),
+      }),
+      async () =>
+        withMockedModuleDuring(
+          import.meta.resolve("../agent/live-tool-dispatch.js"),
+          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+            ...real,
+            createAgentWithLiveToolDispatch: async () =>
+              ({
+                ...stubAgent(),
+                close: () => new Promise<void>(() => {}),
+              }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
+          }),
+          async () => {
+            const { runSubAgent } = await import("./run.js");
+            let handles:
+              | {
+                  close: (deadlineMs?: number) => Promise<void>;
+                }
+              | undefined;
+            const params: RunSubAgentParams = {
+              cwd,
+              workdirBase: join(cwd, ".ctx"),
+              permissionGate,
+              provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+              description: "persist close hung close probe",
+              prompt: "finish the first turn",
+              persist: true,
+              onAgentReady: (h) => {
+                handles = h;
+              },
+            };
+            const result = await runSubAgent(params);
+            expect(result.agentRetained).toBe(true);
+            if (handles === undefined) throw new Error("onAgentReady never fired");
+            await expect(handles.close(50)).rejects.toThrow(/session close exceeded 50ms/);
+            expect(posixDisposed).toBe(true);
+          },
+        ),
+    );
+  });
 });

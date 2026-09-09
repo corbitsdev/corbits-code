@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createRuntimeShutdown } from "./runner/shutdown.js";
 
 describe("runtime shutdown", () => {
-  test("restores the terminal, cancels workers, closes the primary agent, and disposes the toolset", async () => {
+  test("restores the terminal, disposes the toolset, then closes the primary agent", async () => {
     const calls: string[] = [];
     const shutdown = createRuntimeShutdown({
       disposeHost: () => calls.push("host"),
@@ -20,7 +20,7 @@ describe("runtime shutdown", () => {
 
     await shutdown();
 
-    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 
   test("runs teardown only once when exit and a signal race", async () => {
@@ -40,7 +40,7 @@ describe("runtime shutdown", () => {
 
     await Promise.all([shutdown(), shutdown()]);
 
-    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 
   test("still runs remaining legs and rejects when host disposal fails", async () => {
@@ -62,7 +62,7 @@ describe("runtime shutdown", () => {
     });
 
     await expect(shutdown()).rejects.toThrow("renderer failure");
-    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 
   test("rejects when toolset dispose throws after other legs ran", async () => {
@@ -82,7 +82,7 @@ describe("runtime shutdown", () => {
     });
 
     await expect(shutdown()).rejects.toThrow("plugin dispose failed");
-    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 
   test("rejects when async cancelWorkers throws leftover children", async () => {
@@ -102,7 +102,7 @@ describe("runtime shutdown", () => {
     });
 
     await expect(shutdown()).rejects.toThrow(/still live after 2000ms reap/);
-    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 
   test("awaits an async toolset dispose before resolving", async () => {
@@ -127,9 +127,37 @@ describe("runtime shutdown", () => {
 
     const pending = shutdown();
     await Promise.resolve();
-    expect(calls).toEqual(["host", "workers", "agent"]);
+    expect(calls).toEqual(["host"]);
     resolveToolset();
     await pending;
-    expect(calls).toEqual(["host", "workers", "agent", "toolset"]);
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
+  });
+
+  test("reaps the toolset before waiting on a hung agent close", async () => {
+    const calls: string[] = [];
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const shutdown = createRuntimeShutdown({
+      disposeHost: () => calls.push("host"),
+      cancelWorkers: () => {
+        calls.push("workers");
+      },
+      closeAgent: async () => {
+        await closeGate;
+        calls.push("agent");
+      },
+      disposeToolset: async () => {
+        calls.push("toolset");
+      },
+    });
+
+    const pending = shutdown();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toEqual(["host", "toolset", "workers"]);
+    releaseClose();
+    await pending;
+    expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 });

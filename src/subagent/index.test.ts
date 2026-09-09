@@ -72,6 +72,33 @@ describe("sub-agent teardown", () => {
     expect(disposeCount).toBe(2);
   });
 
+  test("disposeSubAgentSession reaps posix tools before waiting on agent.close", async () => {
+    const order: string[] = [];
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const pending = disposeSubAgentSession({
+      agent: {
+        close: async () => {
+          order.push("close-start");
+          await closeGate;
+          order.push("close-end");
+        },
+      },
+      posixTools: {
+        dispose: async () => {
+          order.push("posix");
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(["posix", "close-start"]);
+    releaseClose();
+    await pending;
+    expect(order).toEqual(["posix", "close-start", "close-end"]);
+  });
+
   test("disposeSubAgentSession does not treat a throwing posix dispose as success", async () => {
     const posixTools = {
       dispose: async () => {

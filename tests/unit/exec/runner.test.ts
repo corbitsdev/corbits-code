@@ -400,7 +400,7 @@ describe("disposeExecRuntime", () => {
 
     expect(aborted).toBe(1);
     expect(store.get(worker.id)?.status).toBe("cancelled");
-    expect(calls).toEqual(["agent", "toolset"]);
+    expect(calls).toEqual(["toolset", "agent"]);
   });
 
   test("runs teardown only once when called concurrently", async () => {
@@ -422,7 +422,34 @@ describe("disposeExecRuntime", () => {
 
     await Promise.all([disposeExecRuntime(args), disposeExecRuntime(args)]);
 
-    expect(calls).toEqual(["agent", "toolset"]);
+    expect(calls).toEqual(["toolset", "agent"]);
+  });
+
+  test("reaps the toolset before waiting on a hung agent close", async () => {
+    const calls: string[] = [];
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const pending = disposeExecRuntime({
+      agent: {
+        close: async () => {
+          await closeGate;
+          calls.push("agent");
+        },
+      },
+      toolset: {
+        dispose: async () => {
+          calls.push("toolset");
+        },
+      },
+      subAgentSessions: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toEqual(["toolset"]);
+    releaseClose();
+    await pending;
+    expect(calls).toEqual(["toolset", "agent"]);
   });
 
   test("rejects leftover-child dispose from the toolset", async () => {

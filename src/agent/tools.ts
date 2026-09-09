@@ -990,6 +990,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     mcpAbortController.abort(new Error("MCP toolset disposed"));
     disposal = (async () => {
       const failures: unknown[] = [];
+      // Kill every live background process group before the posix teardown so
+      // /clear, interrupt, and reload cannot leave orphans behind.
+      backgroundShells.disposeAll("session closed");
+      try {
+        await posixTools.dispose();
+      } catch (err: unknown) {
+        failures.push(err);
+      }
       const fleetSessions = fleetSessionsForDispose;
       if (fleetSessions !== undefined) {
         try {
@@ -1013,14 +1021,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         [...connectedClients.values()].map((client) => client.close().catch(() => undefined)),
       );
       connectedClients.clear();
-      // Kill every live background process group before the posix teardown so
-      // /clear, interrupt, and reload cannot leave orphans behind.
-      backgroundShells.disposeAll("session closed");
-      try {
-        await posixTools.dispose();
-      } catch (err: unknown) {
-        failures.push(err);
-      }
       await disposeWebSearchClients();
       rethrowToolsetDisposeFailures(failures);
     })();

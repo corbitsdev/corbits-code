@@ -86,9 +86,10 @@ describe("close_agent", () => {
     // Exercise the store directly with a short deadline (the tool itself
     // uses the real ~30s bound, which would make this test slow).
     const started = Date.now();
-    const childStatus = await sessions.closeOne(wedgedChild.id, 25);
+    await expect(sessions.closeOne(wedgedChild.id, 25)).rejects.toThrow(
+      /session close exceeded 25ms/,
+    );
     expect(Date.now() - started).toBeLessThan(500);
-    expect(childStatus).toBe("shutdown");
   });
 
   test("closes remaining siblings after a leftover-child throw, then fails", async () => {

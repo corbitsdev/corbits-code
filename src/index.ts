@@ -123,11 +123,12 @@ export const RUNTIME_TEARDOWN_DEADLINE_MS = 2_000;
 async function awaitActiveDisposeHost(context: string): Promise<void> {
   const dispose = getActiveDisposeHost();
   if (dispose === null) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       Promise.resolve(dispose()),
       new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => {
+        timer = setTimeout(() => {
           reject(new Error(`runtime teardown exceeded ${RUNTIME_TEARDOWN_DEADLINE_MS}ms`));
         }, RUNTIME_TEARDOWN_DEADLINE_MS);
         if (typeof timer.unref === "function") timer.unref();
@@ -137,6 +138,8 @@ async function awaitActiveDisposeHost(context: string): Promise<void> {
     process.stderr.write(
       `host dispose failed ${context}: ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}\n`,
     );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

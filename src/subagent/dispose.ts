@@ -45,8 +45,38 @@ export const DEFAULT_CLOSE_DEADLINE_MS = 30_000;
  * tracked in a global registry.
  */
 export const SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS =
-  "Per sub-agent session Corbits Code runs agent.close(), drains in-flight tool middleware (best-effort), then posixTools.dispose() (LSP and plugin dispose callbacks). " +
+  "Per sub-agent session Corbits Code runs posixTools.dispose() (LSP and plugin dispose callbacks, including in-flight tool drain), then agent.close() and stream drain. " +
   "run_shell children are tracked in the shell-guard plugin and killed on posixTools.dispose; ripgrep detached spawns are not tracked in a global registry.";
+
+/** Fail a hung close instead of resolving as successful teardown. */
+export async function awaitBoundedTeardown(
+  teardown: Promise<void>,
+  deadlineMs: number,
+): Promise<void> {
+  let teardownError: unknown;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      teardown.then(
+        () => undefined,
+        (err: unknown) => {
+          teardownError = err;
+        },
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, deadlineMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  if (teardownError !== undefined) throw teardownError;
+  if (timedOut) throw new Error(`session close exceeded ${deadlineMs}ms`);
+}
 
 export interface SubAgentSpawnSnapshot {
   inFlightToolCalls: number;
@@ -110,6 +140,12 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
   if (input.signal !== undefined && input.closeOnAbort !== undefined) {
     input.signal.removeEventListener("abort", input.closeOnAbort);
   }
+  let posixError: unknown;
+  try {
+    await input.posixTools.dispose();
+  } catch (err: unknown) {
+    posixError = err;
+  }
   try {
     await input.agent?.close();
   } catch {
@@ -120,5 +156,5 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
   } catch {
     // ignore
   }
-  await input.posixTools.dispose();
+  if (posixError !== undefined) throw posixError;
 }

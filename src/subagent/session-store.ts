@@ -7,7 +7,7 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
+import { awaitBoundedTeardown, DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
 import {
   isAlreadyClosed,
   isLiveStrip,
@@ -26,20 +26,14 @@ async function invokeCloseBounded(
   close: (deadlineMs?: number) => Promise<void>,
   deadlineMs: number,
 ): Promise<void> {
-  let closeError: unknown;
-  await Promise.race([
-    close(deadlineMs).then(
-      () => undefined,
-      (err: unknown) => {
-        closeError = err;
-        log.warn("session close raced deadline: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      },
-    ),
-    new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
-  ]);
-  if (closeError !== undefined) throw closeError;
+  try {
+    await awaitBoundedTeardown(close(deadlineMs), deadlineMs);
+  } catch (err: unknown) {
+    log.warn("session close raced deadline: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
@@ -215,8 +209,9 @@ export interface SubAgentSessionStore {
   // session was cancelled; false if missing or already terminal.
   cancel(id: string, reason?: string): boolean;
   // Cancel every running session. Closes retained workers with the same
-  // deadline race as closeOne: leftover-child throws reject, hang-forever
-  // resolves without throwing. Returns the ids that transitioned to cancelled.
+  // deadline race as closeOne: leftover-child throws and hung closes reject
+  // instead of reporting success while children may still be live. Returns
+  // the ids that transitioned to cancelled.
   cancelAll(reason?: string): Promise<string[]>;
   // CL-6943: flips a "pending_init" session to "running" once its agent
   // object actually exists. No-op on an unknown id or one already past init.

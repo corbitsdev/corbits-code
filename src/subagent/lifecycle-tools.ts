@@ -41,8 +41,8 @@ export const closeAgentToolDefinition: ToolDefinition = {
   description:
     "Permanently close a worker session by agent_id, closing its descendants first. Bounded " +
     `by a ~${Math.round(DEFAULT_CLOSE_DEADLINE_MS / 1000)}s cleanup deadline per session so a wedged worker cannot hang ` +
-    "this call — a session that misses the deadline is still marked shutdown; its teardown just " +
-    "keeps running in the background. Unblocks any in-flight wait_agents on these ids immediately with " +
+    "this call — a session that misses the deadline is still marked shutdown and the call fails " +
+    "instead of reporting success while children may still be live. Unblocks any in-flight wait_agents on these ids immediately with " +
     "status 'interrupted'. Closing is permanent: a closed session cannot be resumed.",
   inputSchema: {
     type: "object",
