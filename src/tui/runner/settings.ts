@@ -21,11 +21,9 @@ import {
   toggleFavoriteModel,
   type LocalSettings,
   type ModelRef,
-  type ResolvedProvider,
   type Settings,
 } from "../../config/settings.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
-import { refreshLiveProviderCatalog } from "../../config/index.js";
 import { createTelemetryToggleHandler } from "../../telemetry/toggle.js";
 import { telemetryFirstRunPending } from "../../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../../telemetry/index.js";
@@ -35,7 +33,6 @@ import type { GrantScope } from "../../permission/types.js";
 import { connectProviderInline } from "../provider/connect.js";
 import { persistConnectedSelection } from "../provider/submit.js";
 import { modelOptionId } from "../model-catalog.js";
-import { prefetchGoModels } from "../../provider/opencode-go-models.js";
 import { isOpenCodeGoProvider } from "../../../packages/opencode-go/src/index.js";
 import { applyLiveModelSwitch } from "../../session/live-model-switch.js";
 import { applyFocus } from "../shell/chrome.js";
@@ -43,6 +40,10 @@ import { setShellInputSuspended } from "../shell/prompt.js";
 import { warningsForPluginEntry } from "../../plugins/diagnostics.js";
 import { isPluginEnabledForSurface } from "../plugin-surface.js";
 import { resolveWaitForApproval } from "../tool-execution-watchdog.js";
+import {
+  prefetchGoModelsAndRefresh,
+  refreshProviderCatalogAndSurfaces,
+} from "./provider-refresh.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
@@ -252,25 +253,7 @@ export async function wireSettings(
       }
       if (!result.connected) return;
 
-      const onDisk = await loadSettings(trueGlobalSettingsPath);
-      const resolvedForCatalog: ResolvedProvider = {
-        apiKey: state.config.apiKey,
-        baseURL: state.config.baseURL,
-        model: state.config.model,
-        providerName: state.config.providerName,
-        ...(state.config.keyless !== undefined ? { keyless: state.config.keyless } : {}),
-      };
-      const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
-      state.config = {
-        ...state.config,
-        providers,
-        ...(onDisk !== null ? { settings: onDisk } : {}),
-      };
-      hostOf(state).refreshModels(
-        listRecentModels(state.config.settings ?? { providers: {} }),
-        listFavoriteModels(state.config.settings ?? { providers: {} }),
-        providers,
-      );
+      await refreshProviderCatalogAndSurfaces(state, hostOf(state).refreshModels);
       // Reopen positioned at the account just connected — the picker's
       // default open (top of list) would otherwise leave the operator to
       // hunt for the row they just authorized.
@@ -280,27 +263,7 @@ export async function wireSettings(
       );
       state.systemNotice?.(`Connected ${connectedName}. Open /model to pick a model.`);
       if (isOpenCodeGoProvider({ name: providerName })) {
-        void prefetchGoModels()
-          .then(async () => {
-            if (services.hostHolder.instance === undefined) return;
-            const nextDisk = await loadSettings(trueGlobalSettingsPath);
-            const nextProviders = await refreshLiveProviderCatalog(nextDisk, resolvedForCatalog);
-            state.config = {
-              ...state.config,
-              providers: nextProviders,
-              ...(nextDisk !== null ? { settings: nextDisk } : {}),
-            };
-            services.hostHolder.instance.refreshModels(
-              listRecentModels(state.config.settings ?? { providers: {} }),
-              listFavoriteModels(state.config.settings ?? { providers: {} }),
-              nextProviders,
-            );
-          })
-          .catch((err: unknown) => {
-            tuiLogger.debug("go model prefetch failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
+        prefetchGoModelsAndRefresh(state, () => services.hostHolder.instance?.refreshModels);
       }
     })().catch((err: unknown) => {
       tuiLogger.debug("provider connect failed: {error}", {

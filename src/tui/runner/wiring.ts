@@ -7,10 +7,6 @@
  */
 
 import { getLogger } from "@intx/log";
-import { loadSettings, listFavoriteModels, listRecentModels } from "../../config/settings.js";
-import { refreshLiveProviderCatalog } from "../../config/index.js";
-import type { ResolvedProvider } from "../../config/settings.js";
-import { prefetchGoModels } from "../../provider/opencode-go-models.js";
 import { isOpenCodeGoProvider } from "../../../packages/opencode-go/src/index.js";
 import { loadRecentTurns } from "../../session/optimized-context-store.js";
 import { loadSentMessages } from "../../session/sent-messages.js";
@@ -43,6 +39,7 @@ import {
 import { listPathSuggestions } from "../components/at-mention/list.js";
 import { listCommands } from "../commands/registry.js";
 import type { MCPConnectCallbacks } from "../../agent/tools.js";
+import { prefetchGoModelsAndRefresh } from "./provider-refresh.js";
 import { createRuntimeShutdown } from "./shutdown.js";
 import { resumeTranscriptLoadErrorBlock } from "./exit.js";
 import { userInboundMessage } from "./submit.js";
@@ -57,34 +54,7 @@ export function wirePostStartup(
   mcpConnectCallbacks: MCPConnectCallbacks,
 ): void {
   if (state.config.providers.some((p) => isOpenCodeGoProvider(p))) {
-    void prefetchGoModels()
-      .then(async () => {
-        if (services.hostHolder.instance === undefined) return;
-        const onDisk = await loadSettings(state.trueGlobalSettingsPath);
-        const resolvedForCatalog: ResolvedProvider = {
-          apiKey: state.config.apiKey,
-          baseURL: state.config.baseURL,
-          model: state.config.model,
-          providerName: state.config.providerName,
-          ...(state.config.keyless !== undefined ? { keyless: state.config.keyless } : {}),
-        };
-        const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
-        state.config = {
-          ...state.config,
-          providers,
-          ...(onDisk !== null ? { settings: onDisk } : {}),
-        };
-        services.hostHolder.instance.refreshModels(
-          listRecentModels(state.config.settings ?? { providers: {} }),
-          listFavoriteModels(state.config.settings ?? { providers: {} }),
-          providers,
-        );
-      })
-      .catch((err: unknown) => {
-        tuiLogger.debug("go model prefetch failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+    prefetchGoModelsAndRefresh(state, () => services.hostHolder.instance?.refreshModels);
   }
 
   const shutdownRuntime = createRuntimeShutdown({
