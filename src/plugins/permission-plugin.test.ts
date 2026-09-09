@@ -178,6 +178,60 @@ describe("gateToolCall", () => {
     expect(records[0]?.outcome).toBe("auto-allow");
   });
 
+  test("reactor-gated auto-shell deny records once across authorizeCall then gateToolCall", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const call = shellCall("echo x | tee src/a.ts");
+    const first = await gate.authorizeCall(call);
+    expect(first.effect).toBe("deny");
+    const { next, wasCalled } = trackingNext();
+    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
+    expect(wasCalled()).toBe(false);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.outcome).toBe("auto-deny");
+  });
+
+  test("reactor-gated headless deny records once across authorizeCall then gateToolCall", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      reactorGated: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+    });
+    const call = shellCall("curl https://example.com");
+    const first = await gate.authorizeCall(call);
+    expect(first.effect).toBe("deny");
+    const { next, wasCalled } = trackingNext();
+    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
+    expect(wasCalled()).toBe(false);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.outcome).toBe("deny");
+  });
+
   test("sub-agent path still evaluates and denies authz hard-deny", async () => {
     const gate = createPermissionGate({
       approvals: [],
