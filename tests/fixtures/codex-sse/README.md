@@ -1,7 +1,7 @@
 # Codex / Responses SSE fixtures
 
 Sanitized multi-event streams for golden tests of `parseResponse` in
-`src/provider/codex-responses-adapter.ts`.
+`src/provider/responses-adapters.ts`.
 
 Each `*.json` file is a JSON array of Responses SSE **data payloads** (the
 object after `data: ` on each SSE line). No real tokens, prompts, account IDs,

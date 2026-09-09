@@ -6,7 +6,7 @@ import {
   CODEX_RESPONSES_PROVIDER,
   createCodexResponsesAdapter,
   tagSignature,
-} from "./codex-responses-adapter.js";
+} from "./responses-adapters.js";
 import { createGrokResponsesAdapter } from "./responses-adapters.js";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 import {

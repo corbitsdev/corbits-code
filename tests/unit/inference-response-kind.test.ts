@@ -14,7 +14,7 @@ import { createInferenceDependencies } from "../../src/provider/inference-depend
 import {
   CODEX_RESPONSES_PROVIDER,
   withCodexContentTypeRepair,
-} from "../../src/provider/codex-responses-adapter.js";
+} from "../../src/provider/responses-adapters.js";
 import { CODEX_RESPONSES_PATH } from "../../src/auth/codex/constants.js";
 
 const CODEX_URL = `https://chatgpt.com/backend-api${CODEX_RESPONSES_PATH}`;

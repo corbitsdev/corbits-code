@@ -5,7 +5,7 @@ import {
   isResponsesStreamTerminal,
   signatureForModel,
   tagSignature,
-} from "./codex-responses-adapter.js";
+} from "./responses-adapters.js";
 import { contextTokensFromUsage } from "./context-window.js";
 
 const source: LastCycleSource = {
