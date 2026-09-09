@@ -2,17 +2,22 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import {
   discoverAuthorizationServerMetadata,
+  discoverOAuthProtectedResourceMetadata,
   refreshAuthorization,
+  selectResourceURL,
   UnauthorizedError,
   type OAuthClientProvider,
 } from "@modelcontextprotocol/sdk/client/auth.js";
+import { resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import type {
   AuthorizationServerMetadata,
   OAuthClientInformationFull,
   OAuthClientInformationMixed,
   OAuthClientMetadata,
+  OAuthProtectedResourceMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   authFilePath,
   tryLoadAuthStateSync,
@@ -29,6 +34,7 @@ export interface OAuthProviderOptions {
   onAuthURL: (serverName: string, authorizationUrl: string) => void;
   onAuthorizationState?: (state: string) => void;
   home?: string;
+  fetchFn?: FetchLike;
 }
 export type CorbitsOAuthProvider = OAuthClientProvider & {
   resetAuthorization(): Promise<void>;
@@ -153,34 +159,10 @@ export async function createOAuthProvider(
   };
 
   let oauthState: string | undefined;
-  // The SDK consults provider.refreshToken? only in newer versions; 1.30.0 never
-  // does, so client.ts calls this before any browser re-auth. Discovery runs
-  // once per provider; failures are auth-invalid, not refresh-retryable.
   let authorizationServerMetadata: AuthorizationServerMetadata | undefined;
-  const refreshToken = async (refreshToken: string): Promise<OAuthTokens> => {
-    try {
-      authorizationServerMetadata ??=
-        (await discoverAuthorizationServerMetadata(opts.serverURL)) ?? undefined;
-      if (authorizationServerMetadata === undefined)
-        throw new Error("authorization server metadata unavailable");
-      const clientInformation = stored.clientInformation;
-      if (clientInformation === undefined) throw new Error("no client registration to refresh");
-      const tokens = await refreshAuthorization(opts.serverURL, {
-        metadata: authorizationServerMetadata,
-        clientInformation,
-        refreshToken,
-      });
-      await apply((state) => {
-        state.tokens = tokens;
-      });
-      return tokens;
-    } catch (err) {
-      throw new UnauthorizedError(
-        `Token refresh failed for ${opts.serverName}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  };
-  return {
+  let authorizationServerUrl: string | undefined;
+  let resource: URL | undefined;
+  const provider: CorbitsOAuthProvider = {
     get redirectUrl(): string {
       return opts.redirectUrl;
     },
@@ -244,6 +226,54 @@ export async function createOAuthProvider(
       });
       delete stored.codeVerifier;
     },
-    refreshToken,
+    refreshToken: async (refreshToken: string): Promise<OAuthTokens> => {
+      try {
+        const fetchFn = opts.fetchFn;
+        if (authorizationServerMetadata === undefined || authorizationServerUrl === undefined) {
+          let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+          try {
+            resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+              opts.serverURL,
+              undefined,
+              fetchFn,
+            );
+          } catch {
+            resourceMetadata = undefined;
+          }
+          const fromPrm = resourceMetadata?.authorization_servers?.[0];
+          authorizationServerUrl =
+            fromPrm === undefined ? String(new URL("/", opts.serverURL)) : String(fromPrm);
+          authorizationServerMetadata =
+            (await discoverAuthorizationServerMetadata(
+              authorizationServerUrl,
+              fetchFn === undefined ? {} : { fetchFn },
+            )) ?? undefined;
+          resource =
+            (await selectResourceURL(opts.serverURL, provider, resourceMetadata)) ??
+            resourceUrlFromServerUrl(opts.serverURL);
+        }
+        if (authorizationServerMetadata === undefined)
+          throw new Error("authorization server metadata unavailable");
+        const clientInformation = stored.clientInformation;
+        if (clientInformation === undefined) throw new Error("no client registration to refresh");
+        const resourceURL = resource ?? resourceUrlFromServerUrl(opts.serverURL);
+        const tokens = await refreshAuthorization(authorizationServerUrl, {
+          metadata: authorizationServerMetadata,
+          clientInformation,
+          refreshToken,
+          resource: resourceURL,
+          ...(fetchFn === undefined ? {} : { fetchFn }),
+        });
+        await apply((state) => {
+          state.tokens = tokens;
+        });
+        return tokens;
+      } catch (err) {
+        throw new UnauthorizedError(
+          `Token refresh failed for ${opts.serverName}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
   };
+  return provider;
 }

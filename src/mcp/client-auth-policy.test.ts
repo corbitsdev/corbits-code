@@ -35,7 +35,10 @@ function hangUntilAbort(
   });
 }
 
-const authProvider = { resetAuthorization: async () => undefined };
+const authProvider = {
+  resetAuthorization: async () => undefined,
+  redirectToAuthorization: () => undefined,
+};
 
 await withMockedModule(
   import.meta.resolve("@modelcontextprotocol/sdk/client/index.js"),

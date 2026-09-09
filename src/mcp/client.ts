@@ -66,6 +66,8 @@ interface HTTPAuthContext {
   interactive: boolean;
   serverName: string;
   onAuthorized?: (serverName: string) => void;
+  promptGuard?: { clear(): void };
+  refreshedWithoutPrompt?: boolean;
 }
 
 function isRecoverableAuthError(err: unknown): boolean {
@@ -91,7 +93,7 @@ function browserAuthCapError(serverName: string): Error {
   const minutes = Math.round(BROWSER_AUTH_COOLDOWN_MS / 60_000);
   return new Error(
     `MCP authorization for ${serverName} failed after ${MAX_BROWSER_AUTH_ATTEMPTS} attempts; ` +
-      `retrying paused for ${minutes} minutes. Reconnect the server to try again.`,
+      `retrying paused for ${minutes} minutes. Retry later after the cooldown.`,
   );
 }
 
@@ -119,12 +121,24 @@ async function tryTokenRefresh(context: HTTPAuthContext): Promise<boolean> {
   const refreshToken = (await context.authProvider.tokens?.())?.refresh_token;
   if (refreshToken === undefined) return false;
   try {
-    const tokens = await context.authProvider.refreshToken?.(refreshToken);
+    const tokens = await context.authProvider.refreshToken(refreshToken);
     return tokens !== undefined;
   } catch {
     // Refresh failure is auth-invalid; the browser flow remains the fallback.
     return false;
   }
+}
+
+function gateRedirectToAuthorization(context: HTTPAuthContext): void {
+  const inner = context.authProvider.redirectToAuthorization.bind(context.authProvider);
+  context.authProvider.redirectToAuthorization = async (authorizationUrl: URL) => {
+    if (await tryTokenRefresh(context)) {
+      context.refreshedWithoutPrompt = true;
+      return;
+    }
+    context.promptGuard ??= beginBrowserAuth(context);
+    await inner(authorizationUrl);
+  };
 }
 
 /**
@@ -196,19 +210,32 @@ async function recoverHTTPAuthorization<T>(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (lastErr instanceof OAuthError) await context.authProvider.resetAuthorization();
     if (lastErr instanceof UnauthorizedError) {
-      if (!refreshAttempted) {
-        refreshAttempted = true;
-        if (await tryTokenRefresh(context)) {
-          try {
-            return await operation();
-          } catch (nextErr) {
-            if (!isRecoverableAuthError(nextErr)) throw nextErr;
-            lastErr = nextErr;
-            continue;
-          }
+      if (context.refreshedWithoutPrompt === true) {
+        context.refreshedWithoutPrompt = false;
+        try {
+          return await operation();
+        } catch (nextErr) {
+          if (!isRecoverableAuthError(nextErr)) throw nextErr;
+          lastErr = nextErr;
+          continue;
         }
       }
-      const guard = beginBrowserAuth(context);
+      if (context.promptGuard === undefined) {
+        if (!refreshAttempted) {
+          refreshAttempted = true;
+          if (await tryTokenRefresh(context)) {
+            try {
+              return await operation();
+            } catch (nextErr) {
+              if (!isRecoverableAuthError(nextErr)) throw nextErr;
+              lastErr = nextErr;
+              continue;
+            }
+          }
+        }
+        context.promptGuard = beginBrowserAuth(context);
+      }
+      const guard = context.promptGuard;
       const value = await retryAfterInteractiveAuth(
         () => completeInteractiveAuth(context),
         operation,
@@ -217,6 +244,7 @@ async function recoverHTTPAuthorization<T>(
           : () => context.onAuthorized?.(context.serverName),
       );
       guard.clear();
+      delete context.promptGuard;
       return value;
     }
     try {
@@ -334,6 +362,7 @@ async function connectHttp(
         redirectUrl: callback.redirectUrl,
         onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
         onAuthorizationState: callback.expectState,
+        ...(options.signal === undefined ? {} : { fetchFn: fetchWithConnectAbort(options.signal) }),
       });
       makeTransport = () =>
         new StreamableHTTPClientTransport(
@@ -349,6 +378,7 @@ async function connectHttp(
         ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
       };
+      gateRedirectToAuthorization(authContext);
     }
     const connectedClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
     client = connectedClient;
