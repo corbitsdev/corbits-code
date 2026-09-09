@@ -62,12 +62,16 @@ interface HTTPAuthContext {
   url: URL;
   authProvider: CorbitsOAuthProvider;
   callback: CallbackServer;
+  episode: HTTPAuthEpisodeState;
   signal?: AbortSignal;
   interactive: boolean;
   serverName: string;
   onAuthorized?: (serverName: string) => void;
+}
+
+interface HTTPAuthEpisodeState {
   promptGuard?: { clear(): void };
-  refreshedWithoutPrompt?: boolean;
+  customRefreshAttempted: boolean;
 }
 
 function isRecoverableAuthError(err: unknown): boolean {
@@ -107,10 +111,12 @@ function beginBrowserAuth(context: HTTPAuthContext): { clear(): void } {
     entry.count = 0;
   }
   if (entry.count >= MAX_BROWSER_AUTH_ATTEMPTS) {
-    entry.cooldownUntil = now + BROWSER_AUTH_COOLDOWN_MS;
     throw browserAuthCapError(context.serverName);
   }
   entry.count += 1;
+  if (entry.count === MAX_BROWSER_AUTH_ATTEMPTS) {
+    entry.cooldownUntil = now + BROWSER_AUTH_COOLDOWN_MS;
+  }
   browserAuthAttempts.set(key, entry);
   return {
     clear: () => browserAuthAttempts.delete(key),
@@ -132,11 +138,8 @@ async function tryTokenRefresh(context: HTTPAuthContext): Promise<boolean> {
 function gateRedirectToAuthorization(context: HTTPAuthContext): void {
   const inner = context.authProvider.redirectToAuthorization.bind(context.authProvider);
   context.authProvider.redirectToAuthorization = async (authorizationUrl: URL) => {
-    if (await tryTokenRefresh(context)) {
-      context.refreshedWithoutPrompt = true;
-      return;
-    }
-    context.promptGuard ??= beginBrowserAuth(context);
+    if (context.episode.promptGuard !== undefined) return;
+    context.episode.promptGuard = beginBrowserAuth(context);
     await inner(authorizationUrl);
   };
 }
@@ -206,23 +209,12 @@ async function recoverHTTPAuthorization<T>(
 ): Promise<T> {
   if (context === undefined || !isRecoverableAuthError(err)) throw err;
   let lastErr: unknown = err;
-  let refreshAttempted = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (lastErr instanceof OAuthError) await context.authProvider.resetAuthorization();
     if (lastErr instanceof UnauthorizedError) {
-      if (context.refreshedWithoutPrompt === true) {
-        context.refreshedWithoutPrompt = false;
-        try {
-          return await operation();
-        } catch (nextErr) {
-          if (!isRecoverableAuthError(nextErr)) throw nextErr;
-          lastErr = nextErr;
-          continue;
-        }
-      }
-      if (context.promptGuard === undefined) {
-        if (!refreshAttempted) {
-          refreshAttempted = true;
+      if (context.episode.promptGuard === undefined) {
+        if (!context.episode.customRefreshAttempted) {
+          context.episode.customRefreshAttempted = true;
           if (await tryTokenRefresh(context)) {
             try {
               return await operation();
@@ -233,9 +225,9 @@ async function recoverHTTPAuthorization<T>(
             }
           }
         }
-        context.promptGuard = beginBrowserAuth(context);
+        context.episode.promptGuard = beginBrowserAuth(context);
       }
-      const guard = context.promptGuard;
+      const guard = context.episode.promptGuard;
       const value = await retryAfterInteractiveAuth(
         () => completeInteractiveAuth(context),
         operation,
@@ -244,7 +236,6 @@ async function recoverHTTPAuthorization<T>(
           : () => context.onAuthorized?.(context.serverName),
       );
       guard.clear();
-      delete context.promptGuard;
       return value;
     }
     try {
@@ -264,7 +255,14 @@ async function withHTTPAuthorizationRecovery<T>(
   try {
     return await operation();
   } catch (err) {
-    return recoverHTTPAuthorization(err, context, operation);
+    try {
+      return await recoverHTTPAuthorization(err, context, operation);
+    } finally {
+      if (context !== undefined) {
+        delete context.episode.promptGuard;
+        context.episode.customRefreshAttempted = false;
+      }
+    }
   }
 }
 
@@ -373,6 +371,7 @@ async function connectHttp(
         url,
         authProvider,
         callback,
+        episode: { customRefreshAttempted: false },
         interactive: options.onAuthURL !== undefined,
         serverName: config.name,
         ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),

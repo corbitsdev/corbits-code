@@ -5,11 +5,15 @@ import { withMockedModule } from "../../tests/helpers/mock-module.js";
 let finishAuthCalls = 0;
 let finishAuthError: Error | undefined = new Error("finishAuth exploded");
 let connectFailuresLeft = 0;
+let callFailuresLeft = 0;
+let redirectsPerFailure = 1;
+let redirectConcurrently = false;
 let providerCreates = 0;
 let refreshCalls = 0;
 let refreshSucceeds = false;
 let authEvents: string[] = [];
 let authURLCount = 0;
+let liveProvider: { redirectToAuthorization?: (url: URL) => void | Promise<void> } | undefined;
 
 const fakeProvider = {
   resetAuthorization: async () => undefined,
@@ -22,6 +26,18 @@ const fakeProvider = {
   },
 };
 
+async function emitRedirects(
+  provider: { redirectToAuthorization?: (url: URL) => void | Promise<void> } | undefined,
+): Promise<void> {
+  const redirect = () =>
+    provider?.redirectToAuthorization?.(new URL("https://auth.test/authorize"));
+  if (redirectConcurrently) {
+    await Promise.all(Array.from({ length: redirectsPerFailure }, redirect));
+  } else {
+    for (let call = 0; call < redirectsPerFailure; call += 1) await redirect();
+  }
+}
+
 await withMockedModule(
   import.meta.resolve("@modelcontextprotocol/sdk/client/index.js"),
   (real: typeof import("@modelcontextprotocol/sdk/client/index.js")) => ({
@@ -32,18 +48,23 @@ await withMockedModule(
           redirectToAuthorization?: (url: URL) => void | Promise<void>;
         };
       }): Promise<void> {
+        liveProvider = transport?.provider;
         if (connectFailuresLeft > 0) {
           connectFailuresLeft -= 1;
-          // Production StreamableHTTPClientTransport calls SDK auth() on HTTP 401,
-          // which invokes redirectToAuthorization and then throws UnauthorizedError.
-          await transport?.provider?.redirectToAuthorization?.(
-            new URL("https://auth.test/authorize"),
-          );
+          await emitRedirects(transport?.provider);
           throw new UnauthorizedError("authorization required");
         }
       }
       async listTools(): Promise<{ tools: [] }> {
         return { tools: [] };
+      }
+      async callTool(): Promise<{ content: [] }> {
+        if (callFailuresLeft > 0) {
+          callFailuresLeft -= 1;
+          await emitRedirects(liveProvider);
+          throw new UnauthorizedError("authorization required");
+        }
+        return { content: [] };
       }
       async close(): Promise<void> {}
     },
@@ -133,9 +154,13 @@ async function connectWithAuthPrompt(): Promise<{ ok: boolean; error?: string }>
 describe("HTTP MCP re-auth loop prevention", () => {
   beforeEach(() => {
     connectFailuresLeft = 0;
+    callFailuresLeft = 0;
+    redirectsPerFailure = 1;
+    redirectConcurrently = false;
     finishAuthCalls = 0;
     finishAuthError = new Error("finishAuth exploded");
     providerCreates = 0;
+    liveProvider = undefined;
     refreshCalls = 0;
     refreshSucceeds = false;
     authEvents = [];
@@ -148,8 +173,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     setSystemTime();
   });
 
-  test("refreshes tokens before any browser re-auth prompt", async () => {
+  test("uses one custom refresh before prompting when recovery starts without a redirect", async () => {
     refreshSucceeds = true;
+    redirectsPerFailure = 0;
     connectFailuresLeft = 1;
 
     const result = await connectWithAuthPrompt();
@@ -161,15 +187,62 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(authURLCount).toBe(0);
   });
 
-  test("a failed refresh still precedes the browser prompt", async () => {
-    connectFailuresLeft = Number.POSITIVE_INFINITY;
-    const result = await connectWithAuthPrompt();
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("finishAuth exploded");
+  test("does not repeat the SDK refresh after redirecting to authorization", async () => {
+    finishAuthError = undefined;
+    connectFailuresLeft = 1;
 
-    expect(authEvents).toEqual(["refresh", "authURL"]);
-    expect(refreshCalls).toBe(1);
+    const result = await connectWithAuthPrompt();
+
+    expect(result.ok).toBe(true);
+    expect(authEvents).toEqual(["authURL"]);
+    expect(refreshCalls).toBe(0);
+    expect(finishAuthCalls).toBe(1);
     expect(authURLCount).toBe(1);
+  });
+
+  test("live-call auth episodes share redirect state and stop after three prompts", async () => {
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        authURLCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+
+    for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
+      callFailuresLeft = 1;
+      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+        "finishAuth exploded",
+      );
+    }
+    expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
+
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "retrying paused",
+    );
+    expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
+  });
+
+  test("repeated concurrent redirects emit one counted prompt", async () => {
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => {
+        authURLCount += 1;
+      },
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    redirectsPerFailure = 3;
+    redirectConcurrently = true;
+    callFailuresLeft = 1;
+
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "finishAuth exploded",
+    );
+
+    expect(authURLCount).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+    expect(refreshCalls).toBe(0);
   });
 
   test("failed browser re-auth is capped and pauses re-prompting across episodes", async () => {
@@ -229,7 +302,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(authURLCount).toBe(3 + MAX_BROWSER_AUTH_ATTEMPTS);
   });
 
-  test("prompts resume after the cooldown", async () => {
+  test("prompts resume five minutes after the third failed episode without a fourth probe", async () => {
+    const thirdEpisodeAt = new Date("2026-01-01T00:00:00Z").getTime();
+    setSystemTime(thirdEpisodeAt);
     connectFailuresLeft = Number.POSITIVE_INFINITY;
     for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
       const result = await connectWithAuthPrompt();
@@ -237,12 +312,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     }
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
 
-    const duringCooldown = await connectWithAuthPrompt();
-    expect(duringCooldown.ok).toBe(false);
-    expect(duringCooldown.error).toContain("retrying paused");
-    expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
-
-    setSystemTime(Date.now() + BROWSER_AUTH_COOLDOWN_MS + 1);
+    setSystemTime(thirdEpisodeAt + BROWSER_AUTH_COOLDOWN_MS + 1);
     const afterCooldown = await connectWithAuthPrompt();
     expect(afterCooldown.ok).toBe(false);
     expect(afterCooldown.error).toContain("finishAuth exploded");
