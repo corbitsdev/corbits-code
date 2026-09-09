@@ -34,6 +34,8 @@ import {
   mcpServerState,
   RUNTIME_FLASH_MS,
   type RuntimeNotice,
+  workflowNotice,
+  workflowPayloadInfo,
 } from "./runtime-notices.js";
 import type { PaletteCommand } from "./command-catalog.js";
 import {
@@ -388,6 +390,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     config.eventEmitter.off("mcp.status", onMcpStatus);
     config.eventEmitter.off("permission.grant", onPermissionGrant);
     config.eventEmitter.off("compaction", onCompaction);
+    config.eventEmitter.off("workflow", onWorkflow);
     bridge.dispose();
     // Cancels any flash still counting down: its expiry repaints, and after
     // teardown that repaint reaches a destroyed text buffer.
@@ -458,6 +461,16 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     if (disposed) return;
     const info = compactionFoldInfo(payload);
     if (info !== null) show(compactionNotice(info));
+  }
+
+  let workflowWasActive = false;
+
+  function onWorkflow(payload: unknown): void {
+    if (disposed) return;
+    const info = workflowPayloadInfo(payload);
+    if (info === null) return;
+    show(workflowNotice(info, { wasActive: workflowWasActive }));
+    workflowWasActive = info.current.active;
   }
 
   // The renderer already owns the alternate screen and raw mode by this point,
@@ -627,6 +640,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   config.eventEmitter.on("mcp.status", onMcpStatus);
   config.eventEmitter.on("permission.grant", onPermissionGrant);
   config.eventEmitter.on("compaction", onCompaction);
+  config.eventEmitter.on("workflow", onWorkflow);
 
   return {
     shell,

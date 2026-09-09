@@ -271,6 +271,74 @@ describe("agents chrome (live strip above the prompt)", () => {
   });
 });
 
+describe("workflow channel", () => {
+  const liveIdle = {
+    current: {
+      active: false,
+      name: undefined as string | undefined,
+      stepIndex: 0,
+      total: 0,
+      label: "",
+      steps: [] as unknown[],
+      capabilities: [] as unknown[],
+    },
+    history: [{ name: "ship" }],
+  };
+
+  test("an active live emit paints the step and holds no transcript row", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("workflow", {
+        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        history: [],
+      });
+      expect(await frame()).toContain("workflow ship · step 1/2: build");
+      expect(host.shell.streamLog).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("active then idle paints complete once and streamLog stays empty", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("workflow", {
+        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        history: [],
+      });
+      expect(await frame()).toContain("workflow ship · step 1/2: build");
+      emitter.emit("workflow", liveIdle);
+      expect(await frame()).toContain("workflow ship complete");
+      expect(host.shell.streamLog).toEqual([]);
+      emitter.emit("workflow", liveIdle);
+      expect(host.shell.streamLog).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("first-emit idle with history does not complete-flash", async () => {
+    const { emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("workflow", liveIdle);
+      expect(await frame()).not.toContain("workflow ship complete");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a bad payload paints nothing", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("workflow", { current: { active: true } });
+      expect(await frame()).not.toContain("workflow ship");
+      expect(host.shell.streamLog).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 /**
  * Static guard for the whole bug class: an emitted channel with no `.on`
  * anywhere is a feature nobody can see, and it fails silently. Static because
@@ -300,7 +368,7 @@ describe("every emitted runtime channel has a subscriber", () => {
   emitted.delete("subagent.progress");
 
   test("the runner still emits the channels this suite knows about", () => {
-    for (const channel of ["hook", "mcp.status", "permission.grant", "compaction"]) {
+    for (const channel of ["hook", "mcp.status", "permission.grant", "compaction", "workflow"]) {
       expect([...emitted]).toContain(channel);
     }
   });
