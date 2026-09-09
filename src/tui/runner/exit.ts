@@ -555,17 +555,21 @@ export async function finalizeTUIRun(
   services: RunnerServices,
 ): Promise<number> {
   await hostOf(state).waitUntilExit();
-  await services.sessionOps.awaitTail();
-  // Stop inference and every worker before persistence, hooks, or telemetry can
-  // delay process exit. Closing the terminal is a process-lifetime boundary.
+  // Stop workers before awaiting the session-op tail so a hung enqueue cannot
+  // delay abort/reap. Persistence, hooks, and telemetry stay after stop.
   // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
   // share one owner.
   let teardownFailed = false;
   try {
     await state.shutdownRuntime?.();
-  } catch {
+  } catch (err) {
     teardownFailed = true;
+    tuiLogger.error("runtime shutdown failed: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
+  await services.sessionOps.awaitTail();
+
   state.stopFleetReporting?.();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.
