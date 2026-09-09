@@ -318,16 +318,18 @@ export interface PermissionGate {
   // vendored before-tool authz hook consumes (see authorizeCall above).
   authorizeCall: (call: ToolCall) => Promise<AuthorizeVerdict>;
   // Execution-time backstop for reactor-gated posix/MCP middleware: consume the
-  // authorizeCall verdict when one exists; decide only when there is no prior
-  // verdict (nested posix whose outer tool is not run_shell, and tests).
+  // authorizeCall verdict when the same call identity (id, name, arguments) is
+  // cached; decide only on a miss (nested posix whose outer tool is not
+  // run_shell, colliding reused ids, and tests).
   executionVerdict: (call: ToolCall) => Promise<AuthorizeVerdict>;
   // Resolve a suspended reactor approval against the operator (and mint the
   // outcome's grant). Returns undefined when no outcome arrived.
   resolveSuspended: (request: PermissionRequest) => Promise<ApprovalOutcome | undefined>;
-  // True when this gate's decisions are consumed by the reactor's authz seam
-  // (env.authorize) rather than by evaluate() in the tool-runner middleware.
-  // Under reactor gating, gateToolCall still blocks decide() deny; ask/allow
-  // skip the middleware prompt so an approved re-dispatch never re-asks.
+  // True when this gate's decisions go through env.authorize (authorizeCall)
+  // rather than evaluate() in the tool-runner middleware. Under reactor gating,
+  // gateToolCall is an execution backstop: it consumes a matching cached
+  // verdict and decides on a miss. Deny still blocks; ask/allow skip the
+  // middleware prompt so an approved re-dispatch never re-asks.
   isReactorGated: () => boolean;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
@@ -490,9 +492,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   // Consume-once handoff from env.authorize to execution-time middleware.
   // Not session-lifetime uniqueness: call.id is reused for every Codex proxy
-  // inner posix op, so a lasting set would mute later JSONL records. reset()
-  // clears leftovers (outer tools that never hit posix middleware).
-  const authorizedByCallId = new Map<string, AuthorizeVerdict>();
+  // inner posix op, so a lasting set would mute later JSONL records. A hit
+  // still requires matching name and arguments so a reused id cannot apply an
+  // outer allow to a different inner tool. Nested posix with the same id still
+  // consume-once when identity matches. reset() clears leftovers (outer tools
+  // that never hit posix middleware).
+  const authorizedByCallId = new Map<
+    string,
+    { name: string; arguments: ToolCall["arguments"]; verdict: AuthorizeVerdict }
+  >();
 
   // Non-blocking policy decision for one tool call: everything the gate owns —
   // tier pre-filter, auto rules, pre-grant guards, grants, headless denial —
@@ -766,15 +774,23 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const authorizeCall = async (call: ToolCall): Promise<AuthorizeVerdict> => {
     const verdict = mapAuthorizeVerdict(await decide(call));
-    authorizedByCallId.set(call.id, verdict);
+    authorizedByCallId.set(call.id, {
+      name: call.name,
+      arguments: call.arguments,
+      verdict,
+    });
     return verdict;
   };
 
   const executionVerdict = async (call: ToolCall): Promise<AuthorizeVerdict> => {
     const cached = authorizedByCallId.get(call.id);
-    if (cached !== undefined) {
+    if (
+      cached !== undefined &&
+      cached.name === call.name &&
+      JSON.stringify(cached.arguments) === JSON.stringify(call.arguments)
+    ) {
       authorizedByCallId.delete(call.id);
-      return cached;
+      return cached.verdict;
     }
     return mapAuthorizeVerdict(await decide(call));
   };

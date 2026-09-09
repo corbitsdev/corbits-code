@@ -16,10 +16,11 @@ function blockedByPolicy(call: ToolCall, reason: string): ToolResult {
 // the posix runner the middleware wraps) so both produce the same denial result.
 //
 // Under reactor gating this is an execution backstop, not a second env.authorize.
-// Consume the prior authorizeCall verdict when one exists; decide only when there
-// is no prior verdict — nested posix whose outer tool is not run_shell (Codex
-// apply_patch proxy) and tests. Deny blocks next; ask/allow skip the middleware
-// prompt so an approved re-dispatch never re-asks.
+// Consume the prior authorizeCall verdict when the same call identity (id, name,
+// arguments) is cached; decide only on a miss — nested posix whose outer tool is
+// not run_shell (Codex apply_patch proxy), colliding reused ids, and tests. Deny
+// blocks next; ask/allow skip the middleware prompt so an approved re-dispatch
+// never re-asks.
 export async function gateToolCall(
   gate: PermissionGate,
   call: ToolCall,

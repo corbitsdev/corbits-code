@@ -312,7 +312,89 @@ describe("gateToolCall", () => {
     expect(records[1]?.outcome).toBe("auto-deny");
   });
 
-  test("reset does not mute a later auto-decision with a reused call.id", async () => {
+  test("colliding reused call.id does not inherit allow onto a different tool", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [{ tool: "shell", pattern: "shell" }],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const outer: ToolCall = {
+      id: "codex-proxy",
+      name: "shell",
+      arguments: { command: "echo x | tee src/a.ts" },
+    };
+    const inner: ToolCall = {
+      id: "codex-proxy",
+      name: "run_shell",
+      arguments: { command: "echo x | tee src/a.ts" },
+    };
+    expect((await gate.authorizeCall(outer)).effect).toBe("allow");
+    const { next, wasCalled } = trackingNext();
+    const result = await gateToolCall(gate, inner, new AbortController().signal, next);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
+    expect(wasCalled()).toBe(false);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.outcome).toBe("auto-deny");
+  });
+
+  test("authorizeCall apply_patch then nested posix with reused id each record", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      auto: true,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async () => {
+        throw new Error("requestApproval must not be invoked under reactor gating");
+      },
+    });
+    const outer: ToolCall = {
+      id: "apply-1",
+      name: "apply_patch",
+      arguments: { input: "*** Begin Patch\n*** Add File: src/a.ts\n+x\n*** End Patch\n" },
+    };
+    const first: ToolCall = {
+      id: "codex-proxy",
+      name: "write_file",
+      arguments: { path: "src/a.ts", content: "x" },
+    };
+    const second: ToolCall = {
+      id: "codex-proxy",
+      name: "write_file",
+      arguments: { path: "src/b.ts", content: "y" },
+    };
+    expect((await gate.authorizeCall(outer)).effect).toBe("allow");
+    const { next, wasCalled } = trackingNext();
+    expect((await gateToolCall(gate, first, new AbortController().signal, next)).isError).not.toBe(
+      true,
+    );
+    expect((await gateToolCall(gate, second, new AbortController().signal, next)).isError).not.toBe(
+      true,
+    );
+    expect(wasCalled()).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    const records = readApprovalRecords(dir);
+    expect(records).toHaveLength(3);
+    expect(records.map((r) => r.outcome)).toEqual(["auto-allow", "auto-allow", "auto-allow"]);
+  });
+
+  test("leftover authorizeCall is cleared by reset so a later gateToolCall records", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
     const gate = createPermissionGate({
@@ -333,14 +415,11 @@ describe("gateToolCall", () => {
       arguments: { path: "src/a.ts", content: "x" },
     };
     expect((await gate.authorizeCall(call)).effect).toBe("allow");
-    const firstRun = trackingNext();
-    await gateToolCall(gate, call, new AbortController().signal, firstRun.next);
-    expect(firstRun.wasCalled()).toBe(true);
     gate.reset();
-    expect((await gate.authorizeCall(call)).effect).toBe("allow");
-    const secondRun = trackingNext();
-    await gateToolCall(gate, call, new AbortController().signal, secondRun.next);
-    expect(secondRun.wasCalled()).toBe(true);
+    const { next, wasCalled } = trackingNext();
+    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    expect(result.isError).not.toBe(true);
+    expect(wasCalled()).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(2);
