@@ -7,11 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  createCodexResponsesAdapter,
-  isResponsesStreamTerminal,
-  tagSignature,
-} from "../../src/provider/codex-responses-adapter.js";
+import { createCodexResponsesAdapter } from "../../src/provider/codex-responses.js";
 import type { InferenceEvent, LastCycleSource } from "@intx/types/runtime";
 import { defined } from "../helpers/defined.js";
 import { ProtocolMismatchError } from "@intx/inference";
@@ -101,7 +97,7 @@ describe("codex-sse fixtures (golden parse)", () => {
     expect(out[3]).toMatchObject({
       type: "inference.block.signature",
       data: {
-        signature: tagSignature(SOURCE.provider, "ENC_FIXTURE_BLOB_NOT_REAL"),
+        signature: `${SOURCE.provider}:ENC_FIXTURE_BLOB_NOT_REAL`,
         index: 0,
       },
     });
@@ -146,7 +142,11 @@ describe("codex-sse fixtures (golden parse)", () => {
       loadFixture("interleaved-reasoning-text-tools.json").at(-1),
       "last payload",
     );
-    expect(isResponsesStreamTerminal(JSON.stringify(lastPayload))).toBe(true);
+    expect(
+      createCodexResponsesAdapter(SOURCE).isStreamTerminal?.(
+        JSON.stringify(lastPayload),
+      ),
+    ).toBe(true);
   });
 
   test("incomplete stream emits partial text and is terminal without usage", () => {
@@ -171,7 +171,11 @@ describe("codex-sse fixtures (golden parse)", () => {
       loadFixture("incomplete.json").at(-1),
       "last payload",
     );
-    expect(isResponsesStreamTerminal(JSON.stringify(lastPayload))).toBe(true);
+    expect(
+      createCodexResponsesAdapter(SOURCE).isStreamTerminal?.(
+        JSON.stringify(lastPayload),
+      ),
+    ).toBe(true);
   });
 
   test("failed response throws ProtocolMismatchError after prior deltas", () => {
@@ -204,6 +208,10 @@ describe("codex-sse fixtures (golden parse)", () => {
       "last payload",
     );
     expect((lastPayload as { type: string }).type).toBe("response.done");
-    expect(isResponsesStreamTerminal(JSON.stringify(lastPayload))).toBe(true);
+    expect(
+      createCodexResponsesAdapter(SOURCE).isStreamTerminal?.(
+        JSON.stringify(lastPayload),
+      ),
+    ).toBe(true);
   });
 });

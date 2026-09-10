@@ -41,7 +41,7 @@ import {
   CODEX_RESPONSES_PROVIDER,
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
-} from "../provider/codex-responses-adapter.js";
+} from "../provider/codex-responses.js";
 import {
   GROK_RESPONSES_PROVIDER,
   GROK_SESSION_ID_OPTION,

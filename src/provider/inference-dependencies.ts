@@ -6,7 +6,7 @@ import {
 import { loadAdapterRegistry } from "@intx/inference/providers";
 import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as opencodeGo from "./opencode-go-adapter.js";
-import * as codexResponses from "./codex-responses-adapter.js";
+import * as codexResponses from "./codex-responses.js";
 import * as grokResponses from "./grok-responses.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as openaiResponses from "./openai-responses.js";
@@ -14,7 +14,7 @@ import * as opencodeGoAnthropic from "./opencode-go-anthropic-adapter.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   withCodexContentTypeRepair,
-} from "./codex-responses-adapter.js";
+} from "./codex-responses.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";
@@ -39,7 +39,7 @@ const manifest: AdapterManifest = [
   },
   {
     provider: CODEX_RESPONSES_PROVIDER,
-    specifier: "codex-responses-adapter",
+    specifier: "codex-responses",
     export: "createCodexResponsesAdapter",
   },
   {
@@ -67,7 +67,7 @@ const manifest: AdapterManifest = [
 const localModules: Record<string, unknown> = {
   "openai-compatible-adapter": openaiCompatible,
   "opencode-go-adapter": opencodeGo,
-  "codex-responses-adapter": codexResponses,
+  "codex-responses": codexResponses,
   "grok-responses": grokResponses,
   "bifrost-adapter": bifrostAdapter,
   "openai-responses": openaiResponses,
