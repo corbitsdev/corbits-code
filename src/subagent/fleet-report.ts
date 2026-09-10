@@ -191,12 +191,19 @@ export interface FleetObservation {
   readonly updates: readonly string[];
 }
 
+export interface FleetReportOpts {
+  readonly stallMs?: number;
+  readonly orchestratorContinuing?: boolean;
+}
+
 export function observeFleet(
   previous: FleetWatch,
   lanes: readonly FleetLane[],
   nowMs: number,
-  stallMs: number = DEFAULT_STALL_MS,
+  opts: FleetReportOpts = {},
 ): FleetObservation {
+  const stallMs = opts.stallMs ?? DEFAULT_STALL_MS;
+  const orchestratorContinuing = opts.orchestratorContinuing === true;
   const marks = new Map<string, LaneMark>();
   const changes: Change[] = [];
   let running = 0;
@@ -263,7 +270,7 @@ export function observeFleet(
     return {
       watch,
       updates: [
-        clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS),
+        clip(dryFleetLine(lanes, orchestratorContinuing), MAX_UPDATE_CHARS),
       ],
     };
   }
@@ -348,6 +355,20 @@ function idleSummary(lanes: readonly FleetLane[]): string {
   }).join(", ");
 }
 
+function withOrchestratorContinuing(line: string, continuing: boolean): string {
+  if (!continuing) return line;
+  return line.length === 0
+    ? "orchestrator continuing"
+    : `${line} · orchestrator continuing`;
+}
+
+function dryFleetLine(
+  lanes: readonly FleetLane[],
+  orchestratorContinuing: boolean,
+): string {
+  return withOrchestratorContinuing(idleSummary(lanes), orchestratorContinuing);
+}
+
 /**
  * The answer to "where are we" on demand — the same picture the unprompted
  * lines build up to, in one row, so asking never costs an interrupt.
@@ -355,14 +376,16 @@ function idleSummary(lanes: readonly FleetLane[]): string {
 export function fleetDigest(
   lanes: readonly FleetLane[],
   nowMs: number,
-  stallMs: number = DEFAULT_STALL_MS,
+  opts: FleetReportOpts = {},
 ): string {
-  if (lanes.length === 0) return "nothing running";
+  const stallMs = opts.stallMs ?? DEFAULT_STALL_MS;
+  const orchestratorContinuing = opts.orchestratorContinuing === true;
+  if (lanes.length === 0) {
+    return orchestratorContinuing ? "orchestrator continuing" : "";
+  }
   const running = lanes.filter((l) => l.status === "running");
   const parts: string[] = [];
-  if (running.length === 0) {
-    parts.push("nothing running");
-  } else {
+  if (running.length > 0) {
     const named = running
       .slice(0, DIGEST_NAMED_LANES)
       .map((lane) => {
@@ -379,5 +402,8 @@ export function fleetDigest(
   parts.push(
     ...formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: false }),
   );
-  return parts.join(" · ");
+  const digest = parts.join(" · ");
+  // Live lanes already name themselves; the suffix is only for a dry fleet.
+  if (running.length > 0) return digest;
+  return withOrchestratorContinuing(digest, orchestratorContinuing);
 }

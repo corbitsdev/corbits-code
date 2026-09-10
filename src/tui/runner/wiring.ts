@@ -31,6 +31,7 @@ import {
 import { scheduleUpgradeNotice } from "../../upgrade/index.js";
 import pkg from "../../../package.json" with { type: "json" };
 import { hydrateTasksFromTurns } from "../../agent/director.js";
+import { hasActiveTasks } from "../../agent/tasks.js";
 import { cycleReasoningEffort } from "../../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
@@ -181,6 +182,11 @@ export function wirePostStartup(
       fleetWatch,
       services.subAgentSessions.list(),
       Date.now(),
+      {
+        orchestratorContinuing:
+          sessionBridge.turn.isProcessing ||
+          hasActiveTasks(services.directorHolder.instance?.getTasks() ?? []),
+      },
     );
     fleetWatch = observation.watch;
     for (const update of observation.updates)

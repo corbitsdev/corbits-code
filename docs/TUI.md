@@ -255,8 +255,12 @@ Parent prose owns success narratives. Transcript fleet notices exist only for
 attention live spawn_agent rows cannot keep: a lane **failed** or **cancelled**
 while other work is still running, and **one** dry-fleet line when the last
 lane finishes
-(`N done · nothing running`; failed and cancelled counts appear only
-when non-zero, e.g. `N done, M failed, K cancelled · nothing running`).
+(`N done`; failed and cancelled counts appear only
+when non-zero, e.g. `N done, M failed, K cancelled`).
+When the parent is still in a turn or still has todo/doing work, that
+line appends `orchestrator continuing`. The suffix is omitted when the
+orchestrator is idle, and is not added while specialist lanes are still
+running. An empty fleet with no outcomes does not claim the job closed.
 Per-lane `done — summary` walls and live `dispatched` re-announcements
 are never printed. That dry-fleet line stays operator-facing. If tasks
 are still todo/doing, the runtime re-enters the parent with collected
