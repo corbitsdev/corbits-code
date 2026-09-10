@@ -12,6 +12,7 @@ import {
   formatAgedImageMarker,
   parseAgedImageMarker,
 } from "./attachment-uri.js";
+import { type CompactionArchive } from "./compaction-archive.js";
 
 export interface AgeImageResult {
   turn: ConversationTurn;
@@ -22,8 +23,14 @@ export interface AgeImageResult {
  * Replace base64 image blocks with a rehydratable attachment marker and emit
  * blobs the reactor will write via ContextStore.writeBlob.
  */
+export interface AgeImageOptions {
+  /** When set, record verified attachment blob provenance into the evidence archive. */
+  archive?: CompactionArchive;
+}
+
 export async function ageImageBlocks(
   turn: ConversationTurn,
+  options: AgeImageOptions = {},
 ): Promise<AgeImageResult> {
   if (!turn.content.some((b) => b.type === "image")) {
     return { turn, blobs: [] };
@@ -39,6 +46,18 @@ export async function ageImageBlocks(
     }
     if (block.source.kind !== "base64") {
       // Already a reference or URL — leave as-is (not a base64 resend risk).
+      if (options.archive !== undefined) {
+        await options.archive.recordAuthorizedPayload({
+          kind: "attachment",
+          payload: {
+            status:
+              block.source.kind === "url" ? "unsupported-url" : "reference",
+            sourceKind: block.source.kind,
+          },
+          provenance: "attachment-age:non-base64",
+          gap: block.source.kind === "url",
+        });
+      }
       content.push(block);
       continue;
     }
@@ -53,6 +72,8 @@ export async function ageImageBlocks(
       bytes,
       contentType: block.source.mimeType,
     });
+    // recordExistingBlobReference before persistBlobs marks a false gap.
+    // Callers that already wrote the blob may record after this returns.
     content.push({
       type: "text",
       text: formatAgedImageMarker({ uri, mimeType: block.source.mimeType }),

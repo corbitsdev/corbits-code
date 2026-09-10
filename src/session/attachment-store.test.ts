@@ -119,4 +119,31 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
     expect(defined(result.output[0]).content).toEqual([{ type: "text", text }]);
     expect(result.record.decisions.restoredImageCount).toBe(0);
   });
+
+  test("aging base64 images does not record before persistBlobs", async () => {
+    const recorded: string[] = [];
+    const archive = {
+      recordAuthorizedPayload: async () => {
+        recorded.push("payload");
+        return {} as never;
+      },
+      recordExistingBlobReference: async () => {
+        recorded.push("existing");
+        return {} as never;
+      },
+    };
+    const turn: ConversationTurn = {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
+        },
+      ],
+      timestamp: 1,
+    };
+    const aged = await ageImageBlocks(turn, { archive: archive as never });
+    expect(aged.blobs).toHaveLength(1);
+    expect(recorded).toEqual([]);
+  });
 });

@@ -21,6 +21,12 @@ export interface MCPTool {
   inputSchema: Record<string, unknown>;
   annotations?: McpToolAnnotations;
 }
+export interface MCPContentBlock {
+  type: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
 export interface MCPClient {
   serverName: string;
   tools: MCPTool[];
@@ -29,8 +35,15 @@ export interface MCPClient {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<string>;
+  /** Validated content blocks before flattening — for post-policy archive capture. */
+  callBlocks?(
+    toolName: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<MCPContentBlock[]>;
   close(): Promise<void>;
 }
+
 export type MCPConnectResult =
   | { ok: true; client: MCPClient }
   | { ok: false; serverName: string; error: string };
@@ -67,6 +80,23 @@ export function unwrapToolContent(content: unknown): string {
       return JSON.stringify(block);
     })
     .join("\n");
+}
+
+export function validateMcpContentBlocks(content: unknown): MCPContentBlock[] {
+  if (!Array.isArray(content)) return [];
+  const out: MCPContentBlock[] = [];
+  for (const block of content) {
+    if (block === null || typeof block !== "object") continue;
+    const type = (block as { type?: unknown }).type;
+    if (typeof type !== "string") continue;
+    const copy: MCPContentBlock = { type };
+    for (const [key, value] of Object.entries(block)) {
+      if (key === "type") continue;
+      copy[key] = value;
+    }
+    out.push(copy);
+  }
+  return out;
 }
 
 interface HTTPAuthContext {
@@ -515,6 +545,16 @@ async function finishClient(
   return {
     serverName,
     tools,
+    async callBlocks(toolName, args, signal) {
+      const context =
+        authContext === undefined ? undefined : { ...authContext, signal };
+      const result = await withHTTPAuthorizationRecovery(context, () =>
+        client.callTool({ name: toolName, arguments: args }, undefined, {
+          signal,
+        }),
+      );
+      return validateMcpContentBlocks(result.content);
+    },
     async call(toolName, args, signal) {
       const result = await withHTTPAuthorizationRecovery(
         authContext,
@@ -524,7 +564,7 @@ async function finishClient(
           }),
         signal,
       );
-      return unwrapToolContent(result.content);
+      return unwrapToolContent(validateMcpContentBlocks(result.content));
     },
     async close() {
       closeLifecycle?.();

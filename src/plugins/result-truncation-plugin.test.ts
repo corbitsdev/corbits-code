@@ -19,6 +19,7 @@ import { toolOutputAbsolutePath } from "./tool-result-materialize.js";
 import { CREDENTIAL_REDACTION } from "./tool-result-secret-scrub.js";
 import { toolResultSecretScrubPlugin } from "./tool-result-secret-scrub-plugin.js";
 import type { ToolPlugin } from "@intx/tools-posix";
+import type { CompactionArchive } from "../session/compaction-archive.js";
 
 /** In-memory stand-in for ContextStore's writeBlob/readBlob pair, for tests. */
 function fakeBlobStore() {
@@ -608,6 +609,101 @@ describe("wrapAgentToolsWithResultTruncation", () => {
       await createBlobReader(store).read(uri),
     );
     expect(recovered).toBe(pretty);
+  });
+});
+
+describe("archive then truncate", () => {
+  test("archives oversized results before truncating them", async () => {
+    const payloads: unknown[] = [];
+    const blobs: unknown[] = [];
+    const archive = {
+      recordAuthorizedPayload: async (input: unknown) => {
+        payloads.push(input);
+        return {
+          occurrenceId: "occ-1",
+          sessionId: "s",
+          kind: "tool_result",
+          contentHash: "h",
+          blobKey: "b",
+          recordedAt: 1,
+        };
+      },
+      recordExistingBlobReference: async (input: unknown) => {
+        blobs.push(input);
+        return {
+          occurrenceId: "occ-blob",
+          sessionId: "s",
+          kind: "overflow_blob",
+          contentHash: "h",
+          blobKey: "b",
+          recordedAt: 1,
+        };
+      },
+    } as unknown as CompactionArchive;
+    const oversized = "x".repeat(MAX_RESULT_CHARS + 50);
+    const plugin = resultTruncationPlugin({
+      getEvidenceArchive: () => archive,
+    });
+    if (plugin.middleware === undefined) throw new Error("expected middleware");
+    const middleware = plugin.middleware(async (call) => ({
+      callId: call.id,
+      content: oversized,
+    }));
+    const result = await middleware(
+      { id: "call-ld", name: "list_dir", arguments: { path: "." } },
+      new AbortController().signal,
+    );
+    expect(String(result.content)).not.toBe(oversized);
+    expect(String(result.content).length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+    expect(payloads).toEqual([
+      {
+        kind: "tool_result",
+        payload: oversized,
+        callId: "call-ld",
+        provenance: "posix:post-policy-pre-truncation",
+      },
+    ]);
+    expect(blobs).toHaveLength(1);
+  });
+
+  test("archives error results without truncating them", async () => {
+    const payloads: unknown[] = [];
+    const archive = {
+      recordAuthorizedPayload: async (input: unknown) => {
+        payloads.push(input);
+        return {
+          occurrenceId: "occ-err",
+          sessionId: "s",
+          kind: "tool_result",
+          contentHash: "h",
+          blobKey: "b",
+          recordedAt: 1,
+        };
+      },
+    } as unknown as CompactionArchive;
+    const plugin = resultTruncationPlugin({
+      getEvidenceArchive: () => archive,
+    });
+    if (plugin.middleware === undefined) throw new Error("expected middleware");
+    const middleware = plugin.middleware(async (call) => ({
+      callId: call.id,
+      content: { error: "conflict" },
+      isError: true,
+    }));
+    const result = await middleware(
+      { id: "call-wf", name: "write_file", arguments: { path: "a.ts" } },
+      new AbortController().signal,
+    );
+    expect(result.content).toEqual({ error: "conflict" });
+    expect(result.isError).toBe(true);
+    expect(payloads).toEqual([
+      {
+        kind: "tool_result",
+        payload: { error: "conflict" },
+        callId: "call-wf",
+        provenance: "posix:error",
+      },
+    ]);
   });
 });
 

@@ -234,17 +234,17 @@ export interface CompactorConfig {
 // an independent literal that can silently drift out of sync.
 export const COMPACTOR_KEEP_RECENT_TURNS = 6;
 
-// Marker on every folded-history user turn. Subsequent compact cycles treat a
-// leading run of these (plus the assistant spacers between them) as a frozen
-// prefix whose object identity and bytes must not change — rewriting the head
-// would invalidate the entire prompt-cache KV for that prefix.
+// Marker on every folded-history user turn. Later compact cycles fold these
+// (and any leftover assistant spacers from older builds) into one new handoff
+// rather than accumulating a frozen prefix of prior summaries.
 export const COMPACTED_PREFIX = "[Compacted prior context]";
 
-// Inserted between a frozen prefix that ends on a user summary and a newly
-// appended user summary so the assembled history stays role-alternating.
-// Visible, non-format (not Unicode Cf) sentinel so Chat Completions adapters
-// keep a non-empty assistant turn. Identity is the reserved producer id on
-// `compactSpacerTurn`, not this text and not a missing `model` field.
+// Inserted between adjacent user turns so assembled history stays
+// role-alternating. Visible, non-format (not Unicode Cf) sentinel so Chat
+// Completions adapters keep a non-empty assistant turn. Identity is the
+// reserved producer id on `compactSpacerTurn`, not this text and not a
+// missing `model` field. Later cycles fold it with the previous handoff
+// instead of stacking a frozen prefix.
 export const COMPACT_SPACER_TEXT = "[compact]";
 export const LEGACY_COMPACT_SPACER_TEXT = "[compaction]";
 export const HARNESS_COMPACT_SPACER_MODEL = "harness";
@@ -634,8 +634,15 @@ function addPairClosure(
 // it was asked to do, even when it falls far outside the recent window.
 function firstUserTurnIndex(turns: ConversationTurn[]): number {
   return turns.findIndex(
-    (t) => t.role === "user" && t.content.some((b) => b.type === "text"),
+    (t) =>
+      t.role === "user" &&
+      !isCompactedSummaryTurn(t) &&
+      t.content.some((b) => b.type === "text"),
   );
+}
+
+function isFoldableHandoffTurn(turn: ConversationTurn): boolean {
+  return isCompactedSummaryTurn(turn) || isCompactSpacerTurn(turn);
 }
 
 function resultContentSize(
@@ -773,7 +780,11 @@ function coalesceAdjacentTextTurns(
     if (
       prev !== undefined &&
       prev.role === turn.role &&
-      isPlainTextTurn(turn)
+      isPlainTextTurn(turn) &&
+      !isCompactedSummaryTurn(prev) &&
+      !isCompactedSummaryTurn(turn) &&
+      !isCompactSpacerTurn(prev) &&
+      !isCompactSpacerTurn(turn)
     ) {
       out[out.length - 1] = {
         ...prev,
@@ -782,6 +793,20 @@ function coalesceAdjacentTextTurns(
     } else {
       out.push(turn);
     }
+  }
+  return out;
+}
+
+function separateAdjacentUserTurns(
+  turns: ConversationTurn[],
+): ConversationTurn[] {
+  const out: ConversationTurn[] = [];
+  for (const turn of turns) {
+    const prev = out[out.length - 1];
+    if (prev !== undefined && prev.role === "user" && turn.role === "user") {
+      out.push(compactSpacerTurn(turn.timestamp));
+    }
+    out.push(turn);
   }
   return out;
 }
@@ -834,20 +859,8 @@ export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
   return turn.model === undefined && text === LEGACY_COMPACT_SPACER_TEXT;
 }
 
-// Leading run of prior summaries plus the spacers between them. Walks from
-// index 0: a compacted user turn, then an immediately following assistant
-// spacer when present, then repeat. The newest summary has no trailing spacer
-// until the next compact inserts one.
-function frozenPrefixLength(turns: readonly ConversationTurn[]): number {
-  let i = 0;
-  while (i < turns.length) {
-    const turn = turns[i];
-    if (turn === undefined || !isCompactedSummaryTurn(turn)) break;
-    i++;
-    const spacer = turns[i];
-    if (spacer !== undefined && isHarnessCompactSpacer(spacer)) i++;
-  }
-  return i;
+function isCompactSpacerTurn(turn: ConversationTurn): boolean {
+  return isHarnessCompactSpacer(turn);
 }
 
 function compactSpacerTurn(timestamp: number): ConversationTurn {
@@ -866,32 +879,25 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.4.1",
+    version: "1.5.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
     ): Promise<StrategyResult<ConversationTurn[]>> {
-      // Frozen prefix: prior compacted summaries (and spacers) keep their
-      // object references. Image aging, stubbing, and coalescing run only on
-      // the live suffix so the prompt-cache KV for the prefix stays valid.
-      // When there is no prefix, pass `turns` through (not slice(0)) so a
-      // no-op still returns the same array identity.
-      const frozenLen = frozenPrefixLength(turns);
-      const frozen = frozenLen === 0 ? [] : turns.slice(0, frozenLen);
-      const live = frozenLen === 0 ? turns : turns.slice(frozenLen);
+      // Prior compacted summaries are folded into the next handoff, not frozen.
+      // Image aging still skips the recent window so a just-pasted screenshot
+      // stays live.
 
       // Eager image aging runs before the compact/no-op branch so base64 pastes
       // leave the inference-facing context as soon as they exit the recent window.
       const aged = await ageImagesOutsideRecentWindow(
-        live,
+        turns,
         cfg.keepRecentTurns,
       );
 
       if (aged.turns.length <= compactorNoOpFloor(cfg.keepRecentTurns)) {
-        const output =
-          frozenLen === 0 ? aged.turns : [...frozen, ...aged.turns];
         return {
-          output,
+          output: aged.turns,
           record: {
             strategy: this.name,
             version: this.version,
@@ -953,6 +959,9 @@ export function createPruningCompactor(
       for (let i = scoredOlder.length - 1; i >= 0; i--) {
         const candidate = scoredOlder[i];
         if (candidate === undefined) continue;
+        const candidateTurn = olderTurns[candidate.index];
+        if (candidateTurn !== undefined && isFoldableHandoffTurn(candidateTurn))
+          continue;
         if (
           candidate.score < ANCHOR_SCORE_THRESHOLD ||
           anchorIndices.has(candidate.index)
@@ -971,10 +980,17 @@ export function createPruningCompactor(
 
       // Always keep the initiating task verbatim, outside the maxAnchorTurns
       // cap. Losing the oldest user turn is how the agent forgets what it was
-      // asked to do; correctness outranks the size target here.
+      // asked to do; correctness outranks the size target here. Prior compacted
+      // summaries are not the initiating task — they get folded.
       const initiatingIdx = firstUserTurnIndex(olderTurns);
       if (initiatingIdx >= 0)
         addPairClosure(initiatingIdx, partnerIndex, keepFrom, anchorIndices);
+
+      for (const idx of [...anchorIndices]) {
+        const turn = olderTurns[idx];
+        if (turn !== undefined && isFoldableHandoffTurn(turn))
+          anchorIndices.delete(idx);
+      }
 
       // Ascending original order keeps the concatenated [anchors, recent]
       // sequence globally index-ordered, so every result still follows its call.
@@ -987,9 +1003,8 @@ export function createPruningCompactor(
         (_, i) => !anchorIndices.has(i),
       );
 
-      // Keep-set covered the whole live suffix: nothing to fold. Leave the
-      // input (including any frozen prefix) untouched rather than rewriting
-      // the head with an empty summary.
+      // Keep-set covered everything foldable: nothing to replace. Leave the
+      // input untouched rather than rewriting the head with an empty summary.
       if (summarizedTurns.length === 0) {
         return {
           output: turns,
@@ -1015,14 +1030,46 @@ export function createPruningCompactor(
       );
       const supersededReads = supersededReadCallIds(pathToReads);
 
-      const summary =
-        cfg.summarize !== undefined
-          ? await cfg.summarize(summarizedTurns, cfg.summaryContext?.())
-          : buildTurnSummary(
-              summarizedTurns,
-              cfg.summaryMaxChars,
-              anchorTurns.length,
-            );
+      let summary: string;
+      try {
+        summary =
+          cfg.summarize !== undefined
+            ? await cfg.summarize(summarizedTurns, cfg.summaryContext?.())
+            : buildTurnSummary(
+                summarizedTurns,
+                cfg.summaryMaxChars,
+                anchorTurns.length,
+              );
+      } catch {
+        return {
+          output: turns,
+          record: {
+            strategy: this.name,
+            version: this.version,
+            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            reason: "summarize failed",
+            decisions: {
+              summarizeFailed: 1,
+              agedImageCount: aged.agedImageCount,
+            },
+          },
+        };
+      }
+      if (summary.trim().length === 0) {
+        return {
+          output: turns,
+          record: {
+            strategy: this.name,
+            version: this.version,
+            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            reason: "summarize failed",
+            decisions: {
+              summarizeFailed: 1,
+              agedImageCount: aged.agedImageCount,
+            },
+          },
+        };
+      }
 
       // A user-role turn survives every adapter unchanged. A system-role turn
       // does not: the Anthropic builder drops mid-conversation system turns
@@ -1043,34 +1090,16 @@ export function createPruningCompactor(
       // turns keep live base64 so a just-pasted screenshot still reaches the model.
       const process = (t: ConversationTurn): ConversationTurn =>
         stubSupersededReads(t, supersededReads, callIndex);
-      const liveOutput = coalesceAdjacentTextTurns([
-        summaryTurn,
-        ...anchorTurns.map(process),
-        ...recentTurns.map(process),
-      ]);
-
-      // First compact (no frozen prefix): today's shape — summary leads.
-      // Later cycles append an additional summary after the frozen prefix
-      // and never splice into output[0].
-      let output: ConversationTurn[];
-      if (frozenLen === 0) {
-        output = liveOutput;
-      } else {
-        const lastFrozen = frozen[frozen.length - 1];
-        if (lastFrozen === undefined) {
-          output = liveOutput;
-        } else {
-          const firstLive = liveOutput[0];
-          const spacer =
-            lastFrozen.role === "user" && firstLive?.role === "user"
-              ? [compactSpacerTurn(summaryTurn.timestamp)]
-              : [];
-          output = [...frozen, ...spacer, ...liveOutput];
-        }
-      }
+      const liveOutput = separateAdjacentUserTurns(
+        coalesceAdjacentTextTurns([
+          summaryTurn,
+          ...anchorTurns.map(process),
+          ...recentTurns.map(process),
+        ]),
+      );
 
       return {
-        output,
+        output: liveOutput,
         record: {
           strategy: this.name,
           version: this.version,

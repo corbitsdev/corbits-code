@@ -2,18 +2,43 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { PermissionGate } from "../permission/gate.js";
 import { gateAgentTools } from "../plugins/permission-plugin.js";
-import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
+import {
+  scrubSecretShapedContent,
+  scrubSecretShapedValue,
+} from "../plugins/tool-result-secret-scrub.js";
 import {
   truncateToolResultContent,
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
-import type { MCPClient } from "./client.js";
+import type { CompactionArchive } from "../session/compaction-archive.js";
+import type { MCPClient, MCPContentBlock } from "./client.js";
 import { mcpToolName } from "./tool-name.js";
+import { unwrapToolContent } from "./client.js";
 
 export interface McpSpillOptions {
   getBlobWriter?: () => SpillBlobWriter | undefined;
   getContextDir?: () => string | undefined;
   excludeToolNames?: readonly string[];
+  /** Primary-only evidence archive; workers omit this getter. */
+  getEvidenceArchive?: () => CompactionArchive | undefined;
+}
+
+function applyPolicyToBlocks(blocks: MCPContentBlock[]): MCPContentBlock[] {
+  return blocks.map((block) => {
+    const next = { ...block };
+    if (typeof next.text === "string") {
+      next.text = scrubSecretShapedContent(next.text);
+    }
+    for (const [key, value] of Object.entries(next)) {
+      if (key === "type" || key === "text") continue;
+      if (typeof value === "string") {
+        next[key] = scrubSecretShapedContent(value);
+      } else if (value !== null && typeof value === "object") {
+        next[key] = scrubSecretShapedValue(value);
+      }
+    }
+    return next;
+  });
 }
 
 // MCP results never reach the posix runner, so the secret-scrub and truncation
@@ -35,7 +60,12 @@ export function mcpClientTools(
   client: MCPClient,
   spillOptions: McpSpillOptions = {},
 ): AgentTool[] {
-  const { getBlobWriter, getContextDir, excludeToolNames = [] } = spillOptions;
+  const {
+    getBlobWriter,
+    getContextDir,
+    excludeToolNames = [],
+    getEvidenceArchive,
+  } = spillOptions;
   const excluded = new Set(excludeToolNames);
 
   return client.tools
@@ -52,7 +82,30 @@ export function mcpClientTools(
         signal: AbortSignal,
       ): Promise<ToolResult> => {
         try {
-          const content = await client.call(tool.name, call.arguments, signal);
+          const rawBlocks =
+            typeof client.callBlocks === "function"
+              ? await client.callBlocks(tool.name, call.arguments, signal)
+              : [
+                  {
+                    type: "text",
+                    text: await client.call(tool.name, call.arguments, signal),
+                  } satisfies MCPContentBlock,
+                ];
+          const authorizedBlocks = applyPolicyToBlocks(rawBlocks);
+          const archive = getEvidenceArchive?.();
+          if (archive !== undefined) {
+            try {
+              await archive.recordAuthorizedPayload({
+                kind: "tool_result",
+                payload: { blocks: authorizedBlocks },
+                callId: call.id,
+                provenance: "mcp:post-policy-pre-flatten",
+              });
+            } catch {
+              // Archive write must not fail a successful tool result.
+            }
+          }
+          const flattened = unwrapToolContent(authorizedBlocks);
           const writeBlob = getBlobWriter?.();
           const contextDir = getContextDir?.();
           const spill =
@@ -63,14 +116,27 @@ export function mcpClientTools(
                   ...(contextDir !== undefined ? { contextDir } : {}),
                 }
               : undefined;
-          return {
-            callId: call.id,
-            content: await sanitizeMcpResultContent(content, spill),
-          };
+          const content = await sanitizeMcpResultContent(flattened, spill);
+          return { callId: call.id, content };
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const scrubbed = scrubSecretShapedContent(message);
+          const archive = getEvidenceArchive?.();
+          if (archive !== undefined) {
+            try {
+              await archive.recordAuthorizedPayload({
+                kind: "tool_result",
+                payload: scrubbed,
+                callId: call.id,
+                provenance: "mcp:error",
+              });
+            } catch {
+              // Archive write must not fail a successful tool result.
+            }
+          }
           return {
             callId: call.id,
-            content: err instanceof Error ? err.message : String(err),
+            content: scrubbed,
             isError: true,
           };
         }

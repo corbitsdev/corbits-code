@@ -79,7 +79,10 @@ src/
     index.ts              Session lifecycle
     state.ts              RunState JSON save/load
     compactor.ts          Context compactor
-    summarizer.ts         Model-backed structured compaction summary (+ deterministic fallback)
+    summarizer.ts         Model-backed structured compaction summary (fails closed)
+    summary-excerpt.ts    Token-budgeted archive excerpt for the summary call
+    compaction-archive.ts Primary-only authorized evidence archive (post-policy capture)
+    compaction-archive-schema.ts Archive occurrence / completeness certificate schemas
     run-sink.ts           Run-level event sink
     stream-consumer.ts    Async stream consumer with error handling
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
@@ -114,6 +117,8 @@ src/
     data-only-agent.ts         Markdown-only agent plugins (agents/*.md)
     loader.ts                  Plugin discovery + loadPluginEntry
     path-escape-plugin.ts      Path sandboxing (first)
+    evidence-archive-search-plugin.ts  archive:/// search/read via posix tools
+    evidence-archive-path-guard.ts     Block dump-path reads of the archive sidecar
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
     secret-guard-plugin.ts     Hard-deny path-keyed secret files
     authz-plugin.ts            Catastrophic command blocking (thin wrapper)

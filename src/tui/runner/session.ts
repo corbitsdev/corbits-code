@@ -59,6 +59,7 @@ import {
   resolveLiveSessionSources,
   type LiveSessionSources,
 } from "../../session/assemble-runtime.js";
+import type { CompactionArchive } from "../../session/compaction-archive.js";
 import { createApprovalResume } from "../../session/approval-resume.js";
 import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
@@ -302,6 +303,7 @@ export async function assembleTUISession(
   // submit_output's handler complete the live workflow without a
   // construction-order cycle.
   const workflowHostHolder: { instance?: WorkflowHost } = {};
+  const evidenceArchiveHolder: { current?: CompactionArchive } = {};
 
   const toolsetHolder: {
     current?: Awaited<ReturnType<typeof createAgentToolset>>;
@@ -331,6 +333,7 @@ export async function assembleTUISession(
         liveAgent(state).deliver(buildShellBackgroundMessage(exit)),
       );
     },
+    getEvidenceArchive: () => evidenceArchiveHolder.current,
     isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
     completeWorkflowStep: (stepId) =>
       workflowHostHolder.instance?.complete(stepId) ?? "not-current",
@@ -499,13 +502,14 @@ export async function assembleTUISession(
   const buildSessionSources = (): LiveSessionSources =>
     resolveLiveSessionSources(state.config, state.sessionId);
 
-  // Compaction summarizer: produces a structured, workflow-aware handoff via a
-  // one-shot call on the live model, falling back to the deterministic summary
-  // on any failure. Workflow state is read at compaction time so a pass
-  // mid-/build or mid-/plan still names the active step.
+  // Compaction summarizer: structured handoff via the live model. Failure
+  // keeps prior context rather than substituting a stats stub. Workflow state
+  // is read at compaction time so a pass mid-/build or mid-/plan still names
+  // the active step. The archive, when mounted, supplies the unclipped excerpt.
   const compactionSummarize = createModelSummarizer({
     getSource: () => state.liveSource,
     deps: start.inferenceDeps,
+    getArchive: () => evidenceArchiveHolder.current,
   });
   const summaryContext = (): SummaryContext | undefined => {
     const status = workflowHost.status();
@@ -557,7 +561,6 @@ export async function assembleTUISession(
         : state.liveSource.id,
     getCompactor: () =>
       createSessionPruningCompactor({
-        compactionMode: state.liveCompactionMode,
         summarize: compactionSummarize,
         summaryContext,
         telemetry: liveTelemetry,
@@ -568,6 +571,7 @@ export async function assembleTUISession(
       state.currentAgent = agent;
       state.currentStorage = storage;
     },
+    evidenceArchiveHolder,
   });
 
   const sessionCost = createSessionCostAccumulator({

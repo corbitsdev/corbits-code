@@ -1,0 +1,89 @@
+{
+  "protocol": "primary-component-mechanics-v1",
+  "productRevision": "6ea596945657f3a0d3af5bfb0277b94af19e1589",
+  "packageVersion": "0.3.18",
+  "capturedEvaluatorBlob": "80a627549e0e009ca7c3079e26875baf3407e8e9",
+  "correctedEvaluatorVerification": {
+    "evaluatorBlob": "abed36b077cb16e30bc5015852144bb6bb7fb5b2",
+    "fixtureBlob": "67f1fdfb45272464efc62111c1c7525ed067264b",
+    "graderBlob": "3cc4efadb5dad1f8078b6db412287b0ab5c25e8f",
+    "integrationHarnessBlob": "4567ac03433b70f1eed4f3238e2a3b5e1f5b4557",
+    "command": "bun test ./evals/compaction/metrics.test.ts ./tests/integration/compaction-baseline.test.ts",
+    "exitCode": 0,
+    "testsPassed": 9,
+    "assertions": 47,
+    "nonzeroShellFailures": 2,
+    "repeatedFailedAttempts": 1,
+    "reorderedFactsRecovered": 4,
+    "persistedFolds": 3,
+    "baselineFactsRecoveredPerFold": 1,
+    "baselineFactsRequiredPerFold": 4
+  },
+  "runtime": "Bun 1.3.14, Darwin arm64",
+  "command": "bun test ./evals/compaction/metrics.test.ts ./tests/integration/compaction-baseline.test.ts",
+  "exitCode": 0,
+  "testsPassed": 7,
+  "assertions": 44,
+  "tasks": 1,
+  "qualifyingTasks": 1,
+  "factualRecoveryPassingTasks": 0,
+  "summaryCalls": 3,
+  "observations": [
+    {
+      "phase": 1,
+      "requestedAtCall": 19,
+      "beforeHash": "170564b660064d472e8121409ba41d095ac6915fc6b080a5b797029d2f3d10e5",
+      "afterHash": "979a1500b99d349d1143893300edef44b20634767297d56452c440fb2e18a2b8",
+      "beforeTurns": 36,
+      "afterTurns": 8,
+      "persisted": true,
+      "continuedAtCall": 20,
+      "recoveredFacts": 1,
+      "requiredFacts": 4,
+      "phaseLatencyMs": 756.6435419999998
+    },
+    {
+      "phase": 2,
+      "requestedAtCall": 31,
+      "beforeHash": "383434fd4f35c0e53af927583aeaf78ab1709522bdf6671acb11d606890d4032",
+      "afterHash": "7dbcb29c38bcc5fbde6d2a9b1bf5b52fd00a7142e3c617ed47e537cc81f8c9b2",
+      "beforeTurns": 28,
+      "afterTurns": 10,
+      "persisted": true,
+      "continuedAtCall": 32,
+      "recoveredFacts": 1,
+      "requiredFacts": 4,
+      "phaseLatencyMs": 796.1481249999997
+    },
+    {
+      "phase": 3,
+      "requestedAtCall": 43,
+      "beforeHash": "74700ca0f7c7b25a284056dbbabdaa05c6bac81db891869f0e966715314101de",
+      "afterHash": "3d5f17659443cf6143679d293db553f6be691cb74d7aed6b8693e959e87a1775",
+      "beforeTurns": 30,
+      "afterTurns": 12,
+      "persisted": true,
+      "continuedAtCall": 44,
+      "recoveredFacts": 1,
+      "requiredFacts": 4,
+      "phaseLatencyMs": 800.9756669999988
+    }
+  ],
+  "observedWork": {
+    "toolCalls": 6,
+    "repeatedReads": 0,
+    "repeatedSearches": 0,
+    "repeatedFailedAttempts": 0,
+    "duplicatedEdits": 0,
+    "verificationCalls": 3
+  },
+  "positiveTestDurationMs": 12123.87,
+  "unavailable": {
+    "primaryTokens": "Offline wire usage is synthetic stimulus, not measured usage.",
+    "summarizerTokens": "Offline completion has no tokenizer or provider accounting.",
+    "cacheReadsAndWrites": "No provider cache is exercised.",
+    "cost": "No paid inference or applicable pricing measurement.",
+    "compactionOnlyLatency": "Phase latency includes tool, fold, persistence, continuation, and reply.",
+    "liveTaskCompletion": "This fixture characterizes components, not a real model task."
+  }
+}

@@ -263,11 +263,24 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "look up skill descriptions by capability (catalog — call directly, do not tool_search for this)",
 };
 
+const ARCHIVE_TOOL_SUMMARIES: Partial<Record<string, string>> = {
+  read_file:
+    "read a file, tool-output:///{callId} from a prior tool result, or archive:///{occurrenceId} (prefer over cat/head/tail in the shell). Only read_file a tool-output:// URI if the truncation notice named one",
+  search_files:
+    "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find); path archive:/// lists evidence-archive refs",
+  grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg); path archive:/// searches this session's evidence archive",
+};
+
 export function buildAvailableTools(
   tools: readonly string[] = CORE_TOOL_NAMES,
+  opts: { advertiseArchive?: boolean } = {},
 ): string {
+  const summaries =
+    opts.advertiseArchive === true
+      ? { ...TOOL_SUMMARIES, ...ARCHIVE_TOOL_SUMMARIES }
+      : TOOL_SUMMARIES;
   const lines = tools.map(
-    (tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`,
+    (tool) => `- ${tool}: ${summaries[tool] ?? "available"}`,
   );
   return ["Tools:", ...lines].join("\n");
 }
@@ -365,6 +378,7 @@ export function buildChatSystemPrompt(
     baseSection(baseOverride, sessionMode),
     buildAvailableTools(
       coreToolNamesForSessionMode(sessionMode, toolAvailability),
+      { advertiseArchive: true },
     ),
   ];
   if (skills.length > 0) sections.push(buildSkillsSection(skills));

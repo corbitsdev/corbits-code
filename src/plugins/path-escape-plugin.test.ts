@@ -193,6 +193,22 @@ describe("pathEscapePlugin", () => {
     expect(args.path).toBe("/other-repo/README.md");
   });
 
+  test("passes archive:/// refs through without resolving them as filesystem paths", async () => {
+    const plugin = pathEscapePlugin("/project");
+    const next = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: JSON.stringify(call.arguments),
+    });
+    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const result = await handler(
+      makeCall("read_file", { path: "archive:///occ-abc" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).not.toBe(true);
+    const args = JSON.parse(String(result.content)) as { path: string };
+    expect(args.path).toBe("archive:///occ-abc");
+  });
+
   describe("symlink TOCTOU (CL-6712)", () => {
     let cwd = "";
 

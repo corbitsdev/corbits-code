@@ -407,6 +407,8 @@ export function createReactor(config: ReactorConfig): Reactor {
   let cycleInferred = false;
   let cycleToolCallsExecuted = 0;
   let cycleCompactorName: string | null = null;
+  // Compacted turns stay off reactor memory until the cycle commit publishes.
+  let pendingCompactOutput: ConversationTurn[] | null = null;
   // A suspension registers a gate and may persist a pending operation. That is
   // a durable state change even when the cycle ran no inference and completed
   // no tool call, so it must force the cycle commit.
@@ -1009,10 +1011,10 @@ export function createReactor(config: ReactorConfig): Reactor {
     };
     const result = await compactor.apply(stateManager.getTurns(), ctx);
 
-    stateManager.replaceTurns(result.output);
-    await contextStore.writeTurns(result.output);
-    lastWrittenTurnsRevision = stateManager.getTurnsRevision();
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-compact-publish-then-memory
     await persistBlobs(result.blobs);
+    await contextStore.writeTurns(result.output);
+    pendingCompactOutput = result.output;
     manifestBuffer.push(result.record);
     cycleCompactorName = compactor.name;
 
@@ -1075,7 +1077,9 @@ export function createReactor(config: ReactorConfig): Reactor {
     try {
       // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-unchanged-history
       const currentRevision = stateManager.getTurnsRevision();
-      if (currentRevision !== lastWrittenTurnsRevision) {
+      // A staged compact already wrote the new generation. Do not writeTurns
+      // live memory over that staging — memory still holds the old turns.
+      if (pendingCompactOutput === null && currentRevision !== lastWrittenTurnsRevision) {
         await contextStore.writeTurns(stateManager.getTurns());
         lastWrittenTurnsRevision = currentRevision;
       }
@@ -1083,12 +1087,20 @@ export function createReactor(config: ReactorConfig): Reactor {
       await writeMetadata();
       const commit = await contextStore.commit({ message });
       lastCheckpointHash = commit.hash;
+      if (pendingCompactOutput !== null) {
+        stateManager.replaceTurns(pendingCompactOutput);
+        lastWrittenTurnsRevision = stateManager.getTurnsRevision();
+        pendingCompactOutput = null;
+      }
     } catch (cause) {
       logger.error`Cycle commit failed: ${cause}`;
       emitError(
         `Cycle commit failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         false,
       );
+      // A staged compact must not leak into a later infer/tools cycle: skip-write
+      // plus replaceTurns would publish stale compact output over live memory.
+      pendingCompactOutput = null;
       resetCycleAccumulators();
       return;
     }

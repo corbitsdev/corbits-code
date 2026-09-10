@@ -52,6 +52,9 @@ export const ACTIVITY_STATES = [
   "creating",
   "imagining",
   "inventing",
+  "planning",
+  "researching",
+  "building",
   "waiting",
   "stalled",
   "stopping",
@@ -72,6 +75,36 @@ export const LIVE_ACTIVITY_WORDS = [
   "imagining",
   "inventing",
 ] as const;
+
+/**
+ * Execution → activity-state mapping, kept in this one place with an
+ * explicit fallback so a newly added tool (built-in, MCP, or plugin) renders
+ * a generic "working" state instead of leaking its identifier — no ticker
+ * change is required to add a tool correctly.
+ */
+const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
+  read_file: "researching",
+  search_files: "researching",
+  grep: "researching",
+  list_dir: "researching",
+  web_search: "researching",
+  web_fetch: "researching",
+  write_file: "building",
+  edit_file: "building",
+  run_shell: "building",
+  delete_file: "building",
+  manage_tasks: "planning",
+  task: "planning",
+  tool_search: "researching",
+  search_agents: "researching",
+  ask_operator: "waiting",
+  submit_output: "working",
+};
+
+function activityStateForTool(name: string | null): ActivityState {
+  if (name === null) return "working";
+  return TOOL_ACTIVITY_STATES[name] ?? "working";
+}
 
 /** How long each live-activity word holds before the next. */
 export const LIVE_WORD_MS = 4_000;
@@ -122,6 +155,7 @@ export function resolveTurnLabel(
   }
   if (!occupied) return undefined;
   void isStalled;
+  void activityStateForTool(input.currentToolName);
   return liveActivityWord(input.nowMs ?? 0);
 }
 

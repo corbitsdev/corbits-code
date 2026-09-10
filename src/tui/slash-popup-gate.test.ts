@@ -140,12 +140,10 @@ function settingsOnCommand(
       notify: () => undefined,
       settings: {
         read: () => ({
-          compactionMode: "llm",
           waitForApproval: true,
           telemetryEnabled: false,
           showPromptCost: false,
         }),
-        setCompactionMode: () => undefined,
         setWaitForApproval: () => undefined,
         setTelemetryEnabled: () => undefined,
         setShowPromptCost: () => undefined,
@@ -544,12 +542,10 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
             notify: () => undefined,
             settings: {
               read: () => ({
-                compactionMode: "llm",
                 waitForApproval: true,
                 telemetryEnabled: false,
                 showPromptCost: false,
               }),
-              setCompactionMode: () => undefined,
               setWaitForApproval: () => undefined,
               setTelemetryEnabled: () => undefined,
               setShowPromptCost: () => undefined,
@@ -621,12 +617,10 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
             notify: () => undefined,
             settings: {
               read: () => ({
-                compactionMode: "llm",
                 waitForApproval: true,
                 telemetryEnabled: false,
                 showPromptCost: false,
               }),
-              setCompactionMode: () => undefined,
               setWaitForApproval: () => undefined,
               setTelemetryEnabled: () => undefined,
               setShowPromptCost: () => undefined,
@@ -808,12 +802,10 @@ describe("overlay host occupancy and opt-in deferral", () => {
           notify: () => undefined,
           settings: {
             read: () => ({
-              compactionMode: "llm",
               waitForApproval: true,
               telemetryEnabled: false,
               showPromptCost: false,
             }),
-            setCompactionMode: () => undefined,
             setWaitForApproval: () => undefined,
             setTelemetryEnabled: () => undefined,
             setShowPromptCost: () => undefined,
@@ -967,12 +959,10 @@ describe("overlay host occupancy and opt-in deferral", () => {
             notify: () => undefined,
             settings: {
               read: () => ({
-                compactionMode: "llm",
                 waitForApproval: true,
                 telemetryEnabled: false,
                 showPromptCost: false,
               }),
-              setCompactionMode: () => undefined,
               setWaitForApproval: () => undefined,
               setTelemetryEnabled: () => undefined,
               setShowPromptCost: () => undefined,

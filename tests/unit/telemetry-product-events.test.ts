@@ -630,7 +630,6 @@ test("auth_failure names the provider and never ships the rejection message", as
 test("compaction fires only when turns were actually folded away", async () => {
   const { telemetry, events } = harness();
   const compactor = createSessionPruningCompactor({
-    compactionMode: "pruning",
     summarize: async () => "summary",
     telemetry,
   });
@@ -655,7 +654,7 @@ test("compaction fires only when turns were actually folded away", async () => {
   const captured = await events();
   expect(captured.length).toBe(1);
   expect(captured[0]?.event).toBe("compaction");
-  expect(captured[0]?.properties.mode).toBe("pruning");
+  expect(captured[0]?.properties.mode).toBe("llm");
   expect(captured[0]?.properties.turns_before).toBe(60);
 });
 

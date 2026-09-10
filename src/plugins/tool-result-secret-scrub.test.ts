@@ -1,8 +1,8 @@
-import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import {
   CREDENTIAL_REDACTION,
   scrubSecretShapedContent,
+  scrubSecretShapedValue,
 } from "./tool-result-secret-scrub.js";
 import { toolResultSecretScrubPlugin } from "./tool-result-secret-scrub-plugin.js";
 import { resultTruncationPlugin } from "./result-truncation-plugin.js";
@@ -10,16 +10,16 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 describe("scrubSecretShapedContent", () => {
   test("redacts grep-surfaced .env assignment", () => {
-    const text = "./app/.env:3:API_KEY=sk-live-abc123xyz789012345678";
+    const text = "./app/.env:3:API_KEY=sk-live-abc123";
     const out = scrubSecretShapedContent(text);
     expect(out).toContain(`API_KEY=${CREDENTIAL_REDACTION}`);
     expect(out).not.toContain("sk-live-abc123");
   });
 
   test("redacts PEM block in shell output", () => {
-    const pem = `-----BEGIN RSA PRIVATE KEY-----
+    const pem = `-----BEGIN PRIVATE KEY-----
 MIIEpAIBAAKCAQEA7
------END RSA PRIVATE KEY-----`;
+-----END PRIVATE KEY-----`;
     const text = `wrote key:\n${pem}\n`;
     const out = scrubSecretShapedContent(text);
     expect(out).toBe(`wrote key:\n${CREDENTIAL_REDACTION}\n`);
@@ -28,7 +28,7 @@ MIIEpAIBAAKCAQEA7
 
   test("is idempotent for redacted query parameters", () => {
     const text =
-      "GET https://provider.invalid/v1?api_key=plain-value&model=test";
+      "GET https://provider.invalid/v1?api_key=sk-live-secret-value-here&model=test";
     const once = scrubSecretShapedContent(text);
 
     expect(scrubSecretShapedContent(once)).toBe(once);
@@ -44,17 +44,38 @@ MIIEpAIBAAKCAQEA7
   });
 });
 
+describe("scrubSecretShapedValue", () => {
+  test("keeps object structure while scrubbing string leaves", () => {
+    const input = {
+      stdout: "token sk-abcdefghijklmnopqrstuvwxyz012345",
+      code: 1,
+      nested: { api_key: "sk-abcdefghijklmnopqrstuvwxyz012345" },
+    };
+    const out = scrubSecretShapedValue(input);
+    expect(out).toEqual({
+      stdout: `token ${CREDENTIAL_REDACTION}`,
+      code: 1,
+      nested: { api_key: CREDENTIAL_REDACTION },
+    });
+    expect(typeof out).toBe("object");
+    expect(input.nested.api_key).toBe("sk-abcdefghijklmnopqrstuvwxyz012345");
+  });
+});
+
 describe("toolResultSecretScrubPlugin", () => {
   const next =
-    (content: string) =>
+    (content: ToolResult["content"], isError = false) =>
     async (call: ToolCall): Promise<ToolResult> => ({
       callId: call.id,
       content,
+      ...(isError ? { isError: true } : {}),
     });
 
   test("scrubs grep tool results", async () => {
     const plugin = toolResultSecretScrubPlugin();
-    const handler = defined(plugin.middleware)(
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(
       next("secrets/.env:1:TOKEN=supersecretvalue"),
     );
     const result = await handler(
@@ -64,10 +85,34 @@ describe("toolResultSecretScrubPlugin", () => {
     expect(result.content).toContain(CREDENTIAL_REDACTION);
     expect(result.content).not.toContain("supersecretvalue");
   });
+  test("scrubs error results without stringifying object content", async () => {
+    const plugin = toolResultSecretScrubPlugin();
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(
+      next(
+        {
+          message: "failed with sk-abcdefghijklmnopqrstuvwxyz012345",
+          code: 7,
+        },
+        true,
+      ),
+    );
+    const result = await handler(
+      { id: "c-err", name: "run_shell", arguments: { command: "exit 7" } },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(typeof result.content).toBe("object");
+    expect(result.content).toEqual({
+      message: `failed with ${CREDENTIAL_REDACTION}`,
+      code: 7,
+    });
+  });
 
   test("preserves query redaction through the long-result middleware chain", async () => {
     const content =
-      "GET https://provider.invalid/v1?api_key=plain-value&model=test\n" +
+      "GET https://provider.invalid/v1?api_key=sk-live-secret-value-here&model=test\n" +
       "x".repeat(11_000);
     const scrub = toolResultSecretScrubPlugin();
     const truncate = resultTruncationPlugin();
@@ -99,14 +144,16 @@ describe("toolResultSecretScrubPlugin", () => {
     const plugin = toolResultSecretScrubPlugin();
     const body =
       "Matching agent profiles:\n\n### leaky\n\nSystem prompt / body:\n" +
-      "Use API_KEY=sk-live-abc123xyz789012345678 when calling the provider.";
-    const handler = defined(plugin.middleware)(next(body));
+      "Use token sk-abcdefghijklmnopqrstuvwxyz012345 when calling the provider.";
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(next(body));
     const result = await handler(
       { id: "c2", name: "search_agents", arguments: { query: "leaky" } },
       new AbortController().signal,
     );
     expect(result.content).toContain(CREDENTIAL_REDACTION);
-    expect(result.content).not.toContain("sk-live-abc123");
+    expect(result.content).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
     expect(result.content).toContain("### leaky");
   });
 });

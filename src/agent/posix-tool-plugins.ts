@@ -1,6 +1,8 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import { evidenceArchivePathGuardPlugin } from "../plugins/evidence-archive-path-guard.js";
+import { evidenceArchiveSearchPlugin } from "../plugins/evidence-archive-search-plugin.js";
 import { deleteFilePlugin } from "../plugins/delete-file-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
@@ -27,6 +29,7 @@ import {
 } from "../plugins/read-file-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
+import type { CompactionArchive } from "../session/compaction-archive.js";
 
 export interface CorePosixToolPluginsArgs {
   cwd: string;
@@ -44,6 +47,8 @@ export interface CorePosixToolPluginsArgs {
   // Live getter for the background-shell registry (run_shell background:true).
   // Omitted makes background runs fail closed in shell-guard.
   getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
+  /** Primary-only evidence archive; workers omit this getter. */
+  getEvidenceArchive?: () => CompactionArchive | undefined;
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -81,6 +86,7 @@ export function buildCorePosixToolPlugins(
     getContextDir,
     shellEnv,
     getBackgroundShellRegistry,
+    getEvidenceArchive,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
   // cwd are not hard-denied after the gate already auto-allows. Pass a live
@@ -89,16 +95,20 @@ export function buildCorePosixToolPlugins(
   // regardless.
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
   const truncationOptions =
-    getBlobWriter !== undefined || getContextDir !== undefined
+    getBlobWriter !== undefined ||
+    getContextDir !== undefined ||
+    getEvidenceArchive !== undefined
       ? {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
+          ...(getEvidenceArchive !== undefined ? { getEvidenceArchive } : {}),
         }
       : {};
   return [
     resultTruncationPlugin(truncationOptions),
     toolResultSecretScrubPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd), { allowOutside }),
+    evidenceArchivePathGuardPlugin(),
     deleteFilePlugin(cwd, { allowOutside }),
     toolOutputUriPlugin(),
     secretGuardPlugin(),
@@ -110,6 +120,9 @@ export function buildCorePosixToolPlugins(
         ? { getBackgroundShellRegistry }
         : {}),
     }),
+    ...(getEvidenceArchive !== undefined
+      ? [evidenceArchiveSearchPlugin(getEvidenceArchive)]
+      : []),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
     // Verify wraps the line-range short-circuit (composeMiddleware runs plugins

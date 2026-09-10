@@ -722,3 +722,145 @@ describe("createSessionStores", () => {
     expect(typeof audit.loadAudit).toBe("function");
   });
 });
+
+function turnTexts(turns: ConversationTurn[]): string[] {
+  return turns.map((t) => (t.content[0] as { text: string }).text);
+}
+
+async function gitLsTree(dir: string): Promise<string[]> {
+  const proc = Bun.spawn(
+    ["git", "-C", dir, "ls-tree", "-r", "--name-only", "HEAD"],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`git ls-tree failed: ${stderr.trim() || stdout.trim()}`);
+  }
+  return stdout.split("\n").filter((line) => line.length > 0);
+}
+
+describe("createOptimizedContextStore unpublished rewrite", () => {
+  test("rewrite writeTurns stays off the live generation until commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const original = [turn("keep-a"), turn("keep-b"), turn("drop-me")];
+    await store.writeTurns(original);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "published original" });
+
+    const compacted = [turn("[Compacted prior context]"), turn("keep-b")];
+    await store.writeTurns(compacted);
+
+    const loaded = await store.load();
+    expect(turnTexts(loaded.turns)).toEqual(["keep-a", "keep-b", "drop-me"]);
+
+    await store.commit({ message: "publish compact" });
+    const published = await store.load();
+    expect(turnTexts(published.turns)).toEqual([
+      "[Compacted prior context]",
+      "keep-b",
+    ]);
+  });
+
+  test("omitting commit leaves a new store on the old generation", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("old-a"), turn("old-b")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "old" });
+
+    await store.writeBlob(
+      "new-blob",
+      new TextEncoder().encode("needed-by-new-turns"),
+      "text/plain",
+    );
+    await store.writeTurns([turn("[Compacted prior context]")]);
+
+    const crashed = await createOptimizedContextStore(dir);
+    const loaded = await crashed.load();
+    expect(turnTexts(loaded.turns)).toEqual(["old-a", "old-b"]);
+  });
+
+  test("git commit failure after rewrite lands keeps load on HEAD", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const original = [turn("keep-a"), turn("keep-b"), turn("drop-me")];
+    await store.writeTurns(original);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const published = await store.commit({ message: "published original" });
+
+    await store.writeTurns([turn("[Compacted prior context]"), turn("keep-b")]);
+
+    const hookDir = path.join(dir, ".git", "hooks");
+    fs.mkdirSync(hookDir, { recursive: true });
+    const hook = path.join(hookDir, "commit-msg");
+    fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+    fs.chmodSync(hook, 0o755);
+
+    await expect(
+      store.commit({ message: "publish compact" }),
+    ).rejects.toThrow();
+
+    const loaded = await store.load();
+    expect(turnTexts(loaded.turns)).toEqual(["keep-a", "keep-b", "drop-me"]);
+    expect(turnTexts(await store.readAt(published.hash))).toEqual([
+      "keep-a",
+      "keep-b",
+      "drop-me",
+    ]);
+  });
+
+  test("append writeTurns is still visible before commit", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const first = turn("one");
+    await store.writeTurns([first]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "one" });
+
+    await store.writeTurns([first, turn("two")]);
+    const loaded = await store.load();
+    expect(turnTexts(loaded.turns)).toEqual(["one", "two"]);
+  });
+
+  test("folds evidence-archive into the compact commit tree", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("old")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "old" });
+
+    const archiveDir = path.join(dir, "evidence-archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    fs.writeFileSync(path.join(archiveDir, "index.jsonl"), "{}\n");
+    await store.writeTurns([turn("compacted")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "compact" });
+
+    expect(await gitLsTree(dir)).toContain("evidence-archive/index.jsonl");
+    const loaded = await store.load();
+    expect(turnTexts(loaded.turns)).toEqual(["compacted"]);
+  });
+
+  test("readAt of the old hash is not the load completeness path", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("era-1")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "era-1" });
+
+    await store.writeTurns([turn("era-2")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "era-2" });
+
+    expect(turnTexts(await store.readAt(first.hash))).toEqual(["era-1"]);
+    expect(turnTexts((await store.load()).turns)).toEqual(["era-2"]);
+  });
+});

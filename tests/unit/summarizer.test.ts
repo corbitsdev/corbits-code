@@ -90,54 +90,57 @@ test("model summarizer returns the model output", async () => {
   expect(result).toContain("What Happened");
 });
 
-test("model summarizer falls back to deterministic summary on failure", async () => {
+test("model summarizer throws on failure instead of substituting a stats stub", async () => {
   const summarize = createModelSummarizer({
     getSource: () => source,
     complete: async () => {
       throw new Error("model unreachable");
     },
   });
-  const result = await summarize(turns());
-  // Deterministic fallback (buildTurnSummary) reports tool usage stats.
-  expect(result).toContain("Tools called");
+  await expect(summarize(turns())).rejects.toThrow("model unreachable");
 });
 
-test("model summarizer falls back when the model returns empty text", async () => {
+test("model summarizer throws when the model returns empty text", async () => {
   const summarize = createModelSummarizer({
     getSource: () => source,
     complete: async () => "",
   });
-  const result = await summarize(turns());
-  expect(result).toContain("Tools called");
+  await expect(summarize(turns())).rejects.toThrow("empty text");
 });
 
-test("model summarizer marks a failure fallback as distinguishable from a real summary (CL-6906)", async () => {
+test("model summarizer feeds archive payloads into the prompt instead of clipped turns", async () => {
+  const longPayload = `FULL_ARCHIVE_PAYLOAD ${"x".repeat(600)}`;
+  let captured = "";
   const summarize = createModelSummarizer({
     getSource: () => source,
-    complete: async () => {
-      throw new Error("model unreachable");
+    complete: async (promptTurns) => {
+      const user = promptTurns.find((t) => t.role === "user");
+      const block = user?.content.find((b) => b.type === "text");
+      captured = block !== undefined && block.type === "text" ? block.text : "";
+      return "## What Happened\n- used archive evidence";
     },
+    getArchive: () => ({
+      listOccurrences: async () => [
+        {
+          occurrenceId: "occ-user",
+          sessionId: "s1",
+          kind: "user_message" as const,
+          contentHash: "h1",
+          blobKey: "k1",
+          recordedAt: 1,
+        },
+      ],
+      readAuthorizedPayload: async () => longPayload,
+    }),
   });
   const result = await summarize(turns());
-  expect(result).toContain("[Model summary unavailable");
-  expect(result).toContain("summary call failed");
+  expect(result).toContain("What Happened");
+  expect(captured).toContain(longPayload);
+  expect(captured).toContain("archive:///occ-user");
 });
 
-test("model summarizer marks an empty-output fallback as distinguishable from a real summary (CL-6906)", async () => {
-  const summarize = createModelSummarizer({
-    getSource: () => source,
-    complete: async () => "",
-  });
-  const result = await summarize(turns());
-  expect(result).toContain("[Model summary unavailable");
-  expect(result).toContain("empty model output");
-});
-
-test("model summarizer does not mark a real summary with the fallback marker", async () => {
-  const summarize = createModelSummarizer({
-    getSource: () => source,
-    complete: async () => "## What Happened\n- read src/auth.ts",
-  });
-  const result = await summarize(turns());
-  expect(result).not.toContain("[Model summary unavailable");
+test("buildSummaryPrompt uses a supplied excerpt instead of condensing turns", () => {
+  const prompt = buildSummaryPrompt(turns(), undefined, "ARCHIVE_EXCERPT_BODY");
+  expect(prompt).toContain("ARCHIVE_EXCERPT_BODY");
+  expect(prompt).not.toContain("Turns dropped");
 });

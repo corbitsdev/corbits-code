@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 import { isToolOutputLike } from "../util/tool-output-uri.js";
+import { isArchiveLike } from "../session/archive-uri.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import type { RootsProvider } from "../permission/worktree-roots.js";
 
@@ -92,7 +93,7 @@ function sanitizePath(
   rootsProvider: RootsProvider,
   allowOutside: boolean,
 ): string {
-  if (isToolOutputLike(value)) {
+  if (isToolOutputLike(value) || isArchiveLike(value)) {
     return value;
   }
   const resolved = resolveWorkspacePath(cwd, value, rootsProvider);

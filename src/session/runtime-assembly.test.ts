@@ -443,23 +443,16 @@ describe("skillDirsFromEnabledPlugins", () => {
 });
 
 describe("createSessionPruningCompactor", () => {
-  test("only wires a summarize function in llm mode", async () => {
+  test("wires a summarize function when provided", async () => {
     const summarize = async () => "summary";
-    const pruning = createSessionPruningCompactor({
-      compactionMode: "pruning",
-      summarize,
-    });
     const llm = createSessionPruningCompactor({
-      compactionMode: "llm",
       summarize,
     });
-    // Both return a Compactor; smoke that apply is present without running a full prune.
-    expect(typeof pruning.apply).toBe("function");
     expect(typeof llm.apply).toBe("function");
   });
 
   test("builds without a summarize function for sourceless leaves", () => {
-    const compactor = createSessionPruningCompactor({ compactionMode: "llm" });
+    const compactor = createSessionPruningCompactor({});
     expect(typeof compactor.apply).toBe("function");
   });
 
@@ -471,7 +464,6 @@ describe("createSessionPruningCompactor", () => {
       return "summary";
     };
     const llm = createSessionPruningCompactor({
-      compactionMode: "llm",
       summarize,
       summaryContext: () => ctx,
     });
@@ -489,7 +481,6 @@ describe("createSessionPruningCompactor", () => {
     const folds: { turnsBefore: number; turnsAfter: number }[] = [];
     const summarize = async () => "summary";
     const folding = createSessionPruningCompactor({
-      compactionMode: "llm",
       summarize,
       onFolded: (info) => folds.push(info),
     });
@@ -499,14 +490,22 @@ describe("createSessionPruningCompactor", () => {
       content: [{ type: "text", text: `t${i}` }],
       timestamp: now,
     }));
-    await folding.apply(many as never, { state: {} as never, trigger: "test" });
+    const folded = await folding.apply(many as never, {
+      state: {} as never,
+      trigger: "test",
+    });
     expect(folds).toHaveLength(1);
     expect(folds[0]?.turnsBefore).toBe(8);
-    expect(folds[0]?.turnsAfter).toBeLessThan(8);
+    expect(
+      folded.output[0]?.content.some(
+        (block) =>
+          block.type === "text" &&
+          block.text.startsWith("[Compacted prior context]"),
+      ),
+    ).toBe(true);
 
     const silent: { turnsBefore: number; turnsAfter: number }[] = [];
     const noop = createSessionPruningCompactor({
-      compactionMode: "llm",
       summarize,
       onFolded: (info) => silent.push(info),
     });

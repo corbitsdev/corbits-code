@@ -102,6 +102,7 @@ import {
   loadSessionLocalSettings,
   resolveLiveSessionSources,
 } from "../session/assemble-runtime.js";
+import type { CompactionArchive } from "../session/compaction-archive.js";
 import { emitPluginWarningSummary } from "../plugins/diagnostics.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -524,6 +525,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     let currentAgent: Agent | null = null;
     let currentStorage: ContextStore | null = null;
+    const evidenceArchiveHolder: { current?: CompactionArchive } = {};
 
     const overlay = resolveExecDirectorOverlay(config.director);
     const workflowHostHolder: { instance?: WorkflowHost } = {};
@@ -541,6 +543,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         ? { shellEnv: localSettingsForMode.env }
         : {}),
       getBlobWriter: () => currentStorage?.writeBlob,
+      getEvidenceArchive: () => evidenceArchiveHolder.current,
       getContextDir: () => workdir,
       // Background run_shell completions re-enter the reactor on a later turn.
       onBackgroundShellExit: (exit) => {
@@ -650,8 +653,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const summarizeForCompaction = createModelSummarizer({
       getSource: () => liveSource,
       deps: inferenceDeps,
+      getArchive: () => evidenceArchiveHolder.current,
     });
-    const liveCompactionMode = config.settings?.compactionMode ?? "llm";
 
     const { activated: activatedToolNames, computeAdvertised } =
       createAdvertisedToolset({
@@ -698,7 +701,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
         liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id,
       getCompactor: () =>
         createSessionPruningCompactor({
-          compactionMode: liveCompactionMode,
           summarize: summarizeForCompaction,
           telemetry: liveTelemetry,
         }),
@@ -706,6 +708,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         currentAgent = agent;
         currentStorage = storage;
       },
+      evidenceArchiveHolder,
     });
 
     const workflowHost = new WorkflowHost({

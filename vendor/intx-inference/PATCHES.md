@@ -308,6 +308,22 @@ together.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk;
 tracks the skip-unchanged-history patch.
 
+## reactor-ts-compact-publish-then-memory
+
+`reactor.ts` — `executeCompact` persists blobs, stages `writeTurns`, and
+leaves reactor memory on the old generation until `commitCycle` publishes.
+`replaceTurns` runs only after a successful commit. `commitCycle` must not
+`writeTurns` live (old) memory over that staging. A failed commit clears
+`pendingCompactOutput` so a later infer/tools cycle writes live history and
+does not `replaceTurns` with the unpublished compact.
+
+**Disposition:** Promotion candidate. Compaction durability — an interrupt
+between stage and commit must resume the complete old generation, not a
+half-applied rewrite. **Removal path:** Upstream PR reordering compact
+persist/stage/commit/replaceTurns.
+**Re-carry:** new patch on this pin; expect a three-way against
+`executeCompact` and `commitCycle` on the next sync.
+
 ## sse-ts-max-line-length
 
 `sse.ts` — `MAX_LINE_LENGTH` (16 MiB) caps the unterminated SSE line buffer
@@ -368,6 +384,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | reactor-ts-correlating-ids-leak | Wrap `tryCorrelate` in try/finally so `correlatingIds` clears on success dispatch paths | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-correlating-ids-leak) | Next vendored sync |
 | reactor-ts-checkpoint-after-tool-cycle | Call `commitCycle()` in `executeTools` when `addToHistory` is true | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-checkpoint-after-tool-cycle) | Next vendored sync |
 | reactor-ts-skip-unchanged-history (+ reactor-ts-last-written-turns-revision) | Skip `contextStore.writeTurns` when `getTurnsRevision()` is unchanged | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-skip-unchanged-history) | Next vendored sync |
+| reactor-ts-compact-publish-then-memory | Persist compact blobs, stage `writeTurns`, commit, then `replaceTurns` so memory stays on the old generation until publication | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-compact-publish-then-memory) | Next vendored sync |
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |
 | sse-ts-max-line-length | Cap the unterminated SSE line buffer (`MAX_LINE_LENGTH`, 16 MiB) | Alexander Guy <alexander.guy@pm.me> | This ledger (#sse-ts-max-line-length) | Next vendored sync |
 | state-ts-deep-freeze-turns-revision | Make `ReactorState.snapshot().turns` a lazy, revision-tracked getter | Alexander Guy <alexander.guy@pm.me> | This ledger (#state-ts-deep-freeze-turns-revision) | Next vendored sync |

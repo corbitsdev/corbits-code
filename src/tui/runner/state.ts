@@ -20,7 +20,6 @@ import { xaiProfileFromProviderName } from "../../config/xai-providers.js";
 import type {
   MCPServerConfig,
   MCPServerSettingsEntry,
-  Settings,
 } from "../../config/settings.js";
 import {
   globalSettingsPath,
@@ -234,9 +233,6 @@ export interface RunnerState {
   // Every configured server's latest settings entry, for the /mcp surface.
   configuredMcpEntries: MCPServerSettingsEntry[];
   liveHookConfig: Record<string, { enabled: boolean }>;
-  // Mutable reference so the compaction summarize callback reads the live
-  // mode without requiring an agent rebuild on every settings change.
-  liveCompactionMode: NonNullable<Settings["compactionMode"]>;
   // Tracks the user's intent (persisted opt-in, updated live by the settings
   // toggle) rather than the held instance's state, so the settings tab shows
   // On during the first-run hold.
@@ -373,7 +369,6 @@ export function createRunnerState(start: TUIStart): RunnerState {
     connectedMcpServers: start.resumeSeed.mcpServers,
     configuredMcpEntries: [...config.mcpServerEntries],
     liveHookConfig: { ...(config.settings?.hooks ?? {}) },
-    liveCompactionMode: config.settings?.compactionMode ?? "llm",
     liveTelemetryIntent: false,
     liveShowPromptCost: config.settings?.showPromptCost ?? false,
     listedGrants: [],

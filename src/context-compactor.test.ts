@@ -768,7 +768,7 @@ describe("createPruningCompactor — summarize receives the workflow context (CL
   });
 });
 
-describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
+describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
   function firstText(turn: ConversationTurn): string {
     const block = turn.content.find((b) => b.type === "text");
     return block !== undefined && block.type === "text" ? block.text : "";
@@ -795,7 +795,7 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     return [...base, ...extra];
   }
 
-  test("second apply leaves output[0] bytes identical and appends a later summary", async () => {
+  test("second apply replaces the prior summary instead of accumulating", async () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 500,
@@ -808,17 +808,72 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
       await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)
     ).output;
 
-    expect(firstText(defined(output2[0]))).toBe(firstText(defined(output1[0])));
-    expect(output2[0]).toBe(output1[0]);
-    const summaries = compactedTurns(output2);
-    expect(summaries.length).toBeGreaterThanOrEqual(2);
-    expect(output2.indexOf(defined(summaries[1]))).toBeGreaterThan(0);
+    expect(output2[0]).not.toBe(output1[0]);
+    expect(compactedTurns(output2)).toHaveLength(1);
+    expect(firstText(defined(output2[0]))).toContain(COMPACTED_PREFIX);
     expect(hasConsecutiveSameRole(output2)).toBe(false);
+    expect(allText(output2)).toContain("round1 0");
+  });
+
+  test("second apply keeps the initiating task as its own user turn", async () => {
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
+    const goal = "GOAL: migrate the auth module to opaque tokens";
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: goal }] }),
+    ];
+    for (let i = 0; i < 8; i++) {
+      turns.push(
+        makeTurn({
+          role: "assistant",
+          content: [{ type: "text", text: `step ${i}` }],
+        }),
+      );
+    }
+    turns.push(
+      makeTurn({
+        role: "user",
+        content: [{ type: "text", text: "also handle refresh" }],
+      }),
+    );
+    turns.push(
+      makeTurn({
+        role: "assistant",
+        content: [{ type: "text", text: "recent reply" }],
+      }),
+    );
+    turns.push(
+      makeTurn({
+        role: "user",
+        content: [{ type: "text", text: "recent ask" }],
+      }),
+    );
+
+    const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
     expect(
-      output2.some(
-        (t) => t.role === "assistant" && firstText(t) === COMPACT_SPACER_TEXT,
+      output1.some(
+        (t) =>
+          t.role === "user" &&
+          t.content.some((b) => b.type === "text" && b.text === goal),
       ),
     ).toBe(true);
+
+    const output2 = (
+      await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)
+    ).output;
+    expect(compactedTurns(output2)).toHaveLength(1);
+    expect(
+      output2.some(
+        (t) =>
+          t.role === "user" &&
+          !firstText(t).startsWith(COMPACTED_PREFIX) &&
+          t.content.some((b) => b.type === "text" && b.text === goal),
+      ),
+    ).toBe(true);
+    expect(hasConsecutiveSameRole(output2)).toBe(false);
   });
 
   test("harness spacer is stamped with the reserved producer id and a visible sentinel", async () => {
@@ -840,116 +895,26 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     expect(COMPACT_SPACER_TEXT).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
   });
 
-  test("frozen prefix does not absorb a model-emitted spacer", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-    });
-    const output1 = (
-      await compactor.apply(grow([], 16, "round1"), mockStrategyCtx)
-    ).output;
-    const summary = output1.find((t) =>
-      firstText(t).startsWith(COMPACTED_PREFIX),
-    );
-    expect(summary).toBeDefined();
+  test("model-emitted spacer is not treated as a harness spacer", async () => {
     const echo = makeTurn({
       role: "assistant",
       model: "omen-alpha",
       content: [{ type: "text", text: LEGACY_COMPACT_SPACER_TEXT }],
     });
-    const output2 = (
-      await compactor.apply(
-        grow([defined(summary), echo], 16, "round2"),
-        mockStrategyCtx,
-      )
-    ).output;
-
-    let frozenLen = 0;
-    while (
-      frozenLen < output2.length &&
-      firstText(defined(output2[frozenLen])).startsWith(COMPACTED_PREFIX)
-    ) {
-      frozenLen++;
-      if (
-        frozenLen < output2.length &&
-        isHarnessCompactSpacer(defined(output2[frozenLen]))
-      )
-        frozenLen++;
-    }
-    expect(output2.slice(0, frozenLen)).not.toContain(echo);
-    expect(isHarnessCompactSpacer(echo)).toBe(false);
-    const harness = output2.find(isHarnessCompactSpacer);
-    expect(harness).toBeDefined();
-    expect(defined(harness).model).toBe(HARNESS_COMPACT_SPACER_MODEL);
-    expect(firstText(defined(harness))).toBe(COMPACT_SPACER_TEXT);
-    expect(harness).not.toBe(echo);
-  });
-
-  test("frozen prefix does not absorb a model-stamped new-sentinel echo", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-    });
-    const output1 = (
-      await compactor.apply(grow([], 16, "round1"), mockStrategyCtx)
-    ).output;
-    const summary = output1.find((t) =>
-      firstText(t).startsWith(COMPACTED_PREFIX),
-    );
-    expect(summary).toBeDefined();
-    const echo = makeTurn({
+    const stamped = makeTurn({
       role: "assistant",
       model: "omen-alpha",
       content: [{ type: "text", text: COMPACT_SPACER_TEXT }],
     });
-    const output2 = (
-      await compactor.apply(
-        grow([defined(summary), echo], 16, "round2"),
-        mockStrategyCtx,
-      )
-    ).output;
-
-    let frozenLen = 0;
-    while (
-      frozenLen < output2.length &&
-      firstText(defined(output2[frozenLen])).startsWith(COMPACTED_PREFIX)
-    ) {
-      frozenLen++;
-      if (
-        frozenLen < output2.length &&
-        isHarnessCompactSpacer(defined(output2[frozenLen]))
-      )
-        frozenLen++;
-    }
-    expect(output2.slice(0, frozenLen)).not.toContain(echo);
     expect(isHarnessCompactSpacer(echo)).toBe(false);
-    const harness = output2.find(isHarnessCompactSpacer);
-    expect(harness).toBeDefined();
-    expect(defined(harness).model).toBe(HARNESS_COMPACT_SPACER_MODEL);
-    expect(firstText(defined(harness))).toBe(COMPACT_SPACER_TEXT);
-    expect(harness).not.toBe(echo);
+    expect(isHarnessCompactSpacer(stamped)).toBe(false);
   });
 
-  test("legacy harness spacer without model still freezes", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-    });
-    const output1 = (
-      await compactor.apply(grow([], 16, "round1"), mockStrategyCtx)
-    ).output;
-    const summary = output1.find((t) =>
-      firstText(t).startsWith(COMPACTED_PREFIX),
-    );
-    expect(summary).toBeDefined();
+  test("legacy harness spacer without model is still recognized", () => {
     const legacySpacer = makeTurn({
       role: "assistant",
       content: [{ type: "text", text: LEGACY_COMPACT_SPACER_TEXT }],
     });
-    const grown = grow([defined(summary), legacySpacer], 16, "round2");
-    const output2 = (await compactor.apply(grown, mockStrategyCtx)).output;
-    expect(output2[0]).toBe(summary);
-    expect(output2[1]).toBe(legacySpacer);
     expect(isHarnessCompactSpacer(legacySpacer)).toBe(true);
   });
 
@@ -982,7 +947,7 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     expect(result.record.reason).toBe("no compaction needed");
   });
 
-  test("failing then succeeding summarizer does not rewrite output[0]", async () => {
+  test("failing summarizer keeps prior context; a later success writes one handoff", async () => {
     const source: InferenceSource = {
       id: "test",
       provider: "openai",
@@ -1005,21 +970,20 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
       summarize,
     });
     const turns = grow([], 16, "fail");
-    const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
-    expect(firstText(defined(output1[0]))).toContain("Turns compacted:");
-    expect(firstText(defined(output1[0]))).not.toContain(
-      "UNIQUE_SUCCESS_SUMMARY",
-    );
-    expect(firstText(defined(output1[0]))).toContain(
-      "Model summary unavailable",
+    const result1 = await compactor.apply(turns, mockStrategyCtx);
+    expect(result1.output).toBe(turns);
+    expect(result1.record.reason).toBe("summarize failed");
+    expect(firstText(defined(result1.output[0]))).not.toContain(
+      COMPACTED_PREFIX,
     );
 
-    const output2 = (
-      await compactor.apply(grow(output1, 16, "ok"), mockStrategyCtx)
-    ).output;
-    expect(firstText(defined(output2[0]))).toBe(firstText(defined(output1[0])));
-    expect(allText(output2)).toContain("UNIQUE_SUCCESS_SUMMARY");
-    expect(hasConsecutiveSameRole(output2)).toBe(false);
+    const result2 = await compactor.apply(
+      grow(result1.output, 16, "ok"),
+      mockStrategyCtx,
+    );
+    expect(compactedTurns(result2.output)).toHaveLength(1);
+    expect(allText(result2.output)).toContain("UNIQUE_SUCCESS_SUMMARY");
+    expect(hasConsecutiveSameRole(result2.output)).toBe(false);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
+import { advertiseArchiveSurface } from "../plugins/evidence-archive-search-plugin.js";
 import type { Telemetry } from "../telemetry/index.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
@@ -26,6 +27,7 @@ import {
   wrapAgentToolsWithResultTruncation,
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
+import type { CompactionArchive } from "../session/compaction-archive.js";
 import {
   connectMCPServer as connectMCPClient,
   type MCPClient,
@@ -199,6 +201,8 @@ export interface AgentToolsetArgs {
   // deliver the exit as a system message so the reactor re-enters on a later
   // turn; omit it and background runs still start/collect but never notify.
   onBackgroundShellExit?: (exit: BackgroundShellExit) => void;
+  /** Primary-only evidence archive; workers omit this getter. */
+  getEvidenceArchive?: () => CompactionArchive | undefined;
   // Whether a workflow is currently running. submit_output rides the wire
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
@@ -334,6 +338,7 @@ export async function createAgentToolset(
     getBlobReader,
     getBlobWriter,
     getContextDir,
+    getEvidenceArchive,
     sessionMode = "orchestrator",
     shellEnv,
     toolAvailability = { languageServerAvailable: true },
@@ -420,6 +425,7 @@ export async function createAgentToolset(
   const truncationOptions = {
     ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
     ...(getContextDir !== undefined ? { getContextDir } : {}),
+    ...(getEvidenceArchive !== undefined ? { getEvidenceArchive } : {}),
   };
   const posixTools = createPosixTools({
     cwd,
@@ -435,6 +441,7 @@ export async function createAgentToolset(
         ? { readFileGuard: { blobReader: sessionBlobReader } }
         : {}),
       ...truncationOptions,
+      ...(getEvidenceArchive !== undefined ? { getEvidenceArchive } : {}),
       ...(shellEnv !== undefined ? { shellEnv } : {}),
       getBackgroundShellRegistry: () => backgroundShells,
     }),
@@ -551,12 +558,14 @@ export async function createAgentToolset(
   }
 
   const baseTools: AgentTool[] = [
-    ...fromToolRunner(posixTools).map((tool) => ({
-      ...tool,
-      definition: advertiseEditFileLineRange(
+    ...fromToolRunner(posixTools).map((tool) => {
+      let definition = advertiseEditFileLineRange(
         advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
-      ),
-    })),
+      );
+      if (getEvidenceArchive !== undefined)
+        definition = advertiseArchiveSurface(definition);
+      return { ...tool, definition };
+    }),
     createListDirTool(cwd, {
       allowOutside: () => permissionGate.getSkipPermissions(),
     }),
@@ -977,6 +986,7 @@ export async function createAgentToolset(
         const mcpTools = mcpClientTools(result.client, {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
+          ...(getEvidenceArchive !== undefined ? { getEvidenceArchive } : {}),
           ...(isBuiltinExaMCPServer(config)
             ? { excludeToolNames: ["web_fetch_exa"] }
             : {}),

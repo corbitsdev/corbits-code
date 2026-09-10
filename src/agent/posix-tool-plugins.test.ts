@@ -378,6 +378,37 @@ describe("buildCorePosixToolPlugins", () => {
     }
   });
 
+  test("evidence archive search sits after shell-guard so grep/search inherit the 10s budget", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
+    try {
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        reactorGated: false,
+        cwd,
+      });
+      const plugins = buildCorePosixToolPlugins({
+        cwd,
+        permissionGate: gate,
+        getEvidenceArchive: () => undefined,
+      });
+      const shellGuardIndex = findMiddlewareIndex(
+        plugins,
+        "[command timed out after",
+      );
+      const archiveIndex = findMiddlewareIndex(
+        plugins,
+        "evidence archive is not available in this session",
+      );
+      expect(shellGuardIndex).toBeGreaterThanOrEqual(0);
+      expect(archiveIndex).toBeGreaterThanOrEqual(0);
+      expect(archiveIndex).toBeGreaterThan(shellGuardIndex);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("a real line-range edit_file call verifies as success through the wired plugin chain", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
     try {

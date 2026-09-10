@@ -154,7 +154,7 @@ describe("turn ramp paint", () => {
           bridge.handle({ type: "run", state: "idle" });
           await h.renderOnce();
           const row = statusRow(h.captureCharFrame());
-          expect(row).not.toContain("working");
+          expect(row).toContain("corbits code");
           expect(row).not.toMatch(DENSITY);
         } finally {
           bridge.dispose();

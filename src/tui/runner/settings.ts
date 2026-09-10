@@ -636,18 +636,10 @@ function createSettingsSurface(
 ) {
   return {
     read: () => ({
-      compactionMode: state.liveCompactionMode,
       waitForApproval: resolveWaitForApproval(services.liveToolWatchdog),
       telemetryEnabled: state.liveTelemetryIntent,
       showPromptCost: state.liveShowPromptCost,
     }),
-    setCompactionMode: (mode: NonNullable<Settings["compactionMode"]>) => {
-      state.liveCompactionMode = mode;
-      void persistGlobalSettings("compaction mode", (base) => ({
-        ...base,
-        compactionMode: mode,
-      }));
-    },
     setWaitForApproval: (value: boolean) => {
       services.liveToolWatchdog.waitForApproval = value;
       void persistGlobalSettings("wait-for-approval", (base) => ({

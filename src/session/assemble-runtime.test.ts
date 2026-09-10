@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@intx/agent";
 import type {
-  AuditStore,
   Compactor,
   ContextStore,
   ToolDefinition,
@@ -129,26 +128,69 @@ function stubInferenceDeps(): ChatAgentWiring["inferenceDeps"] {
   };
 }
 
+function stubAuthorize(): ChatAgentWiring["authorize"] {
+  return async () => ({
+    effect: "allow",
+    matchingGrants: [],
+    resolvedBy: null,
+  });
+}
+
+function stubChatAgentWiring(
+  overrides: Partial<ChatAgentWiring> = {},
+): ChatAgentWiring {
+  return {
+    toolsId: "test/tools",
+    agentId: "test/agent",
+    systemPrompt: "prompt",
+    authorize: stubAuthorize(),
+    getDynamicRunner: () => {
+      throw new Error(
+        "getDynamicRunner should not run at assemble or mocked build",
+      );
+    },
+    computeAdvertised: () => [],
+    activateTools: () => false,
+    inactivityTimeoutMs: 1_000,
+    onTasksChange: () => undefined,
+    requestContinuation: () => undefined,
+    getProvider: () => ({ providerName: "test", model: "m" }),
+    getWorkdir: () => "/build-dir",
+    getSessionId: () => "test-session",
+    inferenceDeps: stubInferenceDeps(),
+    getSources: () => [
+      {
+        id: "s",
+        provider: "test",
+        baseURL: "http://localhost",
+        apiKey: "k",
+        model: "m",
+      },
+    ],
+    getDefaultSource: () => "s",
+    getCompactor: () => stubCompactor("build"),
+    onBuilt: () => undefined,
+    ...overrides,
+  };
+}
+
 describe("assembleChatAgent", () => {
-  test("getWorkdir, getSessionId, and getCompactor run at buildAgent time", async () => {
+  test("getWorkdir and getCompactor run at buildAgent time, not assemble time", async () => {
     const storeDirs: string[] = [];
     const agentWorkdirs: string[] = [];
-    const agentSessionIds: string[] = [];
-    const agentAudits: AuditStore[] = [];
-    const agentStorages: ContextStore[] = [];
     const agentCompactors: Compactor[] = [];
     const fakeStorage = {
       readBlob: async () => new Uint8Array(),
-    } as unknown as ContextStore & AuditStore;
+    } as unknown as ContextStore;
     const fakeAgent = { close: async () => undefined } as unknown as Agent;
 
     await withMockedModuleDuring(
       import.meta.resolve("./optimized-context-store.js"),
       (real: typeof import("./optimized-context-store.js")) => ({
         ...real,
-        createSessionStores: async (dir: string) => {
+        createOptimizedContextStore: async (dir: string) => {
           storeDirs.push(dir);
-          return { storage: fakeStorage, audit: fakeStorage };
+          return fakeStorage;
         },
       }),
       async () => {
@@ -160,17 +202,10 @@ describe("assembleChatAgent", () => {
               _def: unknown,
               env: {
                 workdir: string;
-                sessionId?: string;
-                storage: ContextStore;
-                audit: AuditStore;
                 compactors: { "pruning-compactor": Compactor };
               },
             ) => {
               agentWorkdirs.push(env.workdir);
-              if (env.sessionId !== undefined)
-                agentSessionIds.push(env.sessionId);
-              agentStorages.push(env.storage);
-              agentAudits.push(env.audit);
               agentCompactors.push(env.compactors["pruning-compactor"]);
               return fakeAgent;
             },
@@ -178,84 +213,96 @@ describe("assembleChatAgent", () => {
           async () => {
             const { assembleChatAgent } = await import("./assemble-runtime.js");
             const workdirCalls: string[] = [];
-            const sessionIdCalls: string[] = [];
             const compactorCalls: string[] = [];
             let liveDir = "/assemble-dir";
-            let liveSessionId = "assemble-session";
             let liveCompactor = stubCompactor("assemble");
 
-            const { buildAgent } = assembleChatAgent({
-              toolsId: "test/tools",
-              agentId: "test/agent",
-              systemPrompt: "prompt",
-              authorize: async () => ({
-                effect: "allow",
-                matchingGrants: [],
-                resolvedBy: null,
-              }),
-              getDynamicRunner: () => {
-                throw new Error(
-                  "getDynamicRunner should not run at assemble or mocked build",
-                );
-              },
-              computeAdvertised: () => [],
-              activateTools: () => false,
-              inactivityTimeoutMs: 1_000,
-              onTasksChange: () => undefined,
-              requestContinuation: () => undefined,
-              getProvider: () => ({ providerName: "test", model: "m" }),
-              getWorkdir: () => {
-                workdirCalls.push(liveDir);
-                return liveDir;
-              },
-              getSessionId: () => {
-                sessionIdCalls.push(liveSessionId);
-                return liveSessionId;
-              },
-              inferenceDeps: stubInferenceDeps(),
-              getSources: () => [
-                {
-                  id: "s",
-                  provider: "test",
-                  baseURL: "http://localhost",
-                  apiKey: "k",
-                  model: "m",
+            const { buildAgent } = assembleChatAgent(
+              stubChatAgentWiring({
+                getWorkdir: () => {
+                  workdirCalls.push(liveDir);
+                  return liveDir;
                 },
-              ],
-              getDefaultSource: () => "s",
-              getCompactor: () => {
-                compactorCalls.push(liveCompactor.name);
-                return liveCompactor;
-              },
-              onBuilt: () => undefined,
-            });
+                getCompactor: () => {
+                  compactorCalls.push(liveCompactor.name);
+                  return liveCompactor;
+                },
+              }),
+            );
 
             expect(workdirCalls).toEqual([]);
-            expect(sessionIdCalls).toEqual([]);
             expect(compactorCalls).toEqual([]);
             expect(storeDirs).toEqual([]);
             expect(agentWorkdirs).toEqual([]);
 
             liveDir = "/build-dir";
-            liveSessionId = "build-session";
             liveCompactor = stubCompactor("build");
             const builtCompactor = liveCompactor;
 
             await buildAgent();
 
             expect(workdirCalls).toEqual(["/build-dir"]);
-            expect(sessionIdCalls).toEqual(["build-session"]);
             expect(compactorCalls).toEqual(["build"]);
             expect(storeDirs).toEqual(["/build-dir"]);
             expect(agentWorkdirs).toEqual(["/build-dir"]);
-            expect(agentSessionIds).toEqual(["build-session"]);
-            expect(agentStorages).toEqual([fakeStorage]);
-            expect(agentAudits).toEqual([fakeStorage]);
-            expect(Object.is(agentAudits[0], agentStorages[0])).toBe(true);
             expect(agentCompactors).toEqual([builtCompactor]);
           },
         );
       },
     );
+  });
+
+  test("omits evidence archive when no holder is provided", async () => {
+    const fakeStorage = {
+      readBlob: async () => new Uint8Array(),
+    } as unknown as ContextStore;
+    const fakeAgent = { close: async () => undefined } as unknown as Agent;
+    const authorize = stubAuthorize();
+    let capturedStorage: ContextStore | undefined;
+    let capturedAuthorize: unknown;
+    let builtAgent: Agent | undefined;
+    let builtStorage: ContextStore | undefined;
+
+    await withMockedModuleDuring(
+      import.meta.resolve("./optimized-context-store.js"),
+      (real: typeof import("./optimized-context-store.js")) => ({
+        ...real,
+        createOptimizedContextStore: async () => fakeStorage,
+      }),
+      async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../agent/live-tool-dispatch.js"),
+          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+            ...real,
+            createAgentWithLiveToolDispatch: async (
+              _def: unknown,
+              env: { storage: ContextStore; authorize: unknown },
+            ) => {
+              capturedStorage = env.storage;
+              capturedAuthorize = env.authorize;
+              return fakeAgent;
+            },
+          }),
+          async () => {
+            const { assembleChatAgent } = await import("./assemble-runtime.js");
+            const { buildAgent } = assembleChatAgent(
+              stubChatAgentWiring({
+                authorize,
+                onBuilt: (agent, storage) => {
+                  builtAgent = agent;
+                  builtStorage = storage;
+                },
+              }),
+            );
+            await buildAgent();
+          },
+        );
+      },
+    );
+
+    expect(capturedStorage).toBe(fakeStorage);
+    expect(capturedAuthorize).toBe(authorize);
+    expect(builtAgent).toBe(fakeAgent);
+    expect(builtStorage).toBe(fakeStorage);
   });
 });
