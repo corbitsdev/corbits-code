@@ -1,13 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
+import type { CallbackPageCopy } from "../callback-page.js";
 import { XAI_CALLBACK_PORT } from "./constants.js";
 import { startXaiCallbackServer } from "./callback-server.js";
+
+const copy: CallbackPageCopy = {
+  productName: "Fixture Product",
+  siteUrl: "https://fixture.example",
+  siteLabel: "fixture.example",
+  githubUrl: "https://github.com/fixture",
+  githubLabel: "github.com/fixture",
+};
 
 const base = `http://127.0.0.1:${String(XAI_CALLBACK_PORT)}/callback`;
 
 describe("xAI callback server", () => {
   test("accepts a matching state and returns the code", async () => {
-    const server = await startXaiCallbackServer("expected");
+    const server = await startXaiCallbackServer("expected", copy);
     try {
       const wait = server.waitForCode(new AbortController().signal);
       const res = await fetch(`${base}?code=abc&state=expected`);
@@ -19,7 +28,7 @@ describe("xAI callback server", () => {
   });
 
   test("rejects state mismatches before accepting a code", async () => {
-    const server = await startXaiCallbackServer("expected");
+    const server = await startXaiCallbackServer("expected", copy);
     try {
       const wait = server.waitForCode(new AbortController().signal).then(
         () => ({ ok: true as const }),

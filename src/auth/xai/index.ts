@@ -3,14 +3,13 @@ export {
   XAI_DEFAULT_MODELS,
   XAI_REDIRECT_URI,
 } from "./constants.js";
+export type { XaiProfile, XaiTokens } from "./store.js";
 export {
   listXaiProfiles,
   loadXaiProfile,
   removeXaiProfile,
   saveXaiProfile,
-  type XaiProfile,
-  type XaiTokens,
-} from "./store.js";
+} from "../../config/oauth-stores.js";
 export {
   getValidXaiToken,
   isXaiTokenExpired,

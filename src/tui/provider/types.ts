@@ -14,7 +14,7 @@ import type {
 
 import type { FirstClassOAuthProvider } from "../../../packages/first-class-providers/src/index.js";
 import type { CodexTokens } from "../../auth/codex/store.js";
-import type { AuthProfile } from "../../auth/oauth/store.js";
+import type { AuthProfile } from "../../auth/store.js";
 import type { XaiTokens } from "../../auth/xai/store.js";
 import type {
   discoverOllamaModels as discoverOllamaModelsRequest,

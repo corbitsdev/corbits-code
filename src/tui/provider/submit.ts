@@ -10,6 +10,7 @@ import {
   saveLocalSettings,
   type Settings,
 } from "../../config/settings.js";
+import { COMMAND_NAME } from "../../branding.js";
 import {
   OAuthProviderScopeError,
   checkOAuthProviderScope,
@@ -82,6 +83,7 @@ export function buildProviderSubmitHandler(
         const scopeCheck = await checkOAuthProviderScope(
           oauth.kind,
           oauth.tokens,
+          COMMAND_NAME,
         );
         if (isBlockingOAuthScopeCheckResult(scopeCheck)) {
           throw new OAuthProviderScopeError(scopeCheck.message);

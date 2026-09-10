@@ -1,3 +1,5 @@
+import { xaiUserIdFromAccessToken } from "@corbits/xai-provider";
+
 import {
   XAI_BILLING_URL,
   XAI_CLIENT_IDENTIFIER,
@@ -5,7 +7,7 @@ import {
   XAI_TOKEN_TIMEOUT_MS,
   XAI_USER_AGENT,
 } from "./constants.js";
-import { getValidXaiToken, xaiUserIdFromAccessToken } from "./session.js";
+import { getValidXaiToken } from "./session.js";
 
 // Live usage/quota for a Grok prepaid plan. Fetched from the CLI chat proxy
 // (which accepts our OAuth token) and mirrors the shape returned by

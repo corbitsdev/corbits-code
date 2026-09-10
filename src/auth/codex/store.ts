@@ -1,8 +1,7 @@
-import {
-  createAuthStore,
-  type AuthProfile,
-  type BaseTokens,
-} from "../oauth/store.js";
+import { type } from "arktype";
+import type { AuthProfile } from "@corbits/oauth-core";
+
+import { createAuthStore, type BaseTokens } from "../store.js";
 
 // On-disk store for Codex OAuth profiles. A user may hold multiple Codex
 // subscriptions (personal, work, ...), so credentials are keyed by a
@@ -17,25 +16,21 @@ export type CodexTokens = BaseTokens & {
 
 export type CodexProfile = AuthProfile<CodexTokens>;
 
-function isCodexTokens(value: unknown): value is CodexTokens {
-  if (typeof value !== "object" || value === null) return false;
-  const t = value as Record<string, unknown>;
-  return (
-    typeof t.access === "string" &&
-    typeof t.refresh === "string" &&
-    typeof t.expiresAt === "number" &&
-    (t.accountId === undefined || typeof t.accountId === "string")
-  );
-}
-
-const store = createAuthStore<CodexTokens>({
-  filename: "codex-auth.json",
-  isTokens: isCodexTokens,
+const CodexTokensShape = type({
+  access: "string",
+  refresh: "string",
+  expiresAt: "number",
+  "accountId?": "string",
 });
 
-export const codexAuthPath = store.authPath;
-export const listCodexProfiles = store.listProfiles;
-export const loadCodexProfile = store.loadProfile;
-export const saveCodexProfile = store.saveProfile;
-export const updateCodexTokens = store.updateTokens;
-export const removeCodexProfile = store.removeProfile;
+function isCodexTokens(value: unknown): value is CodexTokens {
+  return !(CodexTokensShape(value) instanceof type.errors);
+}
+
+export function createCodexAuthStore(settingsDirName: string) {
+  return createAuthStore<CodexTokens>({
+    filename: "codex-auth.json",
+    settingsDirName,
+    isTokens: isCodexTokens,
+  });
+}

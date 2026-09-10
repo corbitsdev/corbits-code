@@ -1,20 +1,18 @@
 import { readFile } from "node:fs/promises";
+import { type } from "arktype";
 
-import {
-  createAuthStore,
-  type BaseTokens,
-} from "../../src/auth/oauth/store.js";
+import { createAuthStore, type BaseTokens } from "../../src/auth/store.js";
 
 type TestTokens = BaseTokens & { accountId?: string };
 
+const TestTokensShape = type({
+  access: "string",
+  refresh: "string",
+  expiresAt: "number",
+});
+
 function isTestTokens(value: unknown): value is TestTokens {
-  if (typeof value !== "object" || value === null) return false;
-  const tokens = value as Record<string, unknown>;
-  return (
-    typeof tokens.access === "string" &&
-    typeof tokens.refresh === "string" &&
-    typeof tokens.expiresAt === "number"
-  );
+  return !(TestTokensShape(value) instanceof type.errors);
 }
 
 async function waitForBarrier(path: string): Promise<void> {
@@ -48,6 +46,7 @@ if (
 
 const store = createAuthStore<TestTokens>({
   filename: "concurrent-auth.json",
+  settingsDirName: ".test-settings",
   isTokens: isTestTokens,
 });
 

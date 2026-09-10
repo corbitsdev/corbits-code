@@ -1,11 +1,18 @@
-import { createTokenSession } from "../oauth/session.js";
-import { CODEX_REFRESH_SKEW_MS } from "./constants.js";
-import { refreshTokens } from "./oauth.js";
+import {
+  createTokenSession,
+  isTokenExpired,
+  OAuthProfileNotFoundError,
+  OAuthRefreshFailedError,
+  type TokenSession,
+} from "@corbits/oauth-core";
+
 import {
   loadCodexProfile,
   updateCodexTokens,
-  type CodexTokens,
-} from "./store.js";
+} from "../../config/oauth-stores.js";
+import { CODEX_REFRESH_SKEW_MS } from "./constants.js";
+import { refreshTokens } from "./oauth.js";
+import type { CodexTokens } from "./store.js";
 
 // Raised when a Codex profile cannot yield a usable access token: it is gone,
 // or its refresh token has been revoked/expired. Carries the profile name so
@@ -36,37 +43,66 @@ export interface CodexAccess {
   accountId?: string | undefined;
 }
 
-const session = createTokenSession<CodexTokens, CodexAccess>({
-  skewMs: CODEX_REFRESH_SKEW_MS,
-  loadProfile: loadCodexProfile,
-  updateTokens: updateCodexTokens,
-  refreshTokens,
-  toAccess: (tokens) => ({
-    access: tokens.access,
-    accountId: tokens.accountId,
-  }),
-  // The refresh response rarely re-issues an id_token, so carry the account id
-  // forward from the prior tokens when the refresh did not supply one.
-  mergeRefreshed: (refreshed, previous) =>
-    refreshed.accountId === undefined && previous.accountId !== undefined
-      ? { ...refreshed, accountId: previous.accountId }
-      : refreshed,
-  missingError: (name) =>
-    new CodexAuthError(
+function wrapCodexAuthError(name: string, err: unknown): never {
+  if (err instanceof OAuthProfileNotFoundError) {
+    throw new CodexAuthError(
       name,
       "missing",
       `Codex profile "${name}" is not authorized. Log in again.`,
-    ),
-  refreshFailedError: (name, err) =>
-    new CodexAuthError(
+    );
+  }
+  if (err instanceof OAuthRefreshFailedError) {
+    const cause = err.cause;
+    throw new CodexAuthError(
       name,
       "refresh-failed",
-      `Codex profile "${name}" could not be refreshed (${err instanceof Error ? err.message : String(err)}). Log in again.`,
-    ),
-});
+      `Codex profile "${name}" could not be refreshed (${cause instanceof Error ? cause.message : String(cause)}). Log in again.`,
+    );
+  }
+  throw err;
+}
 
-export const isCodexTokenExpired = session.isExpired;
-export const getValidCodexToken = session.getValidToken;
+const sessions = new Map<string, TokenSession<CodexTokens, CodexAccess>>();
+
+function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
+  const key = home ?? "";
+  const existing = sessions.get(key);
+  if (existing !== undefined) return existing;
+  const created = createTokenSession<CodexTokens, CodexAccess>({
+    skewMs: CODEX_REFRESH_SKEW_MS,
+    loadProfile: (name) => loadCodexProfile(name, home),
+    updateTokens: (name, tokens) => updateCodexTokens(name, tokens, home),
+    refreshTokens,
+    toAccess: (tokens) => ({
+      access: tokens.access,
+      accountId: tokens.accountId,
+    }),
+    // The refresh response rarely re-issues an id_token, so carry the account id
+    // forward from the prior tokens when the refresh did not supply one.
+    mergeRefreshed: (refreshed, previous) =>
+      refreshed.accountId === undefined && previous.accountId !== undefined
+        ? { ...refreshed, accountId: previous.accountId }
+        : refreshed,
+  });
+  sessions.set(key, created);
+  return created;
+}
+
+export function isCodexTokenExpired(tokens: CodexTokens, now: number): boolean {
+  return isTokenExpired(tokens, now, CODEX_REFRESH_SKEW_MS);
+}
+
+export async function getValidCodexToken(
+  name: string,
+  now?: number,
+  home?: string,
+): Promise<CodexAccess> {
+  try {
+    return await sessionFor(home).getValidToken(name, now);
+  } catch (err) {
+    wrapCodexAuthError(name, err);
+  }
+}
 
 export async function refreshStagedCodexTokens(
   tokens: CodexTokens,

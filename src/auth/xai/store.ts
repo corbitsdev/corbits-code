@@ -1,34 +1,28 @@
-import {
-  createAuthStore,
-  type AuthProfile,
-  type BaseTokens,
-} from "../oauth/store.js";
+import type { AuthProfile } from "@corbits/oauth-core";
+import type { XaiTokens } from "@corbits/xai-provider";
+import { type } from "arktype";
 
-export type XaiTokens = BaseTokens & {
-  idToken?: string;
-};
+import { createAuthStore } from "../store.js";
+
+export type { XaiTokens };
 
 export type XaiProfile = AuthProfile<XaiTokens>;
 
-function isXaiTokens(value: unknown): value is XaiTokens {
-  if (typeof value !== "object" || value === null) return false;
-  const t = value as Record<string, unknown>;
-  return (
-    typeof t.access === "string" &&
-    typeof t.refresh === "string" &&
-    typeof t.expiresAt === "number" &&
-    (t.idToken === undefined || typeof t.idToken === "string")
-  );
-}
-
-const store = createAuthStore<XaiTokens>({
-  filename: "xai-auth.json",
-  isTokens: isXaiTokens,
+const XaiTokensShape = type({
+  access: "string",
+  refresh: "string",
+  expiresAt: "number",
+  "idToken?": "string",
 });
 
-export const xaiAuthPath = store.authPath;
-export const listXaiProfiles = store.listProfiles;
-export const loadXaiProfile = store.loadProfile;
-export const saveXaiProfile = store.saveProfile;
-export const updateXaiTokens = store.updateTokens;
-export const removeXaiProfile = store.removeProfile;
+function isXaiTokens(value: unknown): value is XaiTokens {
+  return !(XaiTokensShape(value) instanceof type.errors);
+}
+
+export function createXaiAuthStore(settingsDirName: string) {
+  return createAuthStore<XaiTokens>({
+    filename: "xai-auth.json",
+    settingsDirName,
+    isTokens: isXaiTokens,
+  });
+}

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { checkOAuthProviderScope } from "./oauth-scope-check.js";
 
+const commandName = "test-cli";
+
 const originalFetch = global.fetch;
 const codexTokens = {
   access: "staged-codex-token",
@@ -37,7 +39,11 @@ describe("checkOAuthProviderScope", () => {
         status: 200,
       });
     });
-    const result = await checkOAuthProviderScope("codex", codexTokens);
+    const result = await checkOAuthProviderScope(
+      "codex",
+      codexTokens,
+      commandName,
+    );
     expect(result.status).toBe("ok");
   });
 
@@ -64,7 +70,7 @@ describe("checkOAuthProviderScope", () => {
       });
     });
 
-    const result = await checkOAuthProviderScope("codex", expired);
+    const result = await checkOAuthProviderScope("codex", expired, commandName);
 
     expect(result.status).toBe("ok");
     expect(requests).toHaveLength(2);
@@ -80,7 +86,7 @@ describe("checkOAuthProviderScope", () => {
         }),
     );
 
-    const result = await checkOAuthProviderScope("codex", expired);
+    const result = await checkOAuthProviderScope("codex", expired, commandName);
 
     expect(result.status).toBe("blocked");
     if (result.status === "blocked") {
@@ -94,14 +100,18 @@ describe("checkOAuthProviderScope", () => {
       throw new Error("network down");
     });
 
-    const result = await checkOAuthProviderScope("codex", expired);
+    const result = await checkOAuthProviderScope("codex", expired, commandName);
 
     expect(result.status).toBe("unavailable");
   });
 
   test("codex: blocks a definitive 403 without surfacing the raw body", async () => {
     stubFetch(() => new Response("forbidden", { status: 403 }));
-    const result = await checkOAuthProviderScope("codex", codexTokens);
+    const result = await checkOAuthProviderScope(
+      "codex",
+      codexTokens,
+      commandName,
+    );
     expect(result.status).toBe("blocked");
     if (result.status === "blocked") {
       expect(result.message).toMatch(/reconnect/i);
@@ -111,7 +121,11 @@ describe("checkOAuthProviderScope", () => {
 
   test("codex: blocks a definitive 401", async () => {
     stubFetch(() => new Response("nope", { status: 401 }));
-    const result = await checkOAuthProviderScope("codex", codexTokens);
+    const result = await checkOAuthProviderScope(
+      "codex",
+      codexTokens,
+      commandName,
+    );
     expect(result.status).toBe("blocked");
   });
 
@@ -119,13 +133,21 @@ describe("checkOAuthProviderScope", () => {
     stubFetch(() => {
       throw new Error("fetch failed");
     });
-    const result = await checkOAuthProviderScope("codex", codexTokens);
+    const result = await checkOAuthProviderScope(
+      "codex",
+      codexTokens,
+      commandName,
+    );
     expect(result.status).toBe("unavailable");
   });
 
   test("codex: unavailable (not scope failure) on a 500", async () => {
     stubFetch(() => new Response("boom", { status: 500 }));
-    const result = await checkOAuthProviderScope("codex", codexTokens);
+    const result = await checkOAuthProviderScope(
+      "codex",
+      codexTokens,
+      commandName,
+    );
     expect(result.status).toBe("unavailable");
   });
 
@@ -136,7 +158,7 @@ describe("checkOAuthProviderScope", () => {
       });
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     });
-    const result = await checkOAuthProviderScope("xai", xaiTokens);
+    const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
     expect(result.status).toBe("ok");
   });
 
@@ -160,7 +182,7 @@ describe("checkOAuthProviderScope", () => {
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     });
 
-    const result = await checkOAuthProviderScope("xai", expired);
+    const result = await checkOAuthProviderScope("xai", expired, commandName);
 
     expect(result.status).toBe("ok");
     expect(requests).toHaveLength(2);
@@ -173,7 +195,7 @@ describe("checkOAuthProviderScope", () => {
       () => new Response(JSON.stringify({ error: "revoked" }), { status: 401 }),
     );
 
-    const result = await checkOAuthProviderScope("xai", expired);
+    const result = await checkOAuthProviderScope("xai", expired, commandName);
 
     expect(result.status).toBe("blocked");
     if (result.status === "blocked") {
@@ -187,14 +209,14 @@ describe("checkOAuthProviderScope", () => {
       throw new DOMException("The operation timed out.", "TimeoutError");
     });
 
-    const result = await checkOAuthProviderScope("xai", expired);
+    const result = await checkOAuthProviderScope("xai", expired, commandName);
 
     expect(result.status).toBe("unavailable");
   });
 
   test("xai: blocks a definitive 403", async () => {
     stubFetch(() => new Response("forbidden", { status: 403 }));
-    const result = await checkOAuthProviderScope("xai", xaiTokens);
+    const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
     expect(result.status).toBe("blocked");
   });
 
@@ -202,7 +224,7 @@ describe("checkOAuthProviderScope", () => {
     stubFetch(() => {
       throw new DOMException("The operation timed out.", "TimeoutError");
     });
-    const result = await checkOAuthProviderScope("xai", xaiTokens);
+    const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
     expect(result.status).toBe("unavailable");
   });
 });

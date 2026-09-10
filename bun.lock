@@ -6,6 +6,7 @@
       "name": "@corbits/code",
       "dependencies": {
         "@corbits/codex-provider": "github:corbitsdev/corbits-codex-provider",
+        "@corbits/oauth-core": "github:corbitsdev/corbits-oauth-core",
         "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses",
         "@corbits/xai-provider": "github:corbitsdev/corbits-xai-provider",
         "@intx/agent": "workspace:*",
@@ -774,7 +775,7 @@
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
-    "@corbits/codex-provider/@corbits/openai-responses": ["@corbits/openai-responses@github:corbitsdev/corbits-openai-responses#1d20dbb", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": ">=0.3.0", "@intx/types": ">=0.3.0" } }, "corbitsdev-corbits-openai-responses-1d20dbb", "sha512-lSJz1KkKD8mEUYiQ57dJprD9JavdJGt3OBRa42tvXLsikt1fJ6qX2mGCwaEXzkfZNc2XY5o7ZpxK5swSJX+LnA=="],
+    "@corbits/codex-provider/@corbits/oauth-core": ["@corbits/oauth-core@github:corbitsdev/corbits-oauth-core#e1e69e6", { "dependencies": { "arktype": "2.2.3" } }, "corbitsdev-corbits-oauth-core-e1e69e6", "sha512-wUrD73iVyk/Dtb4yRn3hCh6N8syfsEvAkRz4XYqT0FIB3sYDSMYEWHcDMJx9nq64my/HBOeN1J6PHIOtpjhtPg=="],
 
     "@corbits/xai-provider/@corbits/oauth-core": ["@corbits/oauth-core@github:corbitsdev/corbits-oauth-core#e1e69e6", { "dependencies": { "arktype": "2.2.3" } }, "corbitsdev-corbits-oauth-core-e1e69e6", "sha512-wUrD73iVyk/Dtb4yRn3hCh6N8syfsEvAkRz4XYqT0FIB3sYDSMYEWHcDMJx9nq64my/HBOeN1J6PHIOtpjhtPg=="],
 
