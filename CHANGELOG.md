@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.20] - 2026-09-10
+
 ### Added
 
 - Occupancy delivers mailbox mail as system inbound when a worker finishes or
@@ -21,12 +23,23 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   TUI-primary `wait_agents` yields as a timeout (workers untouched) when a
   queued Enter steer or uncollected mail/ask is ready. Already-collected waits
   return status without a second report body.
+- Compaction on the primary keeps a retrievable evidence archive and a fresh
+  working context. Failed compact commits do not replace live history. Archive
+  search and read go through the posix tools with a result cap.
+- Grok and OpenCode Go Responses adapters come from `@corbits/openai-responses`
+  and `@corbits/xai-provider`. Codex Responses and Login with ChatGPT come from
+  `@corbits/codex-provider`. Host OAuth PKCE, callback, and token store come
+  from `@corbits/oauth-core`. Duplicate in-tree adapters and OAuth cores are
+  gone.
 
 ### Changed
 
 - `search_agents` default results are id, description, and spawn metadata.
   Pass `include_body=true` to include the loaded system prompt / body
   (still truncated).
+- Leisure truncation applies to every oversized tool result, not a name
+  allowlist. Fleet JSON is pretty-printed so the pager can scroll it. Tool-
+  output blobs page by byte windows, not line caps.
 
 ### Fixed
 
@@ -42,7 +55,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `imagining`, `inventing`) instead of going blank.
 - OpenCode Go routes Muse Spark 1.2 Contributor and Muse Spark 1.3
   Contributor through the Responses API instead of chat completions.
-
+- Oversized fleet-dry reports spill to a retrievable URI instead of a silent
+  ellipsis. `read_file` of a tool-output URI is prompted only when truncation
+  named one. A failed `read_file` shows the error on the collapsed transcript
+  line.
 
 ## [0.3.19] - 2026-09-10
 
