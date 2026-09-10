@@ -5,14 +5,17 @@ import {
   OAuthRefreshFailedError,
   type TokenSession,
 } from "@corbits/oauth-core";
+import {
+  CODEX_REFRESH_SKEW_MS,
+  refreshCodexTokens,
+  type CodexTokens,
+} from "@corbits/codex-provider";
 
 import {
   loadCodexProfile,
   updateCodexTokens,
 } from "../../config/oauth-stores.js";
-import { CODEX_REFRESH_SKEW_MS } from "./constants.js";
-import { refreshTokens } from "./oauth.js";
-import type { CodexTokens } from "./store.js";
+import { withDefaultCodexExpiry } from "./store.js";
 
 // Raised when a Codex profile cannot yield a usable access token: it is gone,
 // or its refresh token has been revoked/expired. Carries the profile name so
@@ -64,6 +67,17 @@ function wrapCodexAuthError(name: string, err: unknown): never {
 
 const sessions = new Map<string, TokenSession<CodexTokens, CodexAccess>>();
 
+async function refreshCodexTokensForStore(
+  refreshToken: string,
+  now: number,
+  previous: CodexTokens,
+): Promise<CodexTokens> {
+  return withDefaultCodexExpiry(
+    await refreshCodexTokens(refreshToken, now, previous),
+    now,
+  );
+}
+
 function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
   const key = home ?? "";
   const existing = sessions.get(key);
@@ -72,13 +86,18 @@ function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
     skewMs: CODEX_REFRESH_SKEW_MS,
     loadProfile: (name) => loadCodexProfile(name, home),
     updateTokens: (name, tokens) => updateCodexTokens(name, tokens, home),
-    refreshTokens,
+    // createTokenSession only passes (refresh, now). The package refresh
+    // helper needs prior tokens to keep chatgpt-account-id; mergeRefreshed
+    // supplies that after this stub call.
+    refreshTokens: (refreshToken, now) =>
+      refreshCodexTokensForStore(refreshToken, now, {
+        access: "",
+        refresh: refreshToken,
+      }),
     toAccess: (tokens) => ({
       access: tokens.access,
       accountId: tokens.accountId,
     }),
-    // The refresh response rarely re-issues an id_token, so carry the account id
-    // forward from the prior tokens when the refresh did not supply one.
     mergeRefreshed: (refreshed, previous) =>
       refreshed.accountId === undefined && previous.accountId !== undefined
         ? { ...refreshed, accountId: previous.accountId }
@@ -109,7 +128,11 @@ export async function refreshStagedCodexTokens(
   now: number = Date.now(),
 ): Promise<CodexTokens> {
   if (!isCodexTokenExpired(tokens, now)) return tokens;
-  const refreshed = await refreshTokens(tokens.refresh, now);
+  const refreshed = await refreshCodexTokensForStore(
+    tokens.refresh,
+    now,
+    tokens,
+  );
   Object.assign(tokens, refreshed);
   return tokens;
 }
