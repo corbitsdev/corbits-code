@@ -15,15 +15,32 @@ import {
   callTargetsRestricted,
   commandTargetsRestricted,
 } from "./classify.js";
-import { autoShellRuleForCall, safeWorktreeCommand } from "./auto-shell-policy.js";
+import {
+  autoShellRuleForCall,
+  safeWorktreeCommand,
+} from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { looksLikePath } from "../plugins/path-escape-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
-import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
-import { splitChainedCommand, isShellCommentOnly, stripCommentLines } from "./command.js";
-import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
-import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
+import {
+  evaluateApprovals,
+  grantScopeMatches,
+  type GrantWorkspace,
+} from "./authz-grants.js";
+import {
+  splitChainedCommand,
+  isShellCommentOnly,
+  stripCommentLines,
+} from "./command.js";
+import {
+  createPathRestriction,
+  resolveWorkspacePath,
+} from "./path-restriction.js";
+import {
+  createWorktreeRootsProvider,
+  type RootsProvider,
+} from "./worktree-roots.js";
 import { OPERATOR_DECLINED_PREFIX } from "./decline-markers.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
@@ -38,7 +55,11 @@ import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
 import { classifyPermissionKind } from "../telemetry/classify.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
-import { NOOP_APPROVAL_LOG, type ApprovalLog, type ApprovalOutcomeKind } from "./approval-log.js";
+import {
+  NOOP_APPROVAL_LOG,
+  type ApprovalLog,
+  type ApprovalOutcomeKind,
+} from "./approval-log.js";
 
 // Closes out an operator prompt: ends the wait span and records the outcome.
 // buildRequests yields at most one request per tool call, and the two prompt
@@ -62,12 +83,17 @@ function finishApprovalWait(
 // autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
 // finish() usage); anything else that denies is a plain operator/unavailable
 // decision.
-function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeKind {
+function classifyOutcome(
+  outcome: ApprovalOutcome | undefined,
+): ApprovalOutcomeKind {
   if (outcome === undefined) return "deny";
   if (!outcome.allow) {
     const message = outcome.message ?? "";
     if (message.includes("timed out")) return "timeout";
-    if (message.includes("no longer running") || message.includes("identity changed")) {
+    if (
+      message.includes("no longer running") ||
+      message.includes("identity changed")
+    ) {
       return "abort";
     }
     return "deny";
@@ -75,7 +101,9 @@ function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeK
   return outcome.persist !== undefined ? "allow-with-scope" : "allow-once";
 }
 
-export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
+export type GateVerdict =
+  | { allowed: true }
+  | { allowed: false; reason: string };
 
 // One shell segment's forced-ask guard: a secret-path reference or a
 // restricted target, either of which forces an operator decision no matter
@@ -100,7 +128,8 @@ function segmentGuard(
   cwd?: string,
   rootsProvider?: RootsProvider,
 ): SegmentGuard | undefined {
-  if (commandReferencesSensitivePath(segment) !== undefined) return { kind: "secret" };
+  if (commandReferencesSensitivePath(segment) !== undefined)
+    return { kind: "secret" };
   if (
     cwd !== undefined &&
     rootsProvider !== undefined &&
@@ -108,7 +137,8 @@ function segmentGuard(
   ) {
     return undefined;
   }
-  if (commandTargetsRestricted(segment, isRestricted)) return { kind: "restricted" };
+  if (commandTargetsRestricted(segment, isRestricted))
+    return { kind: "restricted" };
   return undefined;
 }
 
@@ -145,7 +175,9 @@ export function preGrantGuardReason(
 ): string | undefined {
   if (request.tool !== "run_shell") return undefined;
   const fullCommand = request.subject;
-  const segments = splitChainedCommand(fullCommand).filter((s) => !isShellCommentOnly(s));
+  const segments = splitChainedCommand(fullCommand).filter(
+    (s) => !isShellCommentOnly(s),
+  );
   if (segments.length === 0) return "empty command";
   const blockReason = runShellAuthzBlockReason(fullCommand);
   if (blockReason !== undefined) return blockReason;
@@ -209,14 +241,23 @@ function isRequestCoveredByApprovals(
   rootsProvider?: RootsProvider,
 ): boolean {
   const scoped = approvals.filter((a) =>
-    grantScopeMatches(a, request.tool, activeProviderModel, request.cwd, workspace),
+    grantScopeMatches(
+      a,
+      request.tool,
+      activeProviderModel,
+      request.cwd,
+      workspace,
+    ),
   );
   if (scoped.length === 0) return false;
   if (request.tool !== "run_shell") {
     return scoped.some((a) => matchesPattern(request.subject, a.pattern));
   }
-  if (preGrantGuardReason(request, isRestricted, rootsProvider) !== undefined) return false;
-  const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
+  if (preGrantGuardReason(request, isRestricted, rootsProvider) !== undefined)
+    return false;
+  const segments = splitChainedCommand(request.subject).filter(
+    (s) => !isShellCommentOnly(s),
+  );
   if (segments.length === 0) return false;
   const cwd = request.cwd ?? workspace.resolvedCwd;
   return segments.every((segment) => {
@@ -292,7 +333,11 @@ export interface PermissionGateOptions {
   // restriction anchored to the session cwd; a caller resolving a sub-agent
   // request's own cwd would clear restrictions the gate still enforces.
   onGrant?:
-    ((approval: Approval, covers: (request: PermissionRequest) => boolean) => void) | undefined;
+    | ((
+        approval: Approval,
+        covers: (request: PermissionRequest) => boolean,
+      ) => void)
+    | undefined;
   // Records that a prompt was shown and how it was answered. Injected rather
   // than read from the process-wide handle so a gate built without one is
   // silent by construction.
@@ -396,7 +441,8 @@ function identityArguments(
   const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === "string" && looksLikePath(key)) {
-      normalized[key] = resolveWorkspacePath(cwd, value, rootsProvider) ?? value;
+      normalized[key] =
+        resolveWorkspacePath(cwd, value, rootsProvider) ?? value;
     } else {
       normalized[key] = value;
     }
@@ -404,14 +450,18 @@ function identityArguments(
   return JSON.stringify(normalized);
 }
 
-export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
-  const { requestApproval, persist, interactive, providerName, model, cwd } = options;
+export function createPermissionGate(
+  options: PermissionGateOptions,
+): PermissionGate {
+  const { requestApproval, persist, interactive, providerName, model, cwd } =
+    options;
   const reactorGated = options.reactorGated;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const approvalLog = options.approvalLog ?? NOOP_APPROVAL_LOG;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
-  const rootsProvider = options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd);
+  const rootsProvider =
+    options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd);
   const pathRestriction = createPathRestriction(resolvedCwd, rootsProvider);
   const isRestricted = pathRestriction.isRestricted;
   // This gate's project boundary for grant matching (see cwdMatchesGrant):
@@ -419,13 +469,18 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // fresh per read from the same rootsProvider the gate already uses for
   // path containment, so "same project" for a grant and "inside the
   // workspace" for a path share one authority.
-  const grantWorkspace = (): GrantWorkspace => ({ resolvedCwd, roots: rootsProvider() });
+  const grantWorkspace = (): GrantWorkspace => ({
+    resolvedCwd,
+    roots: rootsProvider(),
+  });
   let auto = options.auto;
   let skipPermissions = options.skipPermissions;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
   let activeProviderModel =
-    providerName !== undefined && model !== undefined ? `${providerName}:${model}` : undefined;
+    providerName !== undefined && model !== undefined
+      ? `${providerName}:${model}`
+      : undefined;
   // Session grants live only in this array; persisted grants are seeded in via
   // options.approvals and re-routed to a store by the persist callback.
   const sessionGrants: Approval[] = [];
@@ -463,7 +518,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         : outcome.persist.pattern;
     const shellSegments =
       tool === "run_shell"
-        ? splitChainedCommand(normalizedPattern).filter((segment) => !isShellCommentOnly(segment))
+        ? splitChainedCommand(normalizedPattern).filter(
+            (segment) => !isShellCommentOnly(segment),
+          )
         : [];
     const mintPerSegment =
       tool === "run_shell" &&
@@ -557,7 +614,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     const subAgentIdentity = getSubAgentIdentity();
     const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
 
-    const isRestrictedHere = bindRestrictedToProcessCwd(isRestricted, effectiveCwd);
+    const isRestrictedHere = bindRestrictedToProcessCwd(
+      isRestricted,
+      effectiveCwd,
+    );
     // A call targeting a restricted path (outside the workspace, or a write
     // under the session state root) drops from allow to ask, so it never auto-allows on
 
@@ -572,7 +632,8 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // safe pipeline tail (e.g. `| sort`) is not re-prompted when only an earlier
     // segment mentions a secret path.
     const shellReferencesSecret =
-      shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
+      shellCmd !== undefined &&
+      commandReferencesSensitivePath(shellCmd) !== undefined;
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { kind: "allow" };
     }
@@ -590,7 +651,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // operator prompt. Everything else auto-allows. Path-keyed secret
         // reads stay hard-denied by secret-guard; shell that only *mentions*
         // a secret path is ask so an explicit one-time approval can pass it.
-        const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
+        const shellRule = autoShellRuleForCall(
+          call,
+          isRestrictedHere,
+          effectiveCwd,
+          rootsProvider,
+        );
         if (shellRule?.effect === "deny") {
           recordAutoDecision(call.name, shellRule.name, "auto-deny");
           return { kind: "deny", reason: shellRule.reason };
@@ -613,7 +679,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       const request: typeof rawRequest = {
         ...rawRequest,
         cwd: effectiveCwd,
-        ...(subAgentIdentity !== undefined ? { agentLabel: subAgentIdentity.description } : {}),
+        ...(subAgentIdentity !== undefined
+          ? { agentLabel: subAgentIdentity.description }
+          : {}),
       };
       // Shell: security still splits the chain, but the operator sees (and
       // accepts/rejects) the full command once. Any unapproved segment fails the
@@ -649,7 +717,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           // replay for a guarded one just because the pattern also matches it.
           // segmentGuard is the same guard preGrantGuardReason applies before
           // isRequestCoveredByGrant lets a queued request skip the prompt.
-          const guard = segmentGuard(segment, isRestrictedHere, effectiveCwd, rootsProvider);
+          const guard = segmentGuard(
+            segment,
+            isRestrictedHere,
+            effectiveCwd,
+            rootsProvider,
+          );
           if (guard !== undefined) {
             if (guard.kind === "secret") anySecret = true;
             needsOperator = true;
@@ -679,7 +752,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const askRule = anySecret ? "sensitive-path" : undefined;
 
         if (!interactive || requestApproval === undefined) {
-          recordAutoDecision(request.tool, askRule ?? "non-interactive", "deny");
+          recordAutoDecision(
+            request.tool,
+            askRule ?? "non-interactive",
+            "deny",
+          );
           return {
             kind: "deny",
             reason: anySecret
@@ -690,7 +767,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
         // Secret-path shell must never mint a stored grant — even an exact match
         // would be misleading because future secret-path shell always re-asks.
-        const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
+        const requestForOperator = anySecret
+          ? { ...request, scopes: [] }
+          : request;
         return {
           kind: "ask",
           request: requestForOperator,
@@ -761,7 +840,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
       ask.settle(classifyOutcome(outcome));
     }
-    if (outcome !== undefined && outcome.allow && !anySecret && (stillCurrent?.() ?? true)) {
+    if (
+      outcome !== undefined &&
+      outcome.allow &&
+      !anySecret &&
+      (stillCurrent?.() ?? true)
+    ) {
       mintGrant(request.tool, outcome);
     }
     return outcome;
@@ -774,11 +858,14 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     const decision = await decide(call);
     if (decision.kind === "allow") return { allowed: true };
-    if (decision.kind === "deny") return { allowed: false, reason: decision.reason };
+    if (decision.kind === "deny")
+      return { allowed: false, reason: decision.reason };
     const outcome = await resolveInteractiveAsk(decision);
     if (outcome === undefined || !outcome.allow) {
       const suffix =
-        outcome?.message !== undefined && outcome.message.length > 0 ? ` — ${outcome.message}` : "";
+        outcome?.message !== undefined && outcome.message.length > 0
+          ? ` — ${outcome.message}`
+          : "";
       return {
         allowed: false,
         reason: `${OPERATOR_DECLINED_PREFIX}${decision.request.action} (${decision.request.subject})${suffix}`,
@@ -815,13 +902,16 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     return verdict;
   };
 
-  const executionVerdict = async (call: ToolCall): Promise<AuthorizeVerdict> => {
+  const executionVerdict = async (
+    call: ToolCall,
+  ): Promise<AuthorizeVerdict> => {
     const cached = authorizedByCallId.get(call.id);
     const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
     if (
       cached !== undefined &&
       cached.name === call.name &&
-      cached.arguments === identityArguments(call.arguments, identityCwd, rootsProvider)
+      cached.arguments ===
+        identityArguments(call.arguments, identityCwd, rootsProvider)
     ) {
       authorizedByCallId.delete(call.id);
       return cached.verdict;
@@ -832,9 +922,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // Resolve a suspended reactor approval once the operator answers. The
   // request is the one authorizeCall built at decision time, so the ask log,
   // wait span, and grant minting are identical to the middleware path.
-  const resolveSuspended = (request: PermissionRequest, stillCurrent?: () => boolean) => {
+  const resolveSuspended = (
+    request: PermissionRequest,
+    stillCurrent?: () => boolean,
+  ) => {
     const anySecret =
-      request.tool === "run_shell" && commandReferencesSensitivePath(request.subject) !== undefined;
+      request.tool === "run_shell" &&
+      commandReferencesSensitivePath(request.subject) !== undefined;
     return resolveInteractiveAsk(
       {
         kind: "ask",
@@ -842,7 +936,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         anySecret,
         segmentCount:
           request.tool === "run_shell"
-            ? splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s)).length
+            ? splitChainedCommand(request.subject).filter(
+                (s) => !isShellCommentOnly(s),
+              ).length
             : 0,
       },
       stillCurrent,
@@ -859,16 +955,22 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   };
 
   const sameApproval = (a: Approval, b: Approval): boolean =>
-    a.tool === b.tool && a.pattern === b.pattern && a.providerModel === b.providerModel;
+    a.tool === b.tool &&
+    a.pattern === b.pattern &&
+    a.providerModel === b.providerModel;
 
   const getSessionApprovals = (): readonly Approval[] => [...sessionGrants];
 
   const removeSessionApproval = (target: Approval): void => {
     for (let i = approvals.length - 1; i >= 0; i--) {
-      if (sameApproval(approvals[i]!, target)) approvals.splice(i, 1);
+      const approval = approvals[i];
+      if (approval !== undefined && sameApproval(approval, target))
+        approvals.splice(i, 1);
     }
     for (let i = sessionGrants.length - 1; i >= 0; i--) {
-      if (sameApproval(sessionGrants[i]!, target)) sessionGrants.splice(i, 1);
+      const grant = sessionGrants[i];
+      if (grant !== undefined && sameApproval(grant, target))
+        sessionGrants.splice(i, 1);
     }
   };
 

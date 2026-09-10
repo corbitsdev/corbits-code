@@ -16,7 +16,8 @@ export const listDirDefinition: ToolDefinition = {
     properties: {
       path: {
         type: "string",
-        description: "Directory path relative to the workspace root. Defaults to the root.",
+        description:
+          "Directory path relative to the workspace root. Defaults to the root.",
       },
     },
     required: [],
@@ -32,7 +33,9 @@ export interface ListDirectoryOptions {
   allowOutside?: boolean | (() => boolean);
 }
 
-function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
+function resolveAllowOutside(
+  value: boolean | (() => boolean) | undefined,
+): boolean {
   if (typeof value === "function") return value();
   return value === true;
 }
@@ -61,7 +64,11 @@ export async function listDirectory(
   } catch (err) {
     return `Error: cannot list ${rel}: ${err instanceof Error ? err.message : String(err)}`;
   }
-  if (!allowOutside && realAbs !== realCwd && !realAbs.startsWith(realCwd + sep)) {
+  if (
+    !allowOutside &&
+    realAbs !== realCwd &&
+    !realAbs.startsWith(realCwd + sep)
+  ) {
     return `Error: ${rel} is outside the workspace.`;
   }
 
@@ -72,15 +79,22 @@ export async function listDirectory(
     return `Error: cannot list ${rel}: ${err instanceof Error ? err.message : String(err)}`;
   }
 
-  const names = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).sort();
+  const names = entries
+    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+    .sort();
   if (names.length === 0) return `(empty directory) ${rel}`;
 
   const shown = names.slice(0, MAX_ENTRIES);
   const remaining = names.length - shown.length;
-  return shown.join("\n") + (remaining > 0 ? `\n… (${remaining} more entries)` : "");
+  return (
+    shown.join("\n") + (remaining > 0 ? `\n… (${remaining} more entries)` : "")
+  );
 }
 
-export function createListDirTool(cwd: string, options: ListDirectoryOptions = {}): AgentTool {
+export function createListDirTool(
+  cwd: string,
+  options: ListDirectoryOptions = {},
+): AgentTool {
   return stringTool({
     definition: listDirDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {

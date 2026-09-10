@@ -43,7 +43,12 @@ describe("isReasoningEffort", () => {
 
 describe("supportedEfforts", () => {
   test("known reasoning model gets the default set without none or xhigh", () => {
-    expect(supportedEfforts("gpt-5")).toEqual(["minimal", "low", "medium", "high"]);
+    expect(supportedEfforts("gpt-5")).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 
   test("gpt-5.1 family includes none (disable) and xhigh", () => {
@@ -73,7 +78,13 @@ describe("supportedEfforts", () => {
   });
 
   test("gpt-6-astra takes low through max on both API and Codex paths", () => {
-    expect(supportedEfforts("gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(supportedEfforts("gpt-6-astra")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
     expect(supportedEfforts("gpt-6-astra", undefined, true)).toEqual([
       "low",
       "medium",
@@ -111,15 +122,29 @@ describe("supportedEfforts", () => {
   });
 
   test("the model name alone does not imply codex levels", () => {
-    expect(supportedEfforts("gpt-5.5")).toEqual(["minimal", "low", "medium", "high"]);
+    expect(supportedEfforts("gpt-5.5")).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 
   test("unknown model gets the safe subset", () => {
-    expect(supportedEfforts("some-random-model")).toEqual(["low", "medium", "high"]);
+    expect(supportedEfforts("some-random-model")).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 
   test("grok-4.6 includes xhigh", () => {
-    expect(supportedEfforts("grok-4.6")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(supportedEfforts("grok-4.6")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
   });
 
   test("grok-4.5 stays on the unknown-model subset without xhigh", () => {
@@ -127,7 +152,11 @@ describe("supportedEfforts", () => {
   });
 
   test("grok-composer-2.5-fast stays on the unknown-model subset without xhigh", () => {
-    expect(supportedEfforts("grok-composer-2.5-fast")).toEqual(["low", "medium", "high"]);
+    expect(supportedEfforts("grok-composer-2.5-fast")).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 
   test("glm-5.3 family supports low, high, and max", () => {
@@ -196,7 +225,9 @@ describe("cycleReasoningEffort", () => {
 
   test("leftover unsupported effort cycles from the family default", () => {
     expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe("high");
-    expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe(cycleReasoningEffort("gpt-5", "medium"));
+    expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe(
+      cycleReasoningEffort("gpt-5", "medium"),
+    );
   });
 
   test("grok leftover minimal cycles the same as unset / high", () => {
@@ -233,21 +264,31 @@ describe("reasoning capability gate", () => {
   });
 
   test("an unknown capability falls back to the local heuristic", () => {
-    expect(supportedEfforts("gpt-5", undefined)).toEqual(["minimal", "low", "medium", "high"]);
+    expect(supportedEfforts("gpt-5", undefined)).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 
   test("supportedEfforts reads the registry by default", () => {
     setModelReasoningCapabilities({ "chat-only-model": false });
     expect(modelReasoningCapability("chat-only-model")).toBe(false);
     expect(supportedEfforts("chat-only-model")).toEqual([]);
-    expect(supportedEfforts("model-not-in-registry")).toEqual(["low", "medium", "high"]);
+    expect(supportedEfforts("model-not-in-registry")).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 
   test("validateEffort rejects any effort for a non-reasoning model", () => {
     setModelReasoningCapabilities({ "chat-only-model": false });
     const result = validateEffort("chat-only-model", "low");
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("does not support reasoning");
+    if (!result.ok)
+      expect(result.error).toContain("does not support reasoning");
   });
 });
 
@@ -255,9 +296,9 @@ describe("ROLE_DEFAULT_EFFORT", () => {
   test("orchestrator is higher than leaf", () => {
     expect(ROLE_DEFAULT_EFFORT.orchestrator).toBe("high");
     expect(ROLE_DEFAULT_EFFORT.leaf).toBe("medium");
-    expect(REASONING_EFFORTS.indexOf(ROLE_DEFAULT_EFFORT.orchestrator)).toBeGreaterThan(
-      REASONING_EFFORTS.indexOf(ROLE_DEFAULT_EFFORT.leaf),
-    );
+    expect(
+      REASONING_EFFORTS.indexOf(ROLE_DEFAULT_EFFORT.orchestrator),
+    ).toBeGreaterThan(REASONING_EFFORTS.indexOf(ROLE_DEFAULT_EFFORT.leaf));
   });
 });
 
@@ -480,7 +521,9 @@ describe("resolveSessionEffort", () => {
     expect(resolveSessionEffort("grok-4.6", undefined)).toBe("high");
     expect(resolveSessionEffort("gpt-5.1", undefined)).toBe("none");
     expect(resolveSessionEffort("gpt-5.6-sol", undefined, true)).toBe("medium");
-    expect(resolveSessionEffort("some-random-model", undefined)).toBeUndefined();
+    expect(
+      resolveSessionEffort("some-random-model", undefined),
+    ).toBeUndefined();
   });
 });
 

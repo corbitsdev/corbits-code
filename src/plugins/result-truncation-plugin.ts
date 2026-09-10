@@ -7,7 +7,13 @@ import {
 } from "./tool-result-materialize.js";
 import { scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
 
-const TRUNCATABLE_TOOLS = new Set(["read_file", "grep", "run_shell", "search_files", "web_fetch"]);
+const TRUNCATABLE_TOOLS = new Set([
+  "read_file",
+  "grep",
+  "run_shell",
+  "search_files",
+  "web_fetch",
+]);
 
 // Characters, not tokens — conversion ratio is roughly 4 chars/token.
 // Match the reactor's default size-cap (vendor/intx-inference assembly.ts) so
@@ -57,7 +63,8 @@ function truncationNotice(args: {
   uri?: string;
   absolutePath?: string;
 }): string {
-  const { maxChars, remaining, fullLength, contentType, uri, absolutePath } = args;
+  const { maxChars, remaining, fullLength, contentType, uri, absolutePath } =
+    args;
   if (uri === undefined) {
     return (
       `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
@@ -66,7 +73,8 @@ function truncationNotice(args: {
       `Use offset/limit or a narrower query.]`
     );
   }
-  const pathBit = absolutePath !== undefined ? ` (session path: ${absolutePath})` : "";
+  const pathBit =
+    absolutePath !== undefined ? ` (session path: ${absolutePath})` : "";
   return (
     `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
     `${remaining.toLocaleString()} more chars omitted here. The full result ` +
@@ -173,7 +181,11 @@ export async function truncateToolResultContent(
   spill?: TruncationSpillOptions,
 ): Promise<string> {
   if (content.length <= maxChars) return content;
-  return spillAndTruncate(materializeToolResultContent(content), maxChars, spill);
+  return spillAndTruncate(
+    materializeToolResultContent(content),
+    maxChars,
+    spill,
+  );
 }
 
 /**
@@ -193,7 +205,11 @@ export async function truncateToolResultRecord(
     // so callers that asked for a string get a stable shape.
     return materializeToolResultRecord(content).text;
   }
-  return spillAndTruncate(materializeToolResultRecord(content), maxChars, spill);
+  return spillAndTruncate(
+    materializeToolResultRecord(content),
+    maxChars,
+    spill,
+  );
 }
 
 export interface ResultTruncationPluginOptions {
@@ -208,7 +224,9 @@ export interface ResultTruncationPluginOptions {
   getContextDir?: () => string | undefined;
 }
 
-export function resultTruncationPlugin(options: ResultTruncationPluginOptions = {}): ToolPlugin {
+export function resultTruncationPlugin(
+  options: ResultTruncationPluginOptions = {},
+): ToolPlugin {
   const { getBlobWriter, getContextDir } = options;
   return {
     middleware: (next) => async (call, signal) => {
@@ -228,7 +246,11 @@ export function resultTruncationPlugin(options: ResultTruncationPluginOptions = 
 
       const { content } = result;
       if (typeof content === "string") {
-        const truncated = await truncateToolResultContent(content, MAX_RESULT_CHARS, spill);
+        const truncated = await truncateToolResultContent(
+          content,
+          MAX_RESULT_CHARS,
+          spill,
+        );
         if (truncated === content) return result;
         return { ...result, content: truncated };
       }
@@ -237,7 +259,11 @@ export function resultTruncationPlugin(options: ResultTruncationPluginOptions = 
         const record = content as Record<string, unknown>;
         const compact = JSON.stringify(record);
         if (compact.length <= MAX_RESULT_CHARS) return result;
-        const truncated = await truncateToolResultRecord(record, MAX_RESULT_CHARS, spill);
+        const truncated = await truncateToolResultRecord(
+          record,
+          MAX_RESULT_CHARS,
+          spill,
+        );
         return { ...result, content: truncated };
       }
 

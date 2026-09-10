@@ -41,7 +41,9 @@ function isValidCapacity(n: number): boolean {
   return n === Number.POSITIVE_INFINITY || (Number.isInteger(n) && n >= 0);
 }
 
-export function createAdmissionQueue(opts: CreateAdmissionQueueOpts = {}): AdmissionQueue {
+export function createAdmissionQueue(
+  opts: CreateAdmissionQueueOpts = {},
+): AdmissionQueue {
   const now = opts.now ?? (() => Date.now());
   let capacity =
     opts.capacity !== undefined && isValidCapacity(opts.capacity)

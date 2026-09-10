@@ -35,7 +35,10 @@ describe("toolOutputUriPlugin", () => {
 
   test("normalizes mistaken URI then read-file guard pages without stock split", async () => {
     const encoder = new TextEncoder();
-    const lines = Array.from({ length: 5_000 }, (_, i) => `blob-line-${i}`).join("\n");
+    const lines = Array.from(
+      { length: 5_000 },
+      (_, i) => `blob-line-${i}`,
+    ).join("\n");
     const blobReader = createBlobReader({
       async readBlob(key) {
         if (key === "paged") return encoder.encode(lines);
@@ -45,7 +48,10 @@ describe("toolOutputUriPlugin", () => {
     const tools = createPosixTools({
       cwd: "/tmp",
       blobReader,
-      plugins: [toolOutputUriPlugin(), readFileGuardPlugin("/tmp", { blobReader })],
+      plugins: [
+        toolOutputUriPlugin(),
+        readFileGuardPlugin("/tmp", { blobReader }),
+      ],
     });
     const result = await tools.run(
       {

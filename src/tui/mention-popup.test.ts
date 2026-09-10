@@ -8,11 +8,15 @@ import { describe, expect, test } from "bun:test";
 
 import type { KeyEvent } from "@opentui/core";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { wireGates } from "./gate-wire";
 import { withTestRenderer } from "./harness";
 import { createAppShell } from "./shell/index";
 import { setMentionSuggestionSource, type AppShell } from "./shell/internals";
-import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+} from "./shell/overlay-host";
 import {
   closeMentionPopup,
   handleMentionPopupKey,
@@ -106,7 +110,7 @@ function hangableSource(): {
   };
 }
 
-const ROOT = TREE[""]!;
+const ROOT = defined(TREE[""]);
 
 describe("@ popup narrows as you type", () => {
   test("printable keys filter the list and land in the prompt", async () => {
@@ -116,7 +120,11 @@ describe("@ popup narrows as you type", () => {
 
       expect(await type(shell, printable("s"))).toBe(true);
       expect(shell.prompt.value).toBe("read @s");
-      expect(shell.overlayItems).toEqual(["session-notes.md", "src/", "AGENTS.md"]);
+      expect(shell.overlayItems).toEqual([
+        "session-notes.md",
+        "src/",
+        "AGENTS.md",
+      ]);
 
       await type(shell, printable("e"));
       expect(shell.prompt.value).toBe("read @se");
@@ -131,7 +139,11 @@ describe("@ popup narrows as you type", () => {
 
       expect(await type(shell, BACKSPACE)).toBe(true);
       expect(shell.prompt.value).toBe("read @s");
-      expect(shell.overlayItems).toEqual(["session-notes.md", "src/", "AGENTS.md"]);
+      expect(shell.overlayItems).toEqual([
+        "session-notes.md",
+        "src/",
+        "AGENTS.md",
+      ]);
     });
   });
 
@@ -204,7 +216,9 @@ describe("@ popup narrows as you type", () => {
     await withShell(async (shell) => {
       await openAt(shell, "@");
       const down = { name: "down", ctrl: false, meta: false, option: false };
-      expect(handleMentionPopupKey(shell, down as unknown as KeyEvent)).toBe(false);
+      expect(handleMentionPopupKey(shell, down as unknown as KeyEvent)).toBe(
+        false,
+      );
     });
   });
 
@@ -274,7 +288,11 @@ describe("@ popup narrows as you type", () => {
         expect(shell.prompt.value).toBe("@s");
         expect(shell.overlayKind).toBe("mentions");
         expect(isMentionPopupOpen(shell)).toBe(true);
-        expect(shell.overlayItems).toEqual(["session-notes.md", "src/", "AGENTS.md"]);
+        expect(shell.overlayItems).toEqual([
+          "session-notes.md",
+          "src/",
+          "AGENTS.md",
+        ]);
         expect(resolved).toBeUndefined();
 
         // Mention filtering keeps working after the refresh.
@@ -313,7 +331,7 @@ describe("@ popup narrows as you type", () => {
             subject: "bun test",
             scopes: [],
           },
-          resolve: () => {},
+          resolve: () => undefined,
         });
         expect(shell.overlayKind).toBe("permissions");
 

@@ -83,7 +83,9 @@ function pruneCursorHistory(cursors: Map<string, ReadCursor>): void {
 function mintCursor(
   content: string,
   cursors: Map<string, ReadCursor>,
-  source: { kind: "file"; absolutePath: string } | { kind: "blob"; uri: string },
+  source:
+    | { kind: "file"; absolutePath: string }
+    | { kind: "blob"; uri: string },
 ): string {
   const match = CONTINUE_OFFSET_RE.exec(content);
   if (match === null) return content;
@@ -92,7 +94,12 @@ function mintCursor(
   cursors.set(
     cursorId,
     source.kind === "file"
-      ? { kind: "file", absolutePath: source.absolutePath, offset, consumed: false }
+      ? {
+          kind: "file",
+          absolutePath: source.absolutePath,
+          offset,
+          consumed: false,
+        }
       : { kind: "blob", uri: source.uri, offset, consumed: false },
   );
   pruneCursorHistory(cursors);
@@ -127,17 +134,24 @@ function staleCursorMessage(cursor: ReadCursor): string {
 }
 
 function numArg(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function numberLine(lineNo: number, text: string): string {
   return `${String(lineNo).padStart(6, " ")}\t${text}`;
 }
 
-function mapFilesystemStreamError(displayPath: string, err: NodeJS.ErrnoException): Error {
+function mapFilesystemStreamError(
+  displayPath: string,
+  err: NodeJS.ErrnoException,
+): Error {
   if (err.code === "ENOENT") return new Error(`file not found: ${displayPath}`);
-  if (err.code === "EACCES") return new Error(`permission denied: ${displayPath}`);
-  if (err.code === "EISDIR") return new Error(`path is a directory: ${displayPath}`);
+  if (err.code === "EACCES")
+    return new Error(`permission denied: ${displayPath}`);
+  if (err.code === "EISDIR")
+    return new Error(`path is a directory: ${displayPath}`);
   return err;
 }
 
@@ -200,7 +214,9 @@ function readStreamBounded(
         return false;
       }
       const tooLong = overflow || raw.length > READ_FILE_MAX_LINE_LENGTH;
-      const text = tooLong ? raw.slice(0, READ_FILE_MAX_LINE_LENGTH) + LINE_TRUNC_SUFFIX : raw;
+      const text = tooLong
+        ? raw.slice(0, READ_FILE_MAX_LINE_LENGTH) + LINE_TRUNC_SUFFIX
+        : raw;
       const numbered = numberLine(lineNo, text);
       const bytes = Buffer.byteLength(numbered, "utf8") + 1;
       if (emitted > 0 && outBytes + bytes > contentBudget) {
@@ -266,7 +282,10 @@ function readStreamBounded(
       if (firstChunk) {
         firstChunk = false;
         if (chunk.includes(0)) {
-          done({ content: `refusing to read binary file: ${displayPath}`, isError: true });
+          done({
+            content: `refusing to read binary file: ${displayPath}`,
+            isError: true,
+          });
           return;
         }
       }
@@ -335,10 +354,18 @@ export function readBytesBounded(
 ): Promise<BoundedRead> {
   async function* byteChunks(): AsyncGenerator<Buffer> {
     for (let i = 0; i < bytes.length; i += TOOL_OUTPUT_CHUNK_BYTES) {
-      yield Buffer.from(bytes.subarray(i, Math.min(i + TOOL_OUTPUT_CHUNK_BYTES, bytes.length)));
+      yield Buffer.from(
+        bytes.subarray(i, Math.min(i + TOOL_OUTPUT_CHUNK_BYTES, bytes.length)),
+      );
     }
   }
-  return readStreamBounded(Readable.from(byteChunks()), displayPath, offset, limit, signal);
+  return readStreamBounded(
+    Readable.from(byteChunks()),
+    displayPath,
+    offset,
+    limit,
+    signal,
+  );
 }
 
 function continuationNotice(
@@ -367,9 +394,12 @@ function resolveReadFilePaging(call: { arguments: Record<string, unknown> }): {
 } {
   const offsetArg = numArg(call.arguments.offset);
   const limitArg = numArg(call.arguments.limit);
-  const offset = offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
+  const offset =
+    offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
   const limit =
-    limitArg !== undefined && limitArg > 0 ? Math.floor(limitArg) : READ_FILE_DEFAULT_MAX_LINES;
+    limitArg !== undefined && limitArg > 0
+      ? Math.floor(limitArg)
+      : READ_FILE_DEFAULT_MAX_LINES;
   return { offset, limit };
 }
 
@@ -404,13 +434,19 @@ export function readFileGuardPlugin(
           return next(call, signal);
         }
 
-        const cursorId = uri.startsWith(cursorUriPrefix) ? uri.slice(cursorUriPrefix.length) : "";
+        const cursorId = uri.startsWith(cursorUriPrefix)
+          ? uri.slice(cursorUriPrefix.length)
+          : "";
         const cursor = cursorId.length > 0 ? cursors.get(cursorId) : undefined;
         if (cursor !== undefined && cursor.consumed) {
           // Known cursor, already used -- distinct from a genuine missing
           // blob: name the original source and offset so recovery is one
           // targeted call, not a from-scratch re-read of the whole file.
-          return { callId: call.id, content: staleCursorMessage(cursor), isError: true };
+          return {
+            callId: call.id,
+            content: staleCursorMessage(cursor),
+            isError: true,
+          };
         }
         if (cursor !== undefined) {
           // A cursor is authoritative on position: the model passes only the
@@ -419,7 +455,12 @@ export function readFileGuardPlugin(
           try {
             signal.throwIfAborted();
             if (cursor.kind === "file") {
-              const res = await readFileBounded(cursor.absolutePath, cursor.offset, limit, signal);
+              const res = await readFileBounded(
+                cursor.absolutePath,
+                cursor.offset,
+                limit,
+                signal,
+              );
               return res.isError
                 ? { callId: call.id, content: res.content, isError: true }
                 : {
@@ -438,12 +479,21 @@ export function readFileGuardPlugin(
               };
             }
             const bytes = await blobReader.read(cursor.uri);
-            const res = await readBytesBounded(bytes, cursor.offset, limit, signal, cursor.uri);
+            const res = await readBytesBounded(
+              bytes,
+              cursor.offset,
+              limit,
+              signal,
+              cursor.uri,
+            );
             return res.isError
               ? { callId: call.id, content: res.content, isError: true }
               : {
                   callId: call.id,
-                  content: mintCursor(res.content, cursors, { kind: "blob", uri: cursor.uri }),
+                  content: mintCursor(res.content, cursors, {
+                    kind: "blob",
+                    uri: cursor.uri,
+                  }),
                 };
           } catch (err) {
             return {
@@ -468,7 +518,13 @@ export function readFileGuardPlugin(
           const res = await readBytesBounded(bytes, offset, limit, signal, uri);
           return res.isError
             ? { callId: call.id, content: res.content, isError: true }
-            : { callId: call.id, content: mintCursor(res.content, cursors, { kind: "blob", uri }) };
+            : {
+                callId: call.id,
+                content: mintCursor(res.content, cursors, {
+                  kind: "blob",
+                  uri,
+                }),
+              };
         } catch (err) {
           return {
             callId: call.id,
@@ -494,7 +550,10 @@ export function readFileGuardPlugin(
           ? { callId: call.id, content: res.content, isError: true }
           : {
               callId: call.id,
-              content: mintCursor(res.content, cursors, { kind: "file", absolutePath }),
+              content: mintCursor(res.content, cursors, {
+                kind: "file",
+                absolutePath,
+              }),
             };
       } catch (err) {
         return {

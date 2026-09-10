@@ -9,15 +9,19 @@ import type { WelcomeConfig } from "./welcome.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 let testHome = "";
-let setup: (config: ProviderSetupConfig) => Promise<void> = async () => {};
+let setup: (config: ProviderSetupConfig) => Promise<void> = async () =>
+  undefined;
 let welcome: (config: WelcomeConfig) => Promise<boolean> = async () => true;
 let tuiConfig: Config | undefined;
 const callOrder: string[] = [];
 
-await withMockedModule(import.meta.resolve("node:os"), (real: typeof import("node:os")) => ({
-  ...real,
-  homedir: () => testHome,
-}));
+await withMockedModule(
+  import.meta.resolve("node:os"),
+  (real: typeof import("node:os")) => ({
+    ...real,
+    homedir: () => testHome,
+  }),
+);
 await withMockedModule(
   import.meta.resolve("./welcome.js"),
   (real: typeof import("./welcome.js")) => ({
@@ -58,7 +62,8 @@ async function unconfiguredConfig(
   paths: { cliConfigPath?: string; programmaticConfigPath?: string },
 ): Promise<UnconfiguredConfig> {
   const argv = ["--cwd", cwd];
-  if (paths.cliConfigPath !== undefined) argv.push("--config", paths.cliConfigPath);
+  if (paths.cliConfigPath !== undefined)
+    argv.push("--config", paths.cliConfigPath);
 
   const config = await loadConfig(argv, {
     ...(paths.programmaticConfigPath !== undefined
@@ -70,7 +75,10 @@ async function unconfiguredConfig(
   return config;
 }
 
-async function writeXAIAuthProfile(home: string, profile: string): Promise<void> {
+async function writeXAIAuthProfile(
+  home: string,
+  profile: string,
+): Promise<void> {
   await mkdir(join(home, ".corbits"), { recursive: true });
   await writeFile(
     join(home, ".corbits", "xai-auth.json"),
@@ -91,7 +99,7 @@ async function writeXAIAuthProfile(home: string, profile: string): Promise<void>
 }
 
 afterEach(() => {
-  setup = async () => {};
+  setup = async () => undefined;
   welcome = async () => true;
   tuiConfig = undefined;
   callOrder.length = 0;
@@ -99,13 +107,19 @@ afterEach(() => {
 
 describe("runOnboarding welcome gate", () => {
   test("fresh user sees welcome before provider setup and marks onboarded", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-welcome-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-welcome-cwd-"));
+    testHome = await mkdtemp(
+      join(tmpdir(), "corbits-onboarding-welcome-home-"),
+    );
+    const cwd = await mkdtemp(
+      join(tmpdir(), "corbits-onboarding-welcome-cwd-"),
+    );
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+      const config = await unconfiguredConfig(cwd, {
+        programmaticConfigPath: configPath,
+      });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(
@@ -116,7 +130,7 @@ describe("runOnboarding welcome gate", () => {
             model: "test-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -140,8 +154,13 @@ describe("runOnboarding welcome gate", () => {
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
-      await writeFile(configPath, JSON.stringify({ providers: {}, onboarded: true }));
-      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+      await writeFile(
+        configPath,
+        JSON.stringify({ providers: {}, onboarded: true }),
+      );
+      const config = await unconfiguredConfig(cwd, {
+        programmaticConfigPath: configPath,
+      });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(
@@ -152,7 +171,7 @@ describe("runOnboarding welcome gate", () => {
             model: "test-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -172,7 +191,9 @@ describe("runOnboarding welcome gate", () => {
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+      const config = await unconfiguredConfig(cwd, {
+        programmaticConfigPath: configPath,
+      });
 
       welcome = async () => false;
 
@@ -197,7 +218,9 @@ describe("runOnboarding settings source", () => {
     const configPath = join(cwd, "custom-settings.json");
     try {
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, { cliConfigPath: configPath });
+      const config = await unconfiguredConfig(cwd, {
+        cliConfigPath: configPath,
+      });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(
@@ -208,13 +231,17 @@ describe("runOnboarding settings source", () => {
             model: "grok-4",
             oauthProfile: "work",
           },
-          () => {},
+          () => undefined,
           {
             skipValidation: true,
             oauth: {
               kind: "xai",
               providerName: "xai/work",
-              tokens: { access: "work-access-token", refresh: "work-refresh-token", expiresAt: 0 },
+              tokens: {
+                access: "work-access-token",
+                refresh: "work-refresh-token",
+                expiresAt: 0,
+              },
               commit: () => writeXAIAuthProfile(testHome, "work"),
             },
           },
@@ -225,7 +252,9 @@ describe("runOnboarding settings source", () => {
       expect(tuiConfig?.providerName).toBe("xai/work");
       expect(tuiConfig?.model).toBe("grok-4");
       expect(tuiConfig?.globalSettingsPath).toBe(configPath);
-      expect(tuiConfig?.providers.some((provider) => provider.name === "xai/work")).toBe(true);
+      expect(
+        tuiConfig?.providers.some((provider) => provider.name === "xai/work"),
+      ).toBe(true);
 
       const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
         defaultProvider?: string;
@@ -233,7 +262,11 @@ describe("runOnboarding settings source", () => {
       };
       expect(persisted.defaultProvider).toBe("xai/work");
       expect(persisted.providers).toEqual({
-        "xai/work": { baseURL: "https://api.x.ai/v1", models: ["grok-4"], defaultModel: "grok-4" },
+        "xai/work": {
+          baseURL: "https://api.x.ai/v1",
+          models: ["grok-4"],
+          defaultModel: "grok-4",
+        },
       });
       expect(JSON.stringify(persisted)).not.toContain("apiKey");
     } finally {
@@ -248,7 +281,9 @@ describe("runOnboarding settings source", () => {
     const configPath = join(cwd, "custom-settings.json");
     try {
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, { cliConfigPath: configPath });
+      const config = await unconfiguredConfig(cwd, {
+        cliConfigPath: configPath,
+      });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(
@@ -259,7 +294,7 @@ describe("runOnboarding settings source", () => {
             model: "test-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -287,7 +322,10 @@ describe("runOnboarding settings source", () => {
     try {
       await writeXAIAuthProfile(testHome, "hidden");
       await writeFile(cliConfigPath, JSON.stringify({ providers: {} }));
-      await writeFile(programmaticConfigPath, JSON.stringify({ providers: {} }));
+      await writeFile(
+        programmaticConfigPath,
+        JSON.stringify({ providers: {} }),
+      );
       const config = await unconfiguredConfig(cwd, {
         cliConfigPath,
         programmaticConfigPath,
@@ -304,14 +342,16 @@ describe("runOnboarding settings source", () => {
             model: "isolated-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
 
       expect(await runOnboarding(config)).toBe(0);
       expect(tuiConfig?.providerName).toBe("isolated");
-      expect(tuiConfig?.providers.map((provider) => provider.name)).toEqual(["isolated"]);
+      expect(tuiConfig?.providers.map((provider) => provider.name)).toEqual([
+        "isolated",
+      ]);
       expect(tuiConfig?.globalSettingsPath).toBe(cliConfigPath);
     } finally {
       await rm(testHome, { recursive: true, force: true });
@@ -320,13 +360,19 @@ describe("runOnboarding settings source", () => {
   });
 
   test("keeps a default-path programmatic override isolated after reload", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-isolated-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-isolated-cwd-"));
+    testHome = await mkdtemp(
+      join(tmpdir(), "corbits-onboarding-isolated-home-"),
+    );
+    const cwd = await mkdtemp(
+      join(tmpdir(), "corbits-onboarding-isolated-cwd-"),
+    );
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await writeXAIAuthProfile(testHome, "hidden");
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, { programmaticConfigPath: configPath });
+      const config = await unconfiguredConfig(cwd, {
+        programmaticConfigPath: configPath,
+      });
 
       setup = async ({ onSubmit }) => {
         await onSubmit(
@@ -337,14 +383,16 @@ describe("runOnboarding settings source", () => {
             model: "isolated-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
 
       expect(await runOnboarding(config)).toBe(0);
       expect(tuiConfig?.providerName).toBe("isolated");
-      expect(tuiConfig?.providers.map((provider) => provider.name)).toEqual(["isolated"]);
+      expect(tuiConfig?.providers.map((provider) => provider.name)).toEqual([
+        "isolated",
+      ]);
       expect(tuiConfig?.globalSettingsPath).toBe(configPath);
     } finally {
       await rm(testHome, { recursive: true, force: true });

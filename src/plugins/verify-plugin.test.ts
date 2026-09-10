@@ -18,7 +18,9 @@ describe("verifyPlugin", () => {
     const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
     try {
       const plugin = verifyPlugin();
-      const handler = plugin.middleware ? plugin.middleware(makeNextHandler) : makeNextHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(makeNextHandler)
+        : makeNextHandler;
 
       const path = join(dir, "test.txt");
       const result = await handler(
@@ -44,7 +46,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, "short");
         return { callId: call.id, content: "written" };
       };
-      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(badHandler)
+        : badHandler;
 
       const path = join(dir, "test.txt");
       const result = await handler(
@@ -71,7 +75,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, "XXXX XXXXXX"); // 11 chars, same length as "hello world"
         return { callId: call.id, content: "written" };
       };
-      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(badHandler)
+        : badHandler;
 
       const path = join(dir, "test.txt");
       const result = await handler(
@@ -102,7 +108,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, updated);
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
 
       const path = join(dir, "test.txt");
       await writeFile(path, "hello world");
@@ -129,7 +137,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, "wrong content");
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(badHandler)
+        : badHandler;
 
       const path = join(dir, "test.txt");
       await writeFile(path, "hello world");
@@ -168,7 +178,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, merged.endsWith("\n") ? merged : merged + "\n");
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
 
       const path = join(dir, "mixed.txt");
       await writeFile(path, "a\nb\nc\n");
@@ -212,7 +224,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, merged.endsWith("\n") ? merged : merged + "\n");
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
 
       const path = join(dir, "range.txt");
       await writeFile(path, "a\nb\nc\n");
@@ -239,7 +253,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, "wrong\n");
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(badHandler)
+        : badHandler;
 
       const path = join(dir, "range-bad.txt");
       await writeFile(path, "a\nb\n");
@@ -271,7 +287,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, updated);
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
 
       const path = join(dir, "test.txt");
       await writeFile(path, "aaa bbb ccc");
@@ -316,7 +334,9 @@ describe("verifyPlugin", () => {
         await writeFile(path, content.replace(oldStr, newStr));
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
 
       const path = join(dir, "diff.txt");
       await writeFile(path, "line1\nworld\nline3\n");
@@ -346,13 +366,19 @@ describe("verifyPlugin", () => {
         await writeFile(path, String(call.arguments.content ?? ""));
         return { callId: call.id, content: "written" };
       };
-      const handler = plugin.middleware ? plugin.middleware(writeHandler) : writeHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(writeHandler)
+        : writeHandler;
 
       const path = join(dir, "rewrite.txt");
       await writeFile(path, "old content\n".repeat(2000));
       const newContent = "new content\n".repeat(2000);
       const result = await handler(
-        { id: "call-rewrite", name: "write_file", arguments: { path, content: newContent } },
+        {
+          id: "call-rewrite",
+          name: "write_file",
+          arguments: { path, content: newContent },
+        },
         new AbortController().signal,
       );
 
@@ -373,11 +399,17 @@ describe("verifyPlugin", () => {
         await writeFile(path, String(call.arguments.content ?? ""));
         return { callId: call.id, content: "written" };
       };
-      const handler = plugin.middleware ? plugin.middleware(writeHandler) : writeHandler;
+      const handler = plugin.middleware
+        ? plugin.middleware(writeHandler)
+        : writeHandler;
 
       const path = join(dir, "new.txt");
       const result = await handler(
-        { id: "call-new", name: "write_file", arguments: { path, content: "brand new\n" } },
+        {
+          id: "call-new",
+          name: "write_file",
+          arguments: { path, content: "brand new\n" },
+        },
         new AbortController().signal,
       );
 

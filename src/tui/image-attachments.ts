@@ -38,14 +38,18 @@ export function findDuplicateAttachment(
   existing: readonly PendingImageAttachment[],
   candidate: PendingImageAttachment,
 ): PendingImageAttachment | undefined {
-  return existing.find((attachment) => attachment.contentHash === candidate.contentHash);
+  return existing.find(
+    (attachment) => attachment.contentHash === candidate.contentHash,
+  );
 }
 
 export type AttachImageResult =
-  { ok: true; attachment: PendingImageAttachment } | { ok: false; reason: string };
+  | { ok: true; attachment: PendingImageAttachment }
+  | { ok: false; reason: string };
 
 export type ClipboardImageResult =
-  { ok: true; attachment: PendingImageAttachment } | { ok: false; reason: string };
+  | { ok: true; attachment: PendingImageAttachment }
+  | { ok: false; reason: string };
 
 export function imageMimeTypeForPath(path: string): string | undefined {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -57,7 +61,10 @@ export interface ImagePathMention {
   path: string;
 }
 
-export function findImagePathMentions(text: string, cwd: string): ImagePathMention[] {
+export function findImagePathMentions(
+  text: string,
+  cwd: string,
+): ImagePathMention[] {
   const mentions: ImagePathMention[] = [];
   const seen = new Set<string>();
   const pattern =
@@ -73,9 +80,12 @@ export function findImagePathMentions(text: string, cwd: string): ImagePathMenti
   return mentions;
 }
 
-export async function imageAttachmentFromPath(path: string): Promise<AttachImageResult> {
+export async function imageAttachmentFromPath(
+  path: string,
+): Promise<AttachImageResult> {
   const mimeType = imageMimeTypeForPath(path);
-  if (mimeType === undefined) return { ok: false, reason: "unsupported image type" };
+  if (mimeType === undefined)
+    return { ok: false, reason: "unsupported image type" };
   let info;
   try {
     info = await stat(path);
@@ -117,7 +127,9 @@ async function hashImageBytes(bytes: Buffer): Promise<string> {
   // pooled allocation), but readFile never actually hands back a
   // SharedArrayBuffer-backed view, so this is a type-only cast, not a copy.
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
@@ -132,7 +144,8 @@ export async function capImageForIngestion(
   data: Buffer,
   mimeType: string,
 ): Promise<{ data: Buffer; contentType: string }> {
-  if (data.byteLength <= DOWNSCALE_THRESHOLD_BYTES) return { data, contentType: mimeType };
+  if (data.byteLength <= DOWNSCALE_THRESHOLD_BYTES)
+    return { data, contentType: mimeType };
   if (process.platform !== "darwin") return { data, contentType: mimeType };
 
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -167,7 +180,8 @@ export async function capImageForIngestion(
     // Only adopt the recompressed version if it actually shrank things --
     // a small/already-compressed source can grow slightly under JPEG
     // re-encoding, and the point of this step is to reduce bytes.
-    if (capped.byteLength >= data.byteLength) return { data, contentType: mimeType };
+    if (capped.byteLength >= data.byteLength)
+      return { data, contentType: mimeType };
     return { data: capped, contentType: "image/jpeg" };
   } catch {
     return { data, contentType: mimeType };
@@ -178,14 +192,18 @@ export async function capImageForIngestion(
 }
 
 function replaceExtension(name: string, contentType: string): string {
-  const ext = contentType === "image/jpeg" ? "jpg" : (contentType.split("/")[1] ?? "jpg");
+  const ext =
+    contentType === "image/jpeg" ? "jpg" : (contentType.split("/")[1] ?? "jpg");
   const dot = name.lastIndexOf(".");
   return `${dot === -1 ? name : name.slice(0, dot)}.${ext}`;
 }
 
 export async function readClipboardImage(): Promise<ClipboardImageResult> {
   if (process.platform !== "darwin") {
-    return { ok: false, reason: "clipboard image paste is currently supported on macOS" };
+    return {
+      ok: false,
+      reason: "clipboard image paste is currently supported on macOS",
+    };
   }
 
   const tmpPath = `/tmp/corbits-clipboard-${process.pid}-${Date.now()}.png`;
@@ -224,27 +242,40 @@ end try
   };
 }
 
-export function formatAttachmentSummary(attachments: readonly PendingImageAttachment[]): string {
+export function formatAttachmentSummary(
+  attachments: readonly PendingImageAttachment[],
+): string {
   if (attachments.length === 0) return "";
   const names = attachments.map((att) => att.name).join(", ");
   return `${attachments.length} image${attachments.length === 1 ? "" : "s"} attached: ${names}`;
 }
 
 /** Transcript echo for a user message, annotated with its attachments. */
-export function userRowText(text: string, attachments: readonly PendingImageAttachment[]): string {
+export function userRowText(
+  text: string,
+  attachments: readonly PendingImageAttachment[],
+): string {
   const summary = formatAttachmentSummary(attachments);
   if (summary.length === 0) return text;
   return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`;
 }
 
-function normalizeImagePathCandidate(input: string, cwd: string): string | undefined {
+function normalizeImagePathCandidate(
+  input: string,
+  cwd: string,
+): string | undefined {
   const unquoted = unquoteShellPath(trimTrailingPunctuation(input.trim()));
   if (unquoted === undefined) return undefined;
   const expanded =
     unquoted === "~" || unquoted.startsWith("~/")
       ? resolve(homedir(), unquoted.slice(2))
       : unquoted;
-  if (/\s/.test(expanded) && !isAbsolute(expanded) && input[0] !== "'" && input[0] !== '"') {
+  if (
+    /\s/.test(expanded) &&
+    !isAbsolute(expanded) &&
+    input[0] !== "'" &&
+    input[0] !== '"'
+  ) {
     return undefined;
   }
   const abs = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
@@ -285,9 +316,14 @@ async function runProcess(
     const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     const chunks: Buffer[] = [];
     child.stderr.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.on("error", (err) => resolveProcess({ code: 1, stderr: err.message }));
+    child.on("error", (err) =>
+      resolveProcess({ code: 1, stderr: err.message }),
+    );
     child.on("close", (code) =>
-      resolveProcess({ code: code ?? 1, stderr: Buffer.concat(chunks).toString("utf8") }),
+      resolveProcess({
+        code: code ?? 1,
+        stderr: Buffer.concat(chunks).toString("utf8"),
+      }),
     );
   });
 }

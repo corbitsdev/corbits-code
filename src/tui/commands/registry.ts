@@ -35,7 +35,14 @@ export type CommandResult =
   | { type: "view"; view: "tasks" }
   | {
       type: "overlay";
-      overlay: "help" | "permissions" | "plugins" | "settings" | "hooks" | "mcp" | "add-provider";
+      overlay:
+        | "help"
+        | "permissions"
+        | "plugins"
+        | "settings"
+        | "hooks"
+        | "mcp"
+        | "add-provider";
     }
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" }
   | { type: "workflow"; name: string; args?: string }
@@ -103,7 +110,8 @@ export function setHiddenCommands(names: string[]): void {
 export function getCommand(name: string): CommandDefinition | undefined {
   const registered = registry.get(name);
   if (registered !== undefined) return registered;
-  return pluginCandidates.get(name)?.find((candidate) => candidate.isActive())?.command;
+  return pluginCandidates.get(name)?.find((candidate) => candidate.isActive())
+    ?.command;
 }
 
 export function listCommands(): CommandDefinition[] {
@@ -114,7 +122,10 @@ export function listCommands(): CommandDefinition[] {
     if (command !== undefined) commands.push(command);
   }
   return commands
-    .filter((c) => !hidden.has(c.name) && (c.available === undefined || c.available()))
+    .filter(
+      (c) =>
+        !hidden.has(c.name) && (c.available === undefined || c.available()),
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

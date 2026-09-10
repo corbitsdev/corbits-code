@@ -1,9 +1,19 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
-import { killProcessTree, type BackgroundShellRegistry } from "../shell/background-shell.js";
-import { formatSearchTimeoutMessage, TIMEOUT_PREFIX } from "./tool-time-budget.js";
-import { BUDGET_EXPIRED, budgetExpiry, withTimeout } from "../util/budget-race.js";
+import {
+  killProcessTree,
+  type BackgroundShellRegistry,
+} from "../shell/background-shell.js";
+import {
+  formatSearchTimeoutMessage,
+  TIMEOUT_PREFIX,
+} from "./tool-time-budget.js";
+import {
+  BUDGET_EXPIRED,
+  budgetExpiry,
+  withTimeout,
+} from "../util/budget-race.js";
 import type { ToolDefinition } from "@intx/types/runtime";
 import {
   assertShellCwdUsable,
@@ -38,8 +48,10 @@ export function resolveShellTimeoutMs(
   defaultMs: number | undefined,
   maxMs?: number,
 ): number | undefined {
-  const fromRequest = requested !== undefined && requested > 0 ? requested : undefined;
-  const fromDefault = defaultMs !== undefined && defaultMs > 0 ? defaultMs : undefined;
+  const fromRequest =
+    requested !== undefined && requested > 0 ? requested : undefined;
+  const fromDefault =
+    defaultMs !== undefined && defaultMs > 0 ? defaultMs : undefined;
   const base = fromRequest ?? fromDefault;
   if (base === undefined) return undefined;
   if (maxMs === undefined) return base;
@@ -66,7 +78,11 @@ export function advertiseShellGuardTimeout(
   const timeout = properties["timeout"];
   const cwdProp = properties["cwd"];
   const nextProperties = { ...properties };
-  if (timeout !== undefined && typeof timeout === "object" && timeout !== null) {
+  if (
+    timeout !== undefined &&
+    typeof timeout === "object" &&
+    timeout !== null
+  ) {
     const hasDefault = defaultMs !== undefined && defaultMs > 0;
     nextProperties["timeout"] = {
       ...(timeout as Record<string, unknown>),
@@ -174,7 +190,8 @@ export class BoundedShellOutput {
     this.tailChunks.push(buf);
     this.tailBytes += buf.length;
     while (this.tailBytes > this.tailMax && this.tailChunks.length > 0) {
-      const first = this.tailChunks[0]!;
+      const first = this.tailChunks[0];
+      if (first === undefined) break;
       if (this.tailBytes - first.length >= this.tailMax) {
         this.tailBytes -= first.length;
         this.tailChunks.shift();
@@ -195,7 +212,10 @@ export class BoundedShellOutput {
       };
     }
     const tail = Buffer.concat(this.tailChunks);
-    const omitted = Math.max(0, this.totalBytes - this.head.length - tail.length);
+    const omitted = Math.max(
+      0,
+      this.totalBytes - this.head.length - tail.length,
+    );
     const marker =
       `\n\n[command output truncated — ${omitted.toLocaleString()} bytes omitted from this view; ` +
       `head+tail retained under ${this.maxBytes.toLocaleString()} byte cap. ` +
@@ -208,7 +228,8 @@ export class BoundedShellOutput {
 }
 
 function waitChildClose(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  if (child.exitCode !== null || child.signalCode !== null)
+    return Promise.resolve();
   return new Promise((resolve) => {
     child.once("close", () => resolve());
     child.once("error", () => resolve());
@@ -224,7 +245,9 @@ function childStillLive(child: ChildProcess): boolean {
 // Abort SIGKILLs the process group immediately (runGuardedShell onAbort). This
 // window is only a backstop for children still tracked at dispose. Leftovers
 // after it must fail teardown; do not stretch the process-exit 2s deadline.
-export async function reapLiveChildren(liveChildren: Set<ChildProcess>): Promise<void> {
+export async function reapLiveChildren(
+  liveChildren: Set<ChildProcess>,
+): Promise<void> {
   const remaining = [...liveChildren];
   for (const child of remaining) killProcessTree(child);
   if (remaining.length === 0) return;
@@ -234,7 +257,10 @@ export async function reapLiveChildren(liveChildren: Set<ChildProcess>): Promise
     timer = setTimeout(() => resolve("timeout"), SHELL_GUARD_DISPOSE_REAP_MS);
   });
   try {
-    const winner = await Promise.race([closed.then(() => "closed" as const), timedOut]);
+    const winner = await Promise.race([
+      closed.then(() => "closed" as const),
+      timedOut,
+    ]);
     if (winner === "closed") return;
     const stillLive = remaining.filter(childStillLive);
     if (stillLive.length > 0) {
@@ -258,7 +284,8 @@ export async function runGuardedShell(
   }
 
   // Arm setTimeout only when a positive timeout was resolved. No built-in default.
-  const timeoutMs = args.timeout !== undefined && args.timeout > 0 ? args.timeout : undefined;
+  const timeoutMs =
+    args.timeout !== undefined && args.timeout > 0 ? args.timeout : undefined;
   const outputCap = args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const collector = new BoundedShellOutput(outputCap);
 
@@ -350,7 +377,9 @@ export async function runGuardedShell(
 
     child.on("error", (err) => {
       dropLive();
-      settle(new Error(`failed to spawn command: ${args.command}`, { cause: err }));
+      settle(
+        new Error(`failed to spawn command: ${args.command}`, { cause: err }),
+      );
     });
 
     child.on("close", (code, sig) => {
@@ -363,7 +392,9 @@ export async function runGuardedShell(
 }
 
 function optionalNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 /**
@@ -381,7 +412,9 @@ export interface ShellGuardPluginOptions {
   getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
 }
 
-function resolveAllowOutsideCwd(value: boolean | (() => boolean) | undefined): boolean {
+function resolveAllowOutsideCwd(
+  value: boolean | (() => boolean) | undefined,
+): boolean {
   if (typeof value === "function") return value();
   return value === true;
 }
@@ -395,7 +428,8 @@ export function shellGuardPlugin(
   // No built-in default — only settings.shell.timeoutMs (or a per-call timeout)
   // arms a timer. maxMs alone does not invent one.
   const defaultMs = timeoutConfig?.defaultMs;
-  const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
+  const maxOutputBytes =
+    timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   const liveChildren = new Set<ChildProcess>();
@@ -407,7 +441,9 @@ export function shellGuardPlugin(
   const enqueueShell = <T>(fn: () => Promise<T>): Promise<T> => {
     const runUnlessDisposed = (): Promise<T> => {
       if (disposed) {
-        return Promise.reject(new Error("run_shell refused: shell guard disposed"));
+        return Promise.reject(
+          new Error("run_shell refused: shell guard disposed"),
+        );
       }
       return fn();
     };
@@ -431,16 +467,23 @@ export function shellGuardPlugin(
             };
           }
           const perCallCwdRaw =
-            typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
+            typeof call.arguments.cwd === "string" &&
+            call.arguments.cwd.length > 0
               ? call.arguments.cwd
               : undefined;
-          const allowOutsideCwd = resolveAllowOutsideCwd(options.allowOutsideCwd);
+          const allowOutsideCwd = resolveAllowOutsideCwd(
+            options.allowOutsideCwd,
+          );
           let executionCwd = retainedShellCwd;
           if (perCallCwdRaw !== undefined) {
             try {
-              executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw, {
-                allowOutsideSession: allowOutsideCwd,
-              });
+              executionCwd = resolvePerCallShellCwd(
+                sessionRoot,
+                perCallCwdRaw,
+                {
+                  allowOutsideSession: allowOutsideCwd,
+                },
+              );
             } catch (err) {
               return {
                 callId: call.id,
@@ -476,7 +519,9 @@ export function shellGuardPlugin(
             const started = registry.start({
               command,
               cwd: executionCwd,
-              ...(effectiveTimeout !== undefined ? { timeoutMs: effectiveTimeout } : {}),
+              ...(effectiveTimeout !== undefined
+                ? { timeoutMs: effectiveTimeout }
+                : {}),
               maxOutputBytes,
               ...(env !== undefined ? { env } : {}),
             });
@@ -488,26 +533,35 @@ export function shellGuardPlugin(
             // affects only its own process.
             return {
               callId: call.id,
-              content: JSON.stringify({ shell_id: started.id, status: "running" }),
+              content: JSON.stringify({
+                shell_id: started.id,
+                status: "running",
+              }),
             };
           }
           const wrappedCommand = wrapCommandWithPwdProbe(command);
           try {
-            const { output, exitCode, timedOut, outputTruncated } = await runGuardedShell(
-              {
-                command: wrappedCommand,
-                cwd: executionCwd,
-                ...(effectiveTimeout !== undefined ? { timeout: effectiveTimeout } : {}),
-                maxOutputBytes,
-                ...(env !== undefined ? { env } : {}),
-              },
-              signal,
-              liveChildren,
-              () => disposed,
-            );
+            const { output, exitCode, timedOut, outputTruncated } =
+              await runGuardedShell(
+                {
+                  command: wrappedCommand,
+                  cwd: executionCwd,
+                  ...(effectiveTimeout !== undefined
+                    ? { timeout: effectiveTimeout }
+                    : {}),
+                  maxOutputBytes,
+                  ...(env !== undefined ? { env } : {}),
+                },
+                signal,
+                liveChildren,
+                () => disposed,
+              );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
-              if (!allowOutsideCwd && !isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
+              if (
+                !allowOutsideCwd &&
+                !isShellCwdWithinSession(sessionRoot, parsed.finalCwd)
+              ) {
                 return {
                   callId: call.id,
                   content: shellCwdEscapesSessionMessage(parsed.finalCwd),
@@ -516,7 +570,10 @@ export function shellGuardPlugin(
               }
               retainedShellCwd = parsed.finalCwd;
             }
-            const base = exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
+            const base =
+              exitCode === 0
+                ? parsed.output
+                : `exit code ${exitCode}\n${parsed.output}`;
             let content = base;
             if (outputTruncated) {
               content =
@@ -557,7 +614,9 @@ export function shellGuardPlugin(
           if (outcome === BUDGET_EXPIRED) {
             const content = signal.aborted
               ? `${call.name} aborted`
-              : formatSearchTimeoutMessage(call.name as "grep" | "search_files");
+              : formatSearchTimeoutMessage(
+                  call.name as "grep" | "search_files",
+                );
             return { callId: call.id, content, isError: true };
           }
 
@@ -581,7 +640,9 @@ export function shellGuardPlugin(
           ) {
             return {
               callId: call.id,
-              content: formatSearchTimeoutMessage(call.name as "grep" | "search_files"),
+              content: formatSearchTimeoutMessage(
+                call.name as "grep" | "search_files",
+              ),
               isError: true,
             };
           }

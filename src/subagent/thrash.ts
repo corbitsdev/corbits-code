@@ -10,8 +10,14 @@
  * is force-stopped.
  */
 
-import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
-import { PATH_KEYED_READ_TOOLS, SEARCH_QUERY_TOOLS } from "../agent/tool-classification.js";
+import {
+  isProductMutationTool,
+  productMutationPaths,
+} from "../agent/product-mutation-tools.js";
+import {
+  PATH_KEYED_READ_TOOLS,
+  SEARCH_QUERY_TOOLS,
+} from "../agent/tool-classification.js";
 import { classifyShellFileEvidence } from "./shell-evidence.js";
 
 /** Accumulated read/edit bookkeeping across turns (immutable snapshots). */
@@ -136,7 +142,11 @@ export function nextThrashState(
     }
   }
 
-  if (totalToolCalls === prev.totalToolCalls && readCounts === null && editedPaths === null) {
+  if (
+    totalToolCalls === prev.totalToolCalls &&
+    readCounts === null &&
+    editedPaths === null
+  ) {
     return prev;
   }
 

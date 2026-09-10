@@ -1,4 +1,7 @@
-import { OPENCODE_GO_ANTHROPIC_BASE_URL, OPENCODE_GO_BASE_URL } from "./constants.js";
+import {
+  OPENCODE_GO_ANTHROPIC_BASE_URL,
+  OPENCODE_GO_BASE_URL,
+} from "./constants.js";
 import { type GoProtocol, protocolForGoModel } from "./models.js";
 
 export interface GoEndpoint {

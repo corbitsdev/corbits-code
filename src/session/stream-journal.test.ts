@@ -23,11 +23,17 @@ afterEach(async () => {
 });
 
 function delta(token: string): ReactorEmittedEvent {
-  return { type: "inference.text.delta", data: { token } } as unknown as ReactorEmittedEvent;
+  return {
+    type: "inference.text.delta",
+    data: { token },
+  } as unknown as ReactorEmittedEvent;
 }
 
 function thinkingDelta(token: string): ReactorEmittedEvent {
-  return { type: "inference.thinking.delta", data: { token } } as unknown as ReactorEmittedEvent;
+  return {
+    type: "inference.thinking.delta",
+    data: { token },
+  } as unknown as ReactorEmittedEvent;
 }
 
 async function readPartialRecords(): Promise<
@@ -62,7 +68,10 @@ describe("createCycleTextRecorder", () => {
     recorder.handleEvent(delta("world"));
     expect(recorder.text()).toBe("hello world");
 
-    recorder.handleEvent({ type: "inference.done", data: {} } as unknown as ReactorEmittedEvent);
+    recorder.handleEvent({
+      type: "inference.done",
+      data: {},
+    } as unknown as ReactorEmittedEvent);
     expect(recorder.text()).toBe("");
     await expect(readFile(join(dir, PARTIAL_FILE), "utf8")).rejects.toThrow();
   });
@@ -108,7 +117,11 @@ describe("createCycleTextRecorder", () => {
     recorder.handleEvent({
       type: "inference.error",
       data: {
-        error: { category: "rate_limit", message: "429 too many requests", statusCode: 429 },
+        error: {
+          category: "rate_limit",
+          message: "429 too many requests",
+          statusCode: 429,
+        },
       },
     } as unknown as ReactorEmittedEvent);
 
@@ -155,7 +168,7 @@ describe("createCycleTextRecorder", () => {
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("buffered text"));
 
-    let resolveDrain: () => void = () => {};
+    let resolveDrain: () => void = () => undefined;
     const drain = new Promise<void>((resolve) => {
       resolveDrain = resolve;
     });
@@ -202,7 +215,10 @@ describe("createCycleTextRecorder", () => {
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("hello"));
     recorder.handleEvent(thinkingDelta("thinking"));
-    recorder.handleEvent({ type: "inference.done", data: {} } as unknown as ReactorEmittedEvent);
+    recorder.handleEvent({
+      type: "inference.done",
+      data: {},
+    } as unknown as ReactorEmittedEvent);
     expect(recorder.text()).toBe("");
     expect(recorder.thinkingText()).toBe("");
   });

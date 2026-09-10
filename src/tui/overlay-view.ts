@@ -1,4 +1,8 @@
-import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
+import {
+  BoxRenderable,
+  TextRenderable,
+  type RenderContext,
+} from "@opentui/core";
 import { middleEllipsis } from "./command-display.js";
 import { formatPaletteRows, type PaletteCommand } from "./command-catalog.js";
 import type {
@@ -7,7 +11,11 @@ import type {
   OpenListOverlayOpts,
   PrimaryOverlayKind,
 } from "./shell/internals.js";
-import { DECISION_CHOICE_ROWS, describeZoneLines, DESCRIPTION_ZONE_LINES } from "./overlay-body.js";
+import {
+  DECISION_CHOICE_ROWS,
+  describeZoneLines,
+  DESCRIPTION_ZONE_LINES,
+} from "./overlay-body.js";
 import { destroySubtree } from "./teardown.js";
 import { UI } from "./theme.js";
 
@@ -102,7 +110,11 @@ export function overlayChromeRows(
  * list when it has anything to show. Below this the resolver must give ground
  * elsewhere (transcript floor) rather than starve the overlay itself.
  */
-export function overlayMinHostRows(chromeRows: number, perItem: number, hasItems: boolean): number {
+export function overlayMinHostRows(
+  chromeRows: number,
+  perItem: number,
+  hasItems: boolean,
+): number {
   return chromeRows + (hasItems ? perItem : 0);
 }
 
@@ -133,7 +145,10 @@ function overlayTitleLine(
   return ` ${middleEllipsis(trimmed, Math.max(1, interior - 1))}`;
 }
 
-const DEFAULT_OVERLAY_HINTS = ["Esc cancel · Enter choose", "Esc · Enter"] as const;
+const DEFAULT_OVERLAY_HINTS = [
+  "Esc cancel · Enter choose",
+  "Esc · Enter",
+] as const;
 
 /** Model picker only: same three-tier fallback shape as DEFAULT_OVERLAY_HINTS. */
 const MODEL_PICKER_HINTS = [
@@ -177,7 +192,9 @@ const MCP_MANAGE_HINTS_WITHOUT_ADD = [
  * Never promises "Enter choose" when there is nothing to choose: an overlay
  * with no rows says what the operator can actually do instead.
  */
-function overlayHints(presentation: OverlayTitlePresentation): readonly string[] {
+function overlayHints(
+  presentation: OverlayTitlePresentation,
+): readonly string[] {
   const { answer, hasChoices, kind } = presentation;
   if (answer === null) {
     if (!hasChoices) return ["Esc dismiss"];
@@ -204,7 +221,9 @@ function overlayHints(presentation: OverlayTitlePresentation): readonly string[]
     if (kind === "permissions") return PERMISSIONS_HINTS;
     if (kind === "plugins") return PLUGINS_HINTS;
     if (kind === "mcp" && presentation.mcpManageHint) {
-      return presentation.mcpAddHint ? MCP_MANAGE_HINTS_WITH_ADD : MCP_MANAGE_HINTS_WITHOUT_ADD;
+      return presentation.mcpAddHint
+        ? MCP_MANAGE_HINTS_WITH_ADD
+        : MCP_MANAGE_HINTS_WITHOUT_ADD;
     }
     return DEFAULT_OVERLAY_HINTS;
   }
@@ -293,7 +312,10 @@ export function createOverlayView(ctx: RenderContext) {
     );
     list.setHeight(list.height, 1);
     list.select.showSelectionIndicator = false;
-    list.select.options = lines.map((line) => ({ name: line, description: "" }));
+    list.select.options = lines.map((line) => ({
+      name: line,
+      description: "",
+    }));
     body.add(list.select);
   }
 
@@ -317,7 +339,10 @@ export function createOverlayView(ctx: RenderContext) {
    * on screen so "you may type instead of picking" is visible rather than folk
    * knowledge; dim and labelled with its key until it is taking keystrokes.
    */
-  function paintAnswerRow(answer: OverlayListPresentation["answer"], contentWidth: number): void {
+  function paintAnswerRow(
+    answer: OverlayListPresentation["answer"],
+    contentWidth: number,
+  ): void {
     if (answer === null) return;
     const width = overlayRowWidth(contentWidth);
     if (!answer.active) {
@@ -326,7 +351,8 @@ export function createOverlayView(ctx: RenderContext) {
     }
     const label = "answer> ";
     const room = Math.max(1, width - label.length - ANSWER_CURSOR.length);
-    const tail = answer.text.length > room ? answer.text.slice(-room) : answer.text;
+    const tail =
+      answer.text.length > room ? answer.text.slice(-room) : answer.text;
     addOverlayRow(` ${label}${tail}${ANSWER_CURSOR}`, UI.text);
   }
 
@@ -338,7 +364,10 @@ export function createOverlayView(ctx: RenderContext) {
     if (list.select.parent === body) body.remove(list.select);
   }
 
-  function paintList(presentation: OverlayListPresentation, contentWidth: number): void {
+  function paintList(
+    presentation: OverlayListPresentation,
+    contentWidth: number,
+  ): void {
     const list = presentation.list;
     if (list) detachList(list);
     clearBody();
@@ -346,7 +375,10 @@ export function createOverlayView(ctx: RenderContext) {
     presentation.bodyLines.forEach((line, i) => {
       addOverlayRow(` ${line}`, presentation.bodyFgs[i] ?? UI.text);
     });
-    if (presentation.kind === "palette" && presentation.paletteCommands.length > 0) {
+    if (
+      presentation.kind === "palette" &&
+      presentation.paletteCommands.length > 0
+    ) {
       paintPaletteList(presentation.paletteCommands, list, contentWidth);
       paintDescriptionZone(presentation.describe, contentWidth);
       return;
@@ -371,7 +403,10 @@ export function createOverlayView(ctx: RenderContext) {
     paintDescriptionZone(presentation.describe, contentWidth);
   }
 
-  function paintTitle(presentation: OverlayTitlePresentation, contentWidth: number): void {
+  function paintTitle(
+    presentation: OverlayTitlePresentation,
+    contentWidth: number,
+  ): void {
     title.visible = true;
     title.content = overlayTitleLine(
       presentation.title,

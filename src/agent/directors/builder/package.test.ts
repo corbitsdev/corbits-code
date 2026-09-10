@@ -41,8 +41,12 @@ describe("builderPackage", () => {
     expect(p).toMatch(/Don't shortcut verify/i);
     expect(p).toMatch(/partial gates/i);
     expect(p).toMatch(/pre-existing/i);
-    expect(p).toMatch(/defined typecheck command.*relevant tests.*defined full check/is);
-    expect(p).toMatch(/repository defines no typecheck command.*explicit Blocker/is);
+    expect(p).toMatch(
+      /defined typecheck command.*relevant tests.*defined full check/is,
+    );
+    expect(p).toMatch(
+      /repository defines no typecheck command.*explicit Blocker/is,
+    );
     expect(p).toMatch(/evidence.*AGENTS.*package scripts/is);
     expect(p).toMatch(/do not invent.*typecheck command/i);
     expect(p).toMatch(/exact verification command.*outcome.*exit status/is);
@@ -63,7 +67,9 @@ describe("builderPackage", () => {
   test("systemPrompt requires baked core constraints and Ponytail prerequisites", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toContain("Prerequisites");
-    expect(p).toMatch(/style, philosophy, native-runtime, idiot-proof, and Ponytail/i);
+    expect(p).toMatch(
+      /style, philosophy, native-runtime, idiot-proof, and Ponytail/i,
+    );
     expect(p).toMatch(/use_skill is not mounted/i);
     expect(p).toMatch(
       /including their TypeScript conventions when TypeScript is the task surface/i,

@@ -49,27 +49,38 @@ function parseWindow(value: unknown): CodexWindow | undefined {
 }
 
 function parseUsage(payload: unknown): CodexUsage {
-  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
-    string,
-    unknown
-  >;
+  const p = (
+    typeof payload === "object" && payload !== null ? payload : {}
+  ) as Record<string, unknown>;
   const rl = (
-    typeof p["rate_limit"] === "object" && p["rate_limit"] !== null ? p["rate_limit"] : {}
+    typeof p["rate_limit"] === "object" && p["rate_limit"] !== null
+      ? p["rate_limit"]
+      : {}
   ) as Record<string, unknown>;
   const credits = (
-    typeof p["credits"] === "object" && p["credits"] !== null ? p["credits"] : {}
+    typeof p["credits"] === "object" && p["credits"] !== null
+      ? p["credits"]
+      : {}
   ) as Record<string, unknown>;
-  const reached = p["rate_limit_reached_type"] as Record<string, unknown> | undefined;
+  const reached = p["rate_limit_reached_type"] as
+    | Record<string, unknown>
+    | undefined;
   const primary = parseWindow(rl["primary_window"]);
   const secondary = parseWindow(rl["secondary_window"]);
   return {
-    planType: typeof p["plan_type"] === "string" ? (p["plan_type"] as string) : "unknown",
+    planType:
+      typeof p["plan_type"] === "string"
+        ? (p["plan_type"] as string)
+        : "unknown",
     allowed: rl["allowed"] !== false,
     limitReached: rl["limit_reached"] === true,
     ...(primary !== undefined ? { primary } : {}),
     ...(secondary !== undefined ? { secondary } : {}),
-    hasCredits: credits["has_credits"] === true || credits["unlimited"] === true,
-    ...(typeof reached?.["type"] === "string" ? { reachedType: reached["type"] as string } : {}),
+    hasCredits:
+      credits["has_credits"] === true || credits["unlimited"] === true,
+    ...(typeof reached?.["type"] === "string"
+      ? { reachedType: reached["type"] as string }
+      : {}),
   };
 }
 
@@ -82,16 +93,21 @@ export function codexAuthHeadersForToken(token: {
     originator: CODEX_AUTHORIZE_EXTRA_PARAMS["originator"] ?? "codex_cli_rs",
     "user-agent": `${COMMAND_NAME} (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
   };
-  if (token.accountId !== undefined) headers["chatgpt-account-id"] = token.accountId;
+  if (token.accountId !== undefined)
+    headers["chatgpt-account-id"] = token.accountId;
   return headers;
 }
 
-export async function codexAuthHeaders(profileName: string): Promise<Record<string, string>> {
+export async function codexAuthHeaders(
+  profileName: string,
+): Promise<Record<string, string>> {
   return codexAuthHeadersForToken(await getValidCodexToken(profileName));
 }
 
 // Fetch the live usage/quota snapshot for a Codex profile.
-export async function fetchCodexUsage(profileName: string): Promise<CodexUsage> {
+export async function fetchCodexUsage(
+  profileName: string,
+): Promise<CodexUsage> {
   const res = await fetch(`${CODEX_BASE_URL}${CODEX_USAGE_PATH}`, {
     headers: await codexAuthHeaders(profileName),
   });
@@ -106,7 +122,9 @@ export async function fetchCodexUsage(profileName: string): Promise<CodexUsage> 
 // caller falls back to the default list.
 export async function fetchCodexModels(profileName: string): Promise<string[]> {
   const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
-  const res = await fetch(url, { headers: await codexAuthHeaders(profileName) });
+  const res = await fetch(url, {
+    headers: await codexAuthHeaders(profileName),
+  });
   if (!res.ok) return [];
   const payload = (await res.json()) as unknown;
   const models = (payload as { models?: unknown })?.models;
@@ -127,7 +145,10 @@ export function formatCodexUsage(usage: CodexUsage): string {
   const lines: string[] = [
     `Codex (${usage.planType}) — ${usage.allowed ? "active" : "limit reached"}`,
   ];
-  const windowLine = (label: string, w: CodexWindow | undefined): string | undefined => {
+  const windowLine = (
+    label: string,
+    w: CodexWindow | undefined,
+  ): string | undefined => {
     if (w === undefined) return undefined;
     return `${label}: ${String(Math.round(w.usedPercent))}% used · resets in ${formatDuration(w.resetAfterSeconds)}`;
   };
@@ -168,7 +189,9 @@ export function formatCodexUsageCompact(usage: CodexUsage): string {
     );
   }
   if (!usage.allowed) parts.push("(limit reached)");
-  return parts.length === 1 ? "Codex" : `${parts[0]} ${parts.slice(1).join(" · ")}`;
+  return parts.length === 1
+    ? "Codex"
+    : `${parts[0]} ${parts.slice(1).join(" · ")}`;
 }
 
 function formatDuration(seconds: number): string {

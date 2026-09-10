@@ -66,7 +66,9 @@ function isEvalFixtureUrl(rawUrl: string): boolean {
 
 // Resolves the hostname and rejects if any resolved address is private,
 // loopback, or link-local. Also rejects non-http(s) schemes at the boundary.
-export async function checkUrlForSsrf(rawUrl: string): Promise<SsrfCheckResult> {
+export async function checkUrlForSsrf(
+  rawUrl: string,
+): Promise<SsrfCheckResult> {
   if (isEvalFixtureUrl(rawUrl)) return { ok: true };
   let parsed: URL;
   try {
@@ -107,7 +109,10 @@ export async function checkUrlForSsrf(rawUrl: string): Promise<SsrfCheckResult> 
     };
   }
   if (addresses.length === 0) {
-    return { ok: false, reason: `Host "${hostname}" resolved to no addresses.` };
+    return {
+      ok: false,
+      reason: `Host "${hostname}" resolved to no addresses.`,
+    };
   }
   for (const { address } of addresses) {
     if (isPrivateAddress(address)) {

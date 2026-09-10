@@ -50,7 +50,7 @@ describe("bare exit / quit at the prompt", () => {
         let exits = 0;
         setShellBridgeHooks(shell, {
           onSubmit: (text) => sent.push(text),
-          onInterrupt: () => {},
+          onInterrupt: () => undefined,
           exclusive: true,
         });
         setShellExitHandler(shell, () => {
@@ -71,7 +71,7 @@ describe("bare exit / quit at the prompt", () => {
       let exits = 0;
       setShellBridgeHooks(shell, {
         onSubmit: (text) => sent.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       setShellExitHandler(shell, () => {
@@ -89,7 +89,7 @@ describe("bare exit / quit at the prompt", () => {
       const sent: string[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (text) => sent.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       shell.prompt.value = "exit";
@@ -225,8 +225,12 @@ describe("the workspace rides the bottom border", () => {
           cwd: "/very/deep/nesting/of/directories/corbits-code",
           branch: "migration/opentui-tui",
         });
-        expect(ruleOf(shell.promptTopRule).length).toBe(shell.layout.contentWidth);
-        expect(ruleOf(shell.promptBottomRule).length).toBe(shell.layout.contentWidth);
+        expect(ruleOf(shell.promptTopRule).length).toBe(
+          shell.layout.contentWidth,
+        );
+        expect(ruleOf(shell.promptBottomRule).length).toBe(
+          shell.layout.contentWidth,
+        );
       }, columns);
     }
   });
@@ -303,7 +307,7 @@ describe("no permanent hint strip", () => {
         schedule: (fn, ms) => {
           expect(ms).toBe(RUNTIME_FLASH_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       expect(noticeText(shell)).toContain("copied 3 lines");
@@ -329,7 +333,7 @@ describe("no permanent hint strip", () => {
         flashSchedule: (fn, ms) => {
           expect(ms).toBe(RUNTIME_FLASH_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       setStatusFlash(shell, "copied 3 lines", { ttlMs: RUNTIME_FLASH_MS });
@@ -362,14 +366,20 @@ interface RuleChunk {
 function ruleChunksOf(rule: { content: unknown }): RuleChunk[] {
   const content = rule.content;
   if (typeof content !== "object" || content === null) return [];
-  const { chunks } = content as { chunks?: readonly { text?: string; fg?: unknown }[] };
+  const { chunks } = content as {
+    chunks?: readonly { text?: string; fg?: unknown }[];
+  };
   return (chunks ?? []).map((c) => ({ text: c.text ?? "", fg: c.fg }));
 }
 
 function fgHex(fg: unknown): string {
   if (typeof fg === "string") return fg.toLowerCase();
   if (fg && typeof fg === "object") {
-    const rec = fg as { hex?: string; toHex?: () => string; buffer?: ArrayLike<number> };
+    const rec = fg as {
+      hex?: string;
+      toHex?: () => string;
+      buffer?: ArrayLike<number>;
+    };
     if (typeof rec.hex === "string") return rec.hex.toLowerCase();
     if (typeof rec.toHex === "function") return rec.toHex().toLowerCase();
     if (rec.buffer !== undefined && rec.buffer.length >= 3) {
@@ -382,7 +392,10 @@ function fgHex(fg: unknown): string {
   return "";
 }
 
-function chunkMatching(chunks: readonly RuleChunk[], needle: string): RuleChunk | undefined {
+function chunkMatching(
+  chunks: readonly RuleChunk[],
+  needle: string,
+): RuleChunk | undefined {
   return chunks.find((c) => c.text.includes(needle));
 }
 

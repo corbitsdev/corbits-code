@@ -1,9 +1,14 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { APPROVAL_LOG_FILE, NOOP_APPROVAL_LOG, createApprovalLog } from "./approval-log.js";
+import {
+  APPROVAL_LOG_FILE,
+  NOOP_APPROVAL_LOG,
+  createApprovalLog,
+} from "./approval-log.js";
 import { createPermissionGate } from "./gate.js";
 import type { ToolCall } from "@intx/types/runtime";
 
@@ -22,7 +27,10 @@ function readRecords(dir: string): Record<string, unknown>[] {
 
 describe("createApprovalLog", () => {
   test("NOOP never throws and never writes", () => {
-    const ask = NOOP_APPROVAL_LOG.ask({ tool: "run_shell", mode: "interactive" });
+    const ask = NOOP_APPROVAL_LOG.ask({
+      tool: "run_shell",
+      mode: "interactive",
+    });
     expect(() => {
       ask.markDisplayed();
       ask.settle("allow-once");
@@ -35,7 +43,11 @@ describe("createApprovalLog", () => {
     const clock = () => new Date(now);
     const log = createApprovalLog(dir, clock);
 
-    const ask = log.ask({ tool: "run_shell", mode: "interactive", segments: 3 });
+    const ask = log.ask({
+      tool: "run_shell",
+      mode: "interactive",
+      segments: 3,
+    });
     now += 50; // sat behind another overlay
     ask.markDisplayed();
     now += 100; // operator decides
@@ -46,16 +58,16 @@ describe("createApprovalLog", () => {
 
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.tool).toBe("run_shell");
-    expect(record!.mode).toBe("interactive");
-    expect(record!.segments).toBe(3);
-    expect(record!.outcome).toBe("allow-with-scope");
-    expect(record!.durationMs).toBe(150);
-    expect(record!.displayDelayMs).toBe(50);
+    expect(defined(record).tool).toBe("run_shell");
+    expect(defined(record).mode).toBe("interactive");
+    expect(defined(record).segments).toBe(3);
+    expect(defined(record).outcome).toBe("allow-with-scope");
+    expect(defined(record).durationMs).toBe(150);
+    expect(defined(record).displayDelayMs).toBe(50);
     // No command text, path, or subject of any kind is ever recorded.
-    expect(Object.keys(record!)).not.toContain("subject");
-    expect(Object.keys(record!)).not.toContain("command");
-    expect(Object.keys(record!)).not.toContain("arguments");
+    expect(Object.keys(defined(record))).not.toContain("subject");
+    expect(Object.keys(defined(record))).not.toContain("command");
+    expect(Object.keys(defined(record))).not.toContain("arguments");
   });
 
   test("settle is idempotent — a second call does not append twice", async () => {
@@ -88,15 +100,17 @@ describe("approval-log wiring through the permission gate", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
     });
-    const verdict = await gate.evaluate(shellCall("echo hunter2 > /tmp/leaked-secret-file.txt"));
+    const verdict = await gate.evaluate(
+      shellCall("echo hunter2 > /tmp/leaked-secret-file.txt"),
+    );
     expect(verdict.allowed).toBe(false);
 
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.mode).toBe("auto");
-    expect(record!.outcome).toBe("auto-deny");
-    expect(record!.rule).toBe("file-mutation");
+    expect(defined(record).mode).toBe("auto");
+    expect(defined(record).outcome).toBe("auto-deny");
+    expect(defined(record).rule).toBe("file-mutation");
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain("hunter2");
     expect(serialized).not.toContain("leaked-secret-file");
@@ -117,15 +131,17 @@ describe("approval-log wiring through the permission gate", () => {
         return { allow: true };
       },
     });
-    const verdict = await gate.evaluate(shellCall("curl https://example.com/super-secret-token"));
+    const verdict = await gate.evaluate(
+      shellCall("curl https://example.com/super-secret-token"),
+    );
     expect(verdict.allowed).toBe(true);
 
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.mode).toBe("interactive");
-    expect(record!.outcome).toBe("allow-once");
-    expect(typeof record!.displayDelayMs).toBe("number");
+    expect(defined(record).mode).toBe("interactive");
+    expect(defined(record).outcome).toBe("allow-once");
+    expect(typeof defined(record).displayDelayMs).toBe("number");
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain("super-secret-token");
     expect(serialized).not.toContain("curl");
@@ -148,8 +164,8 @@ describe("approval-log wiring through the permission gate", () => {
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.outcome).toBe("deny");
-    expect(record!.rule).toBe("non-interactive");
+    expect(defined(record).outcome).toBe("deny");
+    expect(defined(record).rule).toBe("non-interactive");
   });
 
   // A sub-agent's `spawn_agent` dispatch `description` is model-authored free text
@@ -160,7 +176,8 @@ describe("approval-log wiring through the permission gate", () => {
   // path, a token, or secret content it just read into its own summary of the
   // sub-task.
   test("never logs a sub-agent's free-text dispatch description, even with a secret embedded", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
     const gate = createPermissionGate({
@@ -177,7 +194,10 @@ describe("approval-log wiring through the permission gate", () => {
     });
     const secret = "sk-live-9f2c7a1e4b6d8f0a";
     const verdict = await runWithSubAgentIdentity(
-      { description: `fetch the token ${secret} from the vault and cache it`, cwd },
+      {
+        description: `fetch the token ${secret} from the vault and cache it`,
+        cwd,
+      },
       () => gate.evaluate(shellCall("curl https://example.com")),
     );
     expect(verdict.allowed).toBe(true);
@@ -185,7 +205,7 @@ describe("approval-log wiring through the permission gate", () => {
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(Object.keys(record!)).not.toContain("agentLabel");
+    expect(Object.keys(defined(record))).not.toContain("agentLabel");
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain("vault");

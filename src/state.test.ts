@@ -91,7 +91,10 @@ describe("state persistence", () => {
     );
 
     const logged = await withFileLogSink(async () => {
-      expect(await loadState(cwd, SESSION_ID, home)).toEqual({ kind: "ok", state: failed });
+      expect(await loadState(cwd, SESSION_ID, home)).toEqual({
+        kind: "ok",
+        state: failed,
+      });
       expect((await loadState(cwd, crashedId, home)).kind).toBe("ok");
     });
     expect(logged).not.toContain("unreadable session state");
@@ -142,7 +145,9 @@ describe("state persistence", () => {
     await writeFile(runPath, '{ "turnsUsed": ');
 
     const logged = await withFileLogSink(async () => {
-      expect(await loadState(cwd, SESSION_ID, home)).toEqual({ kind: "unreadable" });
+      expect(await loadState(cwd, SESSION_ID, home)).toEqual({
+        kind: "unreadable",
+      });
     });
     expect(logged).toContain(runPath);
     expect(logged).toContain("corrupt JSON");
@@ -158,7 +163,12 @@ describe("state persistence", () => {
     await mkdir(stateDir, { recursive: true });
     await writeFile(
       join(stateDir, "run.json"),
-      JSON.stringify({ status: "running", turnsUsed: "not-a-number", task: "x", startedAt: 0 }),
+      JSON.stringify({
+        status: "running",
+        turnsUsed: "not-a-number",
+        task: "x",
+        startedAt: 0,
+      }),
     );
 
     await withFileLogSink(async () => {
@@ -182,7 +192,11 @@ describe("state persistence", () => {
 
   test("saveState overwrites a pre-existing file with well-formed JSON", async () => {
     await saveState(cwd, SESSION_ID, baseRunState, home);
-    const updated: RunState = { ...baseRunState, turnsUsed: 99, status: "done" };
+    const updated: RunState = {
+      ...baseRunState,
+      turnsUsed: 99,
+      status: "done",
+    };
     await saveState(cwd, SESSION_ID, updated, home);
     const raw = await readFile(join(dir(), "run.json"), "utf8");
     expect(() => JSON.parse(raw)).not.toThrow();

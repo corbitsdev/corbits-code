@@ -19,16 +19,23 @@ export interface GoUsage {
 /** Minimal fetch shape so tests can inject stubs without matching full DOM fetch. */
 export type GoFetch = (
   input: string,
-  init?: { method?: string; headers?: Record<string, string>; signal?: AbortSignal },
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  },
 ) => Promise<Response>;
 
 function asWindow(value: unknown): GoUsageWindow | undefined {
   if (value === null || typeof value !== "object") return undefined;
   const o = value as Record<string, unknown>;
   const out: GoUsageWindow = {};
-  if (typeof o["usageDollars"] === "number") out.usageDollars = o["usageDollars"];
-  if (typeof o["limitDollars"] === "number") out.limitDollars = o["limitDollars"];
-  if (typeof o["usagePercent"] === "number") out.usagePercent = o["usagePercent"];
+  if (typeof o["usageDollars"] === "number")
+    out.usageDollars = o["usageDollars"];
+  if (typeof o["limitDollars"] === "number")
+    out.limitDollars = o["limitDollars"];
+  if (typeof o["usagePercent"] === "number")
+    out.usagePercent = o["usagePercent"];
   if (typeof o["resetInSec"] === "number") out.resetInSec = o["resetInSec"];
   return out;
 }
@@ -42,7 +49,8 @@ export async function fetchGoUsage(
   opts?: { fetchImpl?: GoFetch; signal?: AbortSignal },
 ): Promise<GoUsage> {
   const fetchImpl: GoFetch =
-    opts?.fetchImpl ?? ((input, init) => globalThis.fetch(input, init as RequestInit));
+    opts?.fetchImpl ??
+    ((input, init) => globalThis.fetch(input, init as RequestInit));
   const url = `${OPENCODE_GO_BASE_URL}${OPENCODE_GO_USAGE_PATH}`;
   try {
     const init: {
@@ -61,7 +69,10 @@ export async function fetchGoUsage(
     }
     const res = await fetchImpl(url, init);
     if (res.status === 401 || res.status === 403) {
-      return { status: "unauthorized", message: `usage HTTP ${String(res.status)}` };
+      return {
+        status: "unauthorized",
+        message: `usage HTTP ${String(res.status)}`,
+      };
     }
     if (res.status === 404) {
       return { status: "unavailable", message: "usage endpoint not available" };
@@ -92,7 +103,9 @@ export function formatGoUsage(usage: GoUsage): string {
   if (usage.status !== "ok") {
     if (usage.status === "unavailable") return "Go usage unavailable";
     if (usage.status === "unauthorized") return "Go usage: auth failed";
-    return usage.message !== undefined ? `Go usage: ${usage.message}` : "Go usage error";
+    return usage.message !== undefined
+      ? `Go usage: ${usage.message}`
+      : "Go usage error";
   }
   const w = usage.rolling5h ?? usage.weekly ?? usage.monthly;
   if (w === undefined) return "Go usage ok";
@@ -103,6 +116,10 @@ export function formatGoUsage(usage: GoUsage): string {
         ? `$${w.usageDollars.toFixed(2)}/$${w.limitDollars.toFixed(0)}`
         : "ok";
   const window =
-    usage.rolling5h !== undefined ? "5h" : usage.weekly !== undefined ? "week" : "month";
+    usage.rolling5h !== undefined
+      ? "5h"
+      : usage.weekly !== undefined
+        ? "week"
+        : "month";
   return `Go ${window} ${pct}`;
 }

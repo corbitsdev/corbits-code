@@ -38,7 +38,9 @@ describe("persistent-shell-cwd helpers", () => {
     const sessionRoot = realpathSync(root);
     const parent = realpathSync(join(root, ".."));
     expect(isShellCwdWithinSession(sessionRoot, sessionRoot)).toBe(true);
-    expect(isShellCwdWithinSession(sessionRoot, join(sessionRoot, "sub"))).toBe(true);
+    expect(isShellCwdWithinSession(sessionRoot, join(sessionRoot, "sub"))).toBe(
+      true,
+    );
     expect(isShellCwdWithinSession(sessionRoot, parent)).toBe(false);
   });
 });
@@ -48,22 +50,29 @@ describe("resolvePerCallShellCwd", () => {
     const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-"));
     const sub = join(root, "markerdir");
     await mkdir(sub);
-    const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
+    const { resolvePerCallShellCwd } =
+      await import("./persistent-shell-cwd.js");
     expect(resolvePerCallShellCwd(root, "markerdir")).toBe(realpathSync(sub));
   });
 
   test("rejects paths outside the session root by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-out-"));
     const parent = realpathSync(join(root, ".."));
-    const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
-    expect(() => resolvePerCallShellCwd(root, parent)).toThrow(/outside the session workspace/);
+    const { resolvePerCallShellCwd } =
+      await import("./persistent-shell-cwd.js");
+    expect(() => resolvePerCallShellCwd(root, parent)).toThrow(
+      /outside the session workspace/,
+    );
   });
 
   test("allowOutsideSession accepts paths outside the session root", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-yolo-"));
     const parent = realpathSync(join(root, ".."));
-    const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
-    expect(resolvePerCallShellCwd(root, parent, { allowOutsideSession: true })).toBe(parent);
+    const { resolvePerCallShellCwd } =
+      await import("./persistent-shell-cwd.js");
+    expect(
+      resolvePerCallShellCwd(root, parent, { allowOutsideSession: true }),
+    ).toBe(parent);
   });
 });
 

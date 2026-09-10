@@ -77,7 +77,10 @@ describe("createToolIndex", () => {
   });
 
   test("orchestrator mode advertises split fleet tools and search_agents", () => {
-    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    const advertised = advertisedToolNamesForSessionMode(
+      "orchestrator",
+      FULL_AVAILABILITY,
+    );
     expect(advertised).not.toContain("task");
     expect(advertised).toContain("spawn_agent");
     expect(advertised).toContain("wait_agents");
@@ -85,7 +88,10 @@ describe("createToolIndex", () => {
   });
 
   test("orchestrator mode advertises the fleet verbs", () => {
-    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    const advertised = advertisedToolNamesForSessionMode(
+      "orchestrator",
+      FULL_AVAILABILITY,
+    );
     for (const name of [
       "spawn_agent",
       "wait_agents",
@@ -101,12 +107,16 @@ describe("createToolIndex", () => {
   });
 
   test("manage_tasks is advertised regardless of availability", () => {
-    expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
+    expect(
+      coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY),
+    ).toContain("manage_tasks");
   });
 
   test("present is never in the advertised core set — discovered via tool_search only", () => {
     expect(CORE_TOOL_NAMES).not.toContain("present");
-    expect(coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).not.toContain("present");
+    expect(
+      coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY),
+    ).not.toContain("present");
   });
 
   test("primary CORE includes product mutation tools; CATALOG does not duplicate them", () => {
@@ -121,30 +131,44 @@ describe("createToolIndex", () => {
   test("catalog advertises web_fetch and web_search so URL work needs no tool_search", () => {
     expect(CATALOG_TOOL_NAMES).toContain("web_fetch");
     expect(CATALOG_TOOL_NAMES).toContain("web_search");
-    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    const advertised = advertisedToolNamesForSessionMode(
+      "orchestrator",
+      FULL_AVAILABILITY,
+    );
     expect(advertised).toContain("web_fetch");
     expect(advertised).toContain("web_search");
   });
 
   test("skill_search is catalog-advertised at the end, never CORE", () => {
     expect(CORE_TOOL_NAMES).not.toContain("skill_search");
-    expect(CATALOG_TOOL_NAMES[CATALOG_TOOL_NAMES.length - 1]).toBe("skill_search");
-    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(CATALOG_TOOL_NAMES[CATALOG_TOOL_NAMES.length - 1]).toBe(
+      "skill_search",
+    );
+    const advertised = advertisedToolNamesForSessionMode(
+      "orchestrator",
+      FULL_AVAILABILITY,
+    );
     expect(advertised).toContain("skill_search");
     expect(advertised[advertised.length - 1]).toBe("skill_search");
   });
 
   test("lsp is advertised only when a language server was detected at startup", () => {
     expect(
-      coreToolNamesForSessionMode("orchestrator", { languageServerAvailable: true }),
+      coreToolNamesForSessionMode("orchestrator", {
+        languageServerAvailable: true,
+      }),
     ).toContain("lsp");
     expect(
-      coreToolNamesForSessionMode("orchestrator", { languageServerAvailable: false }),
+      coreToolNamesForSessionMode("orchestrator", {
+        languageServerAvailable: false,
+      }),
     ).not.toContain("lsp");
   });
 
   test("ask_operator is advertised regardless of availability", () => {
-    expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("ask_operator");
+    expect(
+      coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY),
+    ).toContain("ask_operator");
   });
 
   test("the advertised set is deterministic — repeat calls with the same inputs are identical", () => {
@@ -212,7 +236,9 @@ describe("createToolSearchTool", () => {
       lookup: () => undefined,
       promote: () => undefined,
     });
-    expect(await call(tool, { query: "nonsense" })).toContain("No tools matched");
+    expect(await call(tool, { query: "nonsense" })).toContain(
+      "No tools matched",
+    );
   });
 });
 
@@ -241,7 +267,10 @@ describe("advertisedTools", () => {
   ];
 
   test("orchestrator wire prefix names include multi-agent tools", () => {
-    const prefix = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    const prefix = advertisedToolNamesForSessionMode(
+      "orchestrator",
+      FULL_AVAILABILITY,
+    );
     expect(prefix).not.toContain("task");
     expect(prefix).toContain("search_agents");
     for (const name of [
@@ -287,12 +316,14 @@ describe("advertisedTools", () => {
 
   test("the fixed built-in prefix order never changes, activated or not", () => {
     const forward = advertisedTools(registry).map((d) => d.name);
-    const reversed = advertisedTools([...registry].reverse()).map((d) => d.name);
-    expect(reversed).toEqual(forward);
-
-    const withActivation = advertisedTools(registry, ["mcp__linear__create_issue"]).map(
+    const reversed = advertisedTools([...registry].reverse()).map(
       (d) => d.name,
     );
+    expect(reversed).toEqual(forward);
+
+    const withActivation = advertisedTools(registry, [
+      "mcp__linear__create_issue",
+    ]).map((d) => d.name);
     expect(withActivation.slice(0, forward.length)).toEqual(forward);
   });
 
@@ -307,13 +338,17 @@ describe("advertisedTools", () => {
   });
 
   test("repeated activation of the same tool does not reorder or duplicate it", () => {
-    const once = advertisedTools(registry, ["mcp__linear__create_issue"]).map((d) => d.name);
+    const once = advertisedTools(registry, ["mcp__linear__create_issue"]).map(
+      (d) => d.name,
+    );
     const twice = advertisedTools(registry, [
       "mcp__linear__create_issue",
       "mcp__linear__create_issue",
     ]).map((d) => d.name);
     expect(twice).toEqual(once);
-    expect(twice.filter((n) => n === "mcp__linear__create_issue")).toHaveLength(1);
+    expect(twice.filter((n) => n === "mcp__linear__create_issue")).toHaveLength(
+      1,
+    );
   });
 
   test("multiple activations append in first-activation order regardless of registry order", () => {
@@ -325,11 +360,15 @@ describe("advertisedTools", () => {
         inputSchema: { type: "object", properties: {}, required: [] },
       },
     ];
-    const names = advertisedTools(multi, ["mcp__acme__do", "mcp__linear__create_issue"]).map(
-      (d) => d.name,
-    );
+    const names = advertisedTools(multi, [
+      "mcp__acme__do",
+      "mcp__linear__create_issue",
+    ]).map((d) => d.name);
     const tailIdx = names.length - 2;
-    expect(names.slice(tailIdx)).toEqual(["mcp__acme__do", "mcp__linear__create_issue"]);
+    expect(names.slice(tailIdx)).toEqual([
+      "mcp__acme__do",
+      "mcp__linear__create_issue",
+    ]);
   });
 
   test("the built-in prefix is byte-identical across repeated turns of the same session", () => {
@@ -341,7 +380,9 @@ describe("advertisedTools", () => {
     });
     const turn1 = JSON.stringify(advertisedTools(registry, [], prefix));
     const turn2 = JSON.stringify(advertisedTools(registry, [], prefix));
-    const turn3 = JSON.stringify(advertisedTools(registry, ["mcp__linear__create_issue"], prefix));
+    const turn3 = JSON.stringify(
+      advertisedTools(registry, ["mcp__linear__create_issue"], prefix),
+    );
     expect(turn2).toBe(turn1);
     // Growth from a mid-session discovery only appends — the prefix itself
     // (everything before the activated tail) still matches turn 1 exactly.
@@ -380,7 +421,10 @@ describe("createActivatedToolTracker", () => {
     const tracker = createActivatedToolTracker();
     tracker.activate(["mcp__acme__do", "mcp__linear__create_issue"]);
     expect(tracker.activate(["mcp__linear__create_issue"])).toBe(false);
-    expect(tracker.list()).toEqual(["mcp__acme__do", "mcp__linear__create_issue"]);
+    expect(tracker.list()).toEqual([
+      "mcp__acme__do",
+      "mcp__linear__create_issue",
+    ]);
   });
 
   test("preserves first-activation order across separate calls", () => {

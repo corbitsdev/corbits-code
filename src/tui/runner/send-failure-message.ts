@@ -26,9 +26,13 @@ export function tuiSendFailureMessage(
   }
   const providerId =
     providerError?.providerId ??
-    (isResolvedProviderFailureError(error) ? error.providerId : attempt.providerId);
-  const displayLabel = providerId === attempt.providerId ? attempt.displayLabel : undefined;
-  if (providerError === undefined && isResolvedProviderFailureError(error)) return error.message;
+    (isResolvedProviderFailureError(error)
+      ? error.providerId
+      : attempt.providerId);
+  const displayLabel =
+    providerId === attempt.providerId ? attempt.displayLabel : undefined;
+  if (providerError === undefined && isResolvedProviderFailureError(error))
+    return error.message;
   const diagnostic = providerError ?? {
     category: "fatal",
     message: error instanceof Error ? error.message : String(error),

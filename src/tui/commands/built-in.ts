@@ -5,7 +5,10 @@ import {
   parseChangelog,
   resolveChangelogPath,
 } from "../../changelog/index.js";
-import { FEEDBACK_PROMPT, isFeedbackConfigured } from "../../telemetry/feedback.js";
+import {
+  FEEDBACK_PROMPT,
+  isFeedbackConfigured,
+} from "../../telemetry/feedback.js";
 
 /**
  * Register every built-in slash command.
@@ -41,7 +44,8 @@ export function registerBuiltInCommands(): void {
 
   registerCommand({
     name: "plugins",
-    description: "Add or remove plugins, set credentials, verify, and pick the web provider",
+    description:
+      "Add or remove plugins, set credentials, verify, and pick the web provider",
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "plugins" }),
   });
 
@@ -90,7 +94,10 @@ export function registerBuiltInCommands(): void {
         return { type: "message", text: "Usage: /rename <name>" };
       }
       if (ctx.renameSession === undefined) {
-        return { type: "message", text: "Renaming is not available in this mode." };
+        return {
+          type: "message",
+          text: "Renaming is not available in this mode.",
+        };
       }
       const err = ctx.renameSession(name);
       if (err !== undefined) {
@@ -108,7 +115,8 @@ export function registerBuiltInCommands(): void {
 
   registerCommand({
     name: "mcp",
-    description: "Show MCP servers — Enter connects, Alt+D disables, Alt+R removes",
+    description:
+      "Show MCP servers — Enter connects, Alt+D disables, Alt+R removes",
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "mcp" }),
   });
 
@@ -118,7 +126,10 @@ export function registerBuiltInCommands(): void {
     handler: (_args, ctx) => {
       const summary = ctx.getCostSummary?.();
       if (summary === undefined) {
-        return { type: "message", text: "Cost tracking is not available in this session." };
+        return {
+          type: "message",
+          text: "Cost tracking is not available in this session.",
+        };
       }
       return { type: "message", text: formatCostCommandOutput(summary) };
     },
@@ -130,7 +141,10 @@ export function registerBuiltInCommands(): void {
     handler: (_args, ctx) => {
       const status = ctx.getFleetStatus?.();
       if (status === undefined) {
-        return { type: "message", text: "Fleet status is not available in this session." };
+        return {
+          type: "message",
+          text: "Fleet status is not available in this session.",
+        };
       }
       return { type: "message", text: status };
     },
@@ -151,7 +165,10 @@ export function registerBuiltInCommands(): void {
       }
       const entries = parseChangelog(path);
       if (entries.length === 0) {
-        return { type: "message", text: "No versioned release notes found in CHANGELOG.md." };
+        return {
+          type: "message",
+          text: "No versioned release notes found in CHANGELOG.md.",
+        };
       }
       const wantFull = args.trim().toLowerCase() === "full";
       if (wantFull) {
@@ -180,13 +197,19 @@ export function registerBuiltInCommands(): void {
       const text = args.trim();
       if (text.length === 0) {
         if (ctx.beginFeedbackCapture === undefined) {
-          return { type: "message", text: "Feedback is not available in this mode." };
+          return {
+            type: "message",
+            text: "Feedback is not available in this mode.",
+          };
         }
         ctx.beginFeedbackCapture();
         return { type: "message", text: FEEDBACK_PROMPT };
       }
       if (ctx.submitFeedback === undefined) {
-        return { type: "message", text: "Feedback is not available in this mode." };
+        return {
+          type: "message",
+          text: "Feedback is not available in this mode.",
+        };
       }
       return { type: "message", text: ctx.submitFeedback(text) };
     },
@@ -203,8 +226,14 @@ export function registerBuiltInCommands(): void {
       { name: "toggle", description: "Toggle skip-permissions" },
     ],
     handler: (args, ctx) => {
-      if (ctx.getSkipPermissions === undefined || ctx.setSkipPermissions === undefined) {
-        return { type: "message", text: "Yolo mode is not available in this mode." };
+      if (
+        ctx.getSkipPermissions === undefined ||
+        ctx.setSkipPermissions === undefined
+      ) {
+        return {
+          type: "message",
+          text: "Yolo mode is not available in this mode.",
+        };
       }
       const arg = args.trim().toLowerCase();
       let next: boolean;

@@ -20,7 +20,10 @@ const baseSettings = (otel?: Settings["otel"]): Settings => ({
 
 describe("parseOtelKeyValueList", () => {
   test("parses key=value pairs", () => {
-    const result = parseOtelKeyValueList("Authorization=Bearer%20tok,x-api-key=abc", "headers");
+    const result = parseOtelKeyValueList(
+      "Authorization=Bearer%20tok,x-api-key=abc",
+      "headers",
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value).toEqual({
@@ -52,7 +55,10 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("disabled when only service name is set", () => {
-    const result = resolveOtelExportConfig(baseSettings({ serviceName: "demo" }), {});
+    const result = resolveOtelExportConfig(
+      baseSettings({ serviceName: "demo" }),
+      {},
+    );
     expect(result).toEqual({ ok: true, config: { enabled: false } });
   });
 
@@ -66,7 +72,9 @@ describe("resolveOtelExportConfig", () => {
       expect(result.config.endpoint).toBe("https://collector.example/v1");
       expect(result.config.serviceName).toBe(DEFAULT_OTEL_SERVICE_NAME);
       expect(result.config.headers).toEqual({});
-      expect(result.config.resourceAttributes["service.name"]).toBe(DEFAULT_OTEL_SERVICE_NAME);
+      expect(result.config.resourceAttributes["service.name"]).toBe(
+        DEFAULT_OTEL_SERVICE_NAME,
+      );
     }
   });
 
@@ -82,9 +90,12 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("env endpoint overrides settings", () => {
-    const result = resolveOtelExportConfig(baseSettings({ endpoint: "https://settings.example" }), {
-      [OTEL_ENV.endpoint]: "https://env.example/otlp",
-    });
+    const result = resolveOtelExportConfig(
+      baseSettings({ endpoint: "https://settings.example" }),
+      {
+        [OTEL_ENV.endpoint]: "https://env.example/otlp",
+      },
+    );
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
       expect(result.config.endpoint).toBe("https://env.example/otlp");
@@ -101,7 +112,9 @@ describe("resolveOtelExportConfig", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
-      expect(result.config.headers).toEqual({ Authorization: "Bearer env-secret" });
+      expect(result.config.headers).toEqual({
+        Authorization: "Bearer env-secret",
+      });
       expect(result.config.headers["x-settings"]).toBeUndefined();
     }
   });
@@ -122,18 +135,28 @@ describe("resolveOtelExportConfig", () => {
 
   test("service name: env > settings > attrs > default", () => {
     const fromSettings = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://c.example", serviceName: "from-settings" }),
+      baseSettings({
+        endpoint: "https://c.example",
+        serviceName: "from-settings",
+      }),
       {},
     );
-    expect(fromSettings.ok && fromSettings.config.enabled && fromSettings.config.serviceName).toBe(
-      "from-settings",
-    );
+    expect(
+      fromSettings.ok &&
+        fromSettings.config.enabled &&
+        fromSettings.config.serviceName,
+    ).toBe("from-settings");
 
     const fromEnv = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://c.example", serviceName: "from-settings" }),
+      baseSettings({
+        endpoint: "https://c.example",
+        serviceName: "from-settings",
+      }),
       { [OTEL_ENV.serviceName]: "from-env" },
     );
-    expect(fromEnv.ok && fromEnv.config.enabled && fromEnv.config.serviceName).toBe("from-env");
+    expect(
+      fromEnv.ok && fromEnv.config.enabled && fromEnv.config.serviceName,
+    ).toBe("from-env");
   });
 
   test("service.name: attrs used when env and settings serviceName unset", () => {
@@ -147,7 +170,9 @@ describe("resolveOtelExportConfig", () => {
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
       expect(result.config.serviceName).toBe("from-attrs");
-      expect(result.config.resourceAttributes["service.name"]).toBe("from-attrs");
+      expect(result.config.resourceAttributes["service.name"]).toBe(
+        "from-attrs",
+      );
     }
   });
 
@@ -179,18 +204,26 @@ describe("resolveOtelExportConfig", () => {
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
       expect(result.config.serviceName).toBe("from-settings");
-      expect(result.config.resourceAttributes["service.name"]).toBe("from-settings");
+      expect(result.config.resourceAttributes["service.name"]).toBe(
+        "from-settings",
+      );
     }
   });
 
   test("service.name: env OTEL_RESOURCE_ATTRIBUTES service.name used when no env/settings name", () => {
-    const result = resolveOtelExportConfig(baseSettings({ endpoint: "https://c.example" }), {
-      [OTEL_ENV.resourceAttributes]: "service.name=from-env-attrs,team=corbits",
-    });
+    const result = resolveOtelExportConfig(
+      baseSettings({ endpoint: "https://c.example" }),
+      {
+        [OTEL_ENV.resourceAttributes]:
+          "service.name=from-env-attrs,team=corbits",
+      },
+    );
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
       expect(result.config.serviceName).toBe("from-env-attrs");
-      expect(result.config.resourceAttributes["service.name"]).toBe("from-env-attrs");
+      expect(result.config.resourceAttributes["service.name"]).toBe(
+        "from-env-attrs",
+      );
       expect(result.config.resourceAttributes.team).toBe("corbits");
     }
   });
@@ -199,15 +232,22 @@ describe("resolveOtelExportConfig", () => {
     const result = resolveOtelExportConfig(
       baseSettings({
         endpoint: "https://c.example",
-        resourceAttributes: { "deployment.environment": "settings", team: "corbits" },
+        resourceAttributes: {
+          "deployment.environment": "settings",
+          team: "corbits",
+        },
       }),
       { [OTEL_ENV.resourceAttributes]: "deployment.environment=prod" },
     );
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
-      expect(result.config.resourceAttributes["deployment.environment"]).toBe("prod");
+      expect(result.config.resourceAttributes["deployment.environment"]).toBe(
+        "prod",
+      );
       expect(result.config.resourceAttributes.team).toBe("corbits");
-      expect(result.config.resourceAttributes["service.name"]).toBe(DEFAULT_OTEL_SERVICE_NAME);
+      expect(result.config.resourceAttributes["service.name"]).toBe(
+        DEFAULT_OTEL_SERVICE_NAME,
+      );
     }
   });
 
@@ -231,7 +271,10 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("fail closed: invalid endpoint URL", () => {
-    const result = resolveOtelExportConfig(baseSettings({ endpoint: "not a url" }), {});
+    const result = resolveOtelExportConfig(
+      baseSettings({ endpoint: "not a url" }),
+      {},
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe(OTEL_CONFIG_INVALID);
@@ -282,9 +325,12 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("fail closed: malformed env headers", () => {
-    const result = resolveOtelExportConfig(baseSettings({ endpoint: "https://c.example" }), {
-      [OTEL_ENV.headers]: "bad",
-    });
+    const result = resolveOtelExportConfig(
+      baseSettings({ endpoint: "https://c.example" }),
+      {
+        [OTEL_ENV.headers]: "bad",
+      },
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.message).toContain(OTEL_ENV.headers);
@@ -292,18 +338,21 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("fail closed: malformed env resource attributes", () => {
-    const result = resolveOtelExportConfig(baseSettings({ endpoint: "https://c.example" }), {
-      [OTEL_ENV.resourceAttributes]: "=novalue",
-    });
+    const result = resolveOtelExportConfig(
+      baseSettings({ endpoint: "https://c.example" }),
+      {
+        [OTEL_ENV.resourceAttributes]: "=novalue",
+      },
+    );
     expect(isOtelConfigInvalid(result)).toBe(true);
   });
 });
 
 describe("requireOtelExportConfig", () => {
   test("throws OtelConfigError with stable code on invalid config", () => {
-    expect(() => requireOtelExportConfig(baseSettings({ endpoint: "://" }), {})).toThrow(
-      OtelConfigError,
-    );
+    expect(() =>
+      requireOtelExportConfig(baseSettings({ endpoint: "://" }), {}),
+    ).toThrow(OtelConfigError);
     try {
       requireOtelExportConfig(baseSettings({ endpoint: "://" }), {});
     } catch (err) {
@@ -316,7 +365,9 @@ describe("requireOtelExportConfig", () => {
   });
 
   test("returns disabled config when unset", () => {
-    expect(requireOtelExportConfig(baseSettings(), {})).toEqual({ enabled: false });
+    expect(requireOtelExportConfig(baseSettings(), {})).toEqual({
+      enabled: false,
+    });
   });
 });
 
@@ -325,13 +376,17 @@ describe("otelConfigForDump", () => {
     const resolved = resolveOtelExportConfig(
       baseSettings({
         endpoint: "https://collector.example",
-        headers: { Authorization: "Bearer super-secret", "x-api-key": "also-secret" },
+        headers: {
+          Authorization: "Bearer super-secret",
+          "x-api-key": "also-secret",
+        },
         serviceName: "dump-test",
       }),
       {},
     );
     expect(resolved.ok).toBe(true);
-    if (!resolved.ok || !resolved.config.enabled) throw new Error("expected enabled config");
+    if (!resolved.ok || !resolved.config.enabled)
+      throw new Error("expected enabled config");
 
     const dump = otelConfigForDump(resolved.config);
     const serialized = JSON.stringify(dump);
@@ -367,7 +422,8 @@ describe("otelConfigForDump", () => {
       {},
     );
     expect(resolved.ok).toBe(true);
-    if (!resolved.ok || !resolved.config.enabled) throw new Error("expected enabled config");
+    if (!resolved.ok || !resolved.config.enabled)
+      throw new Error("expected enabled config");
 
     // Live export config keeps raw values for the exporter.
     expect(resolved.config.resourceAttributes.api_key).toBe("should-not-leak");

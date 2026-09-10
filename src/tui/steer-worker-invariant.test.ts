@@ -62,7 +62,9 @@ describe("CL-6291 worker-alive invariants", () => {
           expect(
             port.calls
               .filter((c) => c.op === "enqueue")
-              .map((c) => (c.op === "enqueue" ? { text: c.text, kind: c.kind } : null)),
+              .map((c) =>
+                c.op === "enqueue" ? { text: c.text, kind: c.kind } : null,
+              ),
           ).toEqual([
             { text: "redirect soft", kind: "steer" },
             { text: "follow up later", kind: "queue" },
@@ -96,7 +98,9 @@ describe("CL-6291 worker-alive invariants", () => {
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
           expect(port.calls.some((c) => c.op === "deliver")).toBe(true);
           const delivered = port.calls.find((c) => c.op === "deliver");
-          expect(delivered?.op === "deliver" ? delivered.item.text : null).toBe("at next boundary");
+          expect(delivered?.op === "deliver" ? delivered.item.text : null).toBe(
+            "at next boundary",
+          );
           expect(badgeCount(shell.session)).toBe(0);
         } finally {
           bridge.dispose();
@@ -185,7 +189,9 @@ describe("CL-6291 worker-alive invariants", () => {
           bridge.handle({ type: "user", text: "hello there" });
           await h.renderOnce();
           expect(
-            shell.streamLog.filter((r) => r.role === "user" && r.text === "hello there"),
+            shell.streamLog.filter(
+              (r) => r.role === "user" && r.text === "hello there",
+            ),
           ).toHaveLength(2);
         } finally {
           bridge.dispose();
@@ -214,9 +220,11 @@ describe("CL-6291 worker-alive invariants", () => {
           await h.renderOnce();
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(true);
           // Hard stop still hands pending over rather than discarding them.
-          expect(port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : []))).toEqual([
-            "kept",
-          ]);
+          expect(
+            port.calls.flatMap((c) =>
+              c.op === "deliver" ? [c.item.text] : [],
+            ),
+          ).toEqual(["kept"]);
         } finally {
           bridge.dispose();
           shell.dispose();

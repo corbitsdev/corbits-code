@@ -107,7 +107,9 @@ function callIdFromToolDone(event: ReactorEmittedEvent): string | undefined {
   return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
-function modelTags(event: ReactorEmittedEvent): Record<string, unknown> | undefined {
+function modelTags(
+  event: ReactorEmittedEvent,
+): Record<string, unknown> | undefined {
   if (event.type === "inference.start") {
     const data = event.data as { model?: unknown };
     if (typeof data.model === "string" && data.model.length > 0) {
@@ -121,10 +123,14 @@ function modelTags(event: ReactorEmittedEvent): Record<string, unknown> | undefi
       usage?: { input?: unknown; output?: unknown };
     };
     const tags: Record<string, unknown> = {};
-    if (typeof data.source?.provider === "string") tags.provider_id = data.source.provider;
-    if (typeof data.source?.model === "string") tags.model_id = data.source.model;
-    if (typeof data.usage?.input === "number") tags.input_tokens = data.usage.input;
-    if (typeof data.usage?.output === "number") tags.output_tokens = data.usage.output;
+    if (typeof data.source?.provider === "string")
+      tags.provider_id = data.source.provider;
+    if (typeof data.source?.model === "string")
+      tags.model_id = data.source.model;
+    if (typeof data.usage?.input === "number")
+      tags.input_tokens = data.usage.input;
+    if (typeof data.usage?.output === "number")
+      tags.output_tokens = data.usage.output;
     return Object.keys(tags).length > 0 ? tags : undefined;
   }
   return undefined;
@@ -273,7 +279,11 @@ export function createPerfReactorObserver(): PerfReactorObserver {
       if (state.pendingTools > 0) {
         state.pendingTools -= 1;
       }
-      if (state.pendingTools === 0 && state.inferenceId === null && state.turnId !== null) {
+      if (
+        state.pendingTools === 0 &&
+        state.inferenceId === null &&
+        state.turnId !== null
+      ) {
         closeTurn();
       }
       return;

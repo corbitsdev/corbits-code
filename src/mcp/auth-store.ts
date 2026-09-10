@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -43,12 +51,18 @@ export function normalizeMCPServerURL(serverURL: string): string {
   return url.toString();
 }
 
-export function authFilePath(identity: MCPAuthIdentity, home: string = homedir()): string {
+export function authFilePath(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): string {
   const normalizedURL = normalizeMCPServerURL(identity.serverURL);
   const digest = createHash("sha256")
     .update(JSON.stringify([identity.serverName, normalizedURL]))
     .digest("hex");
-  return join(mcpAuthDir(home), `${serverDisplaySlug(identity.serverName)}-${digest}.json`);
+  return join(
+    mcpAuthDir(home),
+    `${serverDisplaySlug(identity.serverName)}-${digest}.json`,
+  );
 }
 
 function isEnoent(err: unknown): boolean {
@@ -63,7 +77,8 @@ function isEnoent(err: unknown): boolean {
 function parseAuthState(raw: string): MCPAuthState | undefined {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) return parsed as MCPAuthState;
+    if (typeof parsed === "object" && parsed !== null)
+      return parsed as MCPAuthState;
   } catch {
     // A corrupt auth file should not wedge the session; treat it as no state and
     // let a fresh authorization overwrite it.
@@ -128,7 +143,12 @@ export function tryLoadAuthStateSync(
 }
 
 function isEexist(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && err.code === "EEXIST";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    err.code === "EEXIST"
+  );
 }
 
 // pid alone is not unique per call — concurrent saves in one process must not
@@ -168,7 +188,10 @@ async function acquireAuthFileLock(lockPath: string) {
   }
 }
 
-async function withAuthFileLock<T>(path: string, op: () => Promise<T>): Promise<T> {
+async function withAuthFileLock<T>(
+  path: string,
+  op: () => Promise<T>,
+): Promise<T> {
   const lockPath = `${path}.lock`;
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const lock = await acquireAuthFileLock(lockPath);

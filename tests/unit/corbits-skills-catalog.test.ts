@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { loadSkillCommands } from "../../src/plugins/skill-commands.js";
+import { defined } from "../helpers/defined.js";
 
 const pluginRoot = join(import.meta.dirname, "../../plugins/corbits-skills");
 
@@ -79,7 +80,9 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
 }
 
 test("corbits-skills manifest is a default-enabled command plugin", async () => {
-  const manifest = (await Bun.file(join(pluginRoot, "manifest.json")).json()) as {
+  const manifest = (await Bun.file(
+    join(pluginRoot, "manifest.json"),
+  ).json()) as {
     id: string;
     kind: string;
     defaultEnabled: boolean;
@@ -95,7 +98,9 @@ test("corbits-skills plugin has no agents directory", () => {
 
 test("corbits-skills catalog lists 20 skills with name and description", async () => {
   expect(SKILL_DIRS).toHaveLength(20);
-  const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
+  const entries = await readdir(join(pluginRoot, "skills"), {
+    withFileTypes: true,
+  });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -128,7 +133,9 @@ test("first-party skills are how-to playbooks, not director personas", async () 
     "typescript",
   ]);
   for (const name of SKILL_DIRS) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    const skill = await Bun.file(
+      join(pluginRoot, "skills", name, "SKILL.md"),
+    ).text();
     expect(skill).not.toContain("You are Skywalker");
     expect(skill).not.toMatch(/You are \w+Director/);
     expect(skill).not.toContain("Host is Corbits");
@@ -140,7 +147,9 @@ test("first-party skills are how-to playbooks, not director personas", async () 
 
 test("use_skill-only skills set user-invocable: false without disable-model-invocation", async () => {
   for (const name of USE_SKILL_ONLY) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    const skill = await Bun.file(
+      join(pluginRoot, "skills", name, "SKILL.md"),
+    ).text();
     expect(skill).toContain(USER_INVOCABLE_FALSE);
     expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
   }
@@ -148,7 +157,9 @@ test("use_skill-only skills set user-invocable: false without disable-model-invo
 
 test("background-only skills set both exclusion flags", async () => {
   for (const name of BACKGROUND_ONLY) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    const skill = await Bun.file(
+      join(pluginRoot, "skills", name, "SKILL.md"),
+    ).text();
     expect(skill).toContain(USER_INVOCABLE_FALSE);
     expect(skill).toContain(DISABLE_MODEL_INVOCATION);
   }
@@ -157,7 +168,9 @@ test("background-only skills set both exclusion flags", async () => {
 test("only background and bake-only skills carry disable-model-invocation", async () => {
   const hidden = new Set<string>([...BACKGROUND_ONLY, ...BAKE_ONLY]);
   for (const name of SKILL_DIRS) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    const skill = await Bun.file(
+      join(pluginRoot, "skills", name, "SKILL.md"),
+    ).text();
     if (hidden.has(name)) {
       expect(skill).toContain(DISABLE_MODEL_INVOCATION);
     } else {
@@ -167,15 +180,21 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
 });
 
 test("review skill does not own GitHub posting or Linear In Review", async () => {
-  const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
+  const skill = await Bun.file(
+    join(pluginRoot, "skills/review/SKILL.md"),
+  ).text();
   expect(skill).not.toContain("Post the Review on GitHub");
-  expect(skill).not.toContain("`linear-issue-workflow` owns the In Review write");
+  expect(skill).not.toContain(
+    "`linear-issue-workflow` owns the In Review write",
+  );
   expect(skill).not.toContain("this skill does not set Linear state");
 });
 
 test("slash skills do not set user-invocable: false", async () => {
   for (const name of SLASH_SKILLS) {
-    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    const skill = await Bun.file(
+      join(pluginRoot, "skills", name, "SKILL.md"),
+    ).text();
     expect(skill).not.toContain(USER_INVOCABLE_FALSE);
   }
 });
@@ -200,8 +219,14 @@ test("Corbits-only skills do not contain GaaS tool names", async () => {
 });
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {
-  const cmds = await loadSkillCommands(join(import.meta.dirname, "../../plugins/corbits-skills"));
-  expect(cmds!.map((c) => c.name).sort()).toEqual([
+  const cmds = await loadSkillCommands(
+    join(import.meta.dirname, "../../plugins/corbits-skills"),
+  );
+  expect(
+    defined(cmds, "skill commands")
+      .map((c) => c.name)
+      .sort(),
+  ).toEqual([
     "ast-grep",
     "create-issue",
     "implement",

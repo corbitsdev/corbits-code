@@ -16,7 +16,10 @@ import { isFeedbackCapturePending } from "../../telemetry/feedback.js";
 import { emitPluginWarningLog } from "../../plugins/diagnostics.js";
 import { createPluginsAdminState } from "../plugins-admin-backend.js";
 import { prepareTUISession } from "../session-start.js";
-import { addProviderSelectorChoices, providerChoices } from "../provider/choices.js";
+import {
+  addProviderSelectorChoices,
+  providerChoices,
+} from "../provider/choices.js";
 import { listCommands } from "../commands/registry.js";
 import { mountRunnerHost } from "./host.js";
 import { assembleTUISession } from "./session.js";
@@ -64,8 +67,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // operator action. Log-only is fine for the structured logger; the standing
   // `plugin !` mark and `/plugins` surface carry the same warnings to the
   // operator instead of a startup system notice.
-  const executablePlugins = () => pluginState.modules.filter((m) => m.metadataOnly !== true);
-  setUpCommandRegistry(state.config.settings, executablePlugins(), () => pluginState.pluginConfig);
+  const executablePlugins = () =>
+    pluginState.modules.filter((m) => m.metadataOnly !== true);
+  setUpCommandRegistry(
+    state.config.settings,
+    executablePlugins(),
+    () => pluginState.pluginConfig,
+  );
   start.crashGuard.bindLiveSession(() => ({
     cwd: state.config.cwd,
     sessionId: state.sessionId,
@@ -119,8 +127,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         ? { telemetryNotice: settings.telemetryNotice }
         : {}),
       providers: state.config.providers,
-      recentModels: listRecentModels(state.config.settings ?? { providers: {} }),
-      favoriteModels: listFavoriteModels(state.config.settings ?? { providers: {} }),
+      recentModels: listRecentModels(
+        state.config.settings ?? { providers: {} },
+      ),
+      favoriteModels: listFavoriteModels(
+        state.config.settings ?? { providers: {} },
+      ),
       addProviderChoices: computeAddProviderChoices,
       onConnectProvider: settings.onConnectProvider,
       modelLabel: () => {
@@ -135,13 +147,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(effort !== undefined ? { effort } : {}),
         };
       },
-      activeModel: () => ({ provider: state.config.providerName, model: state.config.model }),
+      activeModel: () => ({
+        provider: state.config.providerName,
+        model: state.config.model,
+      }),
       readCostSummary: () => commands.commandContext.getCostSummary?.(),
       showPromptCost: () => state.liveShowPromptCost,
       onModelSelect: settings.onModelSelect,
       onFavoriteToggle: settings.onFavoriteToggle,
       onSetDefault: settings.onSetDefault,
-      commands: () => listCommands().map((c) => ({ name: c.name, description: c.description })),
+      commands: () =>
+        listCommands().map((c) => ({
+          name: c.name,
+          description: c.description,
+        })),
       onCommand: (name) => {
         const route = routeSubmission(name);
         if (route.kind === "empty") return;
@@ -166,7 +185,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           startedAt: s.startedAt,
           lastActivityAt: s.lastActivityAt,
           ...(s.finishedAt !== undefined ? { finishedAt: s.finishedAt } : {}),
-          ...(s.runInFlight !== undefined ? { runInFlight: s.runInFlight } : {}),
+          ...(s.runInFlight !== undefined
+            ? { runInFlight: s.runInFlight }
+            : {}),
         })),
       }),
       subscribeChrome: (notify) => {
@@ -202,7 +223,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       await start.crashGuard.invokeDisposeHost();
     } catch (disposeErr: unknown) {
       tuiLogger.warn("crash finalize: host dispose failed: {error}", {
-        error: disposeErr instanceof Error ? disposeErr.message : String(disposeErr),
+        error:
+          disposeErr instanceof Error ? disposeErr.message : String(disposeErr),
       });
     }
     await start.crashGuard.finalizeOnCrash(err);

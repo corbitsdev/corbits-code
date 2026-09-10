@@ -13,7 +13,11 @@ import { COMMAND_NAME, LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { Config } from "../config/index.js";
 import type { Telemetry } from "../telemetry/index.js";
 import { clearActiveDisposeHost } from "../session/active-host.js";
-import { clearActiveRun, setActiveRun, type RunStateHandle } from "../session/active-run.js";
+import {
+  clearActiveRun,
+  setActiveRun,
+  type RunStateHandle,
+} from "../session/active-run.js";
 import { initSessionDir, sessionContextDir } from "../session/index.js";
 import {
   finalizeRunState,
@@ -22,7 +26,10 @@ import {
   type ConnectedMcpServer,
   type RunState,
 } from "../session/state.js";
-import { createPluginLoadDiagnostics, type PluginLoadDiagnostics } from "../plugins/diagnostics.js";
+import {
+  createPluginLoadDiagnostics,
+  type PluginLoadDiagnostics,
+} from "../plugins/diagnostics.js";
 import { expandSkipDiagnosticsHandler } from "../plugins/loader.js";
 import {
   assembleInferenceBase,
@@ -79,15 +86,17 @@ export interface TUICrashGuard {
  * Crash-only session identity. Defaults to the getter passed at construction
  * (prepare-time lets) until runTUI binds the live loop lets.
  */
-export function createTUICrashGuard(getLiveSession: () => TUILiveSession): TUICrashGuard {
+export function createTUICrashGuard(
+  getLiveSession: () => TUILiveSession,
+): TUICrashGuard {
   let finalized = false;
   // Bound after the cycle recorder exists (it needs the session workdir); the
   // crash guard is declared first so it covers every fallible step below.
-  let flushPartialOnCrash: () => Promise<void> = async () => {};
+  let flushPartialOnCrash: () => Promise<void> = async () => undefined;
   // Bound once the host is mounted. Without this the crash path leaves the
   // renderer alive, so the alternate screen, mouse reporting and raw mode are
   // never disabled and the operator's terminal is left wedged.
-  let disposeHost: () => void | Promise<void> = () => {};
+  let disposeHost: () => void | Promise<void> = () => undefined;
   let getSession = getLiveSession;
 
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
@@ -107,7 +116,8 @@ export function createTUICrashGuard(getLiveSession: () => TUILiveSession): TUICr
     await flushPartialOnCrash().catch((flushErr: unknown) => {
       // Best-effort only — still attempt saveState below. Log so a flush
       // failure is not invisible when diagnosing a crash exit.
-      const flushMessage = flushErr instanceof Error ? flushErr.message : String(flushErr);
+      const flushMessage =
+        flushErr instanceof Error ? flushErr.message : String(flushErr);
       sessionStartLogger.warn("crash finalize: partial flush failed: {error}", {
         error: flushMessage,
       });
@@ -120,18 +130,25 @@ export function createTUICrashGuard(getLiveSession: () => TUILiveSession): TUICr
     await finalizeRunState(live.cwd, live.sessionId, {
       status: "failed",
       turnsUsed: 0,
-      task: live.runTaskTitle.trim().length > 0 ? live.runTaskTitle.trim() : "(conversation)",
+      task:
+        live.runTaskTitle.trim().length > 0
+          ? live.runTaskTitle.trim()
+          : "(conversation)",
       startedAt: live.startedAt,
       finishedAt: Date.now(),
       error: message,
       model: `${live.providerName}:${live.model}`,
       mcpServers: [],
     }).catch((saveErr: unknown) => {
-      const saveMessage = saveErr instanceof Error ? saveErr.message : String(saveErr);
-      sessionStartLogger.warn("crash finalize: saveState failed for session {sessionId}: {error}", {
-        sessionId: live.sessionId,
-        error: saveMessage,
-      });
+      const saveMessage =
+        saveErr instanceof Error ? saveErr.message : String(saveErr);
+      sessionStartLogger.warn(
+        "crash finalize: saveState failed for session {sessionId}: {error}",
+        {
+          sessionId: live.sessionId,
+          error: saveMessage,
+        },
+      );
       process.stderr.write(
         `${COMMAND_NAME}: crash finalize saveState failed for ${live.sessionId}: ${saveMessage}\n`,
       );
@@ -248,7 +265,8 @@ export async function prepareTUISession(
   await saveState(config.cwd, sessionId, {
     status: "running",
     turnsUsed: resumeSeed.turnsUsed,
-    task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+    task:
+      runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
     startedAt,
     model: `${config.providerName}:${config.model}`,
     mcpServers: resumeSeed.mcpServers,
@@ -263,7 +281,8 @@ export async function prepareTUISession(
   const activeRunHandle: RunStateHandle = {
     sessionId,
     cwd: config.cwd,
-    task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+    task:
+      runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
     startedAt,
     model: `${config.providerName}:${config.model}`,
   };

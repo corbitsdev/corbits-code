@@ -8,7 +8,10 @@
 import type { Settings } from "../../config/settings.js";
 import { runProviderSetup } from "./setup.js";
 import type { ProviderSetupConfig } from "./types.js";
-import { buildProviderSubmitHandler, type PersistProviderSettings } from "./submit.js";
+import {
+  buildProviderSubmitHandler,
+  type PersistProviderSettings,
+} from "./submit.js";
 
 export interface ConnectProviderInput {
   readonly providerId: string;
@@ -50,12 +53,16 @@ export async function connectProviderInline(
     showTelemetryNotice: false,
     initialProviderId: input.providerId,
     existingProviderNames: Object.keys(input.existing?.providers ?? {}),
-    ...(input.createRenderer !== undefined ? { createRenderer: input.createRenderer } : {}),
+    ...(input.createRenderer !== undefined
+      ? { createRenderer: input.createRenderer }
+      : {}),
     ...(input.startLogin !== undefined ? { startLogin: input.startLogin } : {}),
     ...(input.discoverOllamaModels !== undefined
       ? { discoverOllamaModels: input.discoverOllamaModels }
       : {}),
-    ...(input.prefetchGoModels !== undefined ? { prefetchGoModels: input.prefetchGoModels } : {}),
+    ...(input.prefetchGoModels !== undefined
+      ? { prefetchGoModels: input.prefetchGoModels }
+      : {}),
     onSubmit: async (values, setPhase, opts) => {
       // Persistence and validation (empty-key rejection, connection test,
       // unverified marking) live in the one funnel every provider-setup exit
@@ -63,8 +70,16 @@ export async function connectProviderInline(
       await submitProvider(values, setPhase, opts);
       result =
         opts.oauth !== undefined
-          ? { connected: true, providerName: opts.oauth.providerName, model: values.model.trim() }
-          : { connected: true, providerName: values.name.trim(), model: values.model.trim() };
+          ? {
+              connected: true,
+              providerName: opts.oauth.providerName,
+              model: values.model.trim(),
+            }
+          : {
+              connected: true,
+              providerName: values.name.trim(),
+              model: values.model.trim(),
+            };
     },
   });
 

@@ -17,7 +17,10 @@ const useSkillDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      name: { type: "string", description: "The skill name to load, as listed under Skills" },
+      name: {
+        type: "string",
+        description: "The skill name to load, as listed under Skills",
+      },
     },
     required: ["name"],
   },
@@ -31,14 +34,17 @@ export function createUseSkillTool(
   telemetry: Telemetry = NOOP_TELEMETRY,
   allowedNames?: readonly string[],
 ): AgentTool {
-  const allowed = allowedNames === undefined ? undefined : new Set(allowedNames);
+  const allowed =
+    allowedNames === undefined ? undefined : new Set(allowedNames);
   return stringTool({
     definition: useSkillDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = UseSkillArgs(rawArgs);
-      if (parsed instanceof type.errors) return "Error: use_skill requires name (string).";
+      if (parsed instanceof type.errors)
+        return "Error: use_skill requires name (string).";
       const name = parsed.name.trim();
-      if (name.length === 0) return "Error: use_skill requires a non-empty name.";
+      if (name.length === 0)
+        return "Error: use_skill requires a non-empty name.";
       if (allowed !== undefined && !allowed.has(name)) {
         return `No skill named "${name}" is available.`;
       }

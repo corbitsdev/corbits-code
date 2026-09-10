@@ -54,14 +54,19 @@ function baseParams(
 // per-test timeouts below only absorb machine-load spikes during the
 // full-runtime construction these probes perform; assertions are
 // timing-independent.
-async function runWithFailingInference(run: (baseURL: string) => Promise<unknown>): Promise<void> {
+async function runWithFailingInference(
+  run: (baseURL: string) => Promise<unknown>,
+): Promise<void> {
   const server = Bun.serve({
     port: 0,
     fetch: () =>
-      new Response(JSON.stringify({ error: { message: "mount-gate probe provider" } }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ error: { message: "mount-gate probe provider" } }),
+        {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        },
+      ),
   });
   try {
     await run(server.url.origin);
@@ -107,7 +112,9 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
         // must reach the *next* check (nestedDispatch required) instead of
         // being denied by assertTierMayMountFleetVerb.
       });
-      throw new Error("expected runSubAgent to reject (missing nestedDispatch)");
+      throw new Error(
+        "expected runSubAgent to reject (missing nestedDispatch)",
+      );
     } catch (err) {
       expect(err).not.toBeInstanceOf(FleetAuthorityError);
       expect(String((err as Error).message)).toContain("nestedDispatch");
@@ -203,7 +210,9 @@ describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
         import.meta.resolve("./agent-fleet.js"),
         (real: typeof import("./agent-fleet.js")) => ({
           ...real,
-          createSpawnAgentTool: (deps: Parameters<typeof real.createSpawnAgentTool>[0]) => {
+          createSpawnAgentTool: (
+            deps: Parameters<typeof real.createSpawnAgentTool>[0],
+          ) => {
             spawnMounts++;
             capturedParentSessionId = deps.parentSessionId;
             return real.createSpawnAgentTool(deps);

@@ -11,8 +11,14 @@
 
 import { isGoModelOnZenPath as defaultIsGoModelOnZenPath } from "../provider/billing-product.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
-import { lookupModelPricing, type PricingCache } from "../cost/pricing-fetcher.js";
-import { contextWindowFor, hasContextWindowFor } from "../provider/context-window.js";
+import {
+  lookupModelPricing,
+  type PricingCache,
+} from "../cost/pricing-fetcher.js";
+import {
+  contextWindowFor,
+  hasContextWindowFor,
+} from "../provider/context-window.js";
 import { modelReasoningCapability } from "../provider/reasoning-effort.js";
 import type { ItemDescription } from "./shell/internals.js";
 
@@ -53,7 +59,8 @@ export interface ModelCatalogRef {
 }
 
 export type ModelCatalogProvidersInput =
-  readonly ModelCatalogProvider[] | Readonly<Record<string, ModelCatalogProviderSettings>>;
+  | readonly ModelCatalogProvider[]
+  | Readonly<Record<string, ModelCatalogProviderSettings>>;
 
 /**
  * Flatten providers into picker options.
@@ -64,14 +71,18 @@ export type ModelCatalogProvidersInput =
  * Empty / missing model lists are skipped. Stable order: provider order then
  * model order within each provider. Dedupes by id.
  */
-export function buildModelCatalog(providers: ModelCatalogProvidersInput): ModelCatalogOption[] {
+export function buildModelCatalog(
+  providers: ModelCatalogProvidersInput,
+): ModelCatalogOption[] {
   const entries = normalizeProviders(providers);
   const seen = new Set<string>();
   const out: ModelCatalogOption[] = [];
 
   for (const p of entries) {
     const providerLabel =
-      p.label !== undefined && p.label.trim().length > 0 ? p.label.trim() : p.name;
+      p.label !== undefined && p.label.trim().length > 0
+        ? p.label.trim()
+        : p.name;
     for (const model of p.models) {
       const m = model.trim();
       if (m.length === 0) continue;
@@ -94,11 +105,16 @@ export function modelOptionId(provider: string, model: string): string {
 }
 
 /** Picker row: `model * [providerLabel]`. */
-export function formatModelPickerLabel(model: string, providerLabel: string): string {
+export function formatModelPickerLabel(
+  model: string,
+  providerLabel: string,
+): string {
   return `${model} * [${providerLabel}]`;
 }
 
-function normalizeProviders(providers: ModelCatalogProvidersInput): ModelCatalogProvider[] {
+function normalizeProviders(
+  providers: ModelCatalogProvidersInput,
+): ModelCatalogProvider[] {
   if (Array.isArray(providers)) {
     return providers
       .filter((p) => typeof p.name === "string" && p.name.length > 0)
@@ -111,7 +127,9 @@ function normalizeProviders(providers: ModelCatalogProvidersInput): ModelCatalog
       }));
   }
 
-  const record = providers as Readonly<Record<string, ModelCatalogProviderSettings>>;
+  const record = providers as Readonly<
+    Record<string, ModelCatalogProviderSettings>
+  >;
   return Object.entries(record).map(([name, settings]) => {
     const label = settings.label ?? settings.name;
     return {
@@ -119,7 +137,9 @@ function normalizeProviders(providers: ModelCatalogProvidersInput): ModelCatalog
       models: settings.models ?? [],
       ...(label !== undefined ? { label } : {}),
       ...(settings.baseURL !== undefined ? { baseURL: settings.baseURL } : {}),
-      ...(settings.opencodeGo !== undefined ? { opencodeGo: settings.opencodeGo } : {}),
+      ...(settings.opencodeGo !== undefined
+        ? { opencodeGo: settings.opencodeGo }
+        : {}),
     };
   });
 }
@@ -140,11 +160,16 @@ export interface BuildModelsFirstCatalogArgs {
    * warning (Go model configured on a Zen-billed path). Defaults to the real
    * billing-product detector; override in tests.
    */
-  readonly isGoModelOnZenPath?: (model: string, provider: ModelCatalogProvider) => boolean;
+  readonly isGoModelOnZenPath?: (
+    model: string,
+    provider: ModelCatalogProvider,
+  ) => boolean;
 }
 
 function providerLabelOf(p: ModelCatalogProvider): string {
-  return p.label !== undefined && p.label.trim().length > 0 ? p.label.trim() : p.name;
+  return p.label !== undefined && p.label.trim().length > 0
+    ? p.label.trim()
+    : p.name;
 }
 
 function findProviderWithModel(
@@ -162,10 +187,13 @@ function findProviderWithModel(
  * already in Recent) → each provider's models in provider order (skipping
  * pairs already listed). Identity is provider+model.
  */
-export function buildModelsFirstCatalog(args: BuildModelsFirstCatalogArgs): ModelCatalogOption[] {
+export function buildModelsFirstCatalog(
+  args: BuildModelsFirstCatalogArgs,
+): ModelCatalogOption[] {
   const entries = normalizeProviders(args.providers);
   const recentMax = args.recentMax ?? DEFAULT_RECENT_MAX;
-  const isGoModelOnZenPath = args.isGoModelOnZenPath ?? defaultIsGoModelOnZenPath;
+  const isGoModelOnZenPath =
+    args.isGoModelOnZenPath ?? defaultIsGoModelOnZenPath;
   const seen = new Set<string>();
   const out: ModelCatalogOption[] = [];
 
@@ -177,7 +205,9 @@ export function buildModelsFirstCatalog(args: BuildModelsFirstCatalogArgs): Mode
     const id = modelOptionId(provider.name, model);
     if (seen.has(id)) return false;
     seen.add(id);
-    const warning = isGoModelOnZenPath(model, provider) ? GO_ON_ZEN_WARNING : undefined;
+    const warning = isGoModelOnZenPath(model, provider)
+      ? GO_ON_ZEN_WARNING
+      : undefined;
     const label = formatModelPickerLabel(model, providerLabelOf(provider));
     out.push({
       id,
@@ -264,7 +294,8 @@ export function describeModelCatalogOption(
   },
 ): ItemDescription | null {
   const model = option.id.slice(option.id.indexOf(":") + 1);
-  const pricing = args?.pricing !== undefined ? args.pricing : getActivePricingCache();
+  const pricing =
+    args?.pricing !== undefined ? args.pricing : getActivePricingCache();
 
   if (option.warning !== undefined) {
     return {

@@ -36,7 +36,9 @@ describe("liveFleetCount", () => {
 
   test("an empty or fully-terminal fleet counts zero", () => {
     expect(liveFleetCount([])).toBe(0);
-    expect(liveFleetCount([lane({ id: "a", status: "done", report: "x" })])).toBe(0);
+    expect(
+      liveFleetCount([lane({ id: "a", status: "done", report: "x" })]),
+    ).toBe(0);
   });
 });
 
@@ -81,7 +83,10 @@ describe("observeFleet", () => {
     ).watch;
     const { updates } = observeFleet(
       seeded,
-      [lane({ id: "api", status: "done", report: "done" }), lane({ id: "docs", status: "done" })],
+      [
+        lane({ id: "api", status: "done", report: "done" }),
+        lane({ id: "docs", status: "done" }),
+      ],
       T0 + 1000,
     );
     expect(updates).toEqual(["2 done · nothing running"]);
@@ -95,14 +100,21 @@ describe("observeFleet", () => {
     ).watch;
     const { updates } = observeFleet(
       seeded,
-      [lane({ id: "build", status: "failed", error: "typecheck exited 1" }), lane({ id: "docs" })],
+      [
+        lane({ id: "build", status: "failed", error: "typecheck exited 1" }),
+        lane({ id: "docs" }),
+      ],
       T0 + 1000,
     );
     expect(updates[0]).toContain("build failed — typecheck exited 1");
   });
 
   test("a live dispatch does not re-announce into the transcript (board owns it)", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" })], T0).watch;
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" })],
+      T0,
+    ).watch;
     const { updates } = observeFleet(
       seeded,
       [lane({ id: "api" }), lane({ id: "docs" })],
@@ -121,7 +133,11 @@ describe("observeFleet", () => {
   });
 
   test("routine activity that changes nothing produces no update", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" })], T0).watch;
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" })],
+      T0,
+    ).watch;
     const busy = observeFleet(
       seeded,
       [lane({ id: "api", lastActivityAt: T0 + 4000, currentToolName: "grep" })],
@@ -150,7 +166,10 @@ describe("observeFleet", () => {
     ).watch;
     const { updates } = observeFleet(
       seeded,
-      [lane({ id: "api", status: "cancelled" }), lane({ id: "docs", status: "cancelled" })],
+      [
+        lane({ id: "api", status: "cancelled" }),
+        lane({ id: "docs", status: "cancelled" }),
+      ],
       T0 + 1000,
     );
     expect(updates).toEqual(["0 done, 2 cancelled · nothing running"]);
@@ -171,13 +190,17 @@ describe("observeFleet", () => {
       ],
       T0 + 1000,
     );
-    expect(updates).toEqual(["1 done, 1 failed, 1 cancelled · nothing running"]);
+    expect(updates).toEqual([
+      "1 done, 1 failed, 1 cancelled · nothing running",
+    ]);
   });
 
   test("a burst of live cancels coalesces as cancelled, not failed", () => {
     const before = Array.from({ length: 5 }, (_, i) => lane({ id: `l${i}` }));
     const seeded = observeFleet(createFleetWatch(), before, T0).watch;
-    const after = before.map((l, i) => (i < 4 ? { ...l, status: "cancelled" as const } : l));
+    const after = before.map((l, i) =>
+      i < 4 ? { ...l, status: "cancelled" as const } : l,
+    );
     const { updates } = observeFleet(seeded, after, T0 + 1000);
     expect(updates).toEqual(["4 cancelled"]);
   });
@@ -200,7 +223,11 @@ describe("fleetDigest", () => {
     const digest = fleetDigest(
       [
         lane({ id: "api", startedAt: T0 - 80_000, lastActivityAt: T0 - 1000 }),
-        lane({ id: "docs", startedAt: T0 - 20_000, lastActivityAt: T0 - 120_000 }),
+        lane({
+          id: "docs",
+          startedAt: T0 - 20_000,
+          lastActivityAt: T0 - 120_000,
+        }),
         lane({ id: "web", status: "done" }),
         lane({ id: "cli", status: "failed" }),
       ],
@@ -210,14 +237,19 @@ describe("fleetDigest", () => {
   });
 
   test("a fleet with nothing left running says so rather than going blank", () => {
-    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe("nothing running · 1 done");
+    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe(
+      "nothing running · 1 done",
+    );
     expect(fleetDigest([], T0)).toBe("nothing running");
   });
 
   test("cancelled lanes are named separately from failed", () => {
     expect(
       fleetDigest(
-        [lane({ id: "api", status: "cancelled" }), lane({ id: "cli", status: "failed" })],
+        [
+          lane({ id: "api", status: "cancelled" }),
+          lane({ id: "cli", status: "failed" }),
+        ],
         T0,
       ),
     ).toBe("nothing running · 1 failed · 1 cancelled");
@@ -255,7 +287,11 @@ describe("forced-stop reasons", () => {
     const { updates } = observeFleet(
       seeded,
       [
-        lane({ id: "api", status: "cancelled", stopReason: "cancelled — Session closed" }),
+        lane({
+          id: "api",
+          status: "cancelled",
+          stopReason: "cancelled — Session closed",
+        }),
         lane({ id: "docs" }),
       ],
       T0 + 1000,

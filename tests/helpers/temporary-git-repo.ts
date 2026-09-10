@@ -15,7 +15,10 @@ export interface InitTemporaryGitRepoOpts {
  * Never writes global or system Git configuration and does not use
  * `GIT_CONFIG_*` env workarounds.
  */
-export function initTemporaryGitRepo(dir: string, opts: InitTemporaryGitRepoOpts = {}): void {
+export function initTemporaryGitRepo(
+  dir: string,
+  opts: InitTemporaryGitRepoOpts = {},
+): void {
   git(dir, "init", ...(opts.initArgs ?? []));
   const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
     cwd: dir,

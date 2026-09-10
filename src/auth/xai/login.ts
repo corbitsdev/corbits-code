@@ -11,7 +11,9 @@ import { saveXaiProfile, type XaiTokens } from "./store.js";
 export type XaiLoginHandle = OAuthLoginHandle<XaiTokens>;
 export type StartXaiLoginOptions = StartOAuthLoginOptions;
 
-export async function startXaiLogin(opts: StartXaiLoginOptions): Promise<XaiLoginHandle> {
+export async function startXaiLogin(
+  opts: StartXaiLoginOptions,
+): Promise<XaiLoginHandle> {
   return startOAuthLogin(opts, {
     startCallbackServer: startXaiCallbackServer,
     buildAuthorizeUrl,

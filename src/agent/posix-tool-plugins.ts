@@ -16,7 +16,10 @@ import {
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
 import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
-import { shellGuardPlugin, type ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
+import {
+  shellGuardPlugin,
+  type ShellTimeoutConfig,
+} from "../plugins/shell-guard-plugin.js";
 import type { BackgroundShellRegistry } from "../shell/background-shell.js";
 import {
   readFileGuardPlugin,
@@ -65,7 +68,9 @@ export interface CorePosixToolPluginsArgs {
 // the fragment, and a bare, unredacted piece of the credential reaches the
 // model with no redaction marker. Scrub-then-truncate is always safe, since
 // truncating already-redacted text loses nothing sensitive.
-export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolPlugin[] {
+export function buildCorePosixToolPlugins(
+  args: CorePosixToolPluginsArgs,
+): ToolPlugin[] {
   const {
     cwd,
     permissionGate,
@@ -101,7 +106,9 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     permissionPlugin(permissionGate),
     shellGuardPlugin(cwd, shellTimeout, shellEnv, {
       allowOutsideCwd: allowOutside,
-      ...(getBackgroundShellRegistry !== undefined ? { getBackgroundShellRegistry } : {}),
+      ...(getBackgroundShellRegistry !== undefined
+        ? { getBackgroundShellRegistry }
+        : {}),
     }),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),

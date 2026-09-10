@@ -17,7 +17,10 @@ test("parseModelsDevContextWindows reads limit.context per model", () => {
   const windows = parseModelsDevContextWindows({
     "z-ai": {
       models: {
-        "glm-4.6": { id: "z-ai/glm-4.6", limit: { context: 64_000, output: 8_000 } },
+        "glm-4.6": {
+          id: "z-ai/glm-4.6",
+          limit: { context: 64_000, output: 8_000 },
+        },
       },
     },
     openai: {
@@ -120,7 +123,11 @@ test("loadPricing writes fetched prices to cache", async () => {
       fetchImpl: async () =>
         response({
           models: [
-            { id: "provider/model", input_cost_per_million: 10, output_cost_per_million: 20 },
+            {
+              id: "provider/model",
+              input_cost_per_million: 10,
+              output_cost_per_million: 20,
+            },
           ],
         }),
     });

@@ -1,4 +1,8 @@
-import { createAuthStore, type AuthProfile, type BaseTokens } from "../oauth/store.js";
+import {
+  createAuthStore,
+  type AuthProfile,
+  type BaseTokens,
+} from "../oauth/store.js";
 
 // On-disk store for Codex OAuth profiles. A user may hold multiple Codex
 // subscriptions (personal, work, ...), so credentials are keyed by a

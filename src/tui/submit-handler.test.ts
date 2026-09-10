@@ -44,7 +44,9 @@ function harness(options?: {
     ...(options?.isFeedbackCapturePending !== undefined
       ? { isFeedbackCapturePending: options.isFeedbackCapturePending }
       : {}),
-    ...(options?.onFeedbackText !== undefined ? { onFeedbackText: options.onFeedbackText } : {}),
+    ...(options?.onFeedbackText !== undefined
+      ? { onFeedbackText: options.onFeedbackText }
+      : {}),
     ...(options?.cancelFeedbackCapture !== undefined
       ? { cancelFeedbackCapture: options.cancelFeedbackCapture }
       : {}),
@@ -53,7 +55,13 @@ function harness(options?: {
       options?.onSystemNotice?.(text);
     },
   });
-  return { submit, dispatched, prompts, notices, telemetry: () => promptSubmissions };
+  return {
+    submit,
+    dispatched,
+    prompts,
+    notices,
+    telemetry: () => promptSubmissions,
+  };
 }
 
 describe("composer submit handler", () => {
@@ -67,7 +75,9 @@ describe("composer submit handler", () => {
   test("passes slash command arguments through", () => {
     const h = harness();
     expect(h.submit("/rename ship the feature")).toBe("local");
-    expect(h.dispatched).toEqual([{ name: "rename", args: "ship the feature" }]);
+    expect(h.dispatched).toEqual([
+      { name: "rename", args: "ship the feature" },
+    ]);
     expect(h.prompts).toEqual([]);
   });
 
@@ -188,16 +198,26 @@ describe("classifySubmission", () => {
 
 describe("routeSubmission", () => {
   test("classifies leading slash as a command", () => {
-    expect(routeSubmission("/model gpt")).toEqual({ kind: "command", name: "model", args: "gpt" });
+    expect(routeSubmission("/model gpt")).toEqual({
+      kind: "command",
+      name: "model",
+      args: "gpt",
+    });
   });
 
   test("classifies plain text as a prompt", () => {
-    expect(routeSubmission("do the thing")).toEqual({ kind: "prompt", text: "do the thing" });
+    expect(routeSubmission("do the thing")).toEqual({
+      kind: "prompt",
+      text: "do the thing",
+    });
   });
 });
 
 describe("telemetryStartupNotice", () => {
-  const firstRun = { providers: {}, telemetry: { installationId: "install-1" } };
+  const firstRun = {
+    providers: {},
+    telemetry: { installationId: "install-1" },
+  };
 
   test("returns the disclosure on a first run", () => {
     expect(telemetryStartupNotice(firstRun, {})).toBe(TELEMETRY_NOTICE);
@@ -206,7 +226,10 @@ describe("telemetryStartupNotice", () => {
   test("stays silent once the notice has been shown", () => {
     expect(
       telemetryStartupNotice(
-        { ...firstRun, telemetry: { ...firstRun.telemetry, noticeShown: true } },
+        {
+          ...firstRun,
+          telemetry: { ...firstRun.telemetry, noticeShown: true },
+        },
         {},
       ),
     ).toBeUndefined();
@@ -223,9 +246,12 @@ describe("image attachment submits", () => {
   };
 
   function attachmentHarness() {
-    const sends: { text: string; attachments?: readonly PendingImageAttachment[] }[] = [];
+    const sends: {
+      text: string;
+      attachments?: readonly PendingImageAttachment[];
+    }[] = [];
     const submit = createSubmitHandler({
-      dispatchCommand: () => {},
+      dispatchCommand: () => undefined,
       sendPrompt: (text, attachments) =>
         sends.push({ text, ...(attachments ? { attachments } : {}) }),
     });

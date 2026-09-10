@@ -1,4 +1,9 @@
-export type FirstClassAuthKind = "oauth" | "api-key" | "keyless" | "chooser" | "custom";
+export type FirstClassAuthKind =
+  | "oauth"
+  | "api-key"
+  | "keyless"
+  | "chooser"
+  | "custom";
 
 export type FirstClassOAuthProvider = "codex" | "xai";
 

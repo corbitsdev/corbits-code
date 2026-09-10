@@ -3,7 +3,10 @@ import type { PluginConfig } from "../config/settings.js";
 import { registerCommandPlugin } from "../tui/commands/registry.js";
 import { registerWorkflowPlugin } from "../workflows/index.js";
 
-export function isPluginEnabled(config: Record<string, PluginConfig>, id: string): boolean {
+export function isPluginEnabled(
+  config: Record<string, PluginConfig>,
+  id: string,
+): boolean {
   return config[id]?.enabled === true;
 }
 
@@ -73,7 +76,9 @@ export function registerCommandPluginModule(
   if (!isCommandPluginModule(mod)) return false;
   const commandPlugin = mod.commandPlugin;
   if (commandPlugin === undefined) return false;
-  registerCommandPlugin(commandPlugin, () => isPluginModuleEnabled(mod, getConfig()));
+  registerCommandPlugin(commandPlugin, () =>
+    isPluginModuleEnabled(mod, getConfig()),
+  );
   return true;
 }
 
@@ -85,7 +90,8 @@ export function registerCommandPlugins(
   const registered: string[] = [];
   for (const mod of modules) {
     const id = mod.manifest?.id;
-    if (id === undefined || !registerCommandPluginModule(mod, getConfig)) continue;
+    if (id === undefined || !registerCommandPluginModule(mod, getConfig))
+      continue;
     if (isPluginModuleEnabled(mod, getConfig())) registered.push(id);
   }
   return registered;
@@ -98,8 +104,11 @@ export function registerWorkflowPlugins(
   const registered: string[] = [];
   for (const mod of modules) {
     if (!isEnabledWorkflowPlugin(mod, config)) continue;
-    registerWorkflowPlugin(mod.workflowPlugin!);
-    registered.push(mod.manifest!.id);
+    const workflowPlugin = mod.workflowPlugin;
+    const id = mod.manifest?.id;
+    if (workflowPlugin === undefined || id === undefined) continue;
+    registerWorkflowPlugin(workflowPlugin);
+    registered.push(id);
   }
   return registered;
 }

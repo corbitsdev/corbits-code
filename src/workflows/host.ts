@@ -2,12 +2,25 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@intx/types/runtime";
 
 import { sessionDir } from "../session/index.js";
-import { CAPABILITIES, detectCapabilities, type CapabilityMap } from "./capabilities.js";
+import {
+  CAPABILITIES,
+  detectCapabilities,
+  type CapabilityMap,
+} from "./capabilities.js";
 import { WorkflowCoordinator } from "./coordinator.js";
 import { findWorkflow, WORKFLOWS } from "./index.js";
 import { WorkflowRuntime, type WorkflowEvent } from "./runtime.js";
-import { loadWorkflowState, saveWorkflowState, warnWorkflowPersistenceFailure } from "./state.js";
-import type { CapabilityName, StepStatus, Workflow, WorkflowCompleteResult } from "./types.js";
+import {
+  loadWorkflowState,
+  saveWorkflowState,
+  warnWorkflowPersistenceFailure,
+} from "./state.js";
+import type {
+  CapabilityName,
+  StepStatus,
+  Workflow,
+  WorkflowCompleteResult,
+} from "./types.js";
 
 export interface CapabilityStatus {
   name: CapabilityName;
@@ -115,18 +128,27 @@ export class WorkflowHost {
     const runtime = this.runtime;
     if (runtime === undefined) return;
     const sessionId = this.args.getSessionId();
-    void saveWorkflowState(this.args.cwd, sessionId, runtime.state(), this.args.home).catch(
-      (err: unknown) => {
-        const reason = err instanceof Error ? err.message : String(err);
-        warnWorkflowPersistenceFailure(
-          join(sessionDir(this.args.cwd, sessionId, this.args.home), "workflow.json"),
-          reason,
-        );
-      },
-    );
+    void saveWorkflowState(
+      this.args.cwd,
+      sessionId,
+      runtime.state(),
+      this.args.home,
+    ).catch((err: unknown) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      warnWorkflowPersistenceFailure(
+        join(
+          sessionDir(this.args.cwd, sessionId, this.args.home),
+          "workflow.json",
+        ),
+        reason,
+      );
+    });
   }
 
-  private attachRuntime(workflow: Workflow, restore?: boolean): WorkflowRuntime {
+  private attachRuntime(
+    workflow: Workflow,
+    restore?: boolean,
+  ): WorkflowRuntime {
     const runtime = new WorkflowRuntime(this.capabilityMap());
     const coordinator = new WorkflowCoordinator(
       runtime,
@@ -158,7 +180,11 @@ export class WorkflowHost {
         // workflow was still active.
         const snapshot = this.lastActiveStatus;
         if (snapshot !== undefined) {
-          this.completedWorkflows.push({ ...snapshot, active: false, completedAt: Date.now() });
+          this.completedWorkflows.push({
+            ...snapshot,
+            active: false,
+            completedAt: Date.now(),
+          });
         }
       }
       this.persist();
@@ -187,10 +213,15 @@ export class WorkflowHost {
 
   // Restore a persisted workflow for the current session, if any.
   async resume(): Promise<void> {
-    const state = await loadWorkflowState(this.args.cwd, this.args.getSessionId(), this.args.home);
+    const state = await loadWorkflowState(
+      this.args.cwd,
+      this.args.getSessionId(),
+      this.args.home,
+    );
     if (state === null || state.completed || state.stack.length === 0) return;
     const rootName = state.stack[0]?.workflow;
-    const workflow = rootName !== undefined ? findWorkflow(rootName) : undefined;
+    const workflow =
+      rootName !== undefined ? findWorkflow(rootName) : undefined;
     if (workflow === undefined) return;
     const runtime = this.attachRuntime(workflow, true);
     runtime.restore(state);
@@ -211,19 +242,19 @@ export class WorkflowHost {
 
   status(): WorkflowStatus {
     const detected = detectCapabilities(this.args.getToolDefinitions());
-    const capabilities: CapabilityStatus[] = (Object.keys(CAPABILITIES) as CapabilityName[]).map(
-      (name) => {
-        const tools = detected.get(name);
-        const source = tools?.[0]?.name;
-        return {
-          name,
-          description: CAPABILITIES[name].description,
-          connected: tools !== undefined && tools.length > 0,
-          disabled: this.overrides.has(name),
-          source,
-        };
-      },
-    );
+    const capabilities: CapabilityStatus[] = (
+      Object.keys(CAPABILITIES) as CapabilityName[]
+    ).map((name) => {
+      const tools = detected.get(name);
+      const source = tools?.[0]?.name;
+      return {
+        name,
+        description: CAPABILITIES[name].description,
+        connected: tools !== undefined && tools.length > 0,
+        disabled: this.overrides.has(name),
+        source,
+      };
+    });
     const view = this.runtime?.view() ?? null;
     if (view === null || this.runtime?.isActive() !== true) {
       return {

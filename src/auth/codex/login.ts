@@ -15,7 +15,9 @@ export type CodexLoginHandle = OAuthLoginHandle<CodexTokens>;
 export type StartCodexLoginOptions = StartOAuthLoginOptions;
 
 // Drive the loopback PKCE login for a Codex profile.
-export async function startCodexLogin(opts: StartCodexLoginOptions): Promise<CodexLoginHandle> {
+export async function startCodexLogin(
+  opts: StartCodexLoginOptions,
+): Promise<CodexLoginHandle> {
   return startOAuthLogin(opts, {
     startCallbackServer: startCodexCallbackServer,
     buildAuthorizeUrl,

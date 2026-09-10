@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { runListModal, type ListModalConfig } from "./list-modal.js";
 
@@ -21,7 +22,7 @@ async function mountModal(overrides: Partial<ListModalConfig> = {}): Promise<{
       { id: "s-1", label: "First session" },
       { id: "s-2", label: "Second session" },
     ],
-    createRenderer: async () => harness!.renderer,
+    createRenderer: async () => defined(harness, "harness").renderer,
     ...overrides,
   });
   await harness.renderOnce();

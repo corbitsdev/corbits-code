@@ -23,7 +23,12 @@ import {
 
 import { PRODUCT_NAME } from "../branding.js";
 import { MARK_PERIOD_SECONDS, renderMark } from "./mark-anim.js";
-import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js";
+import {
+  MARK_LARGE,
+  MARK_MID,
+  MARK_SMALL,
+  type MarkGrid,
+} from "./mark-shape.js";
 import { resolveSideMargin } from "./geometry/margins.js";
 import { destroySubtree } from "./teardown.js";
 import { UI } from "./theme.js";
@@ -47,7 +52,9 @@ const MARK_HOLD_END = 0.9;
  * Auto-advance at the end of the full-frame hold so setup never opens on a
  * fade or a second draw-in.
  */
-export const WELCOME_AUTO_ADVANCE_MS = Math.round(MARK_HOLD_END * MARK_PERIOD_SECONDS * 1000);
+export const WELCOME_AUTO_ADVANCE_MS = Math.round(
+  MARK_HOLD_END * MARK_PERIOD_SECONDS * 1000,
+);
 
 /** Freeze the mountain on its filled frame once fill completes. */
 export function welcomeMarkStill(elapsedMs: number): boolean {
@@ -78,7 +85,10 @@ export interface WelcomeConfig {
  * Largest mark that leaves room for the product line below it, or null when
  * even the compact grid cannot seat.
  */
-export function resolveWelcomeMarkGrid(rows: number, columns: number): MarkGrid | null {
+export function resolveWelcomeMarkGrid(
+  rows: number,
+  columns: number,
+): MarkGrid | null {
   const width = Math.max(0, columns);
   const height = Math.max(0, rows);
   for (const grid of MARK_TIERS) {
@@ -206,7 +216,8 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
     markBox.visible = grid !== null;
     markBox.width = grid?.cols ?? 0;
     markBox.height = grid?.rows ?? 0;
-    const offset = grid === null ? MARK_LARGE.rows : MARK_LARGE.rows - grid.rows;
+    const offset =
+      grid === null ? MARK_LARGE.rows : MARK_LARGE.rows - grid.rows;
     markRows.forEach((row, index) => {
       row.visible = grid !== null && index >= offset;
     });
@@ -232,7 +243,7 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
   fit();
   paint();
 
-  let resolveDone: (value: boolean) => void = () => {};
+  let resolveDone: (value: boolean) => void = () => undefined;
   const done = new Promise<boolean>((resolve) => {
     resolveDone = resolve;
   });
@@ -291,7 +302,11 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
   return done;
 }
 
-function markChunks(grid: MarkGrid, nowMs: number, still: boolean): readonly TextChunk[][] {
+function markChunks(
+  grid: MarkGrid,
+  nowMs: number,
+  still: boolean,
+): readonly TextChunk[][] {
   return renderMark({ nowMs, still, grid }).map((row) =>
     row.map((cell) => fgChunk(cell.fg)(cell.char)),
   );

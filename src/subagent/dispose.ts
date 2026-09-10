@@ -7,14 +7,19 @@ import type { ToolPlugin } from "@intx/tools-posix";
 function abortError(signal: AbortSignal): Error {
   const reason = signal.reason;
   if (reason instanceof Error) return reason;
-  const err = new Error(typeof reason === "string" && reason.length > 0 ? reason : "aborted");
+  const err = new Error(
+    typeof reason === "string" && reason.length > 0 ? reason : "aborted",
+  );
   err.name = "AbortError";
   return err;
 }
 
 export { abortError };
 
-export function isSubAgentCancelError(err: unknown, signal?: AbortSignal): boolean {
+export function isSubAgentCancelError(
+  err: unknown,
+  signal?: AbortSignal,
+): boolean {
   if (signal?.aborted === true) return true;
   if (err instanceof Error && err.name === "AbortError") return true;
   if (
@@ -101,7 +106,11 @@ export interface SubAgentSpawnSnapshot {
   inFlightByTool: Readonly<Record<string, number>>;
 }
 
-const PLUGIN_SPAWN_TRACKED_TOOLS = new Set(["run_shell", "grep", "search_files"]);
+const PLUGIN_SPAWN_TRACKED_TOOLS = new Set([
+  "run_shell",
+  "grep",
+  "search_files",
+]);
 
 export interface SubAgentSpawnRegistry {
   plugin: ToolPlugin;
@@ -154,7 +163,9 @@ export interface SubAgentSessionDisposeInput {
 }
 
 /** Idempotent teardown for one sub-agent loop (completion, error, or cancel). */
-export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput): Promise<void> {
+export async function disposeSubAgentSession(
+  input: SubAgentSessionDisposeInput,
+): Promise<void> {
   if (input.signal !== undefined && input.closeOnAbort !== undefined) {
     input.signal.removeEventListener("abort", input.closeOnAbort);
   }
@@ -165,12 +176,18 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
     posixError = err;
   }
   try {
-    await awaitCloseWithoutHidingLeftover(input.agent?.close() ?? Promise.resolve(), posixError);
+    await awaitCloseWithoutHidingLeftover(
+      input.agent?.close() ?? Promise.resolve(),
+      posixError,
+    );
   } catch {
     // ignore
   }
   try {
-    await awaitCloseWithoutHidingLeftover(input.streamPromise ?? Promise.resolve(), posixError);
+    await awaitCloseWithoutHidingLeftover(
+      input.streamPromise ?? Promise.resolve(),
+      posixError,
+    );
   } catch {
     // ignore
   }

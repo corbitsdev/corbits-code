@@ -27,7 +27,10 @@ describe("filterMentionSuggestions", () => {
   });
 
   test("matches anywhere in the entry name, prefix hits first", () => {
-    expect(filterMentionSuggestions(ENTRIES, "ses")).toEqual(["session.ts", "parse-session.ts"]);
+    expect(filterMentionSuggestions(ENTRIES, "ses")).toEqual([
+      "session.ts",
+      "parse-session.ts",
+    ]);
   });
 
   test("is case-insensitive", () => {
@@ -36,9 +39,9 @@ describe("filterMentionSuggestions", () => {
   });
 
   test("matches the entry name, not the directory it sits in", () => {
-    expect(filterMentionSuggestions(["session/notes.md", "session/log.md"], "log")).toEqual([
-      "session/log.md",
-    ]);
+    expect(
+      filterMentionSuggestions(["session/notes.md", "session/log.md"], "log"),
+    ).toEqual(["session/log.md"]);
   });
 
   test("directory entries keep their trailing slash", () => {

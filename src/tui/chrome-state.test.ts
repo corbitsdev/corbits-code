@@ -294,8 +294,20 @@ describe("formatAgentsPanel", () => {
       NOW,
     );
     expect(rows).toEqual([
-      { label: "● b  two", tail: " · 0:02", stalled: false, kind: "lane", status: "running" },
-      { label: "● a  one", tail: " · 0:01", stalled: false, kind: "lane", status: "running" },
+      {
+        label: "● b  two",
+        tail: " · 0:02",
+        stalled: false,
+        kind: "lane",
+        status: "running",
+      },
+      {
+        label: "● a  one",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane",
+        status: "running",
+      },
     ]);
     expect(rows?.some((r) => r.kind === "header")).toBe(false);
   });
@@ -304,8 +316,18 @@ describe("formatAgentsPanel", () => {
     expect(
       formatAgentsPanel(
         [
-          { agentId: "a", description: "x", status: "done", currentToolStartedAt: null },
-          { agentId: "b", description: "y", status: "failed", currentToolStartedAt: null },
+          {
+            agentId: "a",
+            description: "x",
+            status: "done",
+            currentToolStartedAt: null,
+          },
+          {
+            agentId: "b",
+            description: "y",
+            status: "failed",
+            currentToolStartedAt: null,
+          },
         ],
         undefined,
         NOW,
@@ -402,7 +424,11 @@ describe("formatAgentsPanel", () => {
       undefined,
       NOW,
     );
-    expect(rows?.map((r) => r.status)).toEqual(["running", "interrupted", "done"]);
+    expect(rows?.map((r) => r.status)).toEqual([
+      "running",
+      "interrupted",
+      "done",
+    ]);
     expect(rows?.[1]?.tail).toBe(" · interrupted");
   });
 
@@ -483,7 +509,10 @@ describe("formatAgentsPanel", () => {
       NOW,
     );
     // Labels are `● id  desc` / `! id  desc` — second token is the agentId.
-    expect(rows?.map((r) => r.label.split(/\s+/)[1])).toEqual(["quiet", "fine"]);
+    expect(rows?.map((r) => r.label.split(/\s+/)[1])).toEqual([
+      "quiet",
+      "fine",
+    ]);
   });
 
   test("bounds fan-out and says how many lanes it is hiding", () => {
@@ -547,7 +576,9 @@ describe("formatAgentsPanel", () => {
   });
 
   test("observe empty id+desc hides", () => {
-    expect(formatAgentsPanel([], { agentId: "  ", description: "  " }, NOW)).toBeNull();
+    expect(
+      formatAgentsPanel([], { agentId: "  ", description: "  " }, NOW),
+    ).toBeNull();
   });
 
   test("row order is stable across an activity update between frames", () => {
@@ -582,7 +613,9 @@ describe("formatAgentsPanel", () => {
     ];
     const rowsBefore = formatAgentsPanel(frame1, undefined, NOW);
 
-    const frame2 = frame1.map((a) => (a.agentId === "b" ? { ...a, lastActivityAt: NOW + 200 } : a));
+    const frame2 = frame1.map((a) =>
+      a.agentId === "b" ? { ...a, lastActivityAt: NOW + 200 } : a,
+    );
     const rowsAfter = formatAgentsPanel(frame2, undefined, NOW + 200);
 
     const ids = (rows: ReturnType<typeof formatAgentsPanel>) =>
@@ -707,7 +740,12 @@ describe("annotateAgentTools", () => {
         status: "running",
         currentToolStartedAt: null,
       },
-      { agentId: "review", description: "map callers", status: "done", currentToolStartedAt: null },
+      {
+        agentId: "review",
+        description: "map callers",
+        status: "done",
+        currentToolStartedAt: null,
+      },
     ],
   };
 
@@ -744,7 +782,11 @@ describe("lane state survives the mapping hops", () => {
   test("the panel and the transcript row agree that the lane is in a tool", () => {
     expect(laneState(inTool, NOW)).toBe("in_tool");
 
-    const rows = formatAgentsPanel(chromeFromSession({ agents: [inTool] }).agents, undefined, NOW);
+    const rows = formatAgentsPanel(
+      chromeFromSession({ agents: [inTool] }).agents,
+      undefined,
+      NOW,
+    );
     // Flat strip: one lane row, no FLEET header.
     expect(rows?.[0]?.kind).toBe("lane");
     expect(rows?.[0]?.stalled).toBe(false);
@@ -781,7 +823,11 @@ describe("lane state survives the mapping hops", () => {
     };
     expect(laneState(silent, NOW)).toBe("stalled");
 
-    const rows = formatAgentsPanel(chromeFromSession({ agents: [silent] }).agents, undefined, NOW);
+    const rows = formatAgentsPanel(
+      chromeFromSession({ agents: [silent] }).agents,
+      undefined,
+      NOW,
+    );
     expect(rows?.[0]?.kind).toBe("lane");
     expect(rows?.[0]?.stalled).toBe(true);
     expect(rows?.[0]?.label.startsWith("! ")).toBe(true);
@@ -791,7 +837,10 @@ describe("lane state survives the mapping hops", () => {
   // A progress ping renames the tool but carries no clock of its own and may
   // arrive on tool completion — so it must not paint anything at all.
   test("the tool annotation never repaints a live call with another name", () => {
-    const annotated = annotateAgentTools({ agents: [inTool] }, new Map([["sleep 150", "grep"]]));
+    const annotated = annotateAgentTools(
+      { agents: [inTool] },
+      new Map([["sleep 150", "grep"]]),
+    );
     expect(annotated.agents?.[0]?.currentToolName).toBe("run_shell");
     expect(annotated.agents?.[0]?.currentToolStartedAt).toBe(NOW - 180_000);
   });
@@ -800,8 +849,15 @@ describe("lane state survives the mapping hops", () => {
     // A lane with no outstanding call must stay null: the progress map is not
     // a source of truth for what a worker is doing. Painting it here is what
     // produced the false "quiet … · <tool>" stall on finished tools.
-    const idle = { ...inTool, currentToolName: null, currentToolStartedAt: null };
-    const annotated = annotateAgentTools({ agents: [idle] }, new Map([["sleep 150", "grep"]]));
+    const idle = {
+      ...inTool,
+      currentToolName: null,
+      currentToolStartedAt: null,
+    };
+    const annotated = annotateAgentTools(
+      { agents: [idle] },
+      new Map([["sleep 150", "grep"]]),
+    );
     expect(annotated.agents?.[0]?.currentToolName).toBeNull();
     expect(annotated.agents?.[0]?.currentToolStartedAt).toBeNull();
   });
@@ -816,7 +872,11 @@ describe("lane state survives the mapping hops", () => {
       currentToolStartedAt: null,
       lastActivityAt: NOW - 310_000,
     };
-    const rows = formatAgentsPanel(chromeFromSession({ agents: [silent] }).agents, undefined, NOW);
+    const rows = formatAgentsPanel(
+      chromeFromSession({ agents: [silent] }).agents,
+      undefined,
+      NOW,
+    );
     expect(rows?.[0]?.stalled).toBe(true);
     expect(rows?.[0]?.label.startsWith("! ")).toBe(true);
     expect(rows?.[0]?.tail).not.toContain("grep");
@@ -831,10 +891,30 @@ describe("clampBoardRows", () => {
     // Formatter already hid 4 of 8; collapse then grants only 4 rows total.
     // Honest disclosure is 4 prior + 1 newly dropped = 5 (3 lanes + fold).
     const formatted = [
-      { label: "● a  one", tail: " · 0:01", stalled: false, kind: "lane" as const },
-      { label: "● b  two", tail: " · 0:01", stalled: false, kind: "lane" as const },
-      { label: "● c  three", tail: " · 0:01", stalled: false, kind: "lane" as const },
-      { label: "● d  four", tail: " · 0:01", stalled: false, kind: "lane" as const },
+      {
+        label: "● a  one",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane" as const,
+      },
+      {
+        label: "● b  two",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane" as const,
+      },
+      {
+        label: "● c  three",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane" as const,
+      },
+      {
+        label: "● d  four",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane" as const,
+      },
       { label: "+4 more", tail: "", stalled: false, kind: "more" as const },
     ];
     const clamped = clampBoardRows(formatted, 4);
@@ -850,8 +930,18 @@ describe("clampBoardRows", () => {
 
   test("under a tight height the fold still discloses total hidden", () => {
     const formatted = [
-      { label: "● a  one", tail: " · 0:01", stalled: false, kind: "lane" as const },
-      { label: "● b  two", tail: " · 0:01", stalled: false, kind: "lane" as const },
+      {
+        label: "● a  one",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane" as const,
+      },
+      {
+        label: "● b  two",
+        tail: " · 0:01",
+        stalled: false,
+        kind: "lane" as const,
+      },
       { label: "+4 more", tail: "", stalled: false, kind: "more" as const },
     ];
     const clamped = clampBoardRows(formatted, 2);

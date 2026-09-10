@@ -11,7 +11,11 @@ describe("createTUICrashGuard", () => {
       import.meta.resolve("../session/state.js"),
       (real: typeof import("../session/state.js")) => ({
         ...real,
-        finalizeRunState: async (cwd: string, sessionId: string, state: RunState) => {
+        finalizeRunState: async (
+          cwd: string,
+          sessionId: string,
+          state: RunState,
+        ) => {
           captured.push({ cwd, sessionId, state });
         },
       }),

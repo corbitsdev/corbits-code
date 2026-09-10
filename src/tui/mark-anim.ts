@@ -55,7 +55,9 @@ export interface MarkFrame {
  */
 export function markFrame(seconds: number, still: boolean): MarkFrame {
   if (still) return { drawProg: 1, fillProg: 1, alpha: 1 };
-  const wrapped = ((seconds % MARK_PERIOD_SECONDS) + MARK_PERIOD_SECONDS) % MARK_PERIOD_SECONDS;
+  const wrapped =
+    ((seconds % MARK_PERIOD_SECONDS) + MARK_PERIOD_SECONDS) %
+    MARK_PERIOD_SECONDS;
   const p = wrapped / MARK_PERIOD_SECONDS;
   if (p < 0.38) return { drawProg: smooth(p / 0.38), fillProg: 0, alpha: 1 };
   if (p < 0.48) return { drawProg: 1, fillProg: 0, alpha: 1 };
@@ -124,7 +126,12 @@ function unitHash(a: number, b = 0): number {
  * only; each active column carries one flake with a private phase and a slight
  * speed variation so the field does not march as a rigid lattice.
  */
-function snowflakeAt(row: number, col: number, seconds: number, rows: number): boolean {
+function snowflakeAt(
+  row: number,
+  col: number,
+  seconds: number,
+  rows: number,
+): boolean {
   if (rows <= 0) return false;
   if (unitHash(col, 1) > SNOW_COLUMN_FRACTION) return false;
   const phase = unitHash(col, 2) * rows;
@@ -171,7 +178,11 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
       if (coverage === 0 || reveal === 0) {
         // Snow only in true sky. Unrevealed mountain cells stay empty so the
         // left-to-right draw still reads as a clean silhouette edge.
-        if (snowOn && coverage === 0 && snowflakeAt(row, col, seconds, shape.rows)) {
+        if (
+          snowOn &&
+          coverage === 0 &&
+          snowflakeAt(row, col, seconds, shape.rows)
+        ) {
           cells.push({ char: SNOW_CHAR, fg: UI.textFaint });
         } else {
           cells.push({ char: " ", fg: UI.action });
@@ -182,7 +193,9 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
       // toward solid without squaring off the edge cells that carry the slope.
       const outline = coverage;
       const filled = coverage ** FILL_GAMMA;
-      const height = clamp01((outline + (filled - outline) * rowFill) * reveal * alpha);
+      const height = clamp01(
+        (outline + (filled - outline) * rowFill) * reveal * alpha,
+      );
       cells.push({
         char: fillEdgeChar(rowFill, height) ?? blockChar(height),
         fg: UI.action,
@@ -205,7 +218,10 @@ function fillEdgeChar(rowFill: number, height: number): string | null {
 }
 
 function blockChar(height: number): string {
-  const index = Math.min(EIGHTHS.length - 1, Math.round(height * EIGHTHS.length) - 1);
+  const index = Math.min(
+    EIGHTHS.length - 1,
+    Math.round(height * EIGHTHS.length) - 1,
+  );
   // Below half an eighth there is no block short enough to be honest: the cell
   // is closer to empty, which is also how the fade reaches nothing.
   return index < 0 ? " " : (EIGHTHS[index] ?? " ");

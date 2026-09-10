@@ -17,21 +17,32 @@ import {
   type SendResult,
 } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
-import { createWorkerAuthorize, workerPermissionGate } from "../permission/reactor-authorize.js";
+import {
+  createWorkerAuthorize,
+  workerPermissionGate,
+} from "../permission/reactor-authorize.js";
 import { createSessionStores } from "../session/optimized-context-store.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { BlobReader, ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
+import type {
+  BlobReader,
+  ToolCall,
+  ToolDefinition,
+  ToolResult,
+} from "@intx/types/runtime";
 
 import {
   buildBifrostSource,
   buildOpenAISource,
   type ProviderCatalogEntry,
 } from "../config/index.js";
-import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
+import {
+  buildInferenceSourceForRef,
+  buildSubagentSources,
+} from "../config/inference-sources.js";
 import { assembleInferenceBase } from "../session/assemble-runtime.js";
 import { advertiseShellGuardTimeout } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
@@ -105,7 +116,11 @@ import {
   resolveSubAgentDeadlineMs,
   type ForcedStopReason,
 } from "./stop-policy.js";
-import { EMPTY_THRASH_STATE, nextThrashState, salvagePathsFromThrash } from "./thrash.js";
+import {
+  EMPTY_THRASH_STATE,
+  nextThrashState,
+  salvagePathsFromThrash,
+} from "./thrash.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import { getProcessAdmissionQueue } from "./admission.js";
 import { assertTierMayMountFleetVerb } from "./authority.js";
@@ -174,7 +189,9 @@ export function assertReplySend(
   Object.assign(error, {
     suspendedType: result.type,
     correlationId: result.correlationId,
-    ...(result.approvalSnapshot !== undefined ? { approvalSnapshot: result.approvalSnapshot } : {}),
+    ...(result.approvalSnapshot !== undefined
+      ? { approvalSnapshot: result.approvalSnapshot }
+      : {}),
   });
   throw error;
 }
@@ -210,7 +227,10 @@ export function buildSubAgentPrimarySource(
     );
     if (source !== null) return { sources: [source], defaultSource: source.id };
   }
-  const build = provider.bifrostVirtualKey === true ? buildBifrostSource : buildOpenAISource;
+  const build =
+    provider.bifrostVirtualKey === true
+      ? buildBifrostSource
+      : buildOpenAISource;
   const primarySource = build({
     id: provider.providerName,
     baseURL: provider.baseURL,
@@ -230,14 +250,19 @@ export function buildSubAgentPrimarySource(
 // special-case: they pass through applyCapabilityFilter by name like any
 // other tool (an "explore" intent that wants a read-only leaf can still
 // exclude them explicitly via capabilities.tools).
-export function coreSubAgentWebTools(inherited: readonly AgentTool[] = []): AgentTool[] {
+export function coreSubAgentWebTools(
+  inherited: readonly AgentTool[] = [],
+): AgentTool[] {
   const inheritedNames = new Set(inherited.map((tool) => tool.definition.name));
   return [createWebFetchTool(), createWebSearchTool()].filter(
     (tool) => !inheritedNames.has(tool.definition.name),
   );
 }
 
-function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
+function applyCapabilityFilter(
+  tools: AgentTool[],
+  capabilities: CapabilityFilter,
+): AgentTool[] {
   const nameSet = new Set(capabilities.tools);
   if (capabilities.mode === "exclude") {
     return tools.filter((t) => !nameSet.has(t.definition.name));
@@ -287,7 +312,9 @@ export function createSubAgentRunController(
       // fires later (e.g. during stream drain before dispose).
       if (controller.signal.aborted) return;
       hit = true;
-      controller.abort(new Error(`sub-agent deadline of ${deadlineMs}ms exceeded`));
+      controller.abort(
+        new Error(`sub-agent deadline of ${deadlineMs}ms exceeded`),
+      );
     }, deadlineMs);
   }
   return {
@@ -310,7 +337,11 @@ function abortReasonText(signal: AbortSignal): string | undefined {
   const reason: unknown = signal.reason;
   if (typeof reason === "string" && reason.length > 0) return reason;
   // A bare abort() carries a default AbortError — no operator-written cause.
-  if (reason instanceof Error && reason.name !== "AbortError" && reason.message.length > 0) {
+  if (
+    reason instanceof Error &&
+    reason.name !== "AbortError" &&
+    reason.message.length > 0
+  ) {
     return reason.message;
   }
   return undefined;
@@ -355,7 +386,10 @@ const submitResultDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      turn_token: { type: "string", description: "Turn token from the dispatch brief." },
+      turn_token: {
+        type: "string",
+        description: "Turn token from the dispatch brief.",
+      },
       result: { description: "The structured result payload." },
     },
     required: ["turn_token", "result"],
@@ -385,7 +419,9 @@ interface CodexProxyToolRunner {
   run(call: ToolCall, signal: AbortSignal): Promise<ToolResult>;
 }
 
-export function createCodexProxyRunTool(posixTools: CodexProxyToolRunner): CodexRunTool {
+export function createCodexProxyRunTool(
+  posixTools: CodexProxyToolRunner,
+): CodexRunTool {
   let invocation = 0;
   return async (name, args) => {
     invocation += 1;
@@ -394,7 +430,10 @@ export function createCodexProxyRunTool(posixTools: CodexProxyToolRunner): Codex
       new AbortController().signal,
     );
     return {
-      content: typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+      content:
+        typeof result.content === "string"
+          ? result.content
+          : JSON.stringify(result.content),
       ...(result.isError === true ? { isError: true } : {}),
     };
   };
@@ -406,7 +445,9 @@ export function createCodexProxyRunTool(posixTools: CodexProxyToolRunner): Codex
 // (isolated mode, see agent-fleet.ts's useWorktree) — either way this loop
 // gets its own posix tool instances and its own git-backed context store so
 // the two loops never trample each other's state.
-export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgentResult> {
+export async function runSubAgent(
+  params: RunSubAgentParams,
+): Promise<RunSubAgentResult> {
   const startedAt = Date.now();
   const telemetryRollup: SubAgentTelemetryRollup = {
     turn_count: 0,
@@ -423,12 +464,17 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   const settlementState = { latestModel: params.provider.model };
 
   try {
-    const result = await runSubAgentInner(params, telemetryRollup, settlementState);
+    const result = await runSubAgentInner(
+      params,
+      telemetryRollup,
+      settlementState,
+    );
     terminalReason = result.stopReason ?? "complete";
     return result;
   } catch (error) {
     errorCount = 1;
-    if (isSubAgentCancelError(error, params.signal)) terminalReason = "cancelled";
+    if (isSubAgentCancelError(error, params.signal))
+      terminalReason = "cancelled";
     throw error;
   } finally {
     try {
@@ -472,22 +518,32 @@ async function runSubAgentInner(
   // the parent's: parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
   let childBlobReader: BlobReader | undefined;
-  const sessionBlobReader = createCompositeBlobReader(() => childBlobReader, params.getBlobReader);
+  const sessionBlobReader = createCompositeBlobReader(
+    () => childBlobReader,
+    params.getBlobReader,
+  );
   const posixTools = createPosixTools({
     cwd: params.cwd,
     blobReader: sessionBlobReader,
     plugins: buildCorePosixToolPlugins({
       cwd: params.cwd,
       permissionGate,
-      ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
+      ...(params.shellTimeout !== undefined
+        ? { shellTimeout: params.shellTimeout }
+        : {}),
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
       getBackgroundShellRegistry: () => backgroundShells,
-      extraToolPlugins: [...(params.extraToolPlugins ?? []), spawnRegistry.plugin],
+      extraToolPlugins: [
+        ...(params.extraToolPlugins ?? []),
+        spawnRegistry.plugin,
+      ],
     }),
   });
 
-  let agent: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
+  let agent: Awaited<
+    ReturnType<typeof createAgentWithLiveToolDispatch>
+  > | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
   // Set only on the clean-completion return path; read by the finally block
@@ -522,7 +578,10 @@ async function runSubAgentInner(
     params.deadlineMs !== undefined
       ? resolveSubAgentDeadlineMs(params.deadlineMs, undefined)
       : undefined;
-  const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
+  const runController = createSubAgentRunController(
+    params.signal,
+    resolvedDeadlineMs,
+  );
   const sendAbortSignal = (): AbortSignal =>
     typeof AbortSignal.any === "function"
       ? AbortSignal.any([runController.signal, interruptController.signal])
@@ -563,7 +622,8 @@ async function runSubAgentInner(
       const parsed = parseManageTasksArgs(rawArgs);
       if (parsed === null) {
         return {
-          content: "Error: manage_tasks requires action ('create' or 'update').",
+          content:
+            "Error: manage_tasks requires action ('create' or 'update').",
           isError: true,
         };
       }
@@ -602,16 +662,23 @@ async function runSubAgentInner(
     // Typed reporting channel, Tier 3 leaves only. Gated by the existing
     // tier machinery — never invent a parallel check.
     if (params.tier === "leaf") {
+      if (turnToken === undefined) {
+        throw new Error("leaf dispatch is missing a turn token");
+      }
       tools = [
         ...tools,
         stringTool({
           definition: submitResultDefinition,
-          handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+          handler: async (
+            rawArgs: Record<string, unknown>,
+          ): Promise<string> => {
             const outcome = evaluateSubmitResult({
-              turnToken: turnToken!,
+              turnToken,
               submittedToken: rawArgs.turn_token,
               result: rawArgs.result,
-              ...(params.reportType !== undefined ? { outputType: params.reportType } : {}),
+              ...(params.reportType !== undefined
+                ? { outputType: params.reportType }
+                : {}),
               state: submitResultState,
             });
             return outcome.message;
@@ -683,7 +750,9 @@ async function runSubAgentInner(
           ? [
               createSearchAgentsTool(() => {
                 const profiles = nd.profiles;
-                return typeof profiles === "function" ? profiles() : (profiles ?? []);
+                return typeof profiles === "function"
+                  ? profiles()
+                  : (profiles ?? []);
               }),
             ]
           : []),
@@ -708,10 +777,16 @@ async function runSubAgentInner(
       };
       const fleetDeps = {
         permissionGate: nd.permissionGate,
-        ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
-        ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
+        ...(nd.inheritMcpTools !== undefined
+          ? { inheritMcpTools: nd.inheritMcpTools }
+          : {}),
+        ...(nd.shellTimeout !== undefined
+          ? { shellTimeout: nd.shellTimeout }
+          : {}),
         ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
-        ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
+        ...(nd.extraToolPlugins !== undefined
+          ? { extraToolPlugins: nd.extraToolPlugins }
+          : {}),
         cwd: params.cwd,
         getWorkdirBase: nd.getWorkdirBase,
         provider: nd.provider,
@@ -722,8 +797,12 @@ async function runSubAgentInner(
         fleetRecords,
         allowOrchestrator: false,
         ...(params.id !== undefined ? { parentSessionId: params.id } : {}),
-        ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
-        ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
+        ...(nd.useWorktree !== undefined
+          ? { useWorktree: nd.useWorktree }
+          : {}),
+        ...(nd.spawnAllowlist !== undefined
+          ? { spawnAllowlist: nd.spawnAllowlist }
+          : {}),
         ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
@@ -765,17 +844,24 @@ async function runSubAgentInner(
 
     const environment = await gatherEnvironment(params.cwd);
     const extensions =
-      params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
+      params.systemPromptRole !== undefined
+        ? [params.systemPromptRole]
+        : undefined;
     const toolNames = tools.map((t) => t.definition.name);
-    const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
-      orchestrator: params.orchestrator === true,
-      toolNames,
-      grokAntiThrash: shouldApplyGrokAntiThrash({
-        providerName: params.provider.providerName,
-        model: params.provider.model,
+    const systemPrompt = buildSubAgentSystemPrompt(
+      extensions,
+      environment,
+      undefined,
+      {
         orchestrator: params.orchestrator === true,
-      }),
-    });
+        toolNames,
+        grokAntiThrash: shouldApplyGrokAntiThrash({
+          providerName: params.provider.providerName,
+          model: params.provider.model,
+          orchestrator: params.orchestrator === true,
+        }),
+      },
+    );
 
     // Assigned once the leaf's trace dir exists; the director factory closes
     // over this binding and only fires after that point.
@@ -784,7 +870,9 @@ async function runSubAgentInner(
     // normal agent.send success path) — carried into the returned result
     // instead of being re-derived by parsing the report text.
     let directorForcedStopReason: ForcedStopReason | undefined;
-    let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
+    let agentHandle: Awaited<
+      ReturnType<typeof createAgentWithLiveToolDispatch>
+    > | null = null;
     const requestContinuation = (): void => {
       skipStallContinuationWhileAskPending(askDirectorState, () => {
         try {
@@ -850,17 +938,22 @@ async function runSubAgentInner(
       description: params.description,
       cwd: params.cwd,
     };
-    const withWorkerIdentity = <T>(fn: () => T): T => runWithSubAgentIdentity(subAgentIdentity, fn);
+    const withWorkerIdentity = <T>(fn: () => T): T =>
+      runWithSubAgentIdentity(subAgentIdentity, fn);
     const toolsFactory = defineTool({
       id: `${ID_PREFIX}/subagent-tools`,
       definitions: [],
       // Without the watchdog config, child tool calls run under default budgets
       // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
       factory: () => {
-        const runner = createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings));
+        const runner = createDynamicToolRunner(
+          tools,
+          toolWatchdogFromSettings(params.settings),
+        );
         return {
           ...runner,
-          run: (call, signal) => withWorkerIdentity(() => runner.run(call, signal)),
+          run: (call, signal) =>
+            withWorkerIdentity(() => runner.run(call, signal)),
         };
       },
     });
@@ -871,7 +964,9 @@ async function runSubAgentInner(
     // already tracks instead of needing a second, disk-only identity
     // scheme.
     const safeRequestedId =
-      params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id) ? params.id : undefined;
+      params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id)
+        ? params.id
+        : undefined;
     const sessionId = safeRequestedId ?? generateSessionId();
     const workdir = join(params.workdirBase, "subagents", sessionId);
     await mkdir(workdir, { recursive: true });
@@ -892,14 +987,22 @@ async function runSubAgentInner(
       capabilities: [],
       director: directorDef.build({}),
       inference: {
-        sources: [{ provider: params.provider.providerName, model: params.provider.model }],
+        sources: [
+          {
+            provider: params.provider.providerName,
+            model: params.provider.model,
+          },
+        ],
       },
     });
 
     const { storage, audit } = await createSessionStores(workdir);
     const authorize = createWorkerAuthorize(params.permissionGate);
 
-    const head = { provider: params.provider.providerName, model: params.provider.model };
+    const head = {
+      provider: params.provider.providerName,
+      model: params.provider.model,
+    };
     const bundle =
       params.settings !== undefined && params.catalog !== undefined
         ? buildSubagentSources({
@@ -910,9 +1013,14 @@ async function runSubAgentInner(
               ? { reasoningEffort: params.provider.reasoningEffort }
               : {}),
           })
-        : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
+        : buildSubAgentPrimarySource(
+            params.provider,
+            params.catalog,
+            params.settings,
+          );
     const subagentSource =
-      bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
+      bundle.sources.find((s) => s.id === bundle.defaultSource) ??
+      bundle.sources[0];
     agent = await createAgentWithLiveToolDispatch(def, {
       sources: bundle.sources,
       defaultSource: bundle.defaultSource,
@@ -923,7 +1031,9 @@ async function runSubAgentInner(
       // transforms up from there.
       deps: {
         ...inferenceDeps,
-        contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
+        contextTransforms: [
+          createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+        ],
       },
       audit,
       sessionId,
@@ -988,11 +1098,15 @@ async function runSubAgentInner(
       if (name !== null) {
         toolNamesUsed.push(name);
         telemetryRollup.tool_call_count += 1;
-        params.onProgress?.({ description: params.description, toolName: name });
+        params.onProgress?.({
+          description: params.description,
+          toolName: name,
+        });
       }
       if (event.type === "tool.start") {
-        const call = (event as { data?: { call?: { name?: unknown; arguments?: unknown } } }).data
-          ?.call;
+        const call = (
+          event as { data?: { call?: { name?: unknown; arguments?: unknown } } }
+        ).data?.call;
         if (typeof call?.name === "string" && call.name.length > 0) {
           thrashState = nextThrashState(thrashState, [
             { type: "tool_call", name: call.name, arguments: call.arguments },
@@ -1000,7 +1114,8 @@ async function runSubAgentInner(
         }
       }
       if (event.type === "tool.done") {
-        const result = (event as { data?: { result?: { isError?: unknown } } }).data?.result;
+        const result = (event as { data?: { result?: { isError?: unknown } } })
+          .data?.result;
         if (result?.isError === true) telemetryRollup.tool_error_count += 1;
       }
       if (event.type === "inference.start") {
@@ -1016,7 +1131,9 @@ async function runSubAgentInner(
         terminalProviderError = {
           category: error.category,
           ...(error.message !== undefined ? { message: error.message } : {}),
-          ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+          ...(error.statusCode !== undefined
+            ? { statusCode: error.statusCode }
+            : {}),
         };
       }
       if (onTurnBoundary(event)) {
@@ -1035,8 +1152,10 @@ async function runSubAgentInner(
           }
         ).data?.usage;
         if (usage !== undefined) {
-          if (typeof usage.input === "number") telemetryRollup.input_tokens += usage.input;
-          if (typeof usage.output === "number") telemetryRollup.output_tokens += usage.output;
+          if (typeof usage.input === "number")
+            telemetryRollup.input_tokens += usage.input;
+          if (typeof usage.output === "number")
+            telemetryRollup.output_tokens += usage.output;
           if (typeof usage.cacheRead === "number") {
             telemetryRollup.cache_read_tokens += usage.cacheRead;
           }
@@ -1055,15 +1174,21 @@ async function runSubAgentInner(
         const trimmed = partial.trim();
         if (trimmed.length > 0) {
           const joined =
-            accumulatedProse.length === 0 ? trimmed : `${accumulatedProse}\n\n${trimmed}`;
+            accumulatedProse.length === 0
+              ? trimmed
+              : `${accumulatedProse}\n\n${trimmed}`;
           accumulatedProse =
-            joined.length <= TURN_PROSE_CAP ? joined : joined.slice(-TURN_PROSE_CAP);
+            joined.length <= TURN_PROSE_CAP
+              ? joined
+              : joined.slice(-TURN_PROSE_CAP);
         }
       }
       params.onEvent?.(event);
     };
 
-    streamPromise = consumeStream(agent.stream(), streamSink).finally(runSettlement.endStream);
+    streamPromise = consumeStream(agent.stream(), streamSink).finally(
+      runSettlement.endStream,
+    );
 
     const sendAndSettle = async (
       message: string,
@@ -1071,7 +1196,8 @@ async function runSubAgentInner(
     ): ReturnType<NonNullable<typeof agent>["send"]> => {
       const pending = runSettlement.beginSend();
       try {
-        const result = await agent!.send(message, options);
+        if (agent === null) throw new Error("sub-agent is not running");
+        const result = await agent.send(message, options);
         await pending.settled;
         return result;
       } catch (error) {
@@ -1111,7 +1237,9 @@ async function runSubAgentInner(
     if (runController.signal.aborted) {
       closeOnAbort();
     } else {
-      runController.signal.addEventListener("abort", closeOnAbort, { once: true });
+      runController.signal.addEventListener("abort", closeOnAbort, {
+        once: true,
+      });
     }
 
     // Hand the caller a bounded, idempotent close it can call at any time
@@ -1122,8 +1250,11 @@ async function runSubAgentInner(
     // detached run_shell children. The deadline abandons a hung close and
     // fails rather than reporting success while children may still be live.
     if (params.onAgentReady !== undefined) {
-      const boundedClose = async (deadlineMs = DEFAULT_CLOSE_DEADLINE_MS): Promise<void> => {
-        if (!runController.signal.aborted) runController.abort(new Error("closed by close_agent"));
+      const boundedClose = async (
+        deadlineMs = DEFAULT_CLOSE_DEADLINE_MS,
+      ): Promise<void> => {
+        if (!runController.signal.aborted)
+          runController.abort(new Error("closed by close_agent"));
         try {
           await awaitBoundedTeardown(
             disposeSubAgentSession({
@@ -1146,7 +1277,9 @@ async function runSubAgentInner(
       // close, so it cannot hang teardown on a wedged agent.close.
       const interrupt = (): void => {
         if (!interruptController.signal.aborted) {
-          interruptController.abort(new Error("interrupted by interrupt_agent"));
+          interruptController.abort(
+            new Error("interrupted by interrupt_agent"),
+          );
         }
       };
       // resume_agent's payoff — call agent.send() again on the same live
@@ -1154,7 +1287,9 @@ async function runSubAgentInner(
       const followup = async (message: string): Promise<string> => {
         resetAskDirectorTurn(askDirectorState);
         interruptController = new AbortController();
-        const result = await sendWithProviderFailure(message, { signal: sendAbortSignal() });
+        const result = await sendWithProviderFailure(message, {
+          signal: sendAbortSignal(),
+        });
         if (terminalProviderError !== undefined) {
           throw createResolvedProviderFailureError(
             params.provider.providerName,
@@ -1167,7 +1302,8 @@ async function runSubAgentInner(
           : "Sub-agent finished without a textual result.";
       };
       const deliver = (message: string): void => {
-        agent!.deliver({
+        if (agent === null) throw new Error("sub-agent is not running");
+        agent.deliver({
           ref: { uid: 1, mailbox: "INBOX" },
           headers: {
             from: "parent@local",
@@ -1181,20 +1317,31 @@ async function runSubAgentInner(
           signatureStatus: "missing",
         });
       };
-      params.onAgentReady({ close: boundedClose, interrupt, followup, deliver });
+      params.onAgentReady({
+        close: boundedClose,
+        interrupt,
+        followup,
+        deliver,
+      });
     }
 
     const fullPrompt = buildDispatchBrief({
       description: params.description,
       prompt: params.prompt,
       ...(params.context !== undefined ? { context: params.context } : {}),
-      ...(params.goals !== undefined && params.goals.length > 0 ? { goals: params.goals } : {}),
+      ...(params.goals !== undefined && params.goals.length > 0
+        ? { goals: params.goals }
+        : {}),
       ...(params.intent !== undefined ? { intent: params.intent } : {}),
-      ...(params.successCriteria !== undefined && params.successCriteria.length > 0
+      ...(params.successCriteria !== undefined &&
+      params.successCriteria.length > 0
         ? { successCriteria: params.successCriteria }
         : {}),
-      ...(params.doNot !== undefined && params.doNot.length > 0 ? { doNot: params.doNot } : {}),
-      ...(params.reportFocus !== undefined && params.reportFocus.trim().length > 0
+      ...(params.doNot !== undefined && params.doNot.length > 0
+        ? { doNot: params.doNot }
+        : {}),
+      ...(params.reportFocus !== undefined &&
+      params.reportFocus.trim().length > 0
         ? { reportFocus: params.reportFocus }
         : {}),
       ...(turnToken !== undefined ? { turnToken } : {}),
@@ -1206,7 +1353,10 @@ async function runSubAgentInner(
     };
     const thisTurnInterrupt = interruptController;
     const parentFacing = (body: string, reason?: ForcedStopReason): string =>
-      appendActivitySummary(appendSubAgentParentHints(body, reason), toolNamesUsed);
+      appendActivitySummary(
+        appendSubAgentParentHints(body, reason),
+        toolNamesUsed,
+      );
     try {
       ensureNotAborted();
       // Combine the run's own controller with the dedicated interrupt
@@ -1247,7 +1397,9 @@ async function runSubAgentInner(
       turnSucceeded = true;
       return withTelemetry({
         report: parentFacing(report, directorForcedStopReason),
-        ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
+        ...(directorForcedStopReason !== undefined
+          ? { stopReason: directorForcedStopReason }
+          : {}),
         // Only this path skips teardown below when persist is set — tell
         // the caller so a salvage below is never mistaken for a still-live,
         // resumable agent.
@@ -1259,8 +1411,14 @@ async function runSubAgentInner(
       // deadline salvage path or rethrow as a bare AbortError.
       if (thisTurnInterrupt.signal.aborted && !runController.signal.aborted) {
         interruptedKeepAlive = true;
-        const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
-        const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);
+        const abortedCycleText = await cycleRecorder.dispose("cancelled", {
+          drain: streamPromise,
+        });
+        const tail = salvageFindingsText(
+          accumulatedProse,
+          lastPartialText,
+          abortedCycleText,
+        );
         return withTelemetry({
           report: parentFacing(
             forcedStopReport("interrupted", tail, {
@@ -1297,8 +1455,13 @@ async function runSubAgentInner(
           hadProgress,
         });
         if (outcome !== "rethrow") {
-          const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
-          const tail = salvageFindingsText(accumulatedProse, lastPartialText, abortedCycleText);
+          const reason =
+            outcome === "salvage-deadline" ? "deadline" : "cancelled";
+          const tail = salvageFindingsText(
+            accumulatedProse,
+            lastPartialText,
+            abortedCycleText,
+          );
           const detail =
             reason === "deadline" && resolvedDeadlineMs !== undefined
               ? `${resolvedDeadlineMs}ms elapsed`
@@ -1329,7 +1492,8 @@ async function runSubAgentInner(
     // under persist, or because interrupt_agent fired and the session must
     // stay reusable. Both skip teardown and both need the parent-signal
     // listener kept so a later cancel still reaches them.
-    const persisting = (params.persist === true && turnSucceeded) || interruptedKeepAlive;
+    const persisting =
+      (params.persist === true && turnSucceeded) || interruptedKeepAlive;
     // A persisting run must keep the parent-signal forwarding alive (see
     // createSubAgentRunController's dispose doc) — boundedClose (the
     // close_agent handle) fully disposes the runController itself once the

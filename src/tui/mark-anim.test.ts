@@ -58,24 +58,38 @@ describe("markFrame", () => {
   });
 
   test("loops on the period and handles a negative clock", () => {
-    expect(markFrame(1.2, false)).toEqual(markFrame(1.2 + MARK_PERIOD_SECONDS, false));
+    expect(markFrame(1.2, false)).toEqual(
+      markFrame(1.2 + MARK_PERIOD_SECONDS, false),
+    );
     expect(markFrame(-0.1, false).alpha).toBeLessThan(1);
   });
 
   test("still is a fully drawn, fully filled mark at any time", () => {
     for (const t of [0, 1.7, 4.59, 12345.678]) {
-      expect(markFrame(t, true)).toEqual({ drawProg: 1, fillProg: 1, alpha: 1 });
+      expect(markFrame(t, true)).toEqual({
+        drawProg: 1,
+        fillProg: 1,
+        alpha: 1,
+      });
     }
   });
 });
 
 describe("renderMark", () => {
   /** Mountain-block weight only — snow must not pollute silhouette metrics. */
-  const mountainWeight = (grid: readonly (readonly { char: string }[])[]): number =>
-    grid.flat().reduce((sum, cell) => sum + Math.max(0, MOUNTAIN_CHARS.indexOf(cell.char) + 1), 0);
+  const mountainWeight = (
+    grid: readonly (readonly { char: string }[])[],
+  ): number =>
+    grid
+      .flat()
+      .reduce(
+        (sum, cell) => sum + Math.max(0, MOUNTAIN_CHARS.indexOf(cell.char) + 1),
+        0,
+      );
 
-  const mountainCells = (grid: readonly (readonly { char: string }[])[]): number =>
-    grid.flat().filter((cell) => isMountain(cell.char)).length;
+  const mountainCells = (
+    grid: readonly (readonly { char: string }[])[],
+  ): number => grid.flat().filter((cell) => isMountain(cell.char)).length;
 
   test("is the mark's cell dimensions", () => {
     const grid = renderMark({ nowMs: 0, still: true });
@@ -105,7 +119,8 @@ describe("renderMark", () => {
       row.forEach((cell, x) => {
         // Still mode freezes the mountain, but snow still drifts over the sky.
         expect(` ${MOUNTAIN_CHARS}${SNOW_CHAR}`).toContain(cell.char);
-        if ((MARK_LARGE.coverage[y]?.[x] ?? 0) === 1) expect(cell.char).toBe("█");
+        if ((MARK_LARGE.coverage[y]?.[x] ?? 0) === 1)
+          expect(cell.char).toBe("█");
       });
     });
   });
@@ -137,7 +152,12 @@ describe("renderMark", () => {
 
   test("reducedMotion drops snow at a clock that otherwise snows, without reshaping the mountain", () => {
     const nowMs = SNOW_SAMPLE_CLOCKS_MS.find((t) =>
-      renderMark({ nowMs: t, still: true, reducedMotion: false, grid: MARK_LARGE })
+      renderMark({
+        nowMs: t,
+        still: true,
+        reducedMotion: false,
+        grid: MARK_LARGE,
+      })
         .flat()
         .some((cell) => isSnow(cell.char)),
     );
@@ -145,8 +165,18 @@ describe("renderMark", () => {
       throw new Error("expected a still-mode clock that draws snow");
     }
 
-    const snowing = renderMark({ nowMs, still: true, reducedMotion: false, grid: MARK_LARGE });
-    const quiet = renderMark({ nowMs, still: true, reducedMotion: true, grid: MARK_LARGE });
+    const snowing = renderMark({
+      nowMs,
+      still: true,
+      reducedMotion: false,
+      grid: MARK_LARGE,
+    });
+    const quiet = renderMark({
+      nowMs,
+      still: true,
+      reducedMotion: true,
+      grid: MARK_LARGE,
+    });
     expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
     expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
     expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
@@ -157,7 +187,12 @@ describe("renderMark", () => {
       (phase) => phase * MARK_PERIOD_SECONDS * 1000,
     );
     const nowMs = holdFullClocks.find((t) =>
-      renderMark({ nowMs: t, still: false, reducedMotion: false, grid: MARK_LARGE })
+      renderMark({
+        nowMs: t,
+        still: false,
+        reducedMotion: false,
+        grid: MARK_LARGE,
+      })
         .flat()
         .some((cell) => isSnow(cell.char)),
     );
@@ -165,8 +200,18 @@ describe("renderMark", () => {
       throw new Error("expected a hold-full clock that draws snow");
     }
 
-    const snowing = renderMark({ nowMs, still: false, reducedMotion: false, grid: MARK_LARGE });
-    const quiet = renderMark({ nowMs, still: false, reducedMotion: true, grid: MARK_LARGE });
+    const snowing = renderMark({
+      nowMs,
+      still: false,
+      reducedMotion: false,
+      grid: MARK_LARGE,
+    });
+    const quiet = renderMark({
+      nowMs,
+      still: false,
+      reducedMotion: true,
+      grid: MARK_LARGE,
+    });
     expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
     expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
     expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
@@ -181,17 +226,26 @@ describe("renderMark", () => {
 
   test("the outline reveals left to right", () => {
     // Early in the draw phase only the leftmost mountain columns may be lit.
-    const grid = renderMark({ nowMs: 0.06 * MARK_PERIOD_SECONDS * 1000, still: false });
+    const grid = renderMark({
+      nowMs: 0.06 * MARK_PERIOD_SECONDS * 1000,
+      still: false,
+    });
     const lit = grid.flatMap((row) =>
       row.flatMap((cell, col) => (isMountain(cell.char) ? [col] : [])),
     );
     expect(Math.max(...lit, -1)).toBeLessThan(MARK_COLS);
-    const full = renderMark({ nowMs: 0.4 * MARK_PERIOD_SECONDS * 1000, still: false });
+    const full = renderMark({
+      nowMs: 0.4 * MARK_PERIOD_SECONDS * 1000,
+      still: false,
+    });
     expect(mountainCells(full)).toBeGreaterThan(mountainCells(grid));
   });
 
   test("the fade thins the mark out toward empty", () => {
-    const held = renderMark({ nowMs: 0.8 * MARK_PERIOD_SECONDS * 1000, still: false });
+    const held = renderMark({
+      nowMs: 0.8 * MARK_PERIOD_SECONDS * 1000,
+      still: false,
+    });
     const fading = renderMark({
       nowMs: 0.995 * MARK_PERIOD_SECONDS * 1000,
       still: false,
@@ -258,7 +312,9 @@ describe("renderMark", () => {
     const b = renderMark({ nowMs: 50_000, still: true, grid: MARK_SMALL });
     const mountainText = (grid: typeof a) =>
       grid
-        .map((row) => row.map((cell) => (isMountain(cell.char) ? cell.char : " ")).join(""))
+        .map((row) =>
+          row.map((cell) => (isMountain(cell.char) ? cell.char : " ")).join(""),
+        )
         .join("\n");
     expect(mountainText(b)).toBe(mountainText(a));
   });

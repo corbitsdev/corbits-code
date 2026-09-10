@@ -16,20 +16,20 @@ describe("active-host", () => {
   });
 
   test("returns the handle set by setActiveDisposeHost", () => {
-    const disposeHost = () => {};
+    const disposeHost = () => undefined;
     setActiveDisposeHost(disposeHost);
     expect(getActiveDisposeHost()).toBe(disposeHost);
   });
 
   test("clearActiveDisposeHost removes the handle", () => {
-    setActiveDisposeHost(() => {});
+    setActiveDisposeHost(() => undefined);
     clearActiveDisposeHost();
     expect(getActiveDisposeHost()).toBeNull();
   });
 
   test("setActiveDisposeHost overwrites a previously set handle", () => {
-    setActiveDisposeHost(() => {});
-    const second = () => {};
+    setActiveDisposeHost(() => undefined);
+    const second = () => undefined;
     setActiveDisposeHost(second);
     expect(getActiveDisposeHost()).toBe(second);
   });

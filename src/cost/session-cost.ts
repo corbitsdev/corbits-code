@@ -4,7 +4,11 @@ import { costHiddenReason, type CostHiddenReason } from "./cost-visibility.js";
 import { createFaremeter } from "./faremeter.js";
 import type { PricingCache } from "./pricing-fetcher.js";
 
-export type SessionBillingMix = "none" | "hidden-only" | "metered-only" | "mixed";
+export type SessionBillingMix =
+  | "none"
+  | "hidden-only"
+  | "metered-only"
+  | "mixed";
 
 export interface TurnBillingIdentity {
   modelId: string;
@@ -19,7 +23,10 @@ export interface SessionCostSnapshot {
   hiddenReason: CostHiddenReason | null;
 }
 
-export function sessionBillingMix(hasHidden: boolean, hasMetered: boolean): SessionBillingMix {
+export function sessionBillingMix(
+  hasHidden: boolean,
+  hasMetered: boolean,
+): SessionBillingMix {
   if (hasHidden && hasMetered) return "mixed";
   if (hasHidden) return "hidden-only";
   if (hasMetered) return "metered-only";
@@ -28,11 +35,15 @@ export function sessionBillingMix(hasHidden: boolean, hasMetered: boolean): Sess
 
 // Catalog identity lives on sourceId (`codex/default`, `zai`). `provider` is the
 // adapter kind (`codex-responses`) and would miss subscription / coding-plan hides.
-export function billingIdentityFromSource(source: LastCycleSource): TurnBillingIdentity {
+export function billingIdentityFromSource(
+  source: LastCycleSource,
+): TurnBillingIdentity {
   return { modelId: source.model, providerName: source.sourceId };
 }
 
-export function createSessionCostAccumulator(args: { pricingCache: () => PricingCache | null }): {
+export function createSessionCostAccumulator(args: {
+  pricingCache: () => PricingCache | null;
+}): {
   addTurn(usage: TokenUsage, identity: TurnBillingIdentity): void;
   reset(): void;
   snapshot(): SessionCostSnapshot;
@@ -58,7 +69,10 @@ export function createSessionCostAccumulator(args: { pricingCache: () => Pricing
         return;
       }
       hasMetered = true;
-      const faremeter = createFaremeter({ modelId: identity.modelId, pricingCache });
+      const faremeter = createFaremeter({
+        modelId: identity.modelId,
+        pricingCache,
+      });
       faremeter.addUsage(usage);
       meteredCost += faremeter.getTotalCost();
     },

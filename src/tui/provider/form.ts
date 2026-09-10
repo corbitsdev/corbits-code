@@ -5,7 +5,11 @@
 
 import { UI } from "../theme.js";
 import { type ProviderField, stepLabel, type SetupStep } from "./steps.js";
-import type { ProviderChoice, ProviderFormValues, SubmitPhase } from "./types.js";
+import type {
+  ProviderChoice,
+  ProviderFormValues,
+  SubmitPhase,
+} from "./types.js";
 
 /** Placeholder shown in the text input for each free-text step. */
 export const PROVIDER_FIELD_HINTS: Record<ProviderField, string> = {
@@ -52,7 +56,10 @@ export function stepReady(step: SetupStep, value: string): boolean {
  * end-of-line deletes round-trip exactly; mid-string edits fall back to
  * truncation, which is why the field is re-typed rather than patched.
  */
-export function secretFromMaskedEdit(secret: string, displayed: string): string {
+export function secretFromMaskedEdit(
+  secret: string,
+  displayed: string,
+): string {
   const chars = [...displayed];
   const typed = chars.filter((c) => c !== MASK_CHAR);
   const keptLength = chars.length - typed.length;
@@ -99,12 +106,15 @@ function settledValue(
   choice: ProviderChoice | null,
 ): string {
   if (step === "provider") return choice?.label ?? values.name;
-  if (step === "login") return values.name.length > 0 ? values.name : "signed in";
+  if (step === "login")
+    return values.name.length > 0 ? values.name : "signed in";
   if (step === "apiKey") {
     return values.apiKey.length > 0 ? maskSecret(values.apiKey) : "keyless";
   }
   if (step === "name") {
-    return choice !== null && !choice.custom ? values.oauthProfile : values.name;
+    return choice !== null && !choice.custom
+      ? values.oauthProfile
+      : values.name;
   }
   if (step === "baseURL") return values.baseURL;
   return values.model;

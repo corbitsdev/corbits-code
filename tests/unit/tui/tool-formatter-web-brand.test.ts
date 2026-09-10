@@ -1,5 +1,8 @@
 import { test, expect, afterEach } from "bun:test";
-import { humanizeToolName, setActiveWebProviderBrand } from "../../../src/tui/tool-formatter.js";
+import {
+  humanizeToolName,
+  setActiveWebProviderBrand,
+} from "../../../src/tui/tool-formatter.js";
 
 afterEach(() => setActiveWebProviderBrand(undefined));
 

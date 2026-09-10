@@ -11,7 +11,14 @@ import {
 describe("AUTO_ALLOW_READ_TOOLS", () => {
   test("gates auto-allow with exactly this membership", () => {
     expect([...AUTO_ALLOW_READ_TOOLS].sort()).toEqual(
-      ["grep", "list_dir", "lsp", "manage_tasks", "read_file", "search_files"].sort(),
+      [
+        "grep",
+        "list_dir",
+        "lsp",
+        "manage_tasks",
+        "read_file",
+        "search_files",
+      ].sort(),
     );
   });
 

@@ -1,4 +1,7 @@
-import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@intx/types/runtime";
+import type {
+  ContentBlock as RuntimeContentBlock,
+  ConversationTurn,
+} from "@intx/types/runtime";
 
 import { validateView, type ViewNode } from "./view/index.js";
 
@@ -12,7 +15,13 @@ export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
-  | { type: "tool_call"; callId?: string; name: string; arguments: string; startedAt?: number }
+  | {
+      type: "tool_call";
+      callId?: string;
+      name: string;
+      arguments: string;
+      startedAt?: number;
+    }
   | {
       type: "tool_result";
       callId: string;
@@ -51,12 +60,21 @@ function capWithOmissionSuffix(
   const separator = anchor === "tail" ? "\n\n" : "";
   const budget = maxChars - marker.length - separator.length;
   const kept =
-    anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
-  return anchor === "tail" ? `${marker}${separator}${kept}` : `${kept}${marker}`;
+    anchor === "tail"
+      ? content.slice(content.length - budget)
+      : content.slice(0, budget);
+  return anchor === "tail"
+    ? `${marker}${separator}${kept}`
+    : `${kept}${marker}`;
 }
 
 export function capStoredToolResultContent(content: string): string {
-  return capWithOmissionSuffix(content, MAX_STORED_TOOL_RESULT_CHARS, "stored tool output", "tail");
+  return capWithOmissionSuffix(
+    content,
+    MAX_STORED_TOOL_RESULT_CHARS,
+    "stored tool output",
+    "tail",
+  );
 }
 
 export function capStoredToolArguments(argumentsText: string): string {
@@ -110,7 +128,9 @@ function upsertResumeBlock(
  * entirely because the resumed task list is rendered as one aggregated block
  * (see hydrateTasksFromTurns) rather than as one row per call.
  */
-function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[] {
+function finalizeResumeToolBlocks(
+  blocks: ContentBlockData[],
+): ContentBlockData[] {
   const callIdToCallIndex = new Map<string, number>();
   const callIdToResultIndex = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
@@ -134,7 +154,9 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     if (call?.type !== "tool_call" || call.name !== "manage_tasks") continue;
     indicesToRemove.add(i);
     const resultIndex =
-      call.callId !== undefined ? callIdToResultIndex.get(call.callId) : undefined;
+      call.callId !== undefined
+        ? callIdToResultIndex.get(call.callId)
+        : undefined;
     if (resultIndex !== undefined) indicesToRemove.add(resultIndex);
   }
 
@@ -208,12 +230,16 @@ function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
           callId: block.id,
           name: block.name,
           arguments: capStoredToolArguments(
-            typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments),
+            typeof block.arguments === "string"
+              ? block.arguments
+              : JSON.stringify(block.arguments),
           ),
         });
         break;
       case "tool_result": {
-        const content = capStoredToolResultContent(stringifyToolContent(block.content));
+        const content = capStoredToolResultContent(
+          stringifyToolContent(block.content),
+        );
         out.push({
           type: "tool_result",
           callId: block.callId,
@@ -244,7 +270,9 @@ export function turnsToContentBlocks(
   const collected: ContentBlockData[][] = [];
   let total = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
-    const blocks = turnToContentBlocks(turns[i]!);
+    const turn = turns[i];
+    if (turn == null) continue;
+    const blocks = turnToContentBlocks(turn);
     if (blocks.length === 0) continue;
     collected.push(blocks);
     total += blocks.length;
@@ -253,7 +281,9 @@ export function turnsToContentBlocks(
 
   const out: ContentBlockData[] = [];
   for (let i = collected.length - 1; i >= 0; i--) {
-    out.push(...collected[i]!);
+    const group = collected[i];
+    if (group == null) continue;
+    out.push(...group);
   }
   if (out.length > maxBlocks) out.splice(0, out.length - maxBlocks);
 

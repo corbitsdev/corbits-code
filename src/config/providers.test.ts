@@ -272,17 +272,24 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
 
 describe("resolveDefaultModel", () => {
   test("returns defaultModel when present and non-empty", () => {
-    expect(resolveDefaultModel({ defaultModel: "gpt-4o", models: ["gpt-4o", "gpt-4o-mini"] })).toBe(
+    expect(
+      resolveDefaultModel({
+        defaultModel: "gpt-4o",
+        models: ["gpt-4o", "gpt-4o-mini"],
+      }),
+    ).toBe("gpt-4o");
+  });
+
+  test("falls back to models[0] when defaultModel is absent", () => {
+    expect(resolveDefaultModel({ models: ["gpt-4o", "gpt-4o-mini"] })).toBe(
       "gpt-4o",
     );
   });
 
-  test("falls back to models[0] when defaultModel is absent", () => {
-    expect(resolveDefaultModel({ models: ["gpt-4o", "gpt-4o-mini"] })).toBe("gpt-4o");
-  });
-
   test("falls back to models[0] when defaultModel is empty", () => {
-    expect(resolveDefaultModel({ defaultModel: "", models: ["gpt-4o"] })).toBe("gpt-4o");
+    expect(resolveDefaultModel({ defaultModel: "", models: ["gpt-4o"] })).toBe(
+      "gpt-4o",
+    );
   });
 
   test("returns undefined for an undefined entry", () => {

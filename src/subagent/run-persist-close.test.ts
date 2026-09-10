@@ -30,11 +30,14 @@ function stubAgent() {
         turn: { role: "assistant", content: [] },
       };
     },
-    stream: () => (async function* (): AsyncGenerator<ReactorEmittedEvent> {})(),
-    deliver: () => {},
-    close: async () => {},
-    setSource: () => {},
-    setSources: () => {},
+    stream: () =>
+      (async function* (): AsyncGenerator<ReactorEmittedEvent> {
+        yield* [];
+      })(),
+    deliver: () => undefined,
+    close: async () => undefined,
+    setSource: () => undefined,
+    setSources: () => undefined,
     history: async () => [],
     checkpoints: async () => [],
     readAt: async () => [],
@@ -53,7 +56,9 @@ describe("persist close_agent leftover dispose", () => {
         createPosixTools: (opts: Parameters<typeof real.createPosixTools>[0]) =>
           Object.assign(real.createPosixTools(opts), {
             dispose: async () => {
-              throw new Error("1 shell child process still live after 2000ms reap");
+              throw new Error(
+                "1 shell child process still live after 2000ms reap",
+              );
             },
           }),
       }),
@@ -78,7 +83,11 @@ describe("persist close_agent leftover dispose", () => {
               cwd,
               workdirBase: join(cwd, ".ctx"),
               permissionGate,
-              provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
               description: "persist close leftover probe",
               prompt: "finish the first turn",
               persist: true,
@@ -88,8 +97,11 @@ describe("persist close_agent leftover dispose", () => {
             };
             const result = await runSubAgent(params);
             expect(result.agentRetained).toBe(true);
-            if (handles === undefined) throw new Error("onAgentReady never fired");
-            await expect(handles.close(1000)).rejects.toThrow(/still live after 2000ms reap/);
+            if (handles === undefined)
+              throw new Error("onAgentReady never fired");
+            await expect(handles.close(1000)).rejects.toThrow(
+              /still live after 2000ms reap/,
+            );
           },
         ),
     );
@@ -118,8 +130,10 @@ describe("persist close_agent leftover dispose", () => {
             createAgentWithLiveToolDispatch: async () =>
               ({
                 ...stubAgent(),
-                close: () => new Promise<void>(() => {}),
-              }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
+                close: () => new Promise<void>(() => undefined),
+              }) as unknown as Awaited<
+                ReturnType<typeof real.createAgentWithLiveToolDispatch>
+              >,
           }),
           async () => {
             const { runSubAgent } = await import("./run.js");
@@ -132,7 +146,11 @@ describe("persist close_agent leftover dispose", () => {
               cwd,
               workdirBase: join(cwd, ".ctx"),
               permissionGate,
-              provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
               description: "persist close hung close probe",
               prompt: "finish the first turn",
               persist: true,
@@ -142,8 +160,11 @@ describe("persist close_agent leftover dispose", () => {
             };
             const result = await runSubAgent(params);
             expect(result.agentRetained).toBe(true);
-            if (handles === undefined) throw new Error("onAgentReady never fired");
-            await expect(handles.close(50)).rejects.toThrow(/session close exceeded 50ms/);
+            if (handles === undefined)
+              throw new Error("onAgentReady never fired");
+            await expect(handles.close(50)).rejects.toThrow(
+              /session close exceeded 50ms/,
+            );
             expect(posixDisposed).toBe(true);
           },
         ),
@@ -151,7 +172,9 @@ describe("persist close_agent leftover dispose", () => {
   });
 
   test("onAgentReady close surfaces leftover posix dispose when agent.close hangs", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-persist-close-leftover-hang-"));
+    const cwd = await mkdtemp(
+      join(tmpdir(), "corbits-persist-close-leftover-hang-"),
+    );
     let closeStarted = false;
 
     await withMockedModuleDuring(
@@ -161,7 +184,9 @@ describe("persist close_agent leftover dispose", () => {
         createPosixTools: (opts: Parameters<typeof real.createPosixTools>[0]) =>
           Object.assign(real.createPosixTools(opts), {
             dispose: async () => {
-              throw new Error("1 shell child process still live after 2000ms reap");
+              throw new Error(
+                "1 shell child process still live after 2000ms reap",
+              );
             },
           }),
       }),
@@ -175,9 +200,11 @@ describe("persist close_agent leftover dispose", () => {
                 ...stubAgent(),
                 close: () => {
                   closeStarted = true;
-                  return new Promise<void>(() => {});
+                  return new Promise<void>(() => undefined);
                 },
-              }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
+              }) as unknown as Awaited<
+                ReturnType<typeof real.createAgentWithLiveToolDispatch>
+              >,
           }),
           async () => {
             const { runSubAgent } = await import("./run.js");
@@ -190,7 +217,11 @@ describe("persist close_agent leftover dispose", () => {
               cwd,
               workdirBase: join(cwd, ".ctx"),
               permissionGate,
-              provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+              provider: {
+                providerName: "test",
+                baseURL: "http://localhost",
+                model: "test-model",
+              },
               description: "persist close leftover hung close probe",
               prompt: "finish the first turn",
               persist: true,
@@ -200,8 +231,11 @@ describe("persist close_agent leftover dispose", () => {
             };
             const result = await runSubAgent(params);
             expect(result.agentRetained).toBe(true);
-            if (handles === undefined) throw new Error("onAgentReady never fired");
-            await expect(handles.close(200)).rejects.toThrow(/still live after 2000ms reap/);
+            if (handles === undefined)
+              throw new Error("onAgentReady never fired");
+            await expect(handles.close(200)).rejects.toThrow(
+              /still live after 2000ms reap/,
+            );
             expect(closeStarted).toBe(true);
           },
         ),

@@ -17,7 +17,11 @@ export type WorkerLifecycle =
 export type StripStatus = "running" | "done" | "failed" | "cancelled";
 
 export type VerbLifecycleStatus =
-  "pending_init" | "running" | "interrupted" | "completed" | "shutdown";
+  | "pending_init"
+  | "running"
+  | "interrupted"
+  | "completed"
+  | "shutdown";
 
 /** TUI / Agents-strip status. Interrupted lingers as running. */
 export function projectStripStatus(lifecycle: WorkerLifecycle): StripStatus {
@@ -40,7 +44,9 @@ export function projectStripStatus(lifecycle: WorkerLifecycle): StripStatus {
  * Verb JSON (close/resume/interrupt). Does not leak `cancelled` or `failed`:
  * cancelled → interrupted, failed → shutdown.
  */
-export function projectLifecycleStatus(lifecycle: WorkerLifecycle): VerbLifecycleStatus {
+export function projectLifecycleStatus(
+  lifecycle: WorkerLifecycle,
+): VerbLifecycleStatus {
   switch (lifecycle.state) {
     case "pending_init":
       return "pending_init";
@@ -72,16 +78,26 @@ export function isResumableLifecycle(
   lifecycle: WorkerLifecycle,
 ): boolean {
   return (
-    retained === true && (lifecycle.state === "completed" || lifecycle.state === "interrupted")
+    retained === true &&
+    (lifecycle.state === "completed" || lifecycle.state === "interrupted")
   );
 }
 
 export type WaitJSONStatus =
-  "running" | "queued" | "done" | "failed" | "interrupted" | "awaiting_director";
+  | "running"
+  | "queued"
+  | "done"
+  | "failed"
+  | "interrupted"
+  | "awaiting_director";
 
 /** Wait statuses that must not collect, freeze, or tombstone as a payload. */
 export function isLiveWaitStatus(status: WaitJSONStatus): boolean {
-  return status === "running" || status === "queued" || status === "awaiting_director";
+  return (
+    status === "running" ||
+    status === "queued" ||
+    status === "awaiting_director"
+  );
 }
 
 /**
@@ -93,7 +109,10 @@ export function isLiveWaitStatus(status: WaitJSONStatus): boolean {
  * first. `interrupted` and `shutdown` are immediately terminal once the run
  * has settled. Never leaks `cancelled` into wait JSON.
  */
-export function projectWaitStatus(lifecycle: WorkerLifecycle, inFlight: boolean): WaitJSONStatus {
+export function projectWaitStatus(
+  lifecycle: WorkerLifecycle,
+  inFlight: boolean,
+): WaitJSONStatus {
   if (
     inFlight &&
     (lifecycle.state === "cancelled" ||

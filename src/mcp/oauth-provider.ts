@@ -51,26 +51,41 @@ function redirectUrisInclude(
 }
 
 function isAbortError(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "name" in err && err.name === "AbortError";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    err.name === "AbortError"
+  );
 }
 
 // Dynamic client registration bakes in the loopback redirect_uri (ephemeral port).
 // A later session that binds a new port cannot reuse that client_id for authorize
 // / token exchange — drop the stale registration when we have no refreshable
 // tokens and must run the browser flow again.
-function dropStaleClientRegistration(state: MCPAuthState, redirectUrl: string): void {
+function dropStaleClientRegistration(
+  state: MCPAuthState,
+  redirectUrl: string,
+): void {
   if (state.tokens !== undefined) return;
   if (redirectUrisInclude(state.clientInformation, redirectUrl)) return;
   delete state.clientInformation;
   delete state.codeVerifier;
 }
 
-function shouldAdoptClient(stored: MCPAuthState, next: MCPAuthState, redirectUrl: string): boolean {
+function shouldAdoptClient(
+  stored: MCPAuthState,
+  next: MCPAuthState,
+  redirectUrl: string,
+): boolean {
   if (next.clientInformation === undefined) return false;
   if (redirectUrisInclude(next.clientInformation, redirectUrl)) return true;
   // Other-port DCR is a sibling's in-progress registration unless they also
   // published new tokens (completed re-auth).
-  return next.tokens !== undefined && next.tokens.access_token !== stored.tokens?.access_token;
+  return (
+    next.tokens !== undefined &&
+    next.tokens.access_token !== stored.tokens?.access_token
+  );
 }
 
 function assignTokens(stored: MCPAuthState, next: MCPAuthState): void {
@@ -79,7 +94,8 @@ function assignTokens(stored: MCPAuthState, next: MCPAuthState): void {
 }
 
 function assignClient(stored: MCPAuthState, next: MCPAuthState): void {
-  if (next.clientInformation !== undefined) stored.clientInformation = next.clientInformation;
+  if (next.clientInformation !== undefined)
+    stored.clientInformation = next.clientInformation;
   else delete stored.clientInformation;
 }
 
@@ -88,7 +104,8 @@ function matchingLiveClient(
   redirectUrl: string,
 ): OAuthClientInformationFull | undefined {
   const live = stored.clientInformation;
-  if (live === undefined || !redirectUrisInclude(live, redirectUrl)) return undefined;
+  if (live === undefined || !redirectUrisInclude(live, redirectUrl))
+    return undefined;
   return live;
 }
 
@@ -123,7 +140,9 @@ export async function createOAuthProvider(
     home,
   );
 
-  const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
+  const apply = async (
+    mutator: (state: MCPAuthState) => void,
+  ): Promise<void> => {
     const next = await updateAuthState(
       identity,
       (state) => {
@@ -240,7 +259,10 @@ export async function createOAuthProvider(
     refreshToken: async (refreshToken: string): Promise<OAuthTokens> => {
       try {
         const fetchFn = opts.fetchFn;
-        if (authorizationServerMetadata === undefined || authorizationServerUrl === undefined) {
+        if (
+          authorizationServerMetadata === undefined ||
+          authorizationServerUrl === undefined
+        ) {
           let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
           try {
             resourceMetadata = await discoverOAuthProtectedResourceMetadata(
@@ -253,22 +275,30 @@ export async function createOAuthProvider(
           }
           const fromPrm = resourceMetadata?.authorization_servers?.[0];
           authorizationServerUrl =
-            fromPrm === undefined ? String(new URL("/", opts.serverURL)) : String(fromPrm);
+            fromPrm === undefined
+              ? String(new URL("/", opts.serverURL))
+              : String(fromPrm);
           authorizationServerMetadata =
             (await discoverAuthorizationServerMetadata(
               authorizationServerUrl,
               fetchFn === undefined ? {} : { fetchFn },
             )) ?? undefined;
           resource =
-            (await selectResourceURL(opts.serverURL, provider, resourceMetadata)) ??
-            resourceUrlFromServerUrl(opts.serverURL);
+            (await selectResourceURL(
+              opts.serverURL,
+              provider,
+              resourceMetadata,
+            )) ?? resourceUrlFromServerUrl(opts.serverURL);
         }
         if (authorizationServerMetadata === undefined)
-          throw new UnauthorizedError("authorization server metadata unavailable");
+          throw new UnauthorizedError(
+            "authorization server metadata unavailable",
+          );
         const clientInformation = stored.clientInformation;
         if (clientInformation === undefined)
           throw new UnauthorizedError("no client registration to refresh");
-        const resourceURL = resource ?? resourceUrlFromServerUrl(opts.serverURL);
+        const resourceURL =
+          resource ?? resourceUrlFromServerUrl(opts.serverURL);
         const tokens = await refreshAuthorization(authorizationServerUrl, {
           metadata: authorizationServerMetadata,
           clientInformation,

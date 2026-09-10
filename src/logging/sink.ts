@@ -62,7 +62,11 @@ export function installFileLogSink(path: string = corbitsLogFilePath()): void {
     // after the fact. Filtering them out at the sink would silently disable
     // the diagnostics the file exists to capture.
     loggers: [
-      { category: ["logtape", "meta"], lowestLevel: "warning", sinks: ["file"] },
+      {
+        category: ["logtape", "meta"],
+        lowestLevel: "warning",
+        sinks: ["file"],
+      },
       { category: [], lowestLevel: "debug", sinks: ["file"] },
     ],
   });

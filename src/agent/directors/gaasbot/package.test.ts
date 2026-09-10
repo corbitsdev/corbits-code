@@ -80,16 +80,25 @@ describe("gaasbotPackage", () => {
   });
 
   test("optionalSkills is philosophy and native-integration", () => {
-    expect(gaasbotPackage.optionalSkills).toEqual(["philosophy", "native-integration"]);
+    expect(gaasbotPackage.optionalSkills).toEqual([
+      "philosophy",
+      "native-integration",
+    ]);
   });
 
   test("primaryIntent and outOfLane match risk counsel lane", () => {
     expect(gaasbotPackage.primaryIntent).toMatch(/[Rr]isk counsel/i);
     expect(gaasbotPackage.description).toMatch(/[Rr]isk counsel/i);
     expect(gaasbotPackage.outOfLane).toContain("blocking merges");
-    expect(gaasbotPackage.outOfLane).toContain("shipping product code as implementer");
-    expect(gaasbotPackage.outOfLane).toContain("replacing greybeard architecture review");
-    expect(gaasbotPackage.outOfLane).toContain("replacing plan eng change plans");
+    expect(gaasbotPackage.outOfLane).toContain(
+      "shipping product code as implementer",
+    );
+    expect(gaasbotPackage.outOfLane).toContain(
+      "replacing greybeard architecture review",
+    );
+    expect(gaasbotPackage.outOfLane).toContain(
+      "replacing plan eng change plans",
+    );
     expect(gaasbotPackage.outOfLane).toContain("applying product fixes");
   });
 });

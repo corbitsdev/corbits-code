@@ -7,7 +7,11 @@ import { createHash, randomBytes } from "node:crypto";
 // an intercepted authorization code from being redeemed by anyone else.
 
 function base64url(buffer: Buffer): string {
-  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return buffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 export interface Pkce {

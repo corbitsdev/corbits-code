@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import {
   compactionFoldInfo,
   compactionNotice,
@@ -53,7 +54,11 @@ describe("hookNotice", () => {
       hook: {
         ...hook,
         lastFiredAt: 1,
-        lastExitStatus: { code: 2, signal: null, stderr: "prettier not found\n" },
+        lastExitStatus: {
+          code: 2,
+          signal: null,
+          stderr: "prettier not found\n",
+        },
       },
     });
     expect(notice).toEqual({
@@ -82,18 +87,26 @@ describe("mcpNotice", () => {
   });
 
   test("connected flashes with a tool count", () => {
-    expect(mcpNotice({ name: "linear", state: "connected", tools: ["a", "b"] })).toEqual({
+    expect(
+      mcpNotice({ name: "linear", state: "connected", tools: ["a", "b"] }),
+    ).toEqual({
       kind: "flash",
       text: "mcp linear connected · 2 tools",
     });
   });
 
   test("needs-auth says nothing — the prompt box and /mcp own it", () => {
-    expect(mcpNotice({ name: "linear", state: "needs-auth", url: "https://x/auth" })).toBeNull();
+    expect(
+      mcpNotice({ name: "linear", state: "needs-auth", url: "https://x/auth" }),
+    ).toBeNull();
   });
 
   test("failure keeps a row saying what was lost", () => {
-    const notice = mcpNotice({ name: "linear", state: "failed", error: "ECONNREFUSED" });
+    const notice = mcpNotice({
+      name: "linear",
+      state: "failed",
+      error: "ECONNREFUSED",
+    });
     expect(notice?.kind).toBe("row");
     expect(notice?.text).toContain("its tools are unavailable");
   });
@@ -125,26 +138,38 @@ describe("payload validation", () => {
   test("hook events that are not hook.updated are dropped", () => {
     expect(lifecycleHookEvent({ type: "hooks.loaded", hooks: [] })).toBeNull();
     expect(lifecycleHookEvent(null)).toBeNull();
-    expect(lifecycleHookEvent({ type: "hook.updated", hook: { id: 1 } })).toBeNull();
+    expect(
+      lifecycleHookEvent({ type: "hook.updated", hook: { id: 1 } }),
+    ).toBeNull();
   });
 
   test("hook.updated survives with its exit status", () => {
     const parsed = lifecycleHookEvent({
       type: "hook.updated",
-      hook: { ...hook, lastFiredAt: 5, lastExitStatus: { code: 1, signal: null, stderr: "x" } },
+      hook: {
+        ...hook,
+        lastFiredAt: 5,
+        lastExitStatus: { code: 1, signal: null, stderr: "x" },
+      },
     });
     expect(parsed?.type).toBe("hook.updated");
   });
 
   test("mcp states parse per variant and reject junk", () => {
-    expect(mcpServerState({ name: "a", state: "connected", tools: [] })?.state).toBe("connected");
-    expect(mcpServerState({ name: "a", state: "disconnected" })?.state).toBe("disconnected");
+    expect(
+      mcpServerState({ name: "a", state: "connected", tools: [] })?.state,
+    ).toBe("connected");
+    expect(mcpServerState({ name: "a", state: "disconnected" })?.state).toBe(
+      "disconnected",
+    );
     expect(mcpServerState({ name: "a", state: "needs-auth" })).toBeNull();
     expect(mcpServerState("nope")).toBeNull();
   });
 
   test("grant payloads unwrap the approval", () => {
-    expect(grantApproval({ approval: { tool: "read", pattern: "**" } })).toEqual({
+    expect(
+      grantApproval({ approval: { tool: "read", pattern: "**" } }),
+    ).toEqual({
       tool: "read",
       pattern: "**",
     });
@@ -152,7 +177,9 @@ describe("payload validation", () => {
   });
 
   test("progress payloads require both fields", () => {
-    expect(subAgentProgress({ description: "map callers", toolName: "grep" })).toEqual({
+    expect(
+      subAgentProgress({ description: "map callers", toolName: "grep" }),
+    ).toEqual({
       description: "map callers",
       toolName: "grep",
     });
@@ -172,11 +199,23 @@ describe("payload validation", () => {
   test("workflow payloads require current + history and reject junk", () => {
     expect(
       workflowPayloadInfo({
-        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        current: {
+          active: true,
+          name: "ship",
+          stepIndex: 0,
+          total: 2,
+          label: "build",
+        },
         history: [],
       }),
     ).toEqual({
-      current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+      current: {
+        active: true,
+        name: "ship",
+        stepIndex: 0,
+        total: 2,
+        label: "build",
+      },
       history: [],
     });
     expect(workflowPayloadInfo({ current: { active: true } })).toBeNull();
@@ -208,7 +247,13 @@ describe("workflowNotice", () => {
   test("active named step flashes index+1 and label", () => {
     expect(
       workflowNotice({
-        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        current: {
+          active: true,
+          name: "ship",
+          stepIndex: 0,
+          total: 2,
+          label: "build",
+        },
         history: [],
       }),
     ).toEqual({
@@ -265,7 +310,7 @@ describe("workflowNotice", () => {
       history: [],
     });
     expect(parsed).not.toBeNull();
-    expect(workflowNotice(parsed!)).toEqual({
+    expect(workflowNotice(defined(parsed))).toEqual({
       kind: "flash",
       text: "workflow ship · step 1/2: build",
     });

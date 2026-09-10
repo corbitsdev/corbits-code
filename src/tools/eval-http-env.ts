@@ -7,7 +7,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * or delete a sibling's origin. ALS is the in-process source of truth; process.env
  * remains a fallback for tests that set it directly.
  */
-const evalHttpEnvAls = new AsyncLocalStorage<Readonly<Record<string, string>>>();
+const evalHttpEnvAls = new AsyncLocalStorage<
+  Readonly<Record<string, string>>
+>();
 
 export function runWithEvalHttpEnv<T>(
   vars: Record<string, string>,

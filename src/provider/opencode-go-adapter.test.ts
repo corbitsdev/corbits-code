@@ -16,7 +16,9 @@ describe("OpenCode Go adapter", () => {
     const deps = await createInferenceDependencies();
     const adapter = deps.adapters.resolve(source);
     const chunk = JSON.stringify({
-      choices: [{ index: 0, delta: { content: "hello", role: null, tool_calls: null } }],
+      choices: [
+        { index: 0, delta: { content: "hello", role: null, tool_calls: null } },
+      ],
     });
 
     expect(adapter.parseResponse(chunk)).toContainEqual({
@@ -32,16 +34,22 @@ describe("OpenCode Go adapter", () => {
       choices: [{ index: 0, delta: { content: "hello", role: 42 } }],
     });
 
-    expect(() => adapter.parseResponse(malformedChunk)).toThrow(ProtocolMismatchError);
+    expect(() => adapter.parseResponse(malformedChunk)).toThrow(
+      ProtocolMismatchError,
+    );
   });
 
   test("keeps malformed non-null tool_calls strict", () => {
     const adapter = createOpenCodeGoAdapter(source);
     const malformedChunk = JSON.stringify({
-      choices: [{ index: 0, delta: { content: "hello", tool_calls: "invalid" } }],
+      choices: [
+        { index: 0, delta: { content: "hello", tool_calls: "invalid" } },
+      ],
     });
 
-    expect(() => adapter.parseResponse(malformedChunk)).toThrow(ProtocolMismatchError);
+    expect(() => adapter.parseResponse(malformedChunk)).toThrow(
+      ProtocolMismatchError,
+    );
   });
 
   test("delegates request construction and adds the OpenCode session header", () => {
@@ -50,7 +58,10 @@ describe("OpenCode Go adapter", () => {
       [{ role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] }],
       "corbits",
       {
-        providerOptions: { reasoning_effort: "high", opencodeSessionId: "sess-1" },
+        providerOptions: {
+          reasoning_effort: "high",
+          opencodeSessionId: "sess-1",
+        },
       } as InferenceOptions,
     );
 

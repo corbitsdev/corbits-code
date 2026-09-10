@@ -11,11 +11,17 @@ import { appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import type { AppShell, ItemDescription } from "./shell/internals.js";
 import { closeInsetOverlay, openListOverlay } from "./shell/overlay-host.js";
-import { cycleOverlaySelection, moveOverlaySelection } from "./shell/overlay-list.js";
+import {
+  cycleOverlaySelection,
+  moveOverlaySelection,
+} from "./shell/overlay-list.js";
 
 async function withShell(
   fn: (shell: AppShell) => Promise<void> | void,
-  size: { readonly width: number; readonly height: number } = { width: 100, height: 24 },
+  size: { readonly width: number; readonly height: number } = {
+    width: 100,
+    height: 24,
+  },
 ): Promise<void> {
   await withTestRenderer(async (h) => {
     const shell = createAppShell(h.renderer, {
@@ -56,7 +62,8 @@ describe("description zone", () => {
         short: { what: "short" },
         long: {
           what: "a much longer description that will need to wrap across more than one physical line of terminal width",
-          impact: "and an impact line that is also long enough to wrap on its own",
+          impact:
+            "and an impact line that is also long enough to wrap on its own",
         },
       };
       openListOverlay(shell, {
@@ -77,7 +84,11 @@ describe("description zone", () => {
 
   test("null description renders a blank zone, not a collapsed one", async () => {
     await withShell((shell) => {
-      openListOverlay(shell, { kind: "demo", items: ["a"], describe: () => null });
+      openListOverlay(shell, {
+        kind: "demo",
+        items: ["a"],
+        describe: () => null,
+      });
       const zoned = shell.layout.heights.overlay_host;
       closeInsetOverlay(shell);
 

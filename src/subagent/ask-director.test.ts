@@ -46,9 +46,14 @@ describe("evaluateAskDirector", () => {
 
   test("a second parallel ask errors without incrementing or suspending", () => {
     const state = createAskDirectorState();
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(true);
+    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
+      true,
+    );
     commitAskDirector(state);
-    const second = evaluateAskDirector({ question: "and which function?", state });
+    const second = evaluateAskDirector({
+      question: "and which function?",
+      state,
+    });
     expect(second.ok).toBe(false);
     expect(second.message).toContain("pending question");
     expect(state.questions).toBe(1);
@@ -87,11 +92,16 @@ describe("evaluateAskDirector", () => {
     const state = createAskDirectorState();
     const registered: string[] = [];
     const port = {
-      register: async ({ question }: { question: string; questionId: string }) => {
+      register: async ({
+        question,
+      }: {
+        question: string;
+        questionId: string;
+      }) => {
         registered.push(question);
         return "answer";
       },
-      cancel: () => {},
+      cancel: () => undefined,
     };
     const controller = new AbortController();
     controller.abort();
@@ -180,7 +190,7 @@ describe("evaluateAskDirector", () => {
       register: (): Promise<string> => {
         throw new Error("ask_director could not register a pending question");
       },
-      cancel: () => {},
+      cancel: () => undefined,
     };
     const message = await handleAskDirector({
       question: "which file?",
@@ -203,7 +213,9 @@ describe("requestContinuation stall skip", () => {
     });
     expect(delivered).toBe(1);
 
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(true);
+    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
+      true,
+    );
     skipStallContinuationWhileAskPending(state, () => {
       delivered += 1;
     });
@@ -232,7 +244,9 @@ describe("resetAskDirectorTurn", () => {
 
   test("clears a leftover pending lock without waiting for release", () => {
     const state = createAskDirectorState();
-    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(true);
+    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
+      true,
+    );
     expect(state.pending).toBe(true);
 
     resetAskDirectorTurn(state);

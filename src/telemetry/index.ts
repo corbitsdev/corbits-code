@@ -7,7 +7,8 @@ import type { Settings } from "../config/settings.js";
 // Compiled-in defaults, overridable via env for testing. An empty API key
 // disables export entirely regardless of the enabled flag.
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
-const DEFAULT_POSTHOG_API_KEY = "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbLp";
+const DEFAULT_POSTHOG_API_KEY =
+  "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbLp";
 
 const TELEMETRY_HOST_ENV = `${ENV_PREFIX}TELEMETRY_HOST`;
 const TELEMETRY_KEY_ENV = `${ENV_PREFIX}TELEMETRY_KEY`;
@@ -15,9 +16,11 @@ export const TELEMETRY_ENV = `${ENV_PREFIX}TELEMETRY`;
 export const TELEMETRY_AI_SPANS_ENV = `${ENV_PREFIX}TELEMETRY_AI_SPANS`;
 export const TELEMETRY_GENERATION_SAMPLE_RATE_ENV = `${ENV_PREFIX}TELEMETRY_GENERATION_SAMPLE_RATE`;
 
-export const POSTHOG_HOST = process.env[TELEMETRY_HOST_ENV] ?? DEFAULT_POSTHOG_HOST;
+export const POSTHOG_HOST =
+  process.env[TELEMETRY_HOST_ENV] ?? DEFAULT_POSTHOG_HOST;
 
-export const POSTHOG_API_KEY = process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG_API_KEY;
+export const POSTHOG_API_KEY =
+  process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG_API_KEY;
 
 // Upper bound on how long flush() may hold up process exit; anything still
 // in flight past this is dropped.
@@ -103,7 +106,13 @@ export function getSessionId(): string {
 // schema_version, session_id), this bounds everything telemetry can ever contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
-  session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
+  session_end: [
+    "status",
+    "turn_count",
+    "duration_ms",
+    "session_mode",
+    "exit_reason",
+  ],
   // PostHog's LLM analytics views read the $ai_-prefixed properties and
   // nothing else, so every field these two events exist to surface has to
   // carry the documented name: an unprefixed property still arrives, but
@@ -143,7 +152,13 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // another span id, so a flat trace is legal and it is all the runtime can
   // honestly describe — TurnContext only sees top-level tool calls.
   // $ai_span_name is one of AI_SPAN_KINDS only, never the raw tool name.
-  $ai_span: ["$ai_trace_id", "$ai_span_id", "$ai_parent_id", "$ai_span_name", "$ai_is_error"],
+  $ai_span: [
+    "$ai_trace_id",
+    "$ai_span_id",
+    "$ai_parent_id",
+    "$ai_span_name",
+    "$ai_is_error",
+  ],
   // Every identifier below is a first-party enum produced by
   // src/telemetry/classify.ts, not the name the user or author wrote. The
   // allowlist bounds which keys travel; the classifiers bound which values
@@ -182,7 +197,12 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // Intentional /feedback survey response (PostHog custom survey capture shape).
   // Free text is only sent because the operator typed it for that purpose.
   // turn_trace_id links to the last $ai_generation in this session when known.
-  "survey sent": ["$survey_id", "$survey_questions", "$survey_response", "turn_trace_id"],
+  "survey sent": [
+    "$survey_id",
+    "$survey_questions",
+    "$survey_response",
+    "turn_trace_id",
+  ],
 };
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
@@ -203,7 +223,9 @@ export function aiSpansEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * Sample rate for successful `$ai_generation` events (0–1). Default 1.0 (no
  * drop). Errors (`$ai_is_error: true`), `crash`, and `auth_failure` always ship.
  */
-export function generationSampleRate(env: NodeJS.ProcessEnv = process.env): number {
+export function generationSampleRate(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
   const raw = env[TELEMETRY_GENERATION_SAMPLE_RATE_ENV];
   if (raw === undefined) return 1;
   const trimmed = raw.trim();
@@ -220,8 +242,11 @@ export function generationSampleRate(env: NodeJS.ProcessEnv = process.env): numb
 // CORBITS_TELEMETRY set to any falsy value ("0", "false", "off", "")
 // disables, through the same flag parsing as DO_NOT_TRACK, so the two kill
 // switches agree on what counts as "off".
-export function telemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env[TELEMETRY_ENV] !== undefined && !truthyEnvFlag(env[TELEMETRY_ENV])) return true;
+export function telemetryDisabledByEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env[TELEMETRY_ENV] !== undefined && !truthyEnvFlag(env[TELEMETRY_ENV]))
+    return true;
   return truthyEnvFlag(env.DO_NOT_TRACK);
 }
 
@@ -291,7 +316,10 @@ export interface Telemetry {
    * missing API key. Does not re-enable ambient events.
    * @returns true when the event was queued for send
    */
-  captureIntentional(event: TelemetryEvent, properties?: Record<string, unknown>): boolean;
+  captureIntentional(
+    event: TelemetryEvent,
+    properties?: Record<string, unknown>,
+  ): boolean;
   // Sends whatever is queued and waits briefly for it to settle, giving up
   // after a short deadline so a slow endpoint can never hold up process
   // exit. Callers use this to bound exit against dropped fire-and-forget
@@ -313,10 +341,10 @@ export interface Telemetry {
 export const NOOP_TELEMETRY: Telemetry = {
   enabled: false,
   installationId: "",
-  capture: () => {},
+  capture: () => undefined,
   captureIntentional: () => false,
-  flush: async () => {},
-  discard: () => {},
+  flush: async () => undefined,
+  discard: () => undefined,
 };
 
 // Fire-and-forget PostHog batch client. Never throws, never blocks the
@@ -333,10 +361,13 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   // settings-disabled, but never when env kill switches fire or identity/key
   // is missing. Does not re-enable ambient capture.
   const intentionalEnabled =
-    !telemetryDisabledByEnv(env) && apiKey.length > 0 && installationId.length > 0;
+    !telemetryDisabledByEnv(env) &&
+    apiKey.length > 0 &&
+    installationId.length > 0;
 
   const batchSize = options.batch?.size ?? DEFAULT_BATCH_SIZE;
-  const batchIntervalMs = options.batch?.intervalMs ?? DEFAULT_BATCH_INTERVAL_MS;
+  const batchIntervalMs =
+    options.batch?.intervalMs ?? DEFAULT_BATCH_INTERVAL_MS;
   const queueLimit = options.batch?.queueLimit ?? DEFAULT_QUEUE_LIMIT;
 
   const queue: QueuedEvent[] = [];
@@ -438,7 +469,10 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     }
   }
 
-  function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
+  function capture(
+    event: TelemetryEvent,
+    properties?: Record<string, unknown>,
+  ): void {
     if (!enabled) return;
     enqueue(event, properties, "ambient");
   }
@@ -476,5 +510,12 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     queue.length = 0;
   }
 
-  return { enabled, installationId, capture, captureIntentional, flush, discard };
+  return {
+    enabled,
+    installationId,
+    capture,
+    captureIntentional,
+    flush,
+    discard,
+  };
 }

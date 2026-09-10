@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,24 +47,24 @@ describe("parseChangelogText", () => {
       "0.2.85",
       "0.1.0",
     ]);
-    expect(entries[0]!.content).toContain("## [0.2.86]");
-    expect(entries[0]!.content).toContain("Feature A");
+    expect(defined(entries[0]).content).toContain("## [0.2.86]");
+    expect(defined(entries[0]).content).toContain("Feature A");
     expect(entries.every((e) => !e.content.includes("Unreleased"))).toBe(true);
   });
 
   test("accepts unbracketed version headers", () => {
     const entries = parseChangelogText("## 1.2.3\n\n- note\n");
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.major).toBe(1);
-    expect(entries[0]!.minor).toBe(2);
-    expect(entries[0]!.patch).toBe(3);
+    expect(defined(entries[0]).major).toBe(1);
+    expect(defined(entries[0]).minor).toBe(2);
+    expect(defined(entries[0]).patch).toBe(3);
   });
 });
 
 describe("compareVersions / getNewEntries", () => {
   test("orders major.minor.patch", () => {
-    const a = parseVersionString("0.2.86")!;
-    const b = parseVersionString("0.2.85")!;
+    const a = defined(parseVersionString("0.2.86"));
+    const b = defined(parseVersionString("0.2.85"));
     expect(compareVersions(a, b)).toBeGreaterThan(0);
     expect(compareVersions(b, a)).toBeLessThan(0);
     expect(compareVersions(a, a)).toBe(0);
@@ -72,7 +73,9 @@ describe("compareVersions / getNewEntries", () => {
   test("returns only newer entries", () => {
     const entries = parseChangelogText(SAMPLE);
     const newer = getNewEntries(entries, "0.2.85");
-    expect(newer.map((e) => `${e.major}.${e.minor}.${e.patch}`)).toEqual(["0.2.86"]);
+    expect(newer.map((e) => `${e.major}.${e.minor}.${e.patch}`)).toEqual([
+      "0.2.86",
+    ]);
   });
 });
 
@@ -173,8 +176,13 @@ describe("formatStartupChangelog", () => {
     const big = parseChangelogText(
       `## [9.0.0]\n\n${"x".repeat(200)}\n\n## [8.0.0]\n\n${"y".repeat(200)}\n`,
     );
-    const formatted = formatStartupChangelog(big, { maxEntries: 5, maxBytes: 120 });
-    expect(Buffer.byteLength(formatted.markdown, "utf8")).toBeLessThanOrEqual(120);
+    const formatted = formatStartupChangelog(big, {
+      maxEntries: 5,
+      maxBytes: 120,
+    });
+    expect(Buffer.byteLength(formatted.markdown, "utf8")).toBeLessThanOrEqual(
+      120,
+    );
     expect(formatted.truncated).toBe(true);
   });
 });

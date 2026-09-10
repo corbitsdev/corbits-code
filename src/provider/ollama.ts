@@ -6,7 +6,10 @@ export const OLLAMA_PROVIDER_ID = "ollama";
 export const OLLAMA_DEFAULT_ROOT_URL = "http://localhost:11434";
 
 export function isOllamaProviderId(providerId: string): boolean {
-  return providerId === OLLAMA_PROVIDER_ID || providerId.startsWith(`${OLLAMA_PROVIDER_ID}/`);
+  return (
+    providerId === OLLAMA_PROVIDER_ID ||
+    providerId.startsWith(`${OLLAMA_PROVIDER_ID}/`)
+  );
 }
 
 /** Validate and normalize the server root persisted by Ollama setup. */
@@ -19,7 +22,9 @@ export function normalizeOllamaRootURL(rootURL: string): string {
   // `/v1`. Strip it once so projection can re-append without doubling.
   const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
   if (pathname !== "/" && pathname !== "/v1") {
-    throw new Error(`Invalid Ollama URL "${rootURL}": expected a server root without a path.`);
+    throw new Error(
+      `Invalid Ollama URL "${rootURL}": expected a server root without a path.`,
+    );
   }
   parsed.pathname = "/";
   parsed.search = "";
@@ -73,7 +78,10 @@ export async function discoverOllamaModels(args: {
   }
 
   if (!response.ok) {
-    return { status: "unavailable", message: `Ollama returned HTTP ${String(response.status)}` };
+    return {
+      status: "unavailable",
+      message: `Ollama returned HTTP ${String(response.status)}`,
+    };
   }
 
   let raw: unknown;
@@ -82,14 +90,19 @@ export async function discoverOllamaModels(args: {
   } catch (error) {
     return {
       status: "malformed",
-      message: error instanceof Error ? error.message : "Ollama returned invalid JSON",
+      message:
+        error instanceof Error ? error.message : "Ollama returned invalid JSON",
     };
   }
   const parsed = OllamaModelsResponse(raw);
   if (parsed instanceof type.errors) {
     return { status: "malformed", message: parsed.summary };
   }
-  const models = [...new Set(parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0))];
+  const models = [
+    ...new Set(
+      parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
+    ),
+  ];
   return models.length > 0 ? { status: "models", models } : { status: "empty" };
 }
 
@@ -105,5 +118,7 @@ export function ollamaDiscoveryFailureLine(
       ? state.message
       : "Ollama returned an invalid models response";
   }
-  return state.message.startsWith("Ollama returned HTTP") ? state.message : "Ollama is not running";
+  return state.message.startsWith("Ollama returned HTTP")
+    ? state.message
+    : "Ollama is not running";
 }

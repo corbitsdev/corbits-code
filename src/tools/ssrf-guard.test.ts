@@ -46,7 +46,9 @@ describe("checkUrlForSsrf", () => {
     expect(result.ok).toBe(false);
   });
   test("rejects a literal link-local IP", async () => {
-    const result = await checkUrlForSsrf("http://169.254.169.254/latest/meta-data/");
+    const result = await checkUrlForSsrf(
+      "http://169.254.169.254/latest/meta-data/",
+    );
     expect(result.ok).toBe(false);
   });
   test("rejects a literal 10.x IP", async () => {
@@ -67,11 +69,14 @@ describe("checkUrlForSsrf", () => {
     }
   });
   test("allows the eval fixture URL from the ALS overlay without writing process.env", async () => {
-    await runWithEvalHttpEnv({ EVAL_HTTP_URL: "http://127.0.0.1:54321/" }, async () => {
-      const allowed = await checkUrlForSsrf("http://127.0.0.1:54321/");
-      expect(allowed.ok).toBe(true);
-      const other = await checkUrlForSsrf("http://127.0.0.1:1/");
-      expect(other.ok).toBe(false);
-    });
+    await runWithEvalHttpEnv(
+      { EVAL_HTTP_URL: "http://127.0.0.1:54321/" },
+      async () => {
+        const allowed = await checkUrlForSsrf("http://127.0.0.1:54321/");
+        expect(allowed.ok).toBe(true);
+        const other = await checkUrlForSsrf("http://127.0.0.1:1/");
+        expect(other.ok).toBe(false);
+      },
+    );
   });
 });

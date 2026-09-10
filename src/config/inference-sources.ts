@@ -10,7 +10,10 @@ import {
   type ProviderCatalogEntry,
 } from "./index.js";
 import type { Settings } from "./settings.js";
-import { resolveSessionEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import {
+  resolveSessionEffort,
+  type ReasoningEffort,
+} from "../provider/reasoning-effort.js";
 import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 
@@ -34,7 +37,11 @@ function catalogEntry(
   return catalog.find((e) => e.name === provider);
 }
 
-function maxTokensFor(settings: Settings | undefined, provider: string, _model: string): number {
+function maxTokensFor(
+  settings: Settings | undefined,
+  provider: string,
+  _model: string,
+): number {
   const cw = settings?.providers[provider]?.contextWindow;
   if (typeof cw === "number" && cw > 0) return cw;
   return SOURCE_MAX_TOKENS;
@@ -54,7 +61,11 @@ export function buildInferenceSourceForRef(
   const configured = ref.reasoningEffort ?? ctx.reasoningEffort;
   const effort =
     configured !== undefined
-      ? resolveSessionEffort(ref.model, configured, entry?.codexProfile !== undefined)
+      ? resolveSessionEffort(
+          ref.model,
+          configured,
+          entry?.codexProfile !== undefined,
+        )
       : undefined;
 
   if (entry?.codexProfile !== undefined) {
@@ -63,7 +74,9 @@ export function buildInferenceSourceForRef(
       apiKey: entry.apiKey ?? "",
       model: ref.model,
       sessionId: ctx.sessionId,
-      ...(entry.codexAccountId !== undefined ? { accountId: entry.codexAccountId } : {}),
+      ...(entry.codexAccountId !== undefined
+        ? { accountId: entry.codexAccountId }
+        : {}),
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
@@ -154,7 +167,9 @@ function buildSourceBundle(args: {
   const ctx: BuildSourceContext = {
     sessionId: args.sessionId,
     catalog: args.catalog,
-    ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
+    ...(args.reasoningEffort !== undefined
+      ? { reasoningEffort: args.reasoningEffort }
+      : {}),
   };
 
   const source = buildInferenceSourceForRef(args.head, ctx, args.settings);
@@ -179,7 +194,9 @@ export function buildMainSessionSources(args: {
     catalog: args.catalog,
     head: { provider: args.activeProvider, model: args.activeModel },
     sessionId: args.sessionId,
-    ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
+    ...(args.reasoningEffort !== undefined
+      ? { reasoningEffort: args.reasoningEffort }
+      : {}),
   });
 }
 
@@ -195,6 +212,8 @@ export function buildSubagentSources(args: {
     catalog: args.catalog,
     head: args.head,
     sessionId: args.sessionId ?? randomUUID(),
-    ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
+    ...(args.reasoningEffort !== undefined
+      ? { reasoningEffort: args.reasoningEffort }
+      : {}),
   });
 }

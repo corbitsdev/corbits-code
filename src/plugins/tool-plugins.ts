@@ -19,7 +19,9 @@ export interface ToolPluginCandidate {
   factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>;
 }
 
-export function collectToolPlugins(modules: PluginModule[]): ToolPluginCandidate[] {
+export function collectToolPlugins(
+  modules: PluginModule[],
+): ToolPluginCandidate[] {
   const out: ToolPluginCandidate[] = [];
   for (const mod of modules) {
     if (mod.manifest?.kind !== "tool") continue;
@@ -27,7 +29,9 @@ export function collectToolPlugins(modules: PluginModule[]): ToolPluginCandidate
     out.push({
       id: mod.manifest.id,
       name: mod.manifest.name,
-      ...(mod.manifest.description !== undefined ? { description: mod.manifest.description } : {}),
+      ...(mod.manifest.description !== undefined
+        ? { description: mod.manifest.description }
+        : {}),
       credentials: mod.manifest.credentials ?? [],
       factory: mod.createToolPlugin as ToolPluginCandidate["factory"],
     });
@@ -40,7 +44,10 @@ export function collectToolPlugins(modules: PluginModule[]): ToolPluginCandidate
 // (isPluginModuleEnabled) and agent profiles (resolveAgentPluginProfiles),
 // repo manifest.defaultEnabled never activates a tool plugin on its own — this
 // is intentional, not an oversight, until product intent changes.
-export function isToolPluginActive(config: Record<string, PluginConfig>, id: string): boolean {
+export function isToolPluginActive(
+  config: Record<string, PluginConfig>,
+  id: string,
+): boolean {
   return config[id]?.enabled === true && config[id]?.consented === true;
 }
 
@@ -64,7 +71,9 @@ export async function resolveToolPlugins(args: {
   for (const cand of args.candidates) {
     if (!isToolPluginActive(args.pluginConfig, cand.id)) continue;
     try {
-      out.push(await cand.factory(args.pluginConfig[cand.id]?.credentials ?? {}));
+      out.push(
+        await cand.factory(args.pluginConfig[cand.id]?.credentials ?? {}),
+      );
     } catch (err) {
       onWarning(
         `tool-plugin: failed to start "${cand.id}": ${scrubSecrets(err instanceof Error ? err.message : String(err))}`,

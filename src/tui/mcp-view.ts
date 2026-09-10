@@ -15,7 +15,11 @@
  * for the pagination cursor.
  */
 
-import { fg as fgChunk, bold as boldChunk, type TextChunk } from "@opentui/core";
+import {
+  fg as fgChunk,
+  bold as boldChunk,
+  type TextChunk,
+} from "@opentui/core";
 
 import { sliceToWidth, stringWidth } from "./view/height.js";
 import {
@@ -34,7 +38,13 @@ import {
 import { summarizeToolResult } from "./tool-formatter.js";
 import type { StreamRow, StyledBodyLine } from "./stream.js";
 
-export type McpTone = "plain" | "muted" | "accent" | "success" | "warning" | "danger";
+export type McpTone =
+  | "plain"
+  | "muted"
+  | "accent"
+  | "success"
+  | "warning"
+  | "danger";
 
 export interface McpCell {
   readonly text: string;
@@ -166,7 +176,8 @@ export function mcpRecordsToView(records: McpRecords): McpStructuredView {
   if (has(TARGET_FIELDS)) {
     columns.push({
       header: "Target",
-      get: (record) => (firstScalar(record, TARGET_FIELDS) ?? "").slice(0, DATE_WIDTH),
+      get: (record) =>
+        (firstScalar(record, TARGET_FIELDS) ?? "").slice(0, DATE_WIDTH),
     });
   }
 
@@ -199,13 +210,20 @@ export function mcpRecordsToView(records: McpRecords): McpStructuredView {
 }
 
 /** Single record → title row plus one label/value row per field. */
-export function mcpRecordToView(record: Record<string, unknown>): McpStructuredView {
-  const titleKey = TITLE_FIELDS.find((field) => (recordScalar(record, field) ?? "").length > 0);
-  const title = titleKey !== undefined ? (recordScalar(record, titleKey) ?? "") : "";
+export function mcpRecordToView(
+  record: Record<string, unknown>,
+): McpStructuredView {
+  const titleKey = TITLE_FIELDS.find(
+    (field) => (recordScalar(record, field) ?? "").length > 0,
+  );
+  const title =
+    titleKey !== undefined ? (recordScalar(record, titleKey) ?? "") : "";
 
   const present = Object.keys(record).filter(
     (key) =>
-      key !== titleKey && !DETAIL_HIDE.has(key) && (recordScalar(record, key) ?? "").length > 0,
+      key !== titleKey &&
+      !DETAIL_HIDE.has(key) &&
+      (recordScalar(record, key) ?? "").length > 0,
   );
   const ordered = [
     ...DETAIL_ORDER.filter((key) => present.includes(key)),
@@ -238,7 +256,10 @@ export function mcpRecordToView(record: Record<string, unknown>): McpStructuredV
  * Structured view for an MCP tool result body, or null when the tool is not an
  * MCP tool or the payload is not record-shaped (plain text, scalars, errors).
  */
-export function mcpStructuredView(toolName: string, content: string): McpStructuredView | null {
+export function mcpStructuredView(
+  toolName: string,
+  content: string,
+): McpStructuredView | null {
   if (!isMcpToolName(toolName)) return null;
   const records = extractMcpRecords(content);
   if (records !== null) return mcpRecordsToView(records);
@@ -271,7 +292,9 @@ const DETAIL_TEXT_MAX = 72;
 const TOOL_SEARCH_TOOL = "tool_search";
 
 function titleCase(word: string): string {
-  return word.length === 0 ? word : `${word[0]!.toUpperCase()}${word.slice(1)}`;
+  const first = word[0];
+  if (first == null) return word;
+  return `${first.toUpperCase()}${word.slice(1)}`;
 }
 
 function singular(noun: string): string {
@@ -306,7 +329,9 @@ const MCP_TOOL_VERB_PREFIXES = [
  * name itself, so a tool whose name carries no noun yields nothing.
  */
 function nounFromToolName(server: string, tool: string): string | undefined {
-  const prefix = MCP_TOOL_VERB_PREFIXES.find((candidate) => tool.startsWith(candidate));
+  const prefix = MCP_TOOL_VERB_PREFIXES.find((candidate) =>
+    tool.startsWith(candidate),
+  );
   const stripped = prefix === undefined ? tool : tool.slice(prefix.length);
   const rest = mcpToolWords(server, stripped).join(" ");
   return rest.length > 0 ? rest : undefined;
@@ -332,7 +357,13 @@ function bodyLines(content: string): readonly StyledBodyLine[] {
   const lines = content.split("\n");
   const shown = lines.slice(0, MAX_DETAIL_LINES).map((line) => plainLine(line));
   return lines.length > MAX_DETAIL_LINES
-    ? [...shown, plainLine(`… ${lines.length - MAX_DETAIL_LINES} more lines`, UI.textDim)]
+    ? [
+        ...shown,
+        plainLine(
+          `… ${lines.length - MAX_DETAIL_LINES} more lines`,
+          UI.textDim,
+        ),
+      ]
     : shown;
 }
 
@@ -390,20 +421,22 @@ function toolCatalogueSummary(content: string): ResultSummary | null {
     servers.size > 0
       ? `Found ${countNoun(cards.length, "tool")} across ${countNoun(servers.size, "server")}`
       : `Found ${countNoun(cards.length, "tool")}`;
-  const detail = cards.slice(0, MAX_DETAIL_LINES).map((card): StyledBodyLine => {
-    const rawName = card[1] ?? "";
-    const name = isMcpToolName(rawName) ? humanizeMcpTool(rawName) : rawName;
-    // The catalogue text sometimes leads its description with the same
-    // "[server]" tag the humanised name already carries as its prefix; drop it
-    // so the server is not said twice.
-    const description = cut((card[2] ?? "").replace(/^\[[^\]]+\]\s*/, ""));
-    return description.length > 0
-      ? [
-          { text: name, fg: UI.inFlightBright },
-          { text: `  ${description}`, fg: UI.textDim },
-        ]
-      : [{ text: name, fg: UI.inFlightBright }];
-  });
+  const detail = cards
+    .slice(0, MAX_DETAIL_LINES)
+    .map((card): StyledBodyLine => {
+      const rawName = card[1] ?? "";
+      const name = isMcpToolName(rawName) ? humanizeMcpTool(rawName) : rawName;
+      // The catalogue text sometimes leads its description with the same
+      // "[server]" tag the humanised name already carries as its prefix; drop it
+      // so the server is not said twice.
+      const description = cut((card[2] ?? "").replace(/^\[[^\]]+\]\s*/, ""));
+      return description.length > 0
+        ? [
+            { text: name, fg: UI.inFlightBright },
+            { text: `  ${description}`, fg: UI.textDim },
+          ]
+        : [{ text: name, fg: UI.inFlightBright }];
+    });
   return { summary, detail };
 }
 
@@ -413,16 +446,23 @@ function recordsSummary(toolName: string, records: McpRecords): string {
   const noun =
     records.label !== "items"
       ? records.label
-      : ((parsed !== null ? nounFromToolName(parsed.server, parsed.tool) : undefined) ?? "items");
+      : ((parsed !== null
+          ? nounFromToolName(parsed.server, parsed.tool)
+          : undefined) ?? "items");
   const owner = parsed === null ? "" : `${titleCase(parsed.server)} `;
   return `Grabbed ${records.items.length} ${owner}${records.items.length === 1 ? singular(noun) : plural(noun)}`;
 }
 
 /** `Read Linear project Alpha` — the thing, named. */
-function recordSummary(toolName: string, record: Record<string, unknown>): string {
+function recordSummary(
+  toolName: string,
+  record: Record<string, unknown>,
+): string {
   const parsed = parseMcpToolName(toolName);
   const noun =
-    parsed !== null ? singular(nounFromToolName(parsed.server, parsed.tool) ?? "record") : "record";
+    parsed !== null
+      ? singular(nounFromToolName(parsed.server, parsed.tool) ?? "record")
+      : "record";
   const owner = parsed === null ? "" : `${titleCase(parsed.server)} `;
   const title = firstScalar(record, TITLE_FIELDS);
   return `Read ${owner}${noun}${title === undefined ? "" : ` ${cut(title)}`}`;
@@ -441,7 +481,8 @@ function resultSummary(input: ToolResultRowInput): ResultSummary | null {
   }
   if (isMcpToolName(input.name)) {
     const records = extractMcpRecords(content);
-    if (records !== null) return { summary: recordsSummary(input.name, records) };
+    if (records !== null)
+      return { summary: recordsSummary(input.name, records) };
     const record = extractMcpRecord(content);
     if (record !== null) return { summary: recordSummary(input.name, record) };
   }
@@ -488,7 +529,9 @@ export function toolResultRow(input: ToolResultRowInput): StreamRow {
 
   const structured = mcpStructuredView(input.name, input.content);
   const detail =
-    summarised.detail === undefined ? undefined : revealing(summarised.summary, summarised.detail);
+    summarised.detail === undefined
+      ? undefined
+      : revealing(summarised.summary, summarised.detail);
   return {
     ...base,
     summary: summarised.summary,
@@ -498,7 +541,9 @@ export function toolResultRow(input: ToolResultRowInput): StreamRow {
 }
 
 /** Map a cell grid to `TextTableRenderable` content chunks. */
-export function viewToTableContent(view: McpStructuredView): (TextChunk[] | null)[][] {
+export function viewToTableContent(
+  view: McpStructuredView,
+): (TextChunk[] | null)[][] {
   return view.cells.map((row) =>
     row.map((cell) => {
       const colored = fgChunk(TONE_FG[cell.tone ?? "plain"])(cell.text);

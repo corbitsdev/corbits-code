@@ -87,7 +87,11 @@ function isFiniteNumber(value: unknown): value is number {
 
 /** True for short opaque id strings (no paths, whitespace, or free text). */
 export function isOpaqueId(value: unknown): value is string {
-  return typeof value === "string" && value.length <= MAX_ID_LENGTH && OPAQUE_ID_RE.test(value);
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_ID_LENGTH &&
+    OPAQUE_ID_RE.test(value)
+  );
 }
 
 /**

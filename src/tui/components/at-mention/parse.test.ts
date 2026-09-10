@@ -15,7 +15,10 @@ describe("parseAtState", () => {
   });
 
   test("detects @ mid-sentence", () => {
-    expect(parseAtState("fix bug in @src/", 16)).toEqual({ prefix: "src/", atStart: 11 });
+    expect(parseAtState("fix bug in @src/", 16)).toEqual({
+      prefix: "src/",
+      atStart: 11,
+    });
   });
 
   test("returns null when cursor is right after a space-terminated completion", () => {
@@ -41,12 +44,18 @@ describe("parseAtState", () => {
   });
 
   test("mid-sentence @ with partial path and cursor at end", () => {
-    expect(parseAtState("describe @src/index", 19)).toEqual({ prefix: "src/index", atStart: 9 });
+    expect(parseAtState("describe @src/index", 19)).toEqual({
+      prefix: "src/index",
+      atStart: 9,
+    });
   });
 
   test("returns atStart of the correct @ when multiple @ present", () => {
     // cursor is inside the second @-token
     const val = "@first second @sec";
-    expect(parseAtState(val, val.length)).toEqual({ prefix: "sec", atStart: 14 });
+    expect(parseAtState(val, val.length)).toEqual({
+      prefix: "sec",
+      atStart: 14,
+    });
   });
 });

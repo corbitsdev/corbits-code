@@ -5,8 +5,14 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { runWithEvalHttpEnv, evalHttpEnvGet } from "../../src/tools/eval-http-env.js";
-import { isReasoningEffort, type ReasoningEffort } from "../../src/provider/reasoning-effort.js";
+import {
+  runWithEvalHttpEnv,
+  evalHttpEnvGet,
+} from "../../src/tools/eval-http-env.js";
+import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../../src/provider/reasoning-effort.js";
 import {
   isNumericBehaviorMetric,
   parseBehaviorMetrics,
@@ -270,7 +276,10 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
   if (typeof prompt !== "string" || prompt.length === 0) {
     throw new Error(`case ${id}: missing prompt`);
   }
-  const verify = typeof raw.verify === "string" && raw.verify.length > 0 ? raw.verify : "verify.sh";
+  const verify =
+    typeof raw.verify === "string" && raw.verify.length > 0
+      ? raw.verify
+      : "verify.sh";
   const bait = parseBait(raw.bait, id);
   const httpFixture = raw.httpFixture === true ? true : undefined;
   const requireBehaviors = parseRequireBehaviors(raw.requireBehaviors, id);
@@ -300,21 +309,34 @@ function parseBait(raw: unknown, caseId: string): EvalBait | undefined {
       `case ${caseId}: bait.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`,
     );
   }
-  if (typeof threshold !== "number" || !Number.isFinite(threshold) || threshold < 0) {
-    throw new Error(`case ${caseId}: bait.threshold must be a non-negative number`);
+  if (
+    typeof threshold !== "number" ||
+    !Number.isFinite(threshold) ||
+    threshold < 0
+  ) {
+    throw new Error(
+      `case ${caseId}: bait.threshold must be a non-negative number`,
+    );
   }
   return { metric, threshold };
 }
 
-function parseRequireBehaviors(raw: unknown, caseId: string): BehaviorRequirement[] | undefined {
+function parseRequireBehaviors(
+  raw: unknown,
+  caseId: string,
+): BehaviorRequirement[] | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!Array.isArray(raw)) {
     throw new Error(`case ${caseId}: requireBehaviors must be an array`);
   }
   if (raw.length === 0) {
-    throw new Error(`case ${caseId}: requireBehaviors must be non-empty when present`);
+    throw new Error(
+      `case ${caseId}: requireBehaviors must be non-empty when present`,
+    );
   }
-  return raw.map((entry, index) => parseBehaviorRequirement(entry, caseId, index));
+  return raw.map((entry, index) =>
+    parseBehaviorRequirement(entry, caseId, index),
+  );
 }
 
 function parseBehaviorRequirement(
@@ -328,7 +350,9 @@ function parseBehaviorRequirement(
   }
   const metric = raw.metric;
   if (typeof metric !== "string" || !isNumericBehaviorMetric(metric)) {
-    throw new Error(`${label}.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`);
+    throw new Error(
+      `${label}.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`,
+    );
   }
   const hasMin = raw.min !== undefined;
   const hasMax = raw.max !== undefined;
@@ -338,13 +362,21 @@ function parseBehaviorRequirement(
   let min: number | undefined;
   let max: number | undefined;
   if (hasMin) {
-    if (typeof raw.min !== "number" || !Number.isFinite(raw.min) || raw.min < 0) {
+    if (
+      typeof raw.min !== "number" ||
+      !Number.isFinite(raw.min) ||
+      raw.min < 0
+    ) {
       throw new Error(`${label}.min must be a non-negative number`);
     }
     min = raw.min;
   }
   if (hasMax) {
-    if (typeof raw.max !== "number" || !Number.isFinite(raw.max) || raw.max < 0) {
+    if (
+      typeof raw.max !== "number" ||
+      !Number.isFinite(raw.max) ||
+      raw.max < 0
+    ) {
       throw new Error(`${label}.max must be a non-negative number`);
     }
     max = raw.max;
@@ -371,7 +403,9 @@ export function checkBehaviorRequirements(
   if (behaviors === null) {
     return {
       ok: false,
-      failures: ["requireBehaviors set but behavior capture missing (no turn stream recorded)"],
+      failures: [
+        "requireBehaviors set but behavior capture missing (no turn stream recorded)",
+      ],
     };
   }
   const failures: string[] = [];
@@ -414,7 +448,10 @@ export async function loadEvalCases(casesRoot: string): Promise<EvalCase[]> {
 }
 
 /** Filter cases by id or "all". */
-export function filterCases(cases: readonly EvalCase[], selector: string): EvalCase[] {
+export function filterCases(
+  cases: readonly EvalCase[],
+  selector: string,
+): EvalCase[] {
   if (selector === "all") return [...cases];
   const found = cases.filter((c) => c.id === selector);
   if (found.length === 0) {
@@ -441,7 +478,10 @@ export { evalHttpEnvGet, runWithEvalHttpEnv };
  * web_fetch can reach the fixture) and the spawned verify.sh (which also
  * gets EVAL_HTTP_TOKEN to assert on the fetched content).
  */
-export function httpFixtureEnv(fixture: { url: string; token: string }): Record<string, string> {
+export function httpFixtureEnv(fixture: {
+  url: string;
+  token: string;
+}): Record<string, string> {
   return { EVAL_HTTP_URL: fixture.url, EVAL_HTTP_TOKEN: fixture.token };
 }
 
@@ -453,7 +493,10 @@ export function httpFixtureEnv(fixture: { url: string; token: string }): Record<
  * clobber a concurrent cell. verify.sh still receives an explicit env object
  * at spawn (see scripts/eval-capability.ts).
  */
-export async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): Promise<T> {
+export async function withEnv<T>(
+  vars: Record<string, string>,
+  fn: () => Promise<T>,
+): Promise<T> {
   return runWithEvalHttpEnv(vars, fn);
 }
 
@@ -504,9 +547,11 @@ export function detectProviderFallback(args: {
   resolvedModel: string;
 }): ProviderFallbackInfo | null {
   const providerMismatch =
-    args.requestedProvider !== undefined && args.requestedProvider !== args.resolvedProvider;
+    args.requestedProvider !== undefined &&
+    args.requestedProvider !== args.resolvedProvider;
   const modelMismatch =
-    args.requestedModel !== undefined && args.requestedModel !== args.resolvedModel;
+    args.requestedModel !== undefined &&
+    args.requestedModel !== args.resolvedModel;
   if (!providerMismatch && !modelMismatch) return null;
   return {
     requestedProvider: args.requestedProvider ?? null,
@@ -549,7 +594,9 @@ export function parseMatrix(
     return [
       {
         id,
-        ...(fallback.provider !== undefined ? { provider: fallback.provider } : {}),
+        ...(fallback.provider !== undefined
+          ? { provider: fallback.provider }
+          : {}),
         ...(fallback.model !== undefined ? { model: fallback.model } : {}),
         ...(fallback.effort !== undefined ? { effort: fallback.effort } : {}),
       },
@@ -585,16 +632,30 @@ function parseMatrixCell(
     // provider:model or provider:model:effort — the last segment is treated
     // as effort only when it parses as a real reasoning-effort literal, so a
     // model id that happens to contain a colon still falls through cleanly.
-    if (parts.length >= 3 && isReasoningEffort(parts.at(-1)!.trim())) {
-      effort = parts.at(-1)!.trim() as ReasoningEffort;
-      parts.pop();
+    const last = parts.at(-1);
+    if (parts.length >= 3 && last !== undefined) {
+      const trimmedLast = last.trim();
+      if (isReasoningEffort(trimmedLast)) {
+        effort = trimmedLast;
+        parts.pop();
+      }
     }
     const [p, ...mParts] = parts;
-    provider = p!.trim() || undefined;
+    if (p === undefined) {
+      throw new Error(
+        `matrix cell ${index + 1} "${cell}" must be provider:model or label=provider:model`,
+      );
+    }
+    provider = p.trim() || undefined;
     model = mParts.join(":").trim() || undefined;
   } else if (rest.includes("/")) {
     const [p, ...mParts] = rest.split("/");
-    provider = p!.trim() || undefined;
+    if (p === undefined) {
+      throw new Error(
+        `matrix cell ${index + 1} "${cell}" must be provider:model or label=provider:model`,
+      );
+    }
+    provider = p.trim() || undefined;
     model = mParts.join("/").trim() || undefined;
   } else {
     throw new Error(
@@ -605,7 +666,9 @@ function parseMatrixCell(
   model = model ?? fallback.model;
   effort = effort ?? fallback.effort;
   if (provider === undefined || model === undefined) {
-    throw new Error(`matrix cell ${index + 1} "${cell}" must specify both provider and model`);
+    throw new Error(
+      `matrix cell ${index + 1} "${cell}" must specify both provider and model`,
+    );
   }
   const id = label ?? defaultVariantId(provider, model);
   return { id, provider, model, ...(effort !== undefined ? { effort } : {}) };
@@ -625,7 +688,10 @@ export function expandMatrix(
   return out;
 }
 
-export function addTokenUsage(a: EvalTokenUsage, b: EvalTokenUsage): EvalTokenUsage {
+export function addTokenUsage(
+  a: EvalTokenUsage,
+  b: EvalTokenUsage,
+): EvalTokenUsage {
   return {
     input: a.input + b.input,
     output: a.output + b.output,
@@ -646,7 +712,8 @@ export function summarizeRun(results: readonly CaseResult[]): EvalRunTotals {
     durationMs += r.durationMs;
     if (r.turnsUsed !== null) turnsUsed += r.turnsUsed;
     if (r.toolCallCount !== null) toolCallCount += r.toolCallCount;
-    if (r.tokenUsage !== null) tokenUsage = addTokenUsage(tokenUsage, r.tokenUsage);
+    if (r.tokenUsage !== null)
+      tokenUsage = addTokenUsage(tokenUsage, r.tokenUsage);
   }
   return {
     total: results.length,
@@ -662,7 +729,9 @@ export function summarizeRun(results: readonly CaseResult[]): EvalRunTotals {
 function parseTokenUsage(raw: unknown): EvalTokenUsage | null {
   if (!isRecord(raw)) return null;
   const num = (k: string): number =>
-    typeof raw[k] === "number" && Number.isFinite(raw[k] as number) ? (raw[k] as number) : 0;
+    typeof raw[k] === "number" && Number.isFinite(raw[k] as number)
+      ? (raw[k] as number)
+      : 0;
   return {
     input: num("input"),
     output: num("output"),
@@ -676,9 +745,12 @@ function parseCaseResult(raw: unknown): CaseResult {
   if (!isRecord(raw)) throw new Error("case result must be an object");
   const id = raw.id;
   if (typeof id !== "string") throw new Error("case result missing id");
-  const tier: EvalTier = EVAL_TIERS.includes(raw.tier as EvalTier) ? (raw.tier as EvalTier) : "med";
+  const tier: EvalTier = EVAL_TIERS.includes(raw.tier as EvalTier)
+    ? (raw.tier as EvalTier)
+    : "med";
   const title = typeof raw.title === "string" ? raw.title : id;
-  const provider = typeof raw.provider === "string" ? raw.provider : "(unknown)";
+  const provider =
+    typeof raw.provider === "string" ? raw.provider : "(unknown)";
   const model = typeof raw.model === "string" ? raw.model : "(unknown)";
   const variantId =
     typeof raw.variantId === "string" && raw.variantId.length > 0
@@ -689,7 +761,9 @@ function parseCaseResult(raw: unknown): CaseResult {
       ? raw.resultKey
       : makeResultKey(variantId, id);
   const status =
-    raw.status === "done" || raw.status === "failed" || raw.status === "cancelled"
+    raw.status === "done" ||
+    raw.status === "failed" ||
+    raw.status === "cancelled"
       ? raw.status
       : null;
   return {
@@ -701,37 +775,54 @@ function parseCaseResult(raw: unknown): CaseResult {
     provider,
     model,
     passed: Boolean(raw.passed),
-    agentExitCode: typeof raw.agentExitCode === "number" ? raw.agentExitCode : null,
-    verifyExitCode: typeof raw.verifyExitCode === "number" ? raw.verifyExitCode : null,
+    agentExitCode:
+      typeof raw.agentExitCode === "number" ? raw.agentExitCode : null,
+    verifyExitCode:
+      typeof raw.verifyExitCode === "number" ? raw.verifyExitCode : null,
     durationMs: typeof raw.durationMs === "number" ? raw.durationMs : 0,
-    agentDurationMs: typeof raw.agentDurationMs === "number" ? raw.agentDurationMs : null,
-    verifyDurationMs: typeof raw.verifyDurationMs === "number" ? raw.verifyDurationMs : null,
+    agentDurationMs:
+      typeof raw.agentDurationMs === "number" ? raw.agentDurationMs : null,
+    verifyDurationMs:
+      typeof raw.verifyDurationMs === "number" ? raw.verifyDurationMs : null,
     status,
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : null,
     turnsUsed: typeof raw.turnsUsed === "number" ? raw.turnsUsed : null,
-    toolCallCount: typeof raw.toolCallCount === "number" ? raw.toolCallCount : null,
+    toolCallCount:
+      typeof raw.toolCallCount === "number" ? raw.toolCallCount : null,
     tokenUsage: parseTokenUsage(raw.tokenUsage),
     skipPermissions: Boolean(raw.skipPermissions ?? true),
-    error: typeof raw.error === "string" ? raw.error : raw.error === null ? null : null,
+    error:
+      typeof raw.error === "string"
+        ? raw.error
+        : raw.error === null
+          ? null
+          : null,
     repeat:
-      typeof raw.repeat === "number" && Number.isInteger(raw.repeat) && raw.repeat >= 0
+      typeof raw.repeat === "number" &&
+      Number.isInteger(raw.repeat) &&
+      raw.repeat >= 0
         ? raw.repeat
         : 0,
     behaviors: parseBehaviorMetrics(raw.behaviors),
     providerFallback: parseProviderFallback(raw.providerFallback),
     diagnostics: parseEvalDiagnostics(raw.diagnostics),
     effort: isReasoningEffort(raw.effort) ? raw.effort : null,
-    ...(typeof raw.textPreview === "string" ? { textPreview: raw.textPreview } : {}),
+    ...(typeof raw.textPreview === "string"
+      ? { textPreview: raw.textPreview }
+      : {}),
   };
 }
 
 function parseEvalDiagnostics(raw: unknown): EvalDiagnostics | null {
   if (!isRecord(raw)) return null;
   if (!Array.isArray(raw.advertisedTools)) return null;
-  const advertisedTools = raw.advertisedTools.filter((t): t is string => typeof t === "string");
+  const advertisedTools = raw.advertisedTools.filter(
+    (t): t is string => typeof t === "string",
+  );
   return {
     advertisedTools,
-    reasoningEffort: typeof raw.reasoningEffort === "string" ? raw.reasoningEffort : null,
+    reasoningEffort:
+      typeof raw.reasoningEffort === "string" ? raw.reasoningEffort : null,
   };
 }
 
@@ -739,10 +830,13 @@ function parseProviderFallback(raw: unknown): ProviderFallbackInfo | null {
   if (!isRecord(raw)) return null;
   const resolvedProvider = raw.resolvedProvider;
   const resolvedModel = raw.resolvedModel;
-  if (typeof resolvedProvider !== "string" || typeof resolvedModel !== "string") return null;
+  if (typeof resolvedProvider !== "string" || typeof resolvedModel !== "string")
+    return null;
   return {
-    requestedProvider: typeof raw.requestedProvider === "string" ? raw.requestedProvider : null,
-    requestedModel: typeof raw.requestedModel === "string" ? raw.requestedModel : null,
+    requestedProvider:
+      typeof raw.requestedProvider === "string" ? raw.requestedProvider : null,
+    requestedModel:
+      typeof raw.requestedModel === "string" ? raw.requestedModel : null,
     resolvedProvider,
     resolvedModel,
   };
@@ -751,7 +845,16 @@ function parseProviderFallback(raw: unknown): ProviderFallbackInfo | null {
 function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  const midVal = sorted[mid];
+  if (midVal === undefined) {
+    throw new Error("median of empty list");
+  }
+  if (sorted.length % 2 === 1) return midVal;
+  const prev = sorted[mid - 1];
+  if (prev === undefined) {
+    throw new Error("median of empty list");
+  }
+  return (prev + midVal) / 2;
 }
 
 function metricStats(values: readonly number[]): MetricStats {
@@ -767,7 +870,9 @@ function metricStats(values: readonly number[]): MetricStats {
  * repeats) and compute pass-rate plus behavior-metric min/median/max.
  * Behavior stats only cover repeats whose behaviors were captured.
  */
-export function computeCellAggregates(results: readonly CaseResult[]): CellAggregate[] {
+export function computeCellAggregates(
+  results: readonly CaseResult[],
+): CellAggregate[] {
   const groups = new Map<string, CaseResult[]>();
   for (const r of results) {
     const group = groups.get(r.resultKey);
@@ -776,9 +881,11 @@ export function computeCellAggregates(results: readonly CaseResult[]): CellAggre
   }
   const aggregates: CellAggregate[] = [];
   for (const [resultKey, group] of groups) {
-    const first = group[0]!;
+    const first = group[0];
+    if (first === undefined) continue;
     const passCount = group.filter((r) => r.passed).length;
-    const behaviorStats: Partial<Record<NumericBehaviorMetric, MetricStats>> = {};
+    const behaviorStats: Partial<Record<NumericBehaviorMetric, MetricStats>> =
+      {};
     for (const metric of NUMERIC_BEHAVIOR_METRICS) {
       const values = group
         .map((r) => r.behaviors?.[metric])
@@ -807,13 +914,16 @@ export function computeCellAggregates(results: readonly CaseResult[]): CellAggre
  */
 export function parseEvalRunReport(raw: unknown): EvalRunReport {
   if (!isRecord(raw)) throw new Error("report must be an object");
-  if (!Array.isArray(raw.cases)) throw new Error("report.cases must be an array");
+  if (!Array.isArray(raw.cases))
+    throw new Error("report.cases must be an array");
   const cases = raw.cases.map(parseCaseResult);
-  const provider = typeof raw.provider === "string" ? raw.provider : "(unknown)";
+  const provider =
+    typeof raw.provider === "string" ? raw.provider : "(unknown)";
   const model = typeof raw.model === "string" ? raw.model : "(unknown)";
   const variants: EvalVariant[] = Array.isArray(raw.variants)
     ? raw.variants.filter(isRecord).map((v, i) => {
-        const id = typeof v.id === "string" && v.id.length > 0 ? v.id : `variant-${i}`;
+        const id =
+          typeof v.id === "string" && v.id.length > 0 ? v.id : `variant-${i}`;
         return {
           id,
           ...(typeof v.provider === "string" ? { provider: v.provider } : {}),
@@ -825,19 +935,34 @@ export function parseEvalRunReport(raw: unknown): EvalRunReport {
     isRecord(raw.totals) && typeof raw.totals.total === "number"
       ? {
           total: raw.totals.total as number,
-          passed: typeof raw.totals.passed === "number" ? (raw.totals.passed as number) : 0,
-          failed: typeof raw.totals.failed === "number" ? (raw.totals.failed as number) : 0,
+          passed:
+            typeof raw.totals.passed === "number"
+              ? (raw.totals.passed as number)
+              : 0,
+          failed:
+            typeof raw.totals.failed === "number"
+              ? (raw.totals.failed as number)
+              : 0,
           durationMs:
-            typeof raw.totals.durationMs === "number" ? (raw.totals.durationMs as number) : 0,
+            typeof raw.totals.durationMs === "number"
+              ? (raw.totals.durationMs as number)
+              : 0,
           turnsUsed:
-            typeof raw.totals.turnsUsed === "number" ? (raw.totals.turnsUsed as number) : 0,
+            typeof raw.totals.turnsUsed === "number"
+              ? (raw.totals.turnsUsed as number)
+              : 0,
           toolCallCount:
-            typeof raw.totals.toolCallCount === "number" ? (raw.totals.toolCallCount as number) : 0,
-          tokenUsage: parseTokenUsage(raw.totals.tokenUsage) ?? emptyTokenUsage(),
+            typeof raw.totals.toolCallCount === "number"
+              ? (raw.totals.toolCallCount as number)
+              : 0,
+          tokenUsage:
+            parseTokenUsage(raw.totals.tokenUsage) ?? emptyTokenUsage(),
         }
       : summarizeRun(cases);
   const repeats =
-    typeof raw.repeats === "number" && Number.isInteger(raw.repeats) && raw.repeats > 0
+    typeof raw.repeats === "number" &&
+    Number.isInteger(raw.repeats) &&
+    raw.repeats > 0
       ? raw.repeats
       : Math.max(1, ...cases.map((c) => c.repeat + 1));
   return {
@@ -854,7 +979,10 @@ export function parseEvalRunReport(raw: unknown): EvalRunReport {
   };
 }
 
-function behaviorVerdicts(prev: CellAggregate, cur: CellAggregate): BehaviorVerdict[] {
+function behaviorVerdicts(
+  prev: CellAggregate,
+  cur: CellAggregate,
+): BehaviorVerdict[] {
   const verdicts: BehaviorVerdict[] = [];
   for (const metric of NUMERIC_BEHAVIOR_METRICS) {
     const prevStats = prev.behaviorStats[metric];
@@ -876,7 +1004,10 @@ function behaviorVerdicts(prev: CellAggregate, cur: CellAggregate): BehaviorVerd
 }
 
 /** Median of the bait metric shows the misbehavior when it exceeds the threshold. */
-export function baitReproduces(aggregate: CellAggregate, bait: EvalBait): boolean | null {
+export function baitReproduces(
+  aggregate: CellAggregate,
+  bait: EvalBait,
+): boolean | null {
   const stats = aggregate.behaviorStats[bait.metric];
   if (stats === undefined) return null;
   return stats.median > bait.threshold;

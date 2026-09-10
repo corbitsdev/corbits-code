@@ -8,7 +8,8 @@ import { DOCS_TOOLS } from "../tool-sets.js";
  */
 export const bruckheimerPackage: DirectorPackage = {
   id: "bruckheimer",
-  primaryIntent: "Product discovery docs — invent/capture product shape; do not implement",
+  primaryIntent:
+    "Product discovery docs — invent/capture product shape; do not implement",
   outOfLane: [
     "shipping product code",
     "architecture gates",
@@ -18,7 +19,8 @@ export const bruckheimerPackage: DirectorPackage = {
     "ongoing P/A/I docs maintenance as Shakespeare",
     "ordered eng plans as Counsel",
   ],
-  description: "Product discovery specialist — user/product shape docs, not code",
+  description:
+    "Product discovery specialist — user/product shape docs, not code",
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

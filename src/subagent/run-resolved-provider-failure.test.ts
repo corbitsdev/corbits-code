@@ -12,14 +12,19 @@ import {
 } from "../inference-error-message.js";
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { createFleetMailbox, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import {
+  createFleetMailbox,
+  createSpawnAgentTool,
+  createWaitAgentsTool,
+} from "./agent-fleet.js";
 import { unlimitedAdmissionQueue } from "./admission.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
 const RAW_DIAGNOSTIC =
   "\u001b[31mPOST https://provider.invalid returned\n secret response body\u001b[0m";
-const NORMALIZED_DIAGNOSTIC = "POST https://provider.invalid returned secret response body";
+const NORMALIZED_DIAGNOSTIC =
+  "POST https://provider.invalid returned secret response body";
 const SAFE_MESSAGE =
   'test-provider Provider failed (fatal). Try again or switch models with "/model".';
 const provider = {
@@ -37,8 +42,15 @@ const testPermissionGate = createPermissionGate({
 type Run = (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
 
 async function withResolvedProviderRun<T>(
-  callback: (run: Run, cwd: string, observed: ReactorEmittedEvent[]) => Promise<T>,
-  providerError: InferenceErrorLike = { category: "fatal", message: RAW_DIAGNOSTIC },
+  callback: (
+    run: Run,
+    cwd: string,
+    observed: ReactorEmittedEvent[],
+  ) => Promise<T>,
+  providerError: InferenceErrorLike = {
+    category: "fatal",
+    message: RAW_DIAGNOSTIC,
+  },
   sendFailure?: Error,
 ): Promise<T> {
   const cwd = await mkdtemp(join(tmpdir(), "resolved-provider-failure-"));
@@ -60,7 +72,10 @@ async function withResolvedProviderRun<T>(
                 throw sendFailure;
               }
               await new Promise<void>((resolve) => queueMicrotask(resolve));
-              return { reply: RAW_DIAGNOSTIC, turn: { role: "assistant", content: [] } };
+              return {
+                reply: RAW_DIAGNOSTIC,
+                turn: { role: "assistant", content: [] },
+              };
             },
             stream: () =>
               (async function* (): AsyncGenerator<ReactorEmittedEvent> {
@@ -84,15 +99,17 @@ async function withResolvedProviderRun<T>(
                   data: { content: RAW_DIAGNOSTIC },
                 } as unknown as ReactorEmittedEvent;
               })(),
-            deliver: () => {},
-            close: async () => {},
-            setSource: () => {},
-            setSources: () => {},
+            deliver: () => undefined,
+            close: async () => undefined,
+            setSource: () => undefined,
+            setSources: () => undefined,
             history: async () => [],
             checkpoints: async () => [],
             readAt: async () => [],
             blobReader: {},
-          }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
+          }) as unknown as Awaited<
+            ReturnType<typeof real.createAgentWithLiveToolDispatch>
+          >,
       }),
       async () => {
         const { runSubAgent } = await import("./run.js");
@@ -112,9 +129,17 @@ async function withResolvedProviderRun<T>(
   }
 }
 
-async function callTool(tool: AgentTool, name: string, args: Record<string, unknown>) {
-  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
-  return tool.handler({ id: `${name}-call`, name, arguments: args }, new AbortController().signal);
+async function callTool(
+  tool: AgentTool,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  if (tool.kind !== "full")
+    throw new Error(`expected full tool, got ${tool.kind}`);
+  return tool.handler(
+    { id: `${name}-call`, name, arguments: args },
+    new AbortController().signal,
+  );
 }
 
 function runParams(cwd: string): RunSubAgentParams {
@@ -130,14 +155,16 @@ function runParams(cwd: string): RunSubAgentParams {
 
 describe("resolved sub-agent provider failures", () => {
   test("runSubAgent rejects a raw director reply after inference.error", async () => {
-    const { caught, observed } = await withResolvedProviderRun(async (run, cwd, observed) => {
-      try {
-        await run(runParams(cwd));
-      } catch (error) {
-        return { caught: error, observed };
-      }
-      throw new Error("expected runSubAgent to reject");
-    });
+    const { caught, observed } = await withResolvedProviderRun(
+      async (run, cwd, observed) => {
+        try {
+          await run(runParams(cwd));
+        } catch (error) {
+          return { caught: error, observed };
+        }
+        throw new Error("expected runSubAgent to reject");
+      },
+    );
 
     expect(isResolvedProviderFailureError(caught)).toBe(true);
     expect((caught as ResolvedProviderFailureError).message).toBe(SAFE_MESSAGE);
@@ -146,7 +173,9 @@ describe("resolved sub-agent provider failures", () => {
     expect(JSON.stringify(caught)).not.toContain(NORMALIZED_DIAGNOSTIC);
     expect(
       observed.some(
-        (event) => event.type === "inference.error" && event.data.error.message === RAW_DIAGNOSTIC,
+        (event) =>
+          event.type === "inference.error" &&
+          event.data.error.message === RAW_DIAGNOSTIC,
       ),
     ).toBe(true);
   });
@@ -163,13 +192,20 @@ describe("resolved sub-agent provider failures", () => {
         admission: unlimitedAdmissionQueue(),
         run,
       };
-      const spawned = await callTool(createSpawnAgentTool(deps), "spawn_agent", {
-        description: "provider failure",
-        prompt: "trigger it",
-        intent: "explore",
-      });
-      const spawnPayload = JSON.parse(String(spawned.content)) as { agent_id?: unknown };
-      if (typeof spawnPayload.agent_id !== "string") throw new Error("missing agent_id");
+      const spawned = await callTool(
+        createSpawnAgentTool(deps),
+        "spawn_agent",
+        {
+          description: "provider failure",
+          prompt: "trigger it",
+          intent: "explore",
+        },
+      );
+      const spawnPayload = JSON.parse(String(spawned.content)) as {
+        agent_id?: unknown;
+      };
+      if (typeof spawnPayload.agent_id !== "string")
+        throw new Error("missing agent_id");
       const waited = await callTool(
         createWaitAgentsTool({ sessions, fleetRecords }),
         "wait_agents",
@@ -193,8 +229,12 @@ describe("resolved sub-agent provider failures", () => {
       expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
       expect(String(waited.content)).not.toContain(NORMALIZED_DIAGNOSTIC);
       expect(sessions.get(spawnPayload.agent_id)?.error).toBe(SAFE_MESSAGE);
-      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(RAW_DIAGNOSTIC);
-      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(NORMALIZED_DIAGNOSTIC);
+      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
+        RAW_DIAGNOSTIC,
+      );
+      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
+        NORMALIZED_DIAGNOSTIC,
+      );
     });
   });
 
@@ -216,26 +256,38 @@ describe("resolved sub-agent provider failures", () => {
           admission: unlimitedAdmissionQueue(),
           run,
         };
-        const spawned = await callTool(createSpawnAgentTool(deps), "spawn_agent", {
-          description: "rejected provider failure",
-          prompt: "trigger it",
-          intent: "explore",
-        });
-        const spawnPayload = JSON.parse(String(spawned.content)) as { agent_id?: unknown };
-        if (typeof spawnPayload.agent_id !== "string") throw new Error("missing agent_id");
+        const spawned = await callTool(
+          createSpawnAgentTool(deps),
+          "spawn_agent",
+          {
+            description: "rejected provider failure",
+            prompt: "trigger it",
+            intent: "explore",
+          },
+        );
+        const spawnPayload = JSON.parse(String(spawned.content)) as {
+          agent_id?: unknown;
+        };
+        if (typeof spawnPayload.agent_id !== "string")
+          throw new Error("missing agent_id");
         const waited = await callTool(
           createWaitAgentsTool({ sessions, fleetRecords }),
           "wait_agents",
           { targets: [spawnPayload.agent_id], timeout_ms: 5000 },
         );
-        const safeFailure = "test-provider Provider failed (retryable). Try again.";
+        const safeFailure =
+          "test-provider Provider failed (retryable). Try again.";
 
         expect(String(waited.content)).toContain(safeFailure);
         expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
         expect(String(waited.content)).not.toContain(NORMALIZED_DIAGNOSTIC);
         expect(sessions.get(spawnPayload.agent_id)?.error).toBe(safeFailure);
-        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(RAW_DIAGNOSTIC);
-        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(NORMALIZED_DIAGNOSTIC);
+        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
+          RAW_DIAGNOSTIC,
+        );
+        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
+          NORMALIZED_DIAGNOSTIC,
+        );
       },
       providerError,
       new Error(RAW_DIAGNOSTIC),
@@ -244,12 +296,17 @@ describe("resolved sub-agent provider failures", () => {
 
   test.each([
     {
-      error: { category: "retryable", message: RAW_DIAGNOSTIC, statusCode: 500 },
+      error: {
+        category: "retryable",
+        message: RAW_DIAGNOSTIC,
+        statusCode: 500,
+      },
       expected: "test-provider Provider failed (retryable). Try again.",
     },
     {
       error: { category: "protocol_mismatch", message: RAW_DIAGNOSTIC },
-      expected: 'test-provider Provider failed (protocol_mismatch). Switch models with "/model".',
+      expected:
+        'test-provider Provider failed (protocol_mismatch). Switch models with "/model".',
     },
   ] satisfies { error: InferenceErrorLike; expected: string }[])(
     "preserves $error.category guidance without exposing its diagnostic",
@@ -264,11 +321,19 @@ describe("resolved sub-agent provider failures", () => {
       }, error);
 
       expect(isResolvedProviderFailureError(caught)).toBe(true);
-      expect((caught as ResolvedProviderFailureError).category).toBe(error.category);
-      expect((caught as ResolvedProviderFailureError).statusCode).toBe(error.statusCode);
+      expect((caught as ResolvedProviderFailureError).category).toBe(
+        error.category,
+      );
+      expect((caught as ResolvedProviderFailureError).statusCode).toBe(
+        error.statusCode,
+      );
       expect((caught as ResolvedProviderFailureError).message).toBe(expected);
-      expect((caught as ResolvedProviderFailureError).message).not.toContain(RAW_DIAGNOSTIC);
-      expect((caught as ResolvedProviderFailureError).message).not.toContain(NORMALIZED_DIAGNOSTIC);
+      expect((caught as ResolvedProviderFailureError).message).not.toContain(
+        RAW_DIAGNOSTIC,
+      );
+      expect((caught as ResolvedProviderFailureError).message).not.toContain(
+        NORMALIZED_DIAGNOSTIC,
+      );
     },
   );
 });

@@ -3,7 +3,9 @@
 import { SENT_MESSAGE_HISTORY_LIMIT } from "../session/sent-messages.js";
 
 function tailSent(sent: readonly string[]): readonly string[] {
-  return sent.length <= SENT_MESSAGE_HISTORY_LIMIT ? sent : sent.slice(-SENT_MESSAGE_HISTORY_LIMIT);
+  return sent.length <= SENT_MESSAGE_HISTORY_LIMIT
+    ? sent
+    : sent.slice(-SENT_MESSAGE_HISTORY_LIMIT);
 }
 
 export interface SentHistoryBrowse {
@@ -18,11 +20,15 @@ export interface SentHistoryBrowse {
   browseIndex: number | null;
 }
 
-export function createSentHistoryBrowse(sent: readonly string[]): SentHistoryBrowse {
+export function createSentHistoryBrowse(
+  sent: readonly string[],
+): SentHistoryBrowse {
   return { sent: tailSent(sent), draft: null, browseIndex: null };
 }
 
-export function resetSentHistoryBrowse(sent: readonly string[]): SentHistoryBrowse {
+export function resetSentHistoryBrowse(
+  sent: readonly string[],
+): SentHistoryBrowse {
   return createSentHistoryBrowse(sent);
 }
 
@@ -45,7 +51,8 @@ export function stepSentHistoryUp(
       draft: currentValue,
       browseIndex: 0,
     };
-    const value = browse.sent[browse.sent.length - 1]!;
+    const value = browse.sent[browse.sent.length - 1];
+    if (value == null) return null;
     return { browse: next, value, cursor: value.length };
   }
 
@@ -58,7 +65,8 @@ export function stepSentHistoryUp(
   };
   const idx = next.browseIndex;
   if (idx === null) return null;
-  const value = browse.sent[browse.sent.length - 1 - idx]!;
+  const value = browse.sent[browse.sent.length - 1 - idx];
+  if (value == null) return null;
   return { browse: next, value, cursor: value.length };
 }
 
@@ -72,10 +80,14 @@ export function stepSentHistoryDown(
   if (browse.browseIndex === null) return null;
 
   if (browse.browseIndex > 0) {
-    const next: SentHistoryBrowse = { ...browse, browseIndex: browse.browseIndex - 1 };
+    const next: SentHistoryBrowse = {
+      ...browse,
+      browseIndex: browse.browseIndex - 1,
+    };
     const idx = next.browseIndex;
     if (idx === null) return null;
-    const value = browse.sent[browse.sent.length - 1 - idx]!;
+    const value = browse.sent[browse.sent.length - 1 - idx];
+    if (value == null) return null;
     return { browse: next, value, cursor: value.length };
   }
 
@@ -85,7 +97,9 @@ export function stepSentHistoryDown(
 }
 
 /** Any edit while browsing returns to live mode and clears the draft slot. */
-export function sentHistoryOnEdit(browse: SentHistoryBrowse): SentHistoryBrowse {
+export function sentHistoryOnEdit(
+  browse: SentHistoryBrowse,
+): SentHistoryBrowse {
   if (browse.browseIndex === null) return browse;
   return { sent: browse.sent, draft: null, browseIndex: null };
 }

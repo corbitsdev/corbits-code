@@ -12,7 +12,11 @@ import type { PaletteCommand } from "./command-catalog";
 import type { PendingImageAttachment } from "./image-attachments.js";
 import { noticeText, setShellRunState, setStatusFlash } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { isSlashPopupOpen, setShellExitHandler, type AppShell } from "./shell/internals";
+import {
+  isSlashPopupOpen,
+  setShellExitHandler,
+  type AppShell,
+} from "./shell/internals";
 import { CTRL_C_EXIT_WINDOW_MS, handleCtrlC } from "./shell/keys";
 import { addPendingAttachment, clearPendingAttachments } from "./shell/prompt";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
@@ -177,7 +181,9 @@ describe("slash command popup", () => {
       // A backspace that restores a match refreshes back in place.
       press("Backspace");
       expect(isSlashPopupOpen(shell)).toBe(true);
-      expect(shell.paletteCommands.map((c) => c.id)).toEqual(CATALOG.map((c) => c.id));
+      expect(shell.paletteCommands.map((c) => c.id)).toEqual(
+        CATALOG.map((c) => c.id),
+      );
     });
   });
 
@@ -218,7 +224,7 @@ describe("Ctrl+C exit", () => {
         schedule: (fn, ms) => {
           expect(ms).toBe(CTRL_C_EXIT_WINDOW_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       expect(shell.statusFlash).toBe("press ctrl+c again to exit");
@@ -237,7 +243,7 @@ describe("Ctrl+C exit", () => {
       handleCtrlC(shell, 0, {
         schedule: (fn) => {
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       setStatusFlash(shell, "copied 3 lines", {
@@ -332,7 +338,10 @@ describe("Ctrl+C exit", () => {
       writeFileSync(ephemeral, "ephemeral-bytes");
       writeFileSync(operator, "operator-bytes");
       try {
-        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(
+          shell,
+          pendingImage("ours", { ephemeralPath: ephemeral }),
+        );
         addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
 
         clearPendingAttachments(shell);
@@ -349,7 +358,10 @@ describe("Ctrl+C exit", () => {
   test("clearPendingAttachments swallows a missing ephemeralPath", async () => {
     await withShell(async ({ shell }) => {
       const missing = join(tmpdir(), "ctrlc-attach-missing.png");
-      addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: missing }));
+      addPendingAttachment(
+        shell,
+        pendingImage("ours", { ephemeralPath: missing }),
+      );
       expect(() => clearPendingAttachments(shell)).not.toThrow();
       expect(shell.pendingAttachments).toHaveLength(0);
     });
@@ -387,7 +399,10 @@ describe("Ctrl+C exit", () => {
       writeFileSync(ephemeral, "ephemeral-bytes");
       writeFileSync(operator, "operator-bytes");
       try {
-        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(
+          shell,
+          pendingImage("ours", { ephemeralPath: ephemeral }),
+        );
         addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
 
         shell.dispose();
@@ -409,7 +424,10 @@ describe("Ctrl+C exit", () => {
       writeFileSync(operator, "operator-bytes");
       try {
         setShellRunState(shell, "busy");
-        addPendingAttachment(shell, pendingImage("ours", { ephemeralPath: ephemeral }));
+        addPendingAttachment(
+          shell,
+          pendingImage("ours", { ephemeralPath: ephemeral }),
+        );
         addPendingAttachment(shell, pendingImage("theirs", { path: operator }));
         setShellExitHandler(shell, () => {
           shell.dispose();
@@ -431,7 +449,10 @@ describe("Ctrl+C exit", () => {
   });
 });
 
-function pendingImage(id: string, extra?: Partial<PendingImageAttachment>): PendingImageAttachment {
+function pendingImage(
+  id: string,
+  extra?: Partial<PendingImageAttachment>,
+): PendingImageAttachment {
   return {
     id,
     name: `${id}.png`,

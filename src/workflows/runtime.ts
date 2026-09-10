@@ -12,7 +12,13 @@ import {
 } from "./types.js";
 
 export type WorkflowEvent =
-  | { type: "step-start"; workflow: string; step: WorkflowStep; index: number; total: number }
+  | {
+      type: "step-start";
+      workflow: string;
+      step: WorkflowStep;
+      index: number;
+      total: number;
+    }
   | { type: "step-complete"; workflow: string; step: WorkflowStep }
   | { type: "step-skip"; workflow: string; step: WorkflowStep; reason: string }
   | { type: "workflow-complete"; workflow: string };
@@ -158,7 +164,11 @@ export class WorkflowRuntime {
         const parentStep = parentWorkflow.steps[parent.stepIndex];
         if (parentStep !== undefined) {
           parent.statuses[parent.stepIndex] = "completed";
-          this.emit({ type: "step-complete", workflow: parentWorkflow.name, step: parentStep });
+          this.emit({
+            type: "step-complete",
+            workflow: parentWorkflow.name,
+            step: parentStep,
+          });
         }
         parent.stepIndex += 1;
         continue;
@@ -197,7 +207,9 @@ export class WorkflowRuntime {
             frame.stepIndex += 1;
             continue;
           }
-          throw new Error(`Sub-workflow "${step.workflow}" not found in registry`);
+          throw new Error(
+            `Sub-workflow "${step.workflow}" not found in registry`,
+          );
         }
         if (this.stack.length >= MAX_WORKFLOW_DEPTH) {
           throw new Error(

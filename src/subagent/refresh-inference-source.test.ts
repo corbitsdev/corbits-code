@@ -19,15 +19,19 @@ describe("refresh-inference-source", () => {
   });
 
   test("ensureFreshInferenceSource replaces stale Codex apiKey after refresh", async () => {
-    spyOn(codexSession, "getValidCodexToken").mockResolvedValue({ access: "fresh-codex-token" });
-    const { ensureFreshInferenceSource } = await import("./refresh-inference-source.js");
+    spyOn(codexSession, "getValidCodexToken").mockResolvedValue({
+      access: "fresh-codex-token",
+    });
+    const { ensureFreshInferenceSource } =
+      await import("./refresh-inference-source.js");
     const source = baseSource("codex/default", "stale");
     const out = await ensureFreshInferenceSource(source, []);
     expect(out.apiKey).toBe("fresh-codex-token");
   });
 
   test("refreshInferenceSourceBundle refreshes each leg", async () => {
-    const { refreshInferenceSourceBundle } = await import("./refresh-inference-source.js");
+    const { refreshInferenceSourceBundle } =
+      await import("./refresh-inference-source.js");
     const bundle = await refreshInferenceSourceBundle(
       [baseSource("openai"), baseSource("other")],
       "openai",
@@ -38,7 +42,8 @@ describe("refresh-inference-source", () => {
   });
 
   test("ensureFreshInferenceSource leaves non-OAuth sources unchanged", async () => {
-    const { ensureFreshInferenceSource } = await import("./refresh-inference-source.js");
+    const { ensureFreshInferenceSource } =
+      await import("./refresh-inference-source.js");
     const source = baseSource("custom-gateway", "key-abc");
     const out = await ensureFreshInferenceSource(source, [
       {

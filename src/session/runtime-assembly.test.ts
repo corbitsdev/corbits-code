@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,7 +80,9 @@ describe("createLiveSubAgentSources", () => {
     models: ["gpt-5"],
   });
   const providerSettings = (name: string): Settings => ({
-    providers: { [name]: { baseURL: "https://api.openai.com/v1", models: ["gpt-5"] } },
+    providers: {
+      [name]: { baseURL: "https://api.openai.com/v1", models: ["gpt-5"] },
+    },
   });
   const initial = (): SubAgentSourcesConfig => ({
     providerName: "openai",
@@ -108,7 +118,9 @@ describe("createLiveSubAgentSources", () => {
     };
 
     expect(live.catalog().map((p) => p.name)).toEqual(["openai", "codex/work"]);
-    expect(Object.keys(live.settings()?.providers ?? {})).toEqual(["codex/work"]);
+    expect(Object.keys(live.settings()?.providers ?? {})).toEqual([
+      "codex/work",
+    ]);
   });
 
   test("settings written mid-session are visible when the session started without any", () => {
@@ -178,11 +190,18 @@ describe("createApprovalPersist", () => {
   });
 
   test("routes project, global, and provider-model scopes to the matching store", () => {
-    const project = spyOn(permissionStore, "saveProjectApproval").mockResolvedValue(undefined);
-    const global = spyOn(permissionStore, "saveGlobalApproval").mockResolvedValue(undefined);
-    const providerModel = spyOn(permissionStore, "saveProviderModelApproval").mockResolvedValue(
-      undefined,
-    );
+    const project = spyOn(
+      permissionStore,
+      "saveProjectApproval",
+    ).mockResolvedValue(undefined);
+    const global = spyOn(
+      permissionStore,
+      "saveGlobalApproval",
+    ).mockResolvedValue(undefined);
+    const providerModel = spyOn(
+      permissionStore,
+      "saveProviderModelApproval",
+    ).mockResolvedValue(undefined);
 
     const persist = createApprovalPersist("/tmp/proj", () => "openai:gpt-5");
     const approval = { tool: "run_shell", pattern: "npm *" };
@@ -202,9 +221,10 @@ describe("createApprovalPersist", () => {
   });
 
   test("a live identity change stores the next provider-model grant under the new key", () => {
-    const providerModel = spyOn(permissionStore, "saveProviderModelApproval").mockResolvedValue(
-      undefined,
-    );
+    const providerModel = spyOn(
+      permissionStore,
+      "saveProviderModelApproval",
+    ).mockResolvedValue(undefined);
     let identity = "openai:gpt-5";
     const persist = createApprovalPersist("/tmp/proj", () => identity);
     const approval = { tool: "run_shell", pattern: "npm *" };
@@ -214,7 +234,11 @@ describe("createApprovalPersist", () => {
     persist(approval, "provider-model");
 
     expect(providerModel).toHaveBeenNthCalledWith(1, "openai:gpt-5", approval);
-    expect(providerModel).toHaveBeenNthCalledWith(2, "anthropic:claude-opus", approval);
+    expect(providerModel).toHaveBeenNthCalledWith(
+      2,
+      "anthropic:claude-opus",
+      approval,
+    );
   });
 
   const persistedScopes: {
@@ -224,19 +248,25 @@ describe("createApprovalPersist", () => {
     {
       scope: "project",
       reject: (message) => {
-        spyOn(permissionStore, "saveProjectApproval").mockRejectedValue(new Error(message));
+        spyOn(permissionStore, "saveProjectApproval").mockRejectedValue(
+          new Error(message),
+        );
       },
     },
     {
       scope: "global",
       reject: (message) => {
-        spyOn(permissionStore, "saveGlobalApproval").mockRejectedValue(new Error(message));
+        spyOn(permissionStore, "saveGlobalApproval").mockRejectedValue(
+          new Error(message),
+        );
       },
     },
     {
       scope: "provider-model",
       reject: (message) => {
-        spyOn(permissionStore, "saveProviderModelApproval").mockRejectedValue(new Error(message));
+        spyOn(permissionStore, "saveProviderModelApproval").mockRejectedValue(
+          new Error(message),
+        );
       },
     },
   ];
@@ -327,7 +357,9 @@ describe("createApprovalPersist", () => {
       expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
       expect(asked).toBe(1);
       expect(await flushUnhandledRejections()).toBeNull();
-      expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(true);
+      expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(
+        true,
+      );
       expect(asked).toBe(1);
     });
   }
@@ -356,7 +388,12 @@ describe("skillDirsFromEnabledPlugins", () => {
       {
         dir: "/skills",
         origin: "repo",
-        manifest: { id: "corbits-skills", name: "skills", kind: "command", defaultEnabled: true },
+        manifest: {
+          id: "corbits-skills",
+          name: "skills",
+          kind: "command",
+          defaultEnabled: true,
+        },
       },
     ] as unknown as PluginModule[];
     expect(skillDirsFromEnabledPlugins(modules, {})).toEqual(["/skills"]);
@@ -367,12 +404,19 @@ describe("skillDirsFromEnabledPlugins", () => {
       {
         dir: "/skills",
         origin: "repo",
-        manifest: { id: "corbits-skills", name: "skills", kind: "command", defaultEnabled: true },
+        manifest: {
+          id: "corbits-skills",
+          name: "skills",
+          kind: "command",
+          defaultEnabled: true,
+        },
       },
     ] as unknown as PluginModule[];
-    expect(skillDirsFromEnabledPlugins(modules, { "corbits-skills": { enabled: false } })).toEqual(
-      [],
-    );
+    expect(
+      skillDirsFromEnabledPlugins(modules, {
+        "corbits-skills": { enabled: false },
+      }),
+    ).toEqual([]);
   });
 
   test("ignores defaultEnabled on marketplace/path plugins", () => {
@@ -380,7 +424,12 @@ describe("skillDirsFromEnabledPlugins", () => {
       {
         dir: "/user",
         origin: "user",
-        manifest: { id: "mkt", name: "mkt", kind: "command", defaultEnabled: true },
+        manifest: {
+          id: "mkt",
+          name: "mkt",
+          kind: "command",
+          defaultEnabled: true,
+        },
       },
       {
         dir: "/path",
@@ -479,6 +528,8 @@ describe("buildCompactionContinuationMessage", () => {
     expect(message.ref).toEqual({ uid: 0, mailbox: "system" });
     expect(message.headers.from).toBe("user@local");
     expect(message.headers.to).toEqual(["agent@local"]);
-    expect(message.headers.messageId.startsWith("compact-continue-")).toBe(true);
+    expect(message.headers.messageId.startsWith("compact-continue-")).toBe(
+      true,
+    );
   });
 });

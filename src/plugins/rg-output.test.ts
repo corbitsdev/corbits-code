@@ -11,7 +11,9 @@ test("the cap fires on the chunk that breaches it", () => {
   expect(outcome).toMatchObject({ kind: "partial" });
   // No notice of its own: the final tool result gets exactly one truncation
   // notice, from result-truncation-plugin.ts, not one per cap that fired.
-  expect(outcome?.kind === "partial" ? outcome.notice : "defined").toBeUndefined();
+  expect(
+    outcome?.kind === "partial" ? outcome.notice : "defined",
+  ).toBeUndefined();
 });
 
 test("an over-cap run reports no more than the cap, cut at a line boundary", () => {
@@ -77,14 +79,19 @@ test("the timeout yields whatever was collected under the cap", () => {
 test("only the first settle wins", () => {
   const collector = createRgCollector(2_000);
   collector.push(line);
-  expect(collector.close(0, "")).toMatchObject({ kind: "output", stdout: line });
+  expect(collector.close(0, "")).toMatchObject({
+    kind: "output",
+    stdout: line,
+  });
   expect(collector.close(0, "")).toBeUndefined();
   expect(collector.timeout(1)).toBeUndefined();
   expect(collector.push(line.repeat(400))).toBeUndefined();
 });
 
 test("exit codes map to no-match and error", () => {
-  expect(createRgCollector(200).close(1, "")).toMatchObject({ kind: "no-match" });
+  expect(createRgCollector(200).close(1, "")).toMatchObject({
+    kind: "no-match",
+  });
   expect(createRgCollector(200).close(2, "bad pattern")).toMatchObject({
     kind: "error",
     message: "bad pattern",

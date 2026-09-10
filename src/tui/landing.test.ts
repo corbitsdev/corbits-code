@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { makePermissionItems, withTestRenderer, type Harness } from "./harness";
 import {
   appendStreamRow,
@@ -20,7 +21,11 @@ import {
 } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import { isLanding } from "./shell/internals";
-import { setPromptModelLabel, setPromptWorkspace, surfaceSystemNotice } from "./shell/prompt";
+import {
+  setPromptModelLabel,
+  setPromptWorkspace,
+  surfaceSystemNotice,
+} from "./shell/prompt";
 import { streamRowCount } from "./shell/transcript";
 import { openPermissionsOverlay } from "./overlays";
 import {
@@ -77,7 +82,9 @@ function wrapLandingIdleTimer(): {
     }
     return nativeSetInterval.call(globalThis, handler, delay, ...args);
   }) as typeof nativeSetInterval;
-  globalThis.clearInterval = ((handle: Parameters<typeof nativeClearInterval>[0]) => {
+  globalThis.clearInterval = ((
+    handle: Parameters<typeof nativeClearInterval>[0],
+  ) => {
     cleared.push(handle as IdleTimerHandle);
     if (armed.includes(handle as IdleTimerHandle)) return;
     return nativeClearInterval.call(globalThis, handle);
@@ -85,7 +92,9 @@ function wrapLandingIdleTimer(): {
   return { armed, cleared };
 }
 
-function soleLandingIdleHandle(armed: readonly IdleTimerHandle[]): IdleTimerHandle {
+function soleLandingIdleHandle(
+  armed: readonly IdleTimerHandle[],
+): IdleTimerHandle {
   const handle = armed[0];
   if (armed.length !== 1 || handle === undefined) {
     throw new Error(
@@ -116,7 +125,9 @@ function rows(h: Harness): readonly string[] {
 
 /** Landing mark rows only — the bottom-left lockup shares the same glyphs. */
 function markRows(h: Harness): readonly string[] {
-  return rows(h).filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row) && !row.includes(LOCKUP_WORDMARK));
+  return rows(h).filter(
+    (row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row) && !row.includes(LOCKUP_WORDMARK),
+  );
 }
 
 describe("landing layout math", () => {
@@ -127,12 +138,22 @@ describe("landing layout math", () => {
   });
 
   test("wraps on words without breaking them", () => {
-    expect(wrapLanding("one two three four", 9)).toEqual(["one two", "three", "four"]);
-    expect(wrapLanding("supercalifragilistic", 4)).toEqual(["supercalifragilistic"]);
+    expect(wrapLanding("one two three four", 9)).toEqual([
+      "one two",
+      "three",
+      "four",
+    ]);
+    expect(wrapLanding("supercalifragilistic", 4)).toEqual([
+      "supercalifragilistic",
+    ]);
   });
 
   test("the disclosure outranks the starters when rows are scarce", () => {
-    const full = landingBelowContent({ rows: 10, columns: 78, telemetryNotice: NOTICE });
+    const full = landingBelowContent({
+      rows: 10,
+      columns: 78,
+      telemetryNotice: NOTICE,
+    });
     expect(full.notice.length).toBeGreaterThan(0);
     expect(full.suggestions).toEqual(LANDING_SUGGESTIONS);
 
@@ -156,7 +177,10 @@ describe("landing layout math", () => {
   test("the two doors are commands and /yolo", () => {
     expect(LANDING_HINTS).toEqual([
       { key: "/", rest: "for commands" },
-      { key: "/yolo", rest: "so Corbits Code doesn't have to ask for permissions" },
+      {
+        key: "/yolo",
+        rest: "so Corbits Code doesn't have to ask for permissions",
+      },
     ]);
   });
 
@@ -203,13 +227,17 @@ describe("landing screen", () => {
         expect(top).toBeGreaterThan(0);
         // The box straddles the terminal's middle row (within the half row an
         // odd-height box on an even-height terminal cannot avoid).
-        expect(Math.abs((top + bottom) / 2 - (SIZE.height - 1) / 2)).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs((top + bottom) / 2 - (SIZE.height - 1) / 2),
+        ).toBeLessThanOrEqual(1);
 
         // Mark above, bottom-anchored against the box; disclosure below it.
         const mark = markRows(h);
         // Whichever tier this terminal seats, the mark is whole: a clipped
         // grid would read as a different shape.
-        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(mark.length);
+        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
+          mark.length,
+        );
         expect(painted.indexOf(mark.at(-1) as string)).toBeLessThan(top);
         // The two doors sit beside the mark, not under it, and their
         // descriptions share one column — ragged, the pair reads as two
@@ -219,8 +247,8 @@ describe("landing screen", () => {
           const row = painted.find((line) => line.includes(hint.rest));
           expect(row).toBeDefined();
           expect(row).toContain(hint.key);
-          expect(row!.indexOf(hint.key)).toBeGreaterThan(0);
-          descriptionColumns.add(row!.indexOf(hint.rest));
+          expect(defined(row).indexOf(hint.key)).toBeGreaterThan(0);
+          descriptionColumns.add(defined(row).indexOf(hint.rest));
         }
         expect(descriptionColumns.size).toBe(1);
         // The version is chrome, not part of the hero: it never shares a row
@@ -230,13 +258,19 @@ describe("landing screen", () => {
           const row = painted.find((line) => line.includes(hint.rest));
           expect(row).not.toContain(LANDING_VERSION);
         }
-        const versionRow = painted.findIndex((row) => row.includes(LANDING_VERSION));
+        const versionRow = painted.findIndex((row) =>
+          row.includes(LANDING_VERSION),
+        );
         expect(versionRow).toBeGreaterThanOrEqual(0);
         // Bottom-right: on the terminal's last content row, hugging the right
         // edge rather than sitting under the hints.
         expect(versionRow).toBeGreaterThanOrEqual(SIZE.height - 2);
-        const versionCol = painted[versionRow]!.lastIndexOf(LANDING_VERSION);
-        expect(versionCol + LANDING_VERSION.length).toBeGreaterThan(SIZE.width - 4);
+        const versionCol = defined(painted[versionRow]).lastIndexOf(
+          LANDING_VERSION,
+        );
+        expect(versionCol + LANDING_VERSION.length).toBeGreaterThan(
+          SIZE.width - 4,
+        );
         const noticeRow = painted.findIndex((row) => row.includes("telemetry"));
         expect(noticeRow).toBeGreaterThan(bottom);
         for (const item of LANDING_SUGGESTIONS) {
@@ -432,13 +466,12 @@ describe("landing screen", () => {
       });
       try {
         await settle(h);
-        const first = LANDING_SUGGESTIONS[0];
-        expect(first).toBeDefined();
-        expect(applyLandingSuggestion(shell, first!.key)).toBe(true);
-        expect(shell.prompt.value).toBe(first!.prompt);
+        const first = defined(LANDING_SUGGESTIONS[0]);
+        expect(applyLandingSuggestion(shell, first.key)).toBe(true);
+        expect(shell.prompt.value).toBe(first.prompt);
 
         // Already typed: the key is a character, not a shortcut.
-        expect(applyLandingSuggestion(shell, first!.key)).toBe(false);
+        expect(applyLandingSuggestion(shell, first.key)).toBe(false);
       } finally {
         shell.dispose();
       }
@@ -454,7 +487,7 @@ describe("landing screen", () => {
       });
       try {
         await settle(h);
-        const first = LANDING_SUGGESTIONS[0]!;
+        const first = defined(LANDING_SUGGESTIONS[0]);
         expect(h.captureCharFrame()).toContain(first.label);
 
         shell.prompt.value = "wri";
@@ -486,7 +519,9 @@ describe("landing screen", () => {
         // The lockup rides the box's bottom rule, so it is on the rule itself
         // rather than on a row of its own beneath it.
         const landingPainted = rows(h);
-        const landingRow = landingPainted.findIndex((row) => row.includes(LOCKUP_WORDMARK));
+        const landingRow = landingPainted.findIndex((row) =>
+          row.includes(LOCKUP_WORDMARK),
+        );
         expect(landingRow).toBeGreaterThanOrEqual(0);
         expect(landingPainted[landingRow]).toContain("╰");
 
@@ -494,13 +529,15 @@ describe("landing screen", () => {
         appendStreamRow(shell, { role: "user", text: "first prompt" });
         await settle(h);
         const painted = rows(h);
-        const ruleRow = painted.findIndex((row) => row.includes(LOCKUP_WORDMARK));
+        const ruleRow = painted.findIndex((row) =>
+          row.includes(LOCKUP_WORDMARK),
+        );
         // Session-active: the version row only reserves space on the landing
         // screen (see `relayout`). Once there is real transcript content the
         // box sits one row above the terminal's last line — the optical
         // bottom pad (`BOTTOM_MARGIN_ROWS`) keeps it off the frame edge.
         expect(ruleRow).toBe(SIZE.height - 2);
-        const row = painted[ruleRow]!;
+        const row = defined(painted[ruleRow]);
         // Left end of the rule, inside the shell gutter, costing no row.
         expect(row.startsWith(" ╰─ ")).toBe(true);
         expect(row.trimEnd().endsWith("╯")).toBe(true);
@@ -545,8 +582,14 @@ describe("landing screen", () => {
         try {
           await settle(h);
           const before = rows(h);
-          const anchors = ["message", "telemetry", LANDING_SUGGESTIONS[0]!.label];
-          const was = anchors.map((text) => before.findIndex((row) => row.includes(text)));
+          const anchors = [
+            "message",
+            "telemetry",
+            defined(LANDING_SUGGESTIONS[0]).label,
+          ];
+          const was = anchors.map((text) =>
+            before.findIndex((row) => row.includes(text)),
+          );
           expect(was.every((index) => index > 0)).toBe(true);
           // The anchors are listed top to bottom, so their positions climb
           // together before the overlay opens.
@@ -579,7 +622,9 @@ describe("landing screen", () => {
           // slide the composition (up or down a little, as the mark re-grids
           // for its new tier) when its own content needs more room than the
           // even top/bottom split would otherwise leave it.
-          const nowAt = anchors.map((text) => after.findIndex((row) => row.includes(text)));
+          const nowAt = anchors.map((text) =>
+            after.findIndex((row) => row.includes(text)),
+          );
           expect(nowAt.every((index) => index > 0)).toBe(true);
           expect(nowAt).toEqual([...nowAt].sort((a, b) => a - b));
           expect(new Set(nowAt).size).toBe(nowAt.length);
@@ -651,7 +696,9 @@ describe("landing screen", () => {
           expect(field).toBeGreaterThan(0);
           expect(field).toBeLessThan(size.height);
           expect(markRows(h).length).toBeLessThan(field);
-          expect(h.captureCharFrame()).toContain(LANDING_HINTS[0]!.rest);
+          expect(h.captureCharFrame()).toContain(
+            defined(LANDING_HINTS[0]).rest,
+          );
         } finally {
           shell.dispose();
         }
@@ -671,7 +718,14 @@ describe("landing screen", () => {
         const frame = h.captureCharFrame();
         // Assert the badge token, not "queue": this worktree path contains
         // "queued" and would false-fail a cwd substring check.
-        for (const gone of ["BUSY", "IDLE", "FOLLOW", "follow-up", "lines", "focus"]) {
+        for (const gone of [
+          "BUSY",
+          "IDLE",
+          "FOLLOW",
+          "follow-up",
+          "lines",
+          "focus",
+        ]) {
           expect(frame).not.toContain(gone);
         }
         // The old header blue and status green are gone as fills.
@@ -705,7 +759,9 @@ describe("landing screen", () => {
         expect(frame).toContain("telemetry");
         // The prompt box is back at the foot of the screen.
         const painted = rows(h);
-        expect(painted.findIndex((row) => /[└╰]/.test(row))).toBeGreaterThan(SIZE.height - 4);
+        expect(painted.findIndex((row) => /[└╰]/.test(row))).toBeGreaterThan(
+          SIZE.height - 4,
+        );
       } finally {
         shell.dispose();
       }
@@ -726,7 +782,9 @@ describe("landing screen", () => {
         await settle(h);
         expect(isLanding(shell)).toBe(true);
         const before = markRows(h);
-        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(before.length);
+        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
+          before.length,
+        );
 
         const mcpError =
           "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail";
@@ -740,7 +798,9 @@ describe("landing screen", () => {
         expect(noticeText(shell)).toContain("mcp github did not connect");
         const after = markRows(h);
         expect(after.length).toBe(before.length);
-        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(after.length);
+        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
+          after.length,
+        );
 
         // A real session row still ends the landing; deferred notices become
         // durable transcript rows rather than vanishing with the flash.
@@ -817,7 +877,9 @@ describe("landing screen", () => {
         // happens to contain "overlay" (or "command") must not false-positive
         // the plumbing-label invariant.
         const noticeNeedle = "mcp github did not connect";
-        const noticeRows = shell.streamLog.filter((row) => row.text.includes(noticeNeedle));
+        const noticeRows = shell.streamLog.filter((row) =>
+          row.text.includes(noticeNeedle),
+        );
         expect(noticeRows.length).toBeGreaterThan(0);
         for (const row of noticeRows) {
           expect(row.meta).not.toBe("command");
@@ -838,7 +900,10 @@ describe("landing screen", () => {
   test("the version is chrome, not the hero: it hides before actionable chrome does on a narrow terminal", async () => {
     // Comfortably above the badge's own thresholds but below nothing else —
     // proves the badge is what degrades, and degrades first.
-    const roomy = { width: VERSION_BADGE_MIN_COLUMNS + 20, height: VERSION_BADGE_MIN_ROWS + 8 };
+    const roomy = {
+      width: VERSION_BADGE_MIN_COLUMNS + 20,
+      height: VERSION_BADGE_MIN_ROWS + 8,
+    };
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: roomy.width, rows: roomy.height },
@@ -859,7 +924,9 @@ describe("landing screen", () => {
       width: VERSION_BADGE_MIN_COLUMNS - 1,
       height: VERSION_BADGE_MIN_ROWS + 8,
     };
-    expect(versionBadgeVisible(narrowColumns.width, narrowColumns.height)).toBe(false);
+    expect(versionBadgeVisible(narrowColumns.width, narrowColumns.height)).toBe(
+      false,
+    );
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: narrowColumns.width, rows: narrowColumns.height },
@@ -930,7 +997,9 @@ describe("landing screen", () => {
         expect(painted.length).toBe(size.height + 1);
         // Nothing is clipped off past the terminal's own row count — the
         // frame is exactly as tall as the terminal, not taller.
-        expect(painted.slice(size.height).every((row) => row === "")).toBe(true);
+        expect(painted.slice(size.height).every((row) => row === "")).toBe(
+          true,
+        );
 
         const frame = painted.join("\n");
         expect(frame).toContain("wire the version badge");
@@ -939,9 +1008,8 @@ describe("landing screen", () => {
         // the combination of the task row and the version row.
         const promptRow = painted.findIndex((row) => row.includes("message"));
         expect(promptRow).toBeGreaterThan(0);
-        const box = shell.layout.regions.prompt;
-        expect(box).toBeDefined();
-        expect(box!.y + box!.height).toBeLessThanOrEqual(size.height);
+        const box = defined(shell.layout.regions.prompt);
+        expect(box.y + box.height).toBeLessThanOrEqual(size.height);
       } finally {
         shell.dispose();
       }

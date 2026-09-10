@@ -7,7 +7,9 @@ import { XAI_CALLBACK_PATH, XAI_CALLBACK_PORT } from "./constants.js";
 
 export type XaiCallbackServer = CallbackServer;
 
-export async function startXaiCallbackServer(expectedState: string): Promise<XaiCallbackServer> {
+export async function startXaiCallbackServer(
+  expectedState: string,
+): Promise<XaiCallbackServer> {
   return startCallbackServer(expectedState, {
     port: XAI_CALLBACK_PORT,
     path: XAI_CALLBACK_PATH,

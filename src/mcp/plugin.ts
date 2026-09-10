@@ -24,10 +24,17 @@ function sanitizeMcpResultContent(
   content: string,
   spill?: { callId: string; writeBlob: SpillBlobWriter; contextDir?: string },
 ): Promise<string> {
-  return truncateToolResultContent(scrubSecretShapedContent(content), undefined, spill);
+  return truncateToolResultContent(
+    scrubSecretShapedContent(content),
+    undefined,
+    spill,
+  );
 }
 
-export function mcpClientTools(client: MCPClient, spillOptions: McpSpillOptions = {}): AgentTool[] {
+export function mcpClientTools(
+  client: MCPClient,
+  spillOptions: McpSpillOptions = {},
+): AgentTool[] {
   const { getBlobWriter, getContextDir, excludeToolNames = [] } = spillOptions;
   const excluded = new Set(excludeToolNames);
 
@@ -40,7 +47,10 @@ export function mcpClientTools(client: MCPClient, spillOptions: McpSpillOptions 
         description: `[${client.serverName}] ${tool.description}`,
         inputSchema: tool.inputSchema,
       },
-      handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
+      handler: async (
+        call: ToolCall,
+        signal: AbortSignal,
+      ): Promise<ToolResult> => {
         try {
           const content = await client.call(tool.name, call.arguments, signal);
           const writeBlob = getBlobWriter?.();
@@ -53,7 +63,10 @@ export function mcpClientTools(client: MCPClient, spillOptions: McpSpillOptions 
                   ...(contextDir !== undefined ? { contextDir } : {}),
                 }
               : undefined;
-          return { callId: call.id, content: await sanitizeMcpResultContent(content, spill) };
+          return {
+            callId: call.id,
+            content: await sanitizeMcpResultContent(content, spill),
+          };
         } catch (err) {
           return {
             callId: call.id,

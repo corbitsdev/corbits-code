@@ -7,16 +7,26 @@ import {
   isShellCommentOnly,
   isShellNoOp,
 } from "./command.js";
-import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
+import {
+  isMcpToolName,
+  humanizeMcpTool,
+  isReadOnlyMcpTool,
+} from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
-import { commandReferencesSensitivePath, isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  commandReferencesSensitivePath,
+  isSensitivePath,
+} from "../plugins/secret-guard-plugin.js";
 import {
   runShellAuthzBlockReason,
   runShellAuthzSegmentBlockReason,
 } from "../shell/run-shell-authz.js";
 import { resolveWorkspacePath } from "./path-restriction.js";
 import type { RootsProvider } from "./worktree-roots.js";
-import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
+import {
+  isProductMutationTool,
+  productMutationPaths,
+} from "../agent/product-mutation-tools.js";
 import { AUTO_ALLOW_READ_TOOLS as READ_ONLY_TOOLS } from "../agent/tool-classification.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
@@ -75,7 +85,10 @@ export type Tier = "allow" | "ask";
 // grants, where deny and the reactor's suspend effect live. Collapsing the two
 // would push tool defaults into grant-matching or force the grant store to
 // re-implement tiering.
-export function classifyTool(toolName: string, mcpTiers?: McpToolPermissionRegistry): Tier {
+export function classifyTool(
+  toolName: string,
+  mcpTiers?: McpToolPermissionRegistry,
+): Tier {
   if (READ_ONLY_TOOLS.has(toolName)) return "allow";
   if (isMcpToolName(toolName)) {
     const registered = mcpTiers?.tierFor(toolName);
@@ -110,7 +123,10 @@ const MAX_PURE_TREE_DEPTH = 10;
 
 // Recursive ls / unbounded or over-deep tree can OOM the host — pure-listing
 // auto-allow is only for shallow name dumps.
-function parseTreeDepth(arg: string, next: string | undefined): number | undefined {
+function parseTreeDepth(
+  arg: string,
+  next: string | undefined,
+): number | undefined {
   if (arg === "-L" || arg === "--max-depth") {
     if (next !== undefined && /^\d+$/.test(next)) return Number(next);
     return undefined;
@@ -131,7 +147,10 @@ const LS_RECURSIVE_LONG_FLAG = /^--r(e(c(u(r(s(i(v(e)?)?)?)?)?)?)?)?(=|$)/;
 // the normal write review instead of the pure-listing exemption.
 const TREE_FILE_IO_FLAG = /^(-o|--output|-H|--html|--fromfile)(=|$)/;
 
-function isBoundedDirectoryListing(program: string, args: readonly string[]): boolean {
+function isBoundedDirectoryListing(
+  program: string,
+  args: readonly string[],
+): boolean {
   if (program === "ls") {
     for (const arg of args) {
       if (LS_RECURSIVE_LONG_FLAG.test(arg)) return false;
@@ -143,7 +162,8 @@ function isBoundedDirectoryListing(program: string, args: readonly string[]): bo
   if (program === "tree") {
     if (args.some((arg) => TREE_FILE_IO_FLAG.test(arg))) return false;
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
+      const arg = args[i];
+      if (arg === undefined) continue;
       const depth = parseTreeDepth(arg, args[i + 1]);
       if (depth === undefined) continue;
       // `-L` / `--max-depth` consume the next token when separate.
@@ -160,7 +180,8 @@ function isPureDirectoryListingSegment(segment: string): boolean {
   // Redirects / composition mean the segment is not "names only" — e.g.
   // `ls > /dev/pts/0` must still hit path restriction + authz hard-deny.
   // Pipes are evaluated per stage by callers; a multi-stage string is never pure.
-  if (trimmed.includes("|") || DANGEROUS_METACHARACTERS.test(trimmed)) return false;
+  if (trimmed.includes("|") || DANGEROUS_METACHARACTERS.test(trimmed))
+    return false;
   const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!PURE_DIRECTORY_LISTING_PROGRAMS.has(program)) return false;
@@ -205,7 +226,9 @@ export function commandTargetsRestricted(
     for (const pipeSeg of segment.split("|")) {
       if (isPureDirectoryListingSegment(pipeSeg)) continue;
       if (
-        pathLikeTokens(pipeSeg).some((token) => token.startsWith("~") || isRestricted(token, false))
+        pathLikeTokens(pipeSeg).some(
+          (token) => token.startsWith("~") || isRestricted(token, false),
+        )
       ) {
         return true;
       }
@@ -234,7 +257,9 @@ export function callTargetsRestricted(
   if (call.name === "run_shell")
     return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
   if (call.name === "apply_patch") {
-    return productMutationPaths(call.name, call.arguments).some((path) => isRestricted(path, true));
+    return productMutationPaths(call.name, call.arguments).some((path) =>
+      isRestricted(path, true),
+    );
   }
 
   return restrictedPathArg(call, isRestricted) !== undefined;
@@ -288,7 +313,8 @@ const SAFE_SHELL_PROGRAMS = new Set([
 // their *dir variants), deletes matches (-delete), or writes results to a file
 // (-fprint*/-fls). Its own `-o` is logical OR, not an output flag, so `find`
 // gets this rule instead of the generic WRITE_FLAG/EXEC_FLAG checks below.
-const FIND_DANGEROUS_FLAG = /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fprint0|fls)$/;
+const FIND_DANGEROUS_FLAG =
+  /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fprint0|fls)$/;
 
 // Non-pipe metacharacters that cannot appear anywhere in an auto-allowed command.
 // Pipes between safe programs are evaluated segment-by-segment (see below).
@@ -314,7 +340,11 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // looser) rule than the one that judges it restricted. `rootsProvider`
 // defaults to no extra roots, so callers that don't pass one keep exactly
 // today's cwd-only behavior.
-function escapesWorkspace(token: string, cwd: string, rootsProvider: RootsProvider): boolean {
+function escapesWorkspace(
+  token: string,
+  cwd: string,
+  rootsProvider: RootsProvider,
+): boolean {
   if (token.startsWith("~")) return true;
   return resolveWorkspacePath(cwd, token, rootsProvider) === undefined;
 }
@@ -331,10 +361,19 @@ function flagPathValue(token: string): string | null {
   return glued !== null ? (glued[1] ?? null) : null;
 }
 
-function argEscapesWorkspace(token: string, cwd: string, rootsProvider: RootsProvider): boolean {
-  if (!token.startsWith("-")) return escapesWorkspace(token, cwd, rootsProvider);
+function argEscapesWorkspace(
+  token: string,
+  cwd: string,
+  rootsProvider: RootsProvider,
+): boolean {
+  if (!token.startsWith("-"))
+    return escapesWorkspace(token, cwd, rootsProvider);
   const value = flagPathValue(token);
-  return value !== null && value.length > 0 && escapesWorkspace(value, cwd, rootsProvider);
+  return (
+    value !== null &&
+    value.length > 0 &&
+    escapesWorkspace(value, cwd, rootsProvider)
+  );
 }
 
 // No-extra-roots default: callers that don't pass a rootsProvider (existing
@@ -358,7 +397,11 @@ export function isAutoAllowedShellSegment(
   return isAutoAllowedSegment(segment, cwd, rootsProvider);
 }
 
-function isAutoAllowedSegment(segment: string, cwd: string, rootsProvider: RootsProvider): boolean {
+function isAutoAllowedSegment(
+  segment: string,
+  cwd: string,
+  rootsProvider: RootsProvider,
+): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
@@ -377,7 +420,8 @@ function isAutoAllowedSegment(segment: string, cwd: string, rootsProvider: Roots
   // Listing programs that fail pure (recursive ls, over-deep tree, …) never
   // auto-allow — they can OOM the host the same way open-ended find/rg can.
   const pureListing = isPureDirectoryListingSegment(trimmed);
-  if (PURE_DIRECTORY_LISTING_PROGRAMS.has(program) && !pureListing) return false;
+  if (PURE_DIRECTORY_LISTING_PROGRAMS.has(program) && !pureListing)
+    return false;
   const args = tokens.slice(1);
   if (program === "find") {
     if (args.some((token) => FIND_DANGEROUS_FLAG.test(token))) return false;
@@ -388,7 +432,10 @@ function isAutoAllowedSegment(segment: string, cwd: string, rootsProvider: Roots
   if (args.some((token) => isSensitivePath(token))) return false;
   // Pure directory listing may target outside-workspace paths (names only).
   // Content readers must stay inside the workspace.
-  if (!pureListing && args.some((token) => argEscapesWorkspace(token, cwd, rootsProvider))) {
+  if (
+    !pureListing &&
+    args.some((token) => argEscapesWorkspace(token, cwd, rootsProvider))
+  ) {
     return false;
   }
   return true;
@@ -405,7 +452,11 @@ export function isAutoAllowedShellCommand(
   // Multi-line strings that merely *start* with `#` can still contain real
   // commands on later lines, so those go through the normal segment path
   // (buildRequests filters comment-only segments).
-  if (!trimmed.includes("\n") && (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))) return true;
+  if (
+    !trimmed.includes("\n") &&
+    (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))
+  )
+    return true;
   if (commandReferencesSensitivePath(trimmed)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
@@ -424,7 +475,11 @@ export function isAutoAllowedShellCall(
   rootsProvider: RootsProvider = NO_ROOTS,
 ): boolean {
   if (call.name !== "run_shell") return false;
-  return isAutoAllowedShellCommand(stringArg(call, "command"), cwd, rootsProvider);
+  return isAutoAllowedShellCommand(
+    stringArg(call, "command"),
+    cwd,
+    rootsProvider,
+  );
 }
 
 // File scopes intentionally stop at the directory level. There is no "every
@@ -437,7 +492,11 @@ function fileScopes(path: string): ApprovalScope[] {
   const slash = path.lastIndexOf("/");
   if (slash > 0) {
     const dir = path.slice(0, slash);
-    scopes.push({ id: "dir", label: `Allow Always (this directory)`, pattern: `${dir}/*` });
+    scopes.push({
+      id: "dir",
+      label: `Allow Always (this directory)`,
+      pattern: `${dir}/*`,
+    });
   }
   return scopes;
 }
@@ -450,7 +509,9 @@ function stringArg(call: ToolCall, key: string): string {
 // The real (non-comment-only) chain segments of a shell command — the basis
 // shellApprovalScopes uses to answer "is this one command or a chain."
 function realShellSegments(command: string): string[] {
-  return splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
+  return splitChainedCommand(command).filter(
+    (segment) => !isShellCommentOnly(segment),
+  );
 }
 
 // Approval scopes for a shell command the operator may persist. Multi-segment
@@ -560,7 +621,9 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
         action: "Search the web",
         subject: query,
         arguments: call.arguments,
-        scopes: [{ id: "tool", label: "Always allow web_search", pattern: call.name }],
+        scopes: [
+          { id: "tool", label: "Always allow web_search", pattern: call.name },
+        ],
       },
     ];
   }

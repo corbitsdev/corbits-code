@@ -7,25 +7,37 @@ import {
   getValidCodexToken,
   CodexAuthError,
 } from "../../src/auth/codex/session.js";
-import { loadCodexProfile, saveCodexProfile } from "../../src/auth/codex/store.js";
+import {
+  loadCodexProfile,
+  saveCodexProfile,
+} from "../../src/auth/codex/store.js";
 
 describe("isCodexTokenExpired", () => {
   test("not expired well before expiry", () => {
-    expect(isCodexTokenExpired({ access: "a", refresh: "r", expiresAt: 1_000_000 }, 500_000)).toBe(
-      false,
-    );
+    expect(
+      isCodexTokenExpired(
+        { access: "a", refresh: "r", expiresAt: 1_000_000 },
+        500_000,
+      ),
+    ).toBe(false);
   });
 
   test("expired within the refresh skew window", () => {
     // 30s before expiry is inside the 60s skew, so treated as expired.
     expect(
-      isCodexTokenExpired({ access: "a", refresh: "r", expiresAt: 1_000_000 }, 1_000_000 - 30_000),
+      isCodexTokenExpired(
+        { access: "a", refresh: "r", expiresAt: 1_000_000 },
+        1_000_000 - 30_000,
+      ),
     ).toBe(true);
   });
 
   test("expired after expiry", () => {
     expect(
-      isCodexTokenExpired({ access: "a", refresh: "r", expiresAt: 1_000_000 }, 2_000_000),
+      isCodexTokenExpired(
+        { access: "a", refresh: "r", expiresAt: 1_000_000 },
+        2_000_000,
+      ),
     ).toBe(true);
   });
 });
@@ -74,7 +86,12 @@ describe("getValidCodexToken", () => {
         {
           name: "p",
           createdAt: 0,
-          tokens: { access: "live", refresh: "r", expiresAt: 10_000_000, accountId: "acct-1" },
+          tokens: {
+            access: "live",
+            refresh: "r",
+            expiresAt: 10_000_000,
+            accountId: "acct-1",
+          },
         },
         home,
       );
@@ -87,12 +104,20 @@ describe("getValidCodexToken", () => {
   test("refreshes and persists when the token is expired", async () => {
     await withHome(async (home) => {
       await saveCodexProfile(
-        { name: "p", createdAt: 0, tokens: { access: "old", refresh: "old-r", expiresAt: 1_000 } },
+        {
+          name: "p",
+          createdAt: 0,
+          tokens: { access: "old", refresh: "old-r", expiresAt: 1_000 },
+        },
         home,
       );
       globalThis.fetch = (async () =>
         new Response(
-          JSON.stringify({ access_token: "fresh", refresh_token: "new-r", expires_in: 3600 }),
+          JSON.stringify({
+            access_token: "fresh",
+            refresh_token: "new-r",
+            expires_in: 3600,
+          }),
           {
             status: 200,
             headers: { "content-type": "application/json" },
@@ -109,7 +134,9 @@ describe("getValidCodexToken", () => {
 
   test("throws CodexAuthError(missing) for an unknown profile", async () => {
     await withHome(async (home) => {
-      const err = await getValidCodexToken("ghost", 0, home).catch((e: unknown) => e);
+      const err = await getValidCodexToken("ghost", 0, home).catch(
+        (e: unknown) => e,
+      );
       expect(err).toBeInstanceOf(CodexAuthError);
       expect((err as CodexAuthError).reason).toBe("missing");
       expect((err as CodexAuthError).profile).toBe("ghost");
@@ -119,12 +146,18 @@ describe("getValidCodexToken", () => {
   test("throws CodexAuthError(refresh-failed) when refresh is rejected", async () => {
     await withHome(async (home) => {
       await saveCodexProfile(
-        { name: "p", createdAt: 0, tokens: { access: "old", refresh: "bad", expiresAt: 1_000 } },
+        {
+          name: "p",
+          createdAt: 0,
+          tokens: { access: "old", refresh: "bad", expiresAt: 1_000 },
+        },
         home,
       );
       globalThis.fetch = (async () =>
         new Response("revoked", { status: 400 })) as unknown as typeof fetch;
-      const err = await getValidCodexToken("p", 5_000, home).catch((e: unknown) => e);
+      const err = await getValidCodexToken("p", 5_000, home).catch(
+        (e: unknown) => e,
+      );
       expect(err).toBeInstanceOf(CodexAuthError);
       expect((err as CodexAuthError).reason).toBe("refresh-failed");
     });

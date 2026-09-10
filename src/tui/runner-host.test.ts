@@ -6,8 +6,14 @@ import type { KeyEvent } from "@opentui/core";
 import type { CostSummary } from "../cost/cost-summary.js";
 import type { SubAgentSession } from "../subagent/session-store.js";
 import { createHarness } from "./harness.js";
-import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host.js";
-import { moveOverlaySelection, runOverlayAction } from "./shell/overlay-list.js";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+} from "./shell/overlay-host.js";
+import {
+  moveOverlaySelection,
+  runOverlayAction,
+} from "./shell/overlay-list.js";
 import { resolvePaletteCatalog } from "./shell/palette.js";
 import {
   mountRunnerHost,
@@ -68,13 +74,20 @@ describe("rowFromTranscriptEntry", () => {
       role: "assistant",
       text: "hi",
     });
-    expect(rowFromTranscriptEntry({ kind: "thinking", content: "hm" })).toEqual({
-      role: "system",
-      text: "hm",
-      meta: "thinking",
-    });
+    expect(rowFromTranscriptEntry({ kind: "thinking", content: "hm" })).toEqual(
+      {
+        role: "system",
+        text: "hm",
+        meta: "thinking",
+      },
+    );
     expect(
-      rowFromTranscriptEntry({ kind: "tool", callId: "c", name: "grep", arguments: "{}" }),
+      rowFromTranscriptEntry({
+        kind: "tool",
+        callId: "c",
+        name: "grep",
+        arguments: "{}",
+      }),
     ).toEqual({
       role: "tool",
       text: "{}",
@@ -95,12 +108,20 @@ describe("rowFromTranscriptEntry", () => {
         content: "boom",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "boom", meta: "grep", failed: true, callId: "c" });
-    expect(rowFromTranscriptEntry({ kind: "report", content: "done" })).toEqual({
-      role: "assistant",
-      text: "done",
-      meta: "report",
+    ).toEqual({
+      role: "tool",
+      text: "boom",
+      meta: "grep",
+      failed: true,
+      callId: "c",
     });
+    expect(rowFromTranscriptEntry({ kind: "report", content: "done" })).toEqual(
+      {
+        role: "assistant",
+        text: "done",
+        meta: "report",
+      },
+    );
   });
 });
 
@@ -139,15 +160,15 @@ describe("mountRunnerHost session bridge", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
@@ -172,23 +193,27 @@ describe("mountRunnerHost chrome wiring", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: () => commands,
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
     try {
-      expect(resolvePaletteCatalog(host.shell).map((command) => command.id)).toEqual(["first"]);
+      expect(
+        resolvePaletteCatalog(host.shell).map((command) => command.id),
+      ).toEqual(["first"]);
 
       commands = [{ name: "second", description: "Second command" }];
-      expect(resolvePaletteCatalog(host.shell).map((command) => command.id)).toEqual(["second"]);
+      expect(
+        resolvePaletteCatalog(host.shell).map((command) => command.id),
+      ).toEqual(["second"]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -201,19 +226,21 @@ describe("mountRunnerHost chrome wiring", () => {
   // leaves the task panel empty (rebuild later; live work is spawn_agent rows).
   test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
     const harness = await createHarness({ width: 80, height: 24 });
-    let liveTasks: readonly { title: string; status: "todo" | "doing" | "done" | "cancelled" }[] =
-      [];
+    let liveTasks: readonly {
+      title: string;
+      status: "todo" | "doing" | "done" | "cancelled";
+    }[] = [];
     let notify: (() => void) | undefined;
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ tasks: liveTasks, agents: [] }),
       subscribeChrome: (n) => {
         notify = n;
@@ -252,15 +279,15 @@ describe("mountRunnerHost command surfaces", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       surfaces: {
@@ -271,10 +298,10 @@ describe("mountRunnerHost command surfaces", () => {
             telemetryEnabled: false,
             showPromptCost: false,
           }),
-          setCompactionMode: () => {},
-          setWaitForApproval: () => {},
-          setTelemetryEnabled: () => {},
-          setShowPromptCost: () => {},
+          setCompactionMode: () => undefined,
+          setWaitForApproval: () => undefined,
+          setTelemetryEnabled: () => undefined,
+          setShowPromptCost: () => undefined,
         },
       },
     });
@@ -298,16 +325,16 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4", "grok-3"] } },
       activeModel: () => ({ provider: "xai", model: "grok-4" }),
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
@@ -330,25 +357,32 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
     try {
-      host.refreshModels([], [], { xai: { models: ["grok-4"] }, openai: { models: ["gpt-5"] } });
+      host.refreshModels([], [], {
+        xai: { models: ["grok-4"] },
+        openai: { models: ["gpt-5"] },
+      });
       expect(host.openSurface("models")).toBe(true);
       // Flat list: the new provider appears as a leaf `model * [provider]` row,
       // not a nested group to drill into.
-      expect(host.shell.overlayItems.some((label) => label.includes("openai"))).toBe(true);
-      expect(host.shell.overlayItems.some((label) => label.includes("gpt-5"))).toBe(true);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("openai")),
+      ).toBe(true);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("gpt-5")),
+      ).toBe(true);
     } finally {
       host.dispose();
       harness.destroy();
@@ -361,16 +395,16 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       onFavoriteToggle: (id) => toggled.push(id),
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
@@ -378,7 +412,12 @@ describe("mountRunnerHost model picker", () => {
       expect(host.openSurface("models")).toBe(true);
       // Flat list: the model row is already focusable at the top level —
       // Alt+F toggles favorite without a nested provider drill.
-      const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent;
+      const fKey = {
+        name: "f",
+        ctrl: false,
+        meta: false,
+        option: true,
+      } as KeyEvent;
       expect(runOverlayAction(host.shell, fKey)).toBe(true);
       expect(toggled).toEqual(["xai:grok-4"]);
     } finally {
@@ -393,22 +432,27 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       onSetDefault: (id) => setDefault.push(id),
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
     try {
       expect(host.openSurface("models")).toBe(true);
-      const dKey = { name: "d", ctrl: false, meta: false, option: true } as KeyEvent;
+      const dKey = {
+        name: "d",
+        ctrl: false,
+        meta: false,
+        option: true,
+      } as KeyEvent;
       expect(runOverlayAction(host.shell, dKey)).toBe(true);
       expect(setDefault).toEqual(["xai:grok-4"]);
     } finally {
@@ -423,29 +467,37 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       onConnectProvider: (name) => connected.push(name),
       addProviderChoices: () => [
         { id: "codex", label: "Codex", hint: "", accountCount: 1 },
         { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
       ],
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
     try {
       expect(host.openSurface("models")).toBe(true);
-      const altA = { name: "a", ctrl: false, meta: false, option: true } as KeyEvent;
+      const altA = {
+        name: "a",
+        ctrl: false,
+        meta: false,
+        option: true,
+      } as KeyEvent;
       expect(runOverlayAction(host.shell, altA)).toBe(true);
       expect(host.shell.overlayKind).toBe("add_provider");
-      expect(host.shell.overlayItems).toEqual(["Codex — 1 account", "OpenAI — 0 accounts"]);
+      expect(host.shell.overlayItems).toEqual([
+        "Codex — 1 account",
+        "OpenAI — 0 accounts",
+      ]);
       acceptOverlaySelection(host.shell);
       expect(connected).toEqual(["codex"]);
     } finally {
@@ -459,27 +511,30 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
-      onConnectProvider: () => {},
+      onModelSelect: () => undefined,
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [
         { id: "codex", label: "Codex", hint: "", accountCount: 1 },
         { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
       ],
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
     try {
       expect(host.openSurface("add-provider")).toBe(true);
       expect(host.shell.overlayKind).toBe("add_provider");
-      expect(host.shell.overlayItems).toEqual(["Codex — 1 account", "OpenAI — 0 accounts"]);
+      expect(host.shell.overlayItems).toEqual([
+        "Codex — 1 account",
+        "OpenAI — 0 accounts",
+      ]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -491,15 +546,15 @@ describe("mountRunnerHost model picker", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
@@ -519,15 +574,15 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => fakeCostSummary(),
@@ -548,15 +603,15 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => fakeCostSummary(),
@@ -581,9 +636,9 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {
         xai: { models: ["grok-4"] },
         "codex/abk-labs": { models: ["gpt-5.5"] },
@@ -594,14 +649,16 @@ describe("bottom border cost run", () => {
         provider = id.slice(0, sep);
       },
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => ({
         ...fakeCostSummary(),
-        costHiddenReason: provider.startsWith("codex/") ? "chatgpt-subscription" : null,
+        costHiddenReason: provider.startsWith("codex/")
+          ? "chatgpt-subscription"
+          : null,
       }),
       showPromptCost: () => true,
     });
@@ -610,7 +667,9 @@ describe("bottom border cost run", () => {
 
       expect(host.openSurface("models")).toBe(true);
       const items = host.shell.overlayItems;
-      const codexIndex = items.findIndex((label) => label.includes("codex/abk-labs"));
+      const codexIndex = items.findIndex((label) =>
+        label.includes("codex/abk-labs"),
+      );
       expect(codexIndex).toBeGreaterThanOrEqual(0);
       moveOverlaySelection(host.shell, codexIndex);
       acceptOverlaySelection(host.shell);
@@ -631,9 +690,9 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {
         "codex/abk-labs": { models: ["gpt-5.5"] },
         xai: { models: ["grok-4"] },
@@ -644,14 +703,16 @@ describe("bottom border cost run", () => {
         provider = id.slice(0, sep);
       },
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => ({
         ...fakeCostSummary(),
-        costHiddenReason: provider.startsWith("codex/") ? "chatgpt-subscription" : null,
+        costHiddenReason: provider.startsWith("codex/")
+          ? "chatgpt-subscription"
+          : null,
       }),
       showPromptCost: () => true,
     });
@@ -681,15 +742,15 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: emitter,
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       // Stale occupancy — refreshCostContext would re-paint this if clear
@@ -717,18 +778,21 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: emitter,
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
-      readCostSummary: () => ({ ...fakeCostSummary(), contextPercentUsed: percent }),
+      readCostSummary: () => ({
+        ...fakeCostSummary(),
+        contextPercentUsed: percent,
+      }),
     });
     try {
       expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
@@ -751,18 +815,21 @@ describe("bottom border cost run", () => {
     const host = await mountRunnerHost({
       title: "test",
       eventEmitter: emitter,
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
-      readCostSummary: () => ({ ...fakeCostSummary(), contextPercentUsed: percent }),
+      readCostSummary: () => ({
+        ...fakeCostSummary(),
+        contextPercentUsed: percent,
+      }),
     });
     try {
       expect(ruleOf(host.shell.promptBottomRule)).toContain("90%");
@@ -780,7 +847,9 @@ describe("bottom border cost run", () => {
 });
 
 /** Resolves true when the host exited, false when it is still alive. */
-async function exited(host: { waitUntilExit: () => Promise<void> }): Promise<boolean> {
+async function exited(host: {
+  waitUntilExit: () => Promise<void>;
+}): Promise<boolean> {
   return await Promise.race([
     host.waitUntilExit().then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 25)),
@@ -791,15 +860,15 @@ describe("mountRunnerHost quit key", () => {
   const baseDeps = (harness: Awaited<ReturnType<typeof createHarness>>) => ({
     title: "test",
     eventEmitter: new EventEmitter(),
-    send: () => {},
-    interrupt: () => {},
-    deliver: () => {},
+    send: () => undefined,
+    interrupt: () => undefined,
+    deliver: () => undefined,
     providers: {},
-    onModelSelect: () => {},
+    onModelSelect: () => undefined,
     commands: [],
-    onCommand: () => {},
+    onCommand: () => undefined,
     chrome: () => ({ agents: [] }),
-    subscribeChrome: () => () => {},
+    subscribeChrome: () => () => undefined,
     subAgentSessions: () => [],
     createRenderer: async () => harness.renderer,
   });

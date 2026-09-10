@@ -18,8 +18,8 @@ test("setTelemetry replaces the process-wide instance", () => {
       captured = event;
     },
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   });
   getTelemetry().capture("session_end");
   expect(captured).toBe("session_end");

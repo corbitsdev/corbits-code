@@ -1,3 +1,4 @@
+import { defined } from "../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -22,7 +23,9 @@ describe("defaultPricingCachePath", () => {
   test("resolves under ~/.corbits/, not project cwd .cache/", () => {
     const path = defaultPricingCachePath();
     expect(isAbsolute(path)).toBe(true);
-    expect(path).toBe(join(homedir(), ".corbits", "cache", "models-pricing.json"));
+    expect(path).toBe(
+      join(homedir(), ".corbits", "cache", "models-pricing.json"),
+    );
     // Must not be the old cwd-relative default that polluted project directories.
     expect(path).not.toBe(".cache/models-pricing.json");
     expect(path.endsWith(join(".cache", "models-pricing.json"))).toBe(false);
@@ -46,7 +49,10 @@ describe("parseModelsDevReasoning", () => {
         },
       },
     };
-    expect(parseModelsDevReasoning(payload)).toEqual({ "gpt-5.1": true, "gpt-4o": false });
+    expect(parseModelsDevReasoning(payload)).toEqual({
+      "gpt-5.1": true,
+      "gpt-4o": false,
+    });
   });
 });
 
@@ -91,7 +97,7 @@ describe("parseModelsDevPricing", () => {
       output_cost_per_million: 20,
     };
     const result = parseModelsDevPricing(payload);
-    expect(result["model-x"]!.cacheReadPricePerToken).toBe(0);
+    expect(defined(result["model-x"]).cacheReadPricePerToken).toBe(0);
   });
 
   test("recurses into nested objects", () => {
@@ -162,7 +168,9 @@ describe("lookupModelPricing", () => {
   };
 
   test("returns pricing for a known model", () => {
-    expect(lookupModelPricing(cache, "gpt-4")).toEqual(cache.models["gpt-4"]!);
+    expect(lookupModelPricing(cache, "gpt-4")).toEqual(
+      defined(cache.models["gpt-4"]),
+    );
   });
 
   test("returns null for an unknown model", () => {
@@ -181,7 +189,13 @@ describe("lookupModelPricing", () => {
 describe("fetchPricing", () => {
   test("parses a successful response and returns a cache object", async () => {
     const mockPayload = {
-      models: [{ id: "test-model", input_cost_per_million: 10, output_cost_per_million: 20 }],
+      models: [
+        {
+          id: "test-model",
+          input_cost_per_million: 10,
+          output_cost_per_million: 20,
+        },
+      ],
     };
     const mockFetch = async () => ({ ok: true, json: async () => mockPayload });
 
@@ -197,16 +211,16 @@ describe("fetchPricing", () => {
 
   test("throws when response is not ok", async () => {
     const mockFetch = async () => ({ ok: false, status: 503 });
-    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow(
-      "503",
-    );
+    await expect(
+      fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch }),
+    ).rejects.toThrow("503");
   });
 
   test("throws when response contains no model prices", async () => {
     const mockFetch = async () => ({ ok: true, json: async () => ({}) });
-    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow(
-      "did not include model prices",
-    );
+    await expect(
+      fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch }),
+    ).rejects.toThrow("did not include model prices");
   });
 });
 
@@ -217,7 +231,9 @@ describe("fetchPricing", () => {
 describe("loadPricing", () => {
   test("returns fetch result and writes cache on success", async () => {
     const mockPayload = {
-      models: [{ id: "m1", input_cost_per_million: 5, output_cost_per_million: 10 }],
+      models: [
+        { id: "m1", input_cost_per_million: 5, output_cost_per_million: 10 },
+      ],
     };
     const mockFetch = async () => ({ ok: true, json: async () => mockPayload });
 
@@ -228,7 +244,7 @@ describe("loadPricing", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.models["m1"]).toBeDefined();
+    expect(defined(result).models["m1"]).toBeDefined();
   });
 
   test("falls back to disk cache when fetch fails", async () => {
@@ -263,11 +279,16 @@ describe("writePricingCache error handling", () => {
     const badPath = `/tmp/not-a-dir-${Date.now()}`;
     try {
       await Bun.write(badPath, "I am a file");
-      await writePricingCache({ timestamp: 0, models: {} }, `${badPath}/nested/cache.json`);
+      await writePricingCache(
+        { timestamp: 0, models: {} },
+        `${badPath}/nested/cache.json`,
+      );
     } finally {
       process.stderr.write = orig;
     }
-    expect(stderrLines.some((l) => l.includes("failed to write cache"))).toBe(true);
+    expect(stderrLines.some((l) => l.includes("failed to write cache"))).toBe(
+      true,
+    );
   });
 });
 
@@ -279,7 +300,8 @@ describe("startPricingRefresh", () => {
   test("returns a timer and can be cleared without throwing", () => {
     const timer = startPricingRefresh({
       refreshIntervalMs: 999_999,
-      fetchImpl: (async () => ({ ok: false, status: 500 }) as Response) as unknown as typeof fetch,
+      fetchImpl: (async () =>
+        ({ ok: false, status: 500 }) as Response) as unknown as typeof fetch,
       cachePath: "/tmp/nonexistent-refresh-cache.json",
     });
     expect(timer).toBeDefined();
@@ -310,7 +332,9 @@ describe("readPricingCache / writePricingCache", () => {
   });
 
   test("returns null for a path that does not exist", async () => {
-    const result = await readPricingCache("/tmp/nonexistent-pricing-abc123.json");
+    const result = await readPricingCache(
+      "/tmp/nonexistent-pricing-abc123.json",
+    );
     expect(result).toBeNull();
   });
 

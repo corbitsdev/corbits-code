@@ -12,37 +12,73 @@ export const REASONING_EFFORTS = CANONICAL_EFFORTS;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {
-  return typeof value === "string" && (REASONING_EFFORTS as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (REASONING_EFFORTS as readonly string[]).includes(value)
+  );
 }
 
 // The effort levels common OpenAI reasoning models (gpt-5, o-series) accept.
 // `none` and `xhigh` are not here — they are gpt-5.1-family-only (see below).
-const DEFAULT_EFFORTS: readonly ReasoningEffort[] = ["minimal", "low", "medium", "high"];
+const DEFAULT_EFFORTS: readonly ReasoningEffort[] = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+];
 
 // The gpt-5.1 family additionally accepts `none` (disable reasoning) and `xhigh`.
 // Listed explicitly because neither is universally supported; an unknown model
 // must not be assumed to take them.
-const FULL_EFFORT_MODELS: readonly string[] = ["gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-max"];
+const FULL_EFFORT_MODELS: readonly string[] = [
+  "gpt-5.1",
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-max",
+];
 
 // Codex backend models take low/medium/high/xhigh — no `minimal`, no `none`.
-const CODEX_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+const CODEX_EFFORTS: readonly ReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
 
 // The gpt-5.6 family additionally accepts `max` and `ultra`. Listed explicitly,
 // mirroring FULL_EFFORT_MODELS above, because older Codex models (gpt-5.5,
 // gpt-5.4, gpt-5.4-mini) are not known to support these levels.
-const MAX_EFFORT_CODEX_MODELS: readonly string[] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const MAX_EFFORT_CODEX_MODELS: readonly string[] = [
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+];
 
 // The safe subset offered for models we do not recognize. Conservative on
 // purpose: these are the levels the broadest range of reasoning models accept.
-const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"];
+const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+];
 
 // grok-4.6 accepts xhigh; grok-4.5 and composer stay on the unknown-model subset.
-const GROK_46_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+const GROK_46_EFFORTS: readonly ReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
 const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
 
 // GPT-6 Astra accepts low through max on both the OpenAI API and Codex surfaces.
 // Not ultra (gpt-5.6 Codex-only), not minimal, not none.
-const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh", "max"];
+const GPT6_ASTRA_EFFORTS: readonly ReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
 
 // GLM-5.3 always reasons. Vendor ladder is low/high/max (no medium, no none);
 // vendor default is max. Flash shares the same text parameters.
@@ -65,7 +101,9 @@ function isKnownOpenAIReasoningModel(model: string): boolean {
 // A model absent from the registry is unknown, not non-reasoning.
 let reasoningCapableByModel: Record<string, boolean> = {};
 
-export function setModelReasoningCapabilities(map: Record<string, boolean>): void {
+export function setModelReasoningCapabilities(
+  map: Record<string, boolean>,
+): void {
   reasoningCapableByModel = map;
 }
 
@@ -162,7 +200,10 @@ export function cycleReasoningEffort(
  * ladder, not Codex) → none; gpt-5/gpt-6/o1/o3/o4 → medium. Unknown models with a
  * conservative rung set stay undefined so we do not invent a family default.
  */
-export function defaultEffortForModel(model: string, isCodex = false): ReasoningEffort | undefined {
+export function defaultEffortForModel(
+  model: string,
+  isCodex = false,
+): ReasoningEffort | undefined {
   const supported = supportedEfforts(model, undefined, isCodex);
   if (supported.length === 0) return undefined;
   const pick = (desired: ReasoningEffort): ReasoningEffort | undefined =>
@@ -186,7 +227,8 @@ export function resolveSessionEffort(
 ): ReasoningEffort | undefined {
   const supported = supportedEfforts(model, undefined, isCodex);
   if (supported.length === 0) return undefined;
-  if (configured !== undefined && supported.includes(configured)) return configured;
+  if (configured !== undefined && supported.includes(configured))
+    return configured;
   return defaultEffortForModel(model, isCodex);
 }
 
@@ -216,7 +258,9 @@ export function clampEffort(
   if (supported.length === 0) return undefined;
   if (supported.includes(desired)) return desired;
   const desiredIdx = REASONING_EFFORTS.indexOf(desired);
-  let best: ReasoningEffort = supported[0]!;
+  const first = supported[0];
+  if (first === undefined) return undefined;
+  let best: ReasoningEffort = first;
   let bestDist = Number.POSITIVE_INFINITY;
   for (const level of supported) {
     const dist = Math.abs(REASONING_EFFORTS.indexOf(level) - desiredIdx);
@@ -267,10 +311,15 @@ export function pickEffortFromCascade(opts: {
 }): ReasoningEffort | undefined {
   if (opts.supported.length === 0) return undefined;
   if (opts.pin !== undefined) {
-    return opts.supported.includes(opts.pin) ? opts.pin : clampEffort(opts.pin, opts.supported);
+    return opts.supported.includes(opts.pin)
+      ? opts.pin
+      : clampEffort(opts.pin, opts.supported);
   }
   if (opts.supported.includes(opts.roleDefault)) return opts.roleDefault;
-  if (opts.parentEffort !== undefined && opts.supported.includes(opts.parentEffort)) {
+  if (
+    opts.parentEffort !== undefined &&
+    opts.supported.includes(opts.parentEffort)
+  ) {
     return opts.parentEffort;
   }
   return clampEffort(opts.roleDefault, opts.supported);
@@ -284,15 +333,25 @@ export function pickEffortFromCascade(opts: {
  * across the fleet. Parent still fills gaps when the role default is not in the
  * model's supported set but the parent effort is.
  */
-export function resolveEffortForRole(opts: ResolveEffortForRoleOpts): ReasoningEffort | undefined {
-  const supported = supportedEfforts(opts.model, undefined, opts.isCodex === true);
+export function resolveEffortForRole(
+  opts: ResolveEffortForRoleOpts,
+): ReasoningEffort | undefined {
+  const supported = supportedEfforts(
+    opts.model,
+    undefined,
+    opts.isCodex === true,
+  );
   const roleDefault =
     opts.roleDefault ??
-    (opts.orchestrator ? ROLE_DEFAULT_EFFORT.orchestrator : ROLE_DEFAULT_EFFORT.leaf);
+    (opts.orchestrator
+      ? ROLE_DEFAULT_EFFORT.orchestrator
+      : ROLE_DEFAULT_EFFORT.leaf);
   return pickEffortFromCascade({
     ...(opts.pin !== undefined ? { pin: opts.pin } : {}),
     roleDefault,
-    ...(opts.parentEffort !== undefined ? { parentEffort: opts.parentEffort } : {}),
+    ...(opts.parentEffort !== undefined
+      ? { parentEffort: opts.parentEffort }
+      : {}),
     supported,
   });
 }

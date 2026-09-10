@@ -33,7 +33,11 @@ export interface StartOAuthLoginOptions {
 export interface OAuthLoginDeps<TTokens extends BaseTokens> {
   startCallbackServer: (expectedState: string) => Promise<CallbackServer>;
   buildAuthorizeUrl: (pkce: Pkce, state: string) => string;
-  exchangeCode: (code: string, verifier: string, now: number) => Promise<TTokens>;
+  exchangeCode: (
+    code: string,
+    verifier: string,
+    now: number,
+  ) => Promise<TTokens>;
   saveProfile: (
     profile: { name: string; tokens: TTokens; createdAt: number },
     home?: string,

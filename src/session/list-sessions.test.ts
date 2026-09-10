@@ -3,7 +3,12 @@ import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { generateSessionId, initSessionDir, listSessions, sessionDir } from "./index.js";
+import {
+  generateSessionId,
+  initSessionDir,
+  listSessions,
+  sessionDir,
+} from "./index.js";
 import { withFileLogSink } from "../../tests/helpers/file-log-sink.js";
 
 let cwd = "";
@@ -94,7 +99,10 @@ test("listSessions ignores a leftover goal.json from a pre-removal session", asy
 test("listSessions skips a session whose run.json is unreadable", async () => {
   const sessionId = generateSessionId();
   await initSessionDir(cwd, sessionId, home);
-  await writeFile(join(sessionDir(cwd, sessionId, home), "run.json"), "{ not json");
+  await writeFile(
+    join(sessionDir(cwd, sessionId, home), "run.json"),
+    "{ not json",
+  );
   await withFileLogSink(async () => {
     const listed = await listSessions(cwd, home);
     expect(listed.find((s) => s.sessionId === sessionId)).toBeUndefined();
@@ -210,14 +218,21 @@ async function writeRun(
 ): Promise<string> {
   await initSessionDir(cwd, sessionId, home);
   const dir = sessionDir(cwd, sessionId, home);
-  await writeFile(join(dir, "run.json"), JSON.stringify({ turnsUsed: 1, ...body }));
+  await writeFile(
+    join(dir, "run.json"),
+    JSON.stringify({ turnsUsed: 1, ...body }),
+  );
   return join(dir, "run.json");
 }
 
 test("listSessions includes completed and failed sessions", async () => {
   const doneId = generateSessionId();
   const failedId = generateSessionId();
-  await writeRun(doneId, { status: "done", task: "finished work", startedAt: 1 });
+  await writeRun(doneId, {
+    status: "done",
+    task: "finished work",
+    startedAt: 1,
+  });
   await writeRun(failedId, { status: "failed", task: "broke", startedAt: 2 });
   const listed = await listSessions(cwd, home);
   expect(listed.find((s) => s.sessionId === doneId)?.status).toBe("done");

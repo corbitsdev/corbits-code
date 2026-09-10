@@ -21,7 +21,10 @@ import type { AuthzCallResult } from "@intx/inference";
 import { WORKER_CANNOT_COMPLETE_APPROVAL } from "./decline-markers.js";
 import type { AuthorizeVerdict, GateVerdict, PermissionGate } from "./gate.js";
 import type { PermissionRequest } from "./types.js";
-import { FLEET_VERBS, ORCHESTRATOR_ONLY_FLEET_VERBS } from "../subagent/authority.js";
+import {
+  FLEET_VERBS,
+  ORCHESTRATOR_ONLY_FLEET_VERBS,
+} from "../subagent/authority.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "authz"]);
 
@@ -34,7 +37,8 @@ const WORKER_CONTROL_PLANE_TOOLS = new Set([
   "submit_result",
   "ask_director",
   ...[...FLEET_VERBS].filter(
-    (name) => name !== "spawn_agent" && !ORCHESTRATOR_ONLY_FLEET_VERBS.has(name),
+    (name) =>
+      name !== "spawn_agent" && !ORCHESTRATOR_ONLY_FLEET_VERBS.has(name),
   ),
 ]);
 
@@ -42,7 +46,11 @@ export function workerUnresolvedAskReason(request: PermissionRequest): string {
   return `${request.action} (${request.subject}) requires a parent permission grant; ${WORKER_CANNOT_COMPLETE_APPROVAL}`;
 }
 
-function readAuthorizeToolCall(resource: string, action: string, context: unknown): ToolCallType {
+function readAuthorizeToolCall(
+  resource: string,
+  action: string,
+  context: unknown,
+): ToolCallType {
   const call = AuthorizeContext(context);
   if (call instanceof type.errors) {
     throw new Error(`authz seam context is not a ToolCall: ${call.summary}`);
@@ -68,7 +76,10 @@ async function authorizeWorkerCall(
   return { effect: "deny", reason: workerUnresolvedAskReason(verdict.request) };
 }
 
-async function evaluateWorkerCall(gate: PermissionGate, call: ToolCallType): Promise<GateVerdict> {
+async function evaluateWorkerCall(
+  gate: PermissionGate,
+  call: ToolCallType,
+): Promise<GateVerdict> {
   const verdict = await authorizeWorkerCall(gate, call);
   if (verdict.effect === "allow") return { allowed: true };
   return { allowed: false, reason: verdict.reason };
@@ -103,7 +114,8 @@ export function workerPermissionGate(gate: PermissionGate): PermissionGate {
     setAuto: (value) => gate.setAuto(value),
     getSkipPermissions: () => gate.getSkipPermissions(),
     setSkipPermissions: (value) => gate.setSkipPermissions(value),
-    setProviderIdentity: (providerName, model) => gate.setProviderIdentity(providerName, model),
+    setProviderIdentity: (providerName, model) =>
+      gate.setProviderIdentity(providerName, model),
     registerMcpClient: (client) => gate.registerMcpClient(client),
     unregisterMcpServer: (serverName) => gate.unregisterMcpServer(serverName),
   };
@@ -115,7 +127,11 @@ function allowAuthz(): AuthzCallResult {
 
 export function createReactorAuthorize(
   gate: PermissionGate,
-): (resource: string, action: string, context: unknown) => Promise<AuthzCallResult> {
+): (
+  resource: string,
+  action: string,
+  context: unknown,
+) => Promise<AuthzCallResult> {
   return async (resource, action, context) => {
     const call = readAuthorizeToolCall(resource, action, context);
     const verdict = await gate.authorizeCall(call);
@@ -136,7 +152,11 @@ export function createReactorAuthorize(
 
 export function createWorkerAuthorize(
   gate: PermissionGate,
-): (resource: string, action: string, context: unknown) => Promise<AuthzCallResult> {
+): (
+  resource: string,
+  action: string,
+  context: unknown,
+) => Promise<AuthzCallResult> {
   const workerGate = workerPermissionGate(gate);
   return async (resource, action, context) => {
     const call = readAuthorizeToolCall(resource, action, context);
@@ -146,6 +166,11 @@ export function createWorkerAuthorize(
       throw new Error("worker authorizeCall emitted ask");
     }
     logger.warn`authz deny resource=${resource} reason=${verdict.reason}`;
-    return { effect: "deny", matchingGrants: [], resolvedBy: null, reason: verdict.reason };
+    return {
+      effect: "deny",
+      matchingGrants: [],
+      resolvedBy: null,
+      reason: verdict.reason,
+    };
   };
 }

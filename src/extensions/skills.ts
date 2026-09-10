@@ -3,7 +3,11 @@ import { readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 
-const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
+const FALLBACK_SKILL_DIRS = [
+  ".agents/skills",
+  ".claude/skills",
+  ".codex/skills",
+] as const;
 
 export interface SkillSummary {
   name: string;
@@ -65,7 +69,13 @@ function parseSkillFrontmatter(raw: string): {
   for (const line of block.split("\n")) {
     const trimmed = line.trim();
     const match = /^(name|description):\s*(.+)$/.exec(trimmed);
-    if (match) out[match[1] as "name" | "description"] = match[2]!.trim();
+    if (match) {
+      const key = match[1];
+      const value = match[2];
+      if ((key === "name" || key === "description") && value !== undefined) {
+        out[key] = value.trim();
+      }
+    }
     if (/^disable-model-invocation:\s*true\s*$/.test(trimmed)) {
       out.disableModelInvocation = true;
     }
@@ -104,12 +114,16 @@ async function resolvePathLikeSkillBody(
   if (!pathIsInsideOrEqual(resolved, root)) return undefined;
 
   // File form (…/SKILL.md) or directory form (…/skill-dir → …/skill-dir/SKILL.md).
-  const skillMd = basename(resolved) === "SKILL.md" ? resolved : join(resolved, "SKILL.md");
+  const skillMd =
+    basename(resolved) === "SKILL.md" ? resolved : join(resolved, "SKILL.md");
   if (!pathIsInsideOrEqual(skillMd, root)) return undefined;
 
   // Symlink escape bar: realpath both sides when the candidate exists.
   try {
-    const [realSkill, realRoot] = await Promise.all([realpath(skillMd), realpath(root)]);
+    const [realSkill, realRoot] = await Promise.all([
+      realpath(skillMd),
+      realpath(root),
+    ]);
     if (!pathIsInsideOrEqual(realSkill, realRoot)) return undefined;
     return bodyFromSkillPath(realSkill);
   } catch {
@@ -159,7 +173,9 @@ export async function discoverSkills(
   const seen = new Set<string>();
   const skills: SkillSummary[] = [];
   for (const base of skillBaseDirs(cwd, pluginDirs)) {
-    const entries = await readdir(base, { withFileTypes: true }).catch(() => undefined);
+    const entries = await readdir(base, { withFileTypes: true }).catch(
+      () => undefined,
+    );
     if (entries === undefined) continue;
     for (const entry of entries) {
       if (!entry.isDirectory() || seen.has(entry.name)) continue;

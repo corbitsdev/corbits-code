@@ -7,10 +7,16 @@ import { getLogger } from "@intx/log";
 import type { CommandContext, CommandResult } from "../commands/registry.js";
 import { getCommand, setHiddenCommands } from "../commands/registry.js";
 import { registerBuiltInCommands } from "../commands/built-in.js";
-import { registerCommandPlugins, registerWorkflowPlugins } from "../../plugins/register.js";
+import {
+  registerCommandPlugins,
+  registerWorkflowPlugins,
+} from "../../plugins/register.js";
 import type { PluginModule } from "../../plugins/loader.js";
 import type { PluginConfig } from "../../config/settings.js";
-import { persistSkipPermissionsDefault, type Settings } from "../../config/settings.js";
+import {
+  persistSkipPermissionsDefault,
+  type Settings,
+} from "../../config/settings.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
 import { captureSlashCommand } from "../../telemetry/product-events.js";
 import {
@@ -47,7 +53,10 @@ export function surfaceTerminalProviderFailure(
   error: InferenceErrorLike,
   displayLabel?: string,
 ): void {
-  surfaceSystemNotice(shell, terminalProviderFailureMessage(providerId, error, displayLabel));
+  surfaceSystemNotice(
+    shell,
+    terminalProviderFailureMessage(providerId, error, displayLabel),
+  );
 }
 
 /**
@@ -61,7 +70,8 @@ export function surfaceTerminalProviderFailure(
 export function setUpCommandRegistry(
   settings: Settings | undefined,
   plugins: PluginModule[],
-  getPluginConfig: () => Record<string, PluginConfig> = () => settings?.plugins ?? {},
+  getPluginConfig: () => Record<string, PluginConfig> = () =>
+    settings?.plugins ?? {},
 ): void {
   registerBuiltInCommands();
   registerWorkflowPlugins(plugins, getPluginConfig());
@@ -79,9 +89,13 @@ export interface CommandLayer {
  * surfacing, and the attempt identity the submit path reports failures
  * against.
  */
-export function createCommandLayer(state: RunnerState, services: RunnerServices): CommandLayer {
+export function createCommandLayer(
+  state: RunnerState,
+  services: RunnerServices,
+): CommandLayer {
   const currentAttemptIdentity = (): InferenceAttemptIdentity => {
-    const displayLabel = state.config.settings?.providers[state.config.providerName]?.name;
+    const displayLabel =
+      state.config.settings?.providers[state.config.providerName]?.name;
     return {
       providerId: state.config.providerName,
       ...(displayLabel !== undefined ? { displayLabel } : {}),
@@ -102,10 +116,14 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
             value,
           );
           if (result === "skipped") {
-            state.systemNotice?.("Yolo flipped for this session, but the default did not stick.");
+            state.systemNotice?.(
+              "Yolo flipped for this session, but the default did not stick.",
+            );
           }
         } catch {
-          state.systemNotice?.("Yolo flipped for this session, but the default did not stick.");
+          state.systemNotice?.(
+            "Yolo flipped for this session, but the default did not stick.",
+          );
         }
       });
     },
@@ -120,8 +138,10 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
       // system-prompt/tool-schema overhead). The governor already decided
       // whether it's estimating when it computed this turn's arming — trust
       // that decision rather than re-deriving it from a second usage read.
-      const contextEstimate = services.directorHolder.instance?.getContextEstimate();
-      const isEstimate = contextEstimate !== undefined && contextEstimate.isEstimate;
+      const contextEstimate =
+        services.directorHolder.instance?.getContextEstimate();
+      const isEstimate =
+        contextEstimate !== undefined && contextEstimate.isEstimate;
       const summary = buildCostSummary({
         modelId: state.config.model,
         baseURL: state.config.baseURL,
@@ -132,20 +152,29 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
         inputTokens: usage.input,
         outputTokens: usage.output,
         cacheReadTokens: usage.cacheRead,
-        contextTokens: isEstimate ? contextEstimate.tokens : contextTokensFromUsage(lastTurnUsage),
+        contextTokens: isEstimate
+          ? contextEstimate.tokens
+          : contextTokensFromUsage(lastTurnUsage),
         contextIsEstimate: isEstimate,
         sessionBillingMix: billed.mix,
         sessionHiddenReason: billed.hiddenReason,
       });
-      return maskContextMeterWhenNoTurns(summary, services.runSink.getTurnCount());
+      return maskContextMeterWhenNoTurns(
+        summary,
+        services.runSink.getTurnCount(),
+      );
     },
     startWorkflow: (name) => services.workflowHost.start(name),
-    getFleetStatus: () => fleetDigest(services.subAgentSessions.list(), Date.now()),
+    getFleetStatus: () =>
+      fleetDigest(services.subAgentSessions.list(), Date.now()),
     renameSession: (name) => {
       const trimmed = name.trim();
       if (trimmed.length === 0) return "Session name cannot be empty";
       state.runTaskTitle = trimmed;
-      services.emitter.emit("session.title", truncateSessionLabel(state.runTaskTitle));
+      services.emitter.emit(
+        "session.title",
+        truncateSessionLabel(state.runTaskTitle),
+      );
       void renameSession(state.config.cwd, state.sessionId, trimmed)
         .then(() => state.persistRunSnapshot?.("running"))
         .catch((err: unknown) => {
@@ -178,7 +207,9 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
         // A command the operator typed and submitted at the prompt — same
         // provenance as a plain-text send, just composed by the command
         // handler instead of typed verbatim.
-        void state.sendWithAttemptIdentity?.(userInboundMessage(result.text, []));
+        void state.sendWithAttemptIdentity?.(
+          userInboundMessage(result.text, []),
+        );
         return;
       case "workflow":
         state.systemNotice?.(services.workflowHost.start(result.name));
@@ -187,18 +218,24 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
         return;
       case "overlay":
         if (!hostOf(state).openSurface(result.overlay)) {
-          const named = result.overlay === "add-provider" ? "connect" : result.overlay;
+          const named =
+            result.overlay === "add-provider" ? "connect" : result.overlay;
           state.systemNotice?.(`No surface for /${named}.`);
         }
         return;
       case "modal":
         // /model is the only modal reachable from a command; provider login is
         // reached from the picker itself.
-        if (result.modal === "agent" && hostOf(state).openSurface("models")) return;
-        state.systemNotice?.(`${result.modal} is not available in this renderer yet`);
+        if (result.modal === "agent" && hostOf(state).openSurface("models"))
+          return;
+        state.systemNotice?.(
+          `${result.modal} is not available in this renderer yet`,
+        );
         return;
       case "view":
-        state.systemNotice?.(`${result.view} is not available in this renderer yet`);
+        state.systemNotice?.(
+          `${result.view} is not available in this renderer yet`,
+        );
         return;
       case "paste-image":
         void attachClipboardImage(hostOf(state).shell);

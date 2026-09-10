@@ -157,7 +157,9 @@ export function createStreamMapContext(opts?: {
     pendingProviderFailure: false,
     pendingProviderError: undefined,
     ...(opts?.providerId !== undefined ? { providerId: opts.providerId } : {}),
-    ...(opts?.providerLabel !== undefined ? { providerLabel: opts.providerLabel } : {}),
+    ...(opts?.providerLabel !== undefined
+      ? { providerLabel: opts.providerLabel }
+      : {}),
   };
 }
 
@@ -169,7 +171,9 @@ const ATTEMPT_ROLLBACK: BridgeInboundEvent = {
 };
 
 /** Disarm the attempt boundary, emitting the consumer-visible clear if it was armed. */
-function disarmAttempt(ctx: StreamMapContext | undefined): readonly BridgeInboundEvent[] {
+function disarmAttempt(
+  ctx: StreamMapContext | undefined,
+): readonly BridgeInboundEvent[] {
   if (!ctx || !ctx.attemptArmed) return [];
   ctx.attemptArmed = false;
   return [ATTEMPT_CLEAR];
@@ -212,7 +216,9 @@ function sanitizeDelta(
   token: string,
 ): string {
   if (!ctx) return stripTerminalControlSequences(token);
-  const [head, tail] = splitPendingControlTail(ctx.pendingDelta[channel] + token);
+  const [head, tail] = splitPendingControlTail(
+    ctx.pendingDelta[channel] + token,
+  );
   ctx.pendingDelta[channel] = tail;
   return stripTerminalControlSequences(head);
 }
@@ -321,7 +327,8 @@ export function mapProductionEvent(
   // and keeps the error row.
   const handoff = ctx?.errorRollbackArmed === true;
   if (ctx) ctx.errorRollbackArmed = false;
-  const expired = handoff && !recoversErrorHandoff(event.type) ? [ATTEMPT_CLEAR] : [];
+  const expired =
+    handoff && !recoversErrorHandoff(event.type) ? [ATTEMPT_CLEAR] : [];
   const mapped = mapEvent(event, ctx, handoff);
   return [...flushed, ...expired, ...mapped];
 }
@@ -337,7 +344,8 @@ function mapEvent(
   switch (type) {
     case "message.received": {
       const message = asRecord(data.message);
-      const content = typeof message?.content === "string" ? message.content : "";
+      const content =
+        typeof message?.content === "string" ? message.content : "";
       const attachments = Array.isArray(message?.attachments)
         ? (message.attachments as { name?: string }[])
         : [];
@@ -431,7 +439,8 @@ function mapEvent(
     }
 
     case "inference.tool_call.delta": {
-      const fragment = typeof data.argumentFragment === "string" ? data.argumentFragment : "";
+      const fragment =
+        typeof data.argumentFragment === "string" ? data.argumentFragment : "";
       const callId = typeof data.callId === "string" ? data.callId : undefined;
       if (ctx && callId && fragment.length > 0) {
         const prev = ctx.callIdToArgs.get(callId) ?? "";
@@ -445,8 +454,16 @@ function mapEvent(
       const name = typeof data.name === "string" ? data.name : "tool";
       const callId = typeof data.callId === "string" ? data.callId : undefined;
       const streamed = ctx && callId ? ctx.callIdToArgs.get(callId) : undefined;
-      const detail = data.arguments !== undefined ? stringifyDetail(data.arguments) : streamed;
-      trackCall(ctx, callId, name, data.arguments !== undefined ? data.arguments : streamed);
+      const detail =
+        data.arguments !== undefined
+          ? stringifyDetail(data.arguments)
+          : streamed;
+      trackCall(
+        ctx,
+        callId,
+        name,
+        data.arguments !== undefined ? data.arguments : streamed,
+      );
       if (ctx && callId) ctx.emittedToolCalls.add(callId);
       return [toolCallEvent(name, detail, callId)];
     }
@@ -469,8 +486,10 @@ function mapEvent(
 
     case "tool.done": {
       const result = asRecord(data.result);
-      const callId = typeof result?.callId === "string" ? result.callId : undefined;
-      const explicitName = typeof result?.name === "string" ? result.name : undefined;
+      const callId =
+        typeof result?.callId === "string" ? result.callId : undefined;
+      const explicitName =
+        typeof result?.name === "string" ? result.name : undefined;
       const name = resolveToolName(ctx, callId, explicitName);
       const detail = stringifyDetail(result?.content);
       const isError = result?.isError === true;
@@ -508,16 +527,24 @@ function mapEvent(
         };
         ctx.pendingProviderError = undefined;
         const providerId =
-          error.providerId ?? ctx.inferenceProviderId ?? ctx.providerId ?? "Unknown";
+          error.providerId ??
+          ctx.inferenceProviderId ??
+          ctx.providerId ??
+          "Unknown";
         const selectedProviderId = ctx.inferenceProviderId ?? ctx.providerId;
         const providerLabel =
-          error.providerId === undefined || error.providerId === selectedProviderId
+          error.providerId === undefined ||
+          error.providerId === selectedProviderId
             ? (ctx.inferenceProviderLabel ?? ctx.providerLabel)
             : undefined;
         return [
           {
             type: "assistant",
-            text: terminalProviderFailureMessage(providerId, error, providerLabel),
+            text: terminalProviderFailureMessage(
+              providerId,
+              error,
+              providerLabel,
+            ),
           },
         ];
       }
@@ -527,7 +554,9 @@ function mapEvent(
         return [];
       }
       if (content.trim().length === 0) return [];
-      return [{ type: "assistant", text: stripTerminalControlSequences(content) }];
+      return [
+        { type: "assistant", text: stripTerminalControlSequences(content) },
+      ];
     }
 
     case "reactor.done":
@@ -536,10 +565,15 @@ function mapEvent(
         ctx.pendingProviderFailure = false;
         ctx.pendingProviderError = undefined;
       }
-      return [...disarmAttempt(ctx), { type: "run", state: "idle" }, { type: "tool.boundary" }];
+      return [
+        ...disarmAttempt(ctx),
+        { type: "run", state: "idle" },
+        { type: "tool.boundary" },
+      ];
 
     case "reactor.error": {
-      const error = typeof data.error === "string" ? data.error : "reactor error";
+      const error =
+        typeof data.error === "string" ? data.error : "reactor error";
       if (ctx) ctx.hadTextDelta = false;
       return [
         ...disarmAttempt(ctx),
@@ -561,16 +595,30 @@ function mapEvent(
         ctx.pendingProviderFailure = true;
         const rawError = asRecord(data.error);
         const error = {
-          category: typeof rawError?.category === "string" ? rawError.category : "unknown",
-          message: typeof rawError?.message === "string" ? rawError.message : "inference error",
-          ...(typeof rawError?.statusCode === "number" ? { statusCode: rawError.statusCode } : {}),
+          category:
+            typeof rawError?.category === "string"
+              ? rawError.category
+              : "unknown",
+          message:
+            typeof rawError?.message === "string"
+              ? rawError.message
+              : "inference error",
+          ...(typeof rawError?.statusCode === "number"
+            ? { statusCode: rawError.statusCode }
+            : {}),
           ...(rawError?.raw !== undefined ? { raw: rawError.raw } : {}),
           ...(typeof rawError?.retryAfterMs === "number"
             ? { retryAfterMs: rawError.retryAfterMs }
             : {}),
-          ...(typeof rawError?.requestURL === "string" ? { requestURL: rawError.requestURL } : {}),
-          ...(typeof rawError?.opencodeGo === "boolean" ? { opencodeGo: rawError.opencodeGo } : {}),
-          ...(typeof rawError?.providerId === "string" ? { providerId: rawError.providerId } : {}),
+          ...(typeof rawError?.requestURL === "string"
+            ? { requestURL: rawError.requestURL }
+            : {}),
+          ...(typeof rawError?.opencodeGo === "boolean"
+            ? { opencodeGo: rawError.opencodeGo }
+            : {}),
+          ...(typeof rawError?.providerId === "string"
+            ? { providerId: rawError.providerId }
+            : {}),
         };
         ctx.pendingProviderError = normalizeInferenceErrorForTerminal(
           error,
@@ -589,7 +637,9 @@ function mapEvent(
  * Stateless reactor → bridge map (fixture-friendly). Prefer
  * `mapProductionEvent(event, ctx)` for live sessions.
  */
-export function mapReactorLike(event: ReactorLikeEvent): readonly BridgeInboundEvent[] {
+export function mapReactorLike(
+  event: ReactorLikeEvent,
+): readonly BridgeInboundEvent[] {
   return mapProductionEvent(event);
 }
 

@@ -1,7 +1,13 @@
 import type { ToolCall } from "@intx/types/runtime";
-import { commandHasRecursiveRm, expandShellSubjects } from "../shell/run-shell-authz.js";
+import {
+  commandHasRecursiveRm,
+  expandShellSubjects,
+} from "../shell/run-shell-authz.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { commandHasUnboundedDirectoryListing, commandTargetsRestricted } from "./classify.js";
+import {
+  commandHasUnboundedDirectoryListing,
+  commandTargetsRestricted,
+} from "./classify.js";
 import { splitChainedCommand, tokenize } from "./command.js";
 import { isPermittedSiblingWorktreePath } from "./path-restriction.js";
 import type { RootsProvider } from "./worktree-roots.js";
@@ -148,7 +154,9 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
       inCmd(String.raw`gem\s+install\b`),
       inCmd(String.raw`bundle\s+(?:install|add)\b`),
       inCmd(String.raw`composer\s+(?:require|install)\b`),
-      inCmd(String.raw`(?:brew|apt|apt-get|yum|dnf|apk|pacman)\s+(?:install|add)\b`),
+      inCmd(
+        String.raw`(?:brew|apt|apt-get|yum|dnf|apk|pacman)\s+(?:install|add)\b`,
+      ),
     ],
   },
   ENV_ASSIGNMENT_ASK_RULE,
@@ -208,7 +216,9 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
 
 export function matchAutoShellRule(command: string): AutoShellRule | undefined {
   const scannable = dequoteForMatching(command);
-  return AUTO_SHELL_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(scannable)));
+  return AUTO_SHELL_RULES.find((rule) =>
+    rule.patterns.some((pattern) => pattern.test(scannable)),
+  );
 }
 
 const ENV_ASSIGNMENT_TOKEN = /^\w+=/;
@@ -233,10 +243,12 @@ function segmentHasEnvAssignmentAsk(segment: string): boolean {
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT_TOKEN.test(tokens[i] ?? "")) i++;
   const envToken = tokens[i];
-  if (envToken === undefined || envToken.replace(/^.*\//, "") !== "env") return false;
+  if (envToken === undefined || envToken.replace(/^.*\//, "") !== "env")
+    return false;
   i++;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") return false;
     if (t.startsWith("--split-string=")) {
       return payloadStartsWithAssignment(t.slice("--split-string=".length));
@@ -266,7 +278,8 @@ function commandHasEnvAssignmentAsk(command: string): boolean {
   // still surfaces the assignment ask after the outer wrapper is peeled.
   const { subjects } = expandShellSubjects(command);
   for (const subject of subjects) {
-    if (splitChainedCommand(subject).some(segmentHasEnvAssignmentAsk)) return true;
+    if (splitChainedCommand(subject).some(segmentHasEnvAssignmentAsk))
+      return true;
   }
   return false;
 }
@@ -375,7 +388,8 @@ function worktreePathArgs(
   const paths: string[] = [];
   let force = false;
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = args[i];
+    if (arg === undefined) continue;
     if (arg === "--") {
       paths.push(...args.slice(i + 1));
       break;
@@ -414,18 +428,22 @@ export function safeWorktreeCommand(
   rootsProvider: RootsProvider,
 ): boolean | undefined {
   const tokens = tokenize(command);
-  if (tokens[0] !== "git" || !tokens.slice(1).includes("worktree")) return undefined;
+  if (tokens[0] !== "git" || !tokens.slice(1).includes("worktree"))
+    return undefined;
   // Worktree policy applies only to one plain command with no git cwd override;
   // composed forms and global git options conservatively fall back to ask.
-  if (/[&;<>|`$(){}]|\\\n|\n/.test(command) || tokens[1] !== "worktree") return false;
+  if (/[&;<>|`$(){}]|\\\n|\n/.test(command) || tokens[1] !== "worktree")
+    return false;
   const subcommand = tokens[2];
   const args = tokens.slice(3);
 
-  if (subcommand === "list") return args.every((arg) => WORKTREE_LIST_FLAGS.has(arg));
+  if (subcommand === "list")
+    return args.every((arg) => WORKTREE_LIST_FLAGS.has(arg));
 
   if (subcommand === "prune") {
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
+      const arg = args[i];
+      if (arg === undefined) continue;
       if (WORKTREE_PRUNE_FLAGS.has(arg)) continue;
       if (arg.startsWith("--expire=")) continue;
       if (arg === "--expire") {
@@ -438,13 +456,16 @@ export function safeWorktreeCommand(
   }
 
   if (subcommand === "add" || subcommand === "remove") {
-    const valueFlags = subcommand === "add" ? WORKTREE_ADD_VALUE_FLAGS : new Set<string>();
+    const valueFlags =
+      subcommand === "add" ? WORKTREE_ADD_VALUE_FLAGS : new Set<string>();
     const { force, paths } = worktreePathArgs(args, valueFlags);
     if (force) return false;
     // add/remove require a path; no path → ask rather than guess.
     if (paths.length === 0) return false;
     // First positional is the worktree path; later tokens on add are commit-ish.
-    return isContainedWorktreePath(paths[0]!, isRestricted, cwd, rootsProvider);
+    const pathArg = paths[0];
+    if (pathArg === undefined) return false;
+    return isContainedWorktreePath(pathArg, isRestricted, cwd, rootsProvider);
   }
 
   // move / lock / unlock / repair / unknown — still ask until proven safe.
@@ -499,12 +520,14 @@ export function autoShellRuleForCall(
   }
 
   for (const subject of subjects) {
-    if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
+    if (commandReferencesSensitivePath(subject) !== undefined)
+      return SENSITIVE_PATH_ASK_RULE;
   }
 
   // Even inside the workspace: unbounded listing must ask so auto mode cannot OOM.
   for (const subject of subjects) {
-    if (commandHasUnboundedDirectoryListing(subject)) return UNBOUNDED_LISTING_ASK_RULE;
+    if (commandHasUnboundedDirectoryListing(subject))
+      return UNBOUNDED_LISTING_ASK_RULE;
   }
 
   // Containment: a command whose path arguments resolve outside the workspace
@@ -513,12 +536,16 @@ export function autoShellRuleForCall(
   // destinations are often intentional siblings (`../corbits-dispatch-wts/…`)
   // and are judged by the worktree path policy below instead.
   for (const subject of subjects) {
-    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === true) continue;
-    if (commandTargetsRestricted(subject, isRestricted)) return OUTSIDE_WORKSPACE_ASK_RULE;
+    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === true)
+      continue;
+    if (commandTargetsRestricted(subject, isRestricted))
+      return OUTSIDE_WORKSPACE_ASK_RULE;
   }
 
   for (const subject of subjects) {
-    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === false)
+    if (
+      safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === false
+    )
       return WORKTREE_ASK_RULE;
   }
 

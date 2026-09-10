@@ -27,10 +27,9 @@ function num(v: unknown): number {
 }
 
 function parseXaiUsage(payload: unknown): XaiUsage {
-  let p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
-    string,
-    unknown
-  >;
+  let p = (
+    typeof payload === "object" && payload !== null ? payload : {}
+  ) as Record<string, unknown>;
   // Some clients return { config: { ... } } — unwrap for the real fields.
   if (p["config"] && typeof p["config"] === "object") {
     p = p["config"] as Record<string, unknown>;
@@ -59,7 +58,9 @@ function parseXaiUsage(payload: unknown): XaiUsage {
   };
 }
 
-export function xaiAuthHeadersForToken(token: { readonly access: string }): Record<string, string> {
+export function xaiAuthHeadersForToken(token: {
+  readonly access: string;
+}): Record<string, string> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${token.access}`,
     "user-agent": XAI_USER_AGENT,
@@ -71,7 +72,9 @@ export function xaiAuthHeadersForToken(token: { readonly access: string }): Reco
   return headers;
 }
 
-export async function xaiAuthHeaders(profileName: string): Promise<Record<string, string>> {
+export async function xaiAuthHeaders(
+  profileName: string,
+): Promise<Record<string, string>> {
   return xaiAuthHeadersForToken(await getValidXaiToken(profileName));
 }
 
@@ -81,8 +84,13 @@ export async function xaiAuthHeaders(profileName: string): Promise<Record<string
 // instead of leaving the usage area blank.
 // If baseURL is supplied (and differs from the official), billing is resolved
 // relative to it so local grok-compatible proxies can serve usage.
-export async function fetchXaiUsage(profileName: string, baseURL?: string): Promise<XaiUsage> {
-  const billingURL = baseURL ? `${baseURL.replace(/\/$/, "")}/billing` : XAI_BILLING_URL;
+export async function fetchXaiUsage(
+  profileName: string,
+  baseURL?: string,
+): Promise<XaiUsage> {
+  const billingURL = baseURL
+    ? `${baseURL.replace(/\/$/, "")}/billing`
+    : XAI_BILLING_URL;
   // Bound the billing fetch: it runs on profile switch and modal open, neither
   // of which sits behind the inference timers, so an unresponsive proxy must
   // abort rather than hang the UI.
@@ -115,14 +123,18 @@ export function formatXaiUsage(usage: XaiUsage): string {
     usage.monthlyLimit !== undefined &&
     usage.monthlyLimit > 0
   ) {
-    lines.push(`monthly: ${String(usage.includedUsed)}/${String(usage.monthlyLimit)}`);
+    lines.push(
+      `monthly: ${String(usage.includedUsed)}/${String(usage.monthlyLimit)}`,
+    );
   }
   if (
     usage.onDemandUsed !== undefined &&
     usage.onDemandCap !== undefined &&
     usage.onDemandCap > 0
   ) {
-    lines.push(`on-demand: ${String(usage.onDemandUsed)}/${String(usage.onDemandCap)}`);
+    lines.push(
+      `on-demand: ${String(usage.onDemandUsed)}/${String(usage.onDemandCap)}`,
+    );
   }
   return lines.join("\n");
 }

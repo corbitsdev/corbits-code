@@ -58,7 +58,8 @@ export const manageTasksDefinition: ToolDefinition = {
       },
       tasks: {
         type: "array",
-        description: 'For action="create": the new ordered task list (full replace).',
+        description:
+          'For action="create": the new ordered task list (full replace).',
         items: {
           type: "object",
           properties: {
@@ -66,7 +67,10 @@ export const manageTasksDefinition: ToolDefinition = {
               type: "string",
               description: "Stable id, unique within this list (e.g. t1, t2).",
             },
-            title: { type: "string", description: "Short, action-oriented description." },
+            title: {
+              type: "string",
+              description: "Short, action-oriented description.",
+            },
             status: {
               type: "string",
               enum: ["todo", "doing", "done", "cancelled"],
@@ -84,10 +88,14 @@ export const manageTasksDefinition: ToolDefinition = {
         items: {
           type: "object",
           properties: {
-            id: { type: "string", description: "Id of an existing task, or a new id to append." },
+            id: {
+              type: "string",
+              description: "Id of an existing task, or a new id to append.",
+            },
             title: {
               type: "string",
-              description: "Required when appending a new id; optional rename for existing.",
+              description:
+                "Required when appending a new id; optional rename for existing.",
             },
             status: {
               type: "string",
@@ -110,10 +118,17 @@ export function parseManageTasksArgs(rawArgs: unknown): ManageTasksArgs | null {
 
 // Apply a parsed call to a task list, returning the full list. Completed tasks
 // are retained so the task view can show them checked off as work progresses.
-export function applyManageTasks(current: Task[], args: ManageTasksArgs): Task[] {
+export function applyManageTasks(
+  current: Task[],
+  args: ManageTasksArgs,
+): Task[] {
   if (args.action === "create") {
     const tasks = args.tasks ?? [];
-    return tasks.map((t) => ({ id: t.id, title: t.title, status: t.status ?? "todo" }));
+    return tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status ?? "todo",
+    }));
   }
   const updates = args.updates ?? [];
   if (updates.length === 0) return current;

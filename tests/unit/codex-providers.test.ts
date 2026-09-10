@@ -5,8 +5,14 @@ import {
   codexProvidersAsSettings,
   isCodexProviderName,
 } from "../../src/config/codex-providers.js";
-import { providerCatalogToSettings, type ProviderCatalogEntry } from "../../src/config/index.js";
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../../src/auth/codex/constants.js";
+import {
+  providerCatalogToSettings,
+  type ProviderCatalogEntry,
+} from "../../src/config/index.js";
+import {
+  CODEX_BASE_URL,
+  CODEX_DEFAULT_MODELS,
+} from "../../src/auth/codex/constants.js";
 import type { CodexProfile } from "../../src/auth/codex/store.js";
 
 describe("codex provider naming", () => {
@@ -48,7 +54,12 @@ describe("codexProvidersAsSettings", () => {
 describe("providerCatalogToSettings excludes Codex entries", () => {
   test("a codex entry is never written into settings.json", () => {
     const catalog: ProviderCatalogEntry[] = [
-      { name: "openai", baseURL: "https://api.openai.com/v1", apiKey: "sk-x", models: ["gpt-4o"] },
+      {
+        name: "openai",
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "sk-x",
+        models: ["gpt-4o"],
+      },
       {
         name: "codex/personal",
         baseURL: CODEX_BASE_URL,

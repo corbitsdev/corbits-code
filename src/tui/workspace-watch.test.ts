@@ -39,7 +39,7 @@ describe("watchGitBranch", () => {
     const clock = fakeClock();
     const stop = watchGitBranch({
       cwd: "/repo",
-      onBranch: () => {},
+      onBranch: () => undefined,
       fetchBranch: () => {
         calls += 1;
         return new Promise((resolve) => {

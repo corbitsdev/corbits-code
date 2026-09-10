@@ -16,7 +16,9 @@ function keyPath(dir: string): string {
 }
 
 function publicKeyInFile(dir: string): string {
-  const parsed = JSON.parse(fs.readFileSync(keyPath(dir), "utf8")) as { publicKey: string };
+  const parsed = JSON.parse(fs.readFileSync(keyPath(dir), "utf8")) as {
+    publicKey: string;
+  };
   return parsed.publicKey;
 }
 
@@ -52,7 +54,9 @@ describe("loadOrCreateCommitSigner", () => {
     expect(typeof sigB).toBe("string");
     expect(sigA.length).toBeGreaterThan(0);
     expect(sigB.length).toBeGreaterThan(0);
-    expect(fs.readdirSync(path.join(dir, "keys"))).toEqual(["commit-ed25519.json"]);
+    expect(fs.readdirSync(path.join(dir, "keys"))).toEqual([
+      "commit-ed25519.json",
+    ]);
   });
 
   test("corrupt JSON throws Invalid commit signing key", async () => {

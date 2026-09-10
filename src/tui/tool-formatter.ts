@@ -42,7 +42,10 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
 // prefix and should render as plain errors instead of a parsed exit summary.
 const SHELL_EXIT_ENVELOPE = /^exit code \d+\n/;
 
-export function isShellExitEnvelope(toolName: string, content: string): boolean {
+export function isShellExitEnvelope(
+  toolName: string,
+  content: string,
+): boolean {
   return toolName === "run_shell" && SHELL_EXIT_ENVELOPE.test(content);
 }
 
@@ -52,7 +55,8 @@ export function isShellExitEnvelope(toolName: string, content: string): boolean 
 let activeWebProviderBrand: string | undefined;
 
 export function setActiveWebProviderBrand(brand: string | undefined): void {
-  activeWebProviderBrand = brand !== undefined && brand.length > 0 ? brand : undefined;
+  activeWebProviderBrand =
+    brand !== undefined && brand.length > 0 ? brand : undefined;
 }
 
 export function humanizeToolName(toolName: string): string {
@@ -68,7 +72,11 @@ export function humanizeToolName(toolName: string): string {
   return toolName
     .split(/[_\s]+/)
     .filter((word) => word.length > 0)
-    .map((word) => word[0]!.toUpperCase() + word.slice(1))
+    .map((word) => {
+      const first = word[0];
+      if (first == null) return word;
+      return first.toUpperCase() + word.slice(1);
+    })
     .join(" ");
 }
 
@@ -102,7 +110,10 @@ function toolRole(toolName: string): SemanticRole {
 // One source of truth for how a tool call presents: its human name, its action
 // colour, and its argument summary. run_shell is special-cased so the command
 // itself is the headline.
-export function describeToolCall(toolName: string, rawArgs: string): ToolCallDescriptor {
+export function describeToolCall(
+  toolName: string,
+  rawArgs: string,
+): ToolCallDescriptor {
   // `present` carries a large view spec as its arguments; never dump that JSON.
   // On success the rendered view block stands in for this line; on failure
   // turns-to-blocks.ts leaves the tool_call in place, so this line is all the
@@ -118,7 +129,9 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
   }
   if (toolName === "run_shell") {
     const shellParsed = ShellArgSchema(tryParseObject(rawArgs));
-    const command = !(shellParsed instanceof type.errors) ? shellParsed.command : rawArgs.trim();
+    const command = !(shellParsed instanceof type.errors)
+      ? shellParsed.command
+      : rawArgs.trim();
     return {
       display: "Shell",
       role: shellRole(command),
@@ -136,9 +149,10 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       // subject so the row never falls through to raw argument JSON.
       const prompt = (taskParsed.prompt ?? "").trim();
       const subject = description.length > 0 ? description : prompt;
+      const first = agentName?.[0];
       const display =
-        agentName !== undefined && agentName.length > 0
-          ? agentName[0]!.toUpperCase() + agentName.slice(1)
+        first != null && agentName !== undefined
+          ? first.toUpperCase() + agentName.slice(1)
           : "Worker";
       // Collapsed row uses the abbreviated subject; Alt+E expands to the full text.
       return {
@@ -182,7 +196,11 @@ function shortenPath(p: string): string {
 }
 
 const PathArgSchema = type({ path: "string" });
-const GrepArgSchema = type({ pattern: "string", "path?": "string", "glob?": "string" });
+const GrepArgSchema = type({
+  pattern: "string",
+  "path?": "string",
+  "glob?": "string",
+});
 const SearchFilesArgSchema = type({ pattern: "string", "path?": "string" });
 const WebSearchArgSchema = type({ query: "string" });
 const WebFetchArgSchema = type({ url: "string" });
@@ -203,13 +221,15 @@ function tryParseObject(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return null;
   return parsed as Record<string, unknown>;
 }
 
 function scalarToString(value: unknown): string {
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   if (value === null) return "null";
   // Nested object/array: keep it compact rather than dumping pretty JSON inline.
   return Array.isArray(value) ? `[${value.length} items]` : "{…}";
@@ -224,7 +244,10 @@ function abbreviate(value: string, max: number): string {
  * Render tool arguments as a human-readable "key: value" line rather than raw
  * JSON. The full form keeps every pair on its own line for the Alt+E reveal.
  */
-export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSummary {
+export function summarizeToolArgs(
+  toolName: string,
+  rawArgs: string,
+): ToolArgSummary {
   const obj = tryParseObject(rawArgs);
 
   // Known file tools read cleanly as just their path, mirroring the result row
@@ -270,9 +293,14 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
   if (entries.length === 0) return { summary: "", full: "" };
 
   const summary = entries
-    .map(([key, value]) => `${key}: ${abbreviate(scalarToString(value), ARG_VALUE_MAX)}`)
+    .map(
+      ([key, value]) =>
+        `${key}: ${abbreviate(scalarToString(value), ARG_VALUE_MAX)}`,
+    )
     .join(", ");
-  const full = entries.map(([key, value]) => `${key}: ${scalarToString(value)}`).join("\n");
+  const full = entries
+    .map(([key, value]) => `${key}: ${scalarToString(value)}`)
+    .join("\n");
   return { summary, full };
 }
 
@@ -330,7 +358,8 @@ export function mergedToolCollapsedPreview(
         .join(" "),
       72,
     );
-    if (argSummary.length > 0) return `${humanizeToolName(toolName)} ${argSummary} — ${err}`;
+    if (argSummary.length > 0)
+      return `${humanizeToolName(toolName)} ${argSummary} — ${err}`;
     return err.length > 0 ? err : "error";
   }
 
@@ -358,7 +387,8 @@ export function mergedToolCollapsedPreview(
   if (toolName === "edit_file") {
     const path = pathFromArgs(rawArgs) ?? pathFromResult(toolName, rawResult);
     const occ = rawResult.match(/replaced (\d+) occurrence/);
-    if (path && occ) return `Edited ${path} (${occ[1]} replacement${occ[1] === "1" ? "" : "s"})`;
+    if (path && occ)
+      return `Edited ${path} (${occ[1]} replacement${occ[1] === "1" ? "" : "s"})`;
     if (path) return `Edited ${path}`;
     return outcomePreview;
   }
@@ -366,7 +396,9 @@ export function mergedToolCollapsedPreview(
   if (toolName === "grep") {
     const parsed = GrepArgSchema(tryParseObject(rawArgs));
     const scope =
-      !(parsed instanceof type.errors) && parsed.path !== undefined && parsed.path.length > 0
+      !(parsed instanceof type.errors) &&
+      parsed.path !== undefined &&
+      parsed.path.length > 0
         ? ` in ${shortenPath(parsed.path)}`
         : argSummary.length > 0 && !argSummary.includes("pattern:")
           ? ` in ${argSummary}`
@@ -381,8 +413,10 @@ export function mergedToolCollapsedPreview(
     const parsed = SearchFilesArgSchema(tryParseObject(rawArgs));
     const pattern = !(parsed instanceof type.errors) ? parsed.pattern : null;
     const count = searchFileCount(rawResult);
-    if (count === 0) return pattern ? `No files matched ${pattern}` : "No files matched";
-    if (count !== null && pattern) return `Found ${count} files matching ${pattern}`;
+    if (count === 0)
+      return pattern ? `No files matched ${pattern}` : "No files matched";
+    if (count !== null && pattern)
+      return `Found ${count} files matching ${pattern}`;
     return outcomePreview;
   }
 
@@ -396,15 +430,21 @@ export function mergedToolCollapsedPreview(
 
   if (toolName === "web_search") {
     const parsed = WebSearchArgSchema(tryParseObject(rawArgs));
-    const query = !(parsed instanceof type.errors) ? abbreviate(parsed.query, ARG_VALUE_MAX) : "";
-    if (query.length > 0 && outcomePreview.length > 0) return `${outcomePreview} for "${query}"`;
+    const query = !(parsed instanceof type.errors)
+      ? abbreviate(parsed.query, ARG_VALUE_MAX)
+      : "";
+    if (query.length > 0 && outcomePreview.length > 0)
+      return `${outcomePreview} for "${query}"`;
     return outcomePreview;
   }
 
   if (toolName === "web_fetch") {
     const parsed = WebFetchArgSchema(tryParseObject(rawArgs));
     if (!(parsed instanceof type.errors)) {
-      const host = abbreviate(parsed.url.replace(/^https?:\/\//, ""), ARG_VALUE_MAX);
+      const host = abbreviate(
+        parsed.url.replace(/^https?:\/\//, ""),
+        ARG_VALUE_MAX,
+      );
       return `${outcomePreview} from ${host}`;
     }
     return outcomePreview;
@@ -420,13 +460,15 @@ export function mergedToolCollapsedPreview(
 
   if (isMcpToolName(toolName)) {
     const label = humanizeToolName(toolName);
-    if (argSummary.length > 0) return `${label} ${argSummary} — ${outcomePreview}`;
+    if (argSummary.length > 0)
+      return `${label} ${argSummary} — ${outcomePreview}`;
     return `${label} — ${outcomePreview}`;
   }
 
   if (argSummary.length > 0) {
     const label = humanizeToolName(toolName);
-    if (outcomePreview === argSummary || outcomePreview.includes(argSummary)) return outcomePreview;
+    if (outcomePreview === argSummary || outcomePreview.includes(argSummary))
+      return outcomePreview;
     return `${label} ${argSummary} — ${outcomePreview}`;
   }
 
@@ -449,15 +491,22 @@ function summarizeTaskResultPreview(content: string): string {
   if (/^Sub-agent ".+" cancelled/i.test(trimmed)) {
     return "cancelled";
   }
-  const reported = trimmed.match(/^Sub-agent "([^"]*)" reported:\s*([\s\S]*)$/i);
+  const reported = trimmed.match(
+    /^Sub-agent "([^"]*)" reported:\s*([\s\S]*)$/i,
+  );
   const body = (reported?.[2] ?? trimmed).trim();
-  const summarySection = body.match(/^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\s*$)/im);
+  const summarySection = body.match(
+    /^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\s*$)/im,
+  );
   if (summarySection) {
-    const first = summarySection[1]!
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0);
-    if (first !== undefined && first.length > 0) return abbreviate(first, 64);
+    const section = summarySection[1];
+    if (section != null) {
+      const first = section
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.length > 0);
+      if (first !== undefined && first.length > 0) return abbreviate(first, 64);
+    }
   }
   const withoutHeadings = body
     .split("\n")
@@ -497,7 +546,11 @@ function summarizeWaitAgentsResultPreview(content: string): string {
   return abbreviate(content, 64) || "(no output)";
 }
 
-const WebSearchItemSchema = type({ "title?": "string", "url?": "string", "snippet?": "string" });
+const WebSearchItemSchema = type({
+  "title?": "string",
+  "url?": "string",
+  "snippet?": "string",
+});
 
 const SEARCH_DISPLAY_LIMIT = 5;
 
@@ -506,12 +559,17 @@ function webSearchSummary(raw: string): ToolResultSummary | null {
   if (parsed instanceof type.errors) return null;
   const { results } = parsed;
   if (results.length === 0) {
-    return { preview: "No web results", full: "No web results", isJSONDocument: false };
+    return {
+      preview: "No web results",
+      full: "No web results",
+      isJSONDocument: false,
+    };
   }
   const displayed = results.slice(0, SEARCH_DISPLAY_LIMIT);
   const lines = displayed.flatMap((item, index) => {
     const rec = WebSearchItemSchema(item);
-    if (rec instanceof type.errors) return [`${index + 1}. ${scalarToString(item)}`];
+    if (rec instanceof type.errors)
+      return [`${index + 1}. ${scalarToString(item)}`];
     const title = rec.title ?? "Untitled";
     const url = rec.url ?? "";
     const snippet = rec.snippet ?? "";
@@ -557,7 +615,10 @@ function webFetchSummary(raw: string): ToolResultSummary | null {
  * true ONLY when the content is genuinely a JSON document the user would want
  * to read as JSON — never for tool envelopes or status strings.
  */
-export function summarizeToolResult(toolName: string, rawResult: string): ToolResultSummary {
+export function summarizeToolResult(
+  toolName: string,
+  rawResult: string,
+): ToolResultSummary {
   const content = rawResult;
   const full = content;
 
@@ -566,7 +627,11 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
   // and is unreadable. Never flagged as a JSON document for that reason.
   if (isMcpToolName(toolName)) {
     const summary = formatMcpResult(content);
-    return { preview: summary.preview, full: summary.full, isJSONDocument: false };
+    return {
+      preview: summary.preview,
+      full: summary.full,
+      isJSONDocument: false,
+    };
   }
 
   if (toolName === "web_search") {
@@ -580,7 +645,8 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
 
   // read_file line-numbers its output ("     1\t<line>"), so strip those prefixes
   // before testing for a JSON document — otherwise a real .json file never matches.
-  const contentForDetection = toolName === "read_file" ? stripLineNumbers(content) : content;
+  const contentForDetection =
+    toolName === "read_file" ? stripLineNumbers(content) : content;
   const isJSONDocument = isUserFacingJSON(contentForDetection);
 
   let preview: string;
@@ -592,23 +658,31 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
     }
     case "write_file": {
       const path = pathFromResult(toolName, content);
-      preview = path ? `Wrote ${shortenPath(path)}` : content.trim() || "Wrote file";
+      preview = path
+        ? `Wrote ${shortenPath(path)}`
+        : content.trim() || "Wrote file";
       break;
     }
     case "edit_file": {
       const path = pathFromResult(toolName, content);
-      preview = path ? `Edited ${shortenPath(path)}` : content.trim() || "Edited file";
+      preview = path
+        ? `Edited ${shortenPath(path)}`
+        : content.trim() || "Edited file";
       break;
     }
     case "run_shell": {
       // Success returns raw output; failure is prefixed "exit code N\n<output>".
       const fail = content.match(/^exit code (\d+)\n([\s\S]*)$/);
       const output = fail ? (fail[2] ?? "") : content;
-      const firstLine = output.split("\n").find((line) => line.trim().length > 0) ?? "";
+      const firstLine =
+        output.split("\n").find((line) => line.trim().length > 0) ?? "";
       const lineCount = countLines(output);
       const more = lineCount > 1 ? ` (+${lineCount - 1} more lines)` : "";
       if (fail) {
-        preview = firstLine.length > 0 ? `exit ${fail[1]}: ${firstLine}${more}` : `exit ${fail[1]}`;
+        preview =
+          firstLine.length > 0
+            ? `exit ${fail[1]}: ${firstLine}${more}`
+            : `exit ${fail[1]}`;
       } else {
         preview = firstLine.length > 0 ? `${firstLine}${more}` : "(no output)";
       }
@@ -674,7 +748,8 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
  */
 export function isUserFacingJSON(raw: string): boolean {
   const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.length > MAX_JSON_DOCUMENT_CHARS) return false;
+  if (trimmed.length === 0 || trimmed.length > MAX_JSON_DOCUMENT_CHARS)
+    return false;
   const first = trimmed[0];
   if (first !== "{" && first !== "[") return false;
   let parsed: unknown;

@@ -1,6 +1,9 @@
 import type { BuiltRequest, ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
-import { OPENCODE_SESSION_ID_OPTION, optionString } from "./openai-responses-adapter.js";
+import {
+  OPENCODE_SESSION_ID_OPTION,
+  optionString,
+} from "./openai-responses-adapter.js";
 
 type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 
@@ -34,16 +37,22 @@ function normalizeNullDeltaFields(sseData: string): string {
   return normalized ? JSON.stringify(parsed) : sseData;
 }
 
-export function createOpenCodeGoAdapter(source: AdapterSource, quirks?: unknown): ProviderAdapter {
+export function createOpenCodeGoAdapter(
+  source: AdapterSource,
+  quirks?: unknown,
+): ProviderAdapter {
   const base = createOpenAICompatibleAdapter(source, quirks);
-  const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
+  const buildRequest: ProviderAdapter["buildRequest"] = (
+    messages,
+    model,
+    options,
+  ) => {
     const built = base.buildRequest(messages, model, options);
     const sessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
     if (sessionId === undefined) return built;
-    const { [OPENCODE_SESSION_ID_OPTION]: _sessionId, ...body } = JSON.parse(built.body) as Record<
-      string,
-      unknown
-    >;
+    const { [OPENCODE_SESSION_ID_OPTION]: _sessionId, ...body } = JSON.parse(
+      built.body,
+    ) as Record<string, unknown>;
     const headers: BuiltRequest["headers"] = {
       ...built.headers,
       "x-opencode-session": sessionId,
@@ -53,6 +62,7 @@ export function createOpenCodeGoAdapter(source: AdapterSource, quirks?: unknown)
   return {
     ...base,
     buildRequest,
-    parseResponse: (sseData) => base.parseResponse(normalizeNullDeltaFields(sseData)),
+    parseResponse: (sseData) =>
+      base.parseResponse(normalizeNullDeltaFields(sseData)),
   };
 }

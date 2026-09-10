@@ -97,7 +97,8 @@ async function readPluginMetadataOnly(
   }
   const abs = resolve(dir);
   const manifest =
-    (await readManifestJson(abs)) ?? (await readManifestJson(join(abs, ".claude-plugin")));
+    (await readManifestJson(abs)) ??
+    (await readManifestJson(join(abs, ".claude-plugin")));
   if (manifest === null) {
     return null;
   }
@@ -143,7 +144,8 @@ export async function loadPluginEntry(
   );
   const origin = opts.origin;
   const telemetry = opts.telemetry ?? NOOP_TELEMETRY;
-  const reportPluginLoaded = opts.pluginLoadReporter ?? runtimePluginLoadReporter;
+  const reportPluginLoaded =
+    opts.pluginLoadReporter ?? runtimePluginLoadReporter;
   let target = entryPath;
   let pluginDir = entryPath;
   try {
@@ -168,12 +170,19 @@ export async function loadPluginEntry(
         // collector over a pre-bound onWarning sink.
         const dataOnly = await loadDataOnlyPlugin(entryPath, {
           cwd,
-          ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : { onWarning }),
+          ...(opts.diagnostics !== undefined
+            ? { diagnostics: opts.diagnostics }
+            : { onWarning }),
         });
         if (dataOnly !== null) {
-          const mod: PluginModule = { dir: entryPath, manifest: dataOnly.manifest };
-          if (dataOnly.agentPlugin !== undefined) mod.agentPlugin = dataOnly.agentPlugin;
-          if (dataOnly.commandPlugin !== undefined) mod.commandPlugin = dataOnly.commandPlugin;
+          const mod: PluginModule = {
+            dir: entryPath,
+            manifest: dataOnly.manifest,
+          };
+          if (dataOnly.agentPlugin !== undefined)
+            mod.agentPlugin = dataOnly.agentPlugin;
+          if (dataOnly.commandPlugin !== undefined)
+            mod.commandPlugin = dataOnly.commandPlugin;
           if (origin !== undefined) {
             mod.origin = origin;
             mod.pluginPath = resolve(entryPath);
@@ -226,14 +235,18 @@ export async function loadPluginEntry(
     }
     if (typeof mod.createWebProvider === "function")
       result.createWebProvider = mod.createWebProvider;
-    if (typeof mod.createToolPlugin === "function") result.createToolPlugin = mod.createToolPlugin;
+    if (typeof mod.createToolPlugin === "function")
+      result.createToolPlugin = mod.createToolPlugin;
     // A default-exported factory maps strictly to the factory for the manifest's
     // kind, so web and tool plugins can both just `export default` — and a tool
     // plugin's default never leaks into the web slot (or vice versa).
     if (typeof mod.default === "function") {
       if (manifest?.kind === "web" && result.createWebProvider === undefined) {
         result.createWebProvider = mod.default;
-      } else if (manifest?.kind === "tool" && result.createToolPlugin === undefined) {
+      } else if (
+        manifest?.kind === "tool" &&
+        result.createToolPlugin === undefined
+      ) {
         result.createToolPlugin = mod.default;
       }
     }
@@ -277,7 +290,10 @@ async function pathExists(p: string): Promise<boolean> {
 
 /** Why a marketplace `source` entry was not expanded to a member path. */
 export type ExpandPluginPathSkipReason =
-  "absolute" | "outside-contain-root" | "missing" | "invalid-entry";
+  | "absolute"
+  | "outside-contain-root"
+  | "missing"
+  | "invalid-entry";
 
 export interface ExpandPluginPathSkip {
   source: string;
@@ -303,7 +319,7 @@ export interface ExpandPluginPathOptions {
    * into a compile error until it picks a handler on purpose:
    * `expandSkipDiagnosticsHandler(diagnostics)` for a batching caller,
    * an explicit stderr writer for a headless caller where that is correct
-   * and visible (see `src/exec/runner.ts`), or `() => {}` to state on the
+   * and visible (see `src/exec/runner.ts`), or `() => undefined` to state on the
    * record that a caller is deliberately ignoring skips.
    */
   onSkip: (skip: ExpandPluginPathSkip) => void;
@@ -340,7 +356,9 @@ function stderrExpandSkip(skip: ExpandPluginPathSkip): void {
 function resolveExpandSkip(
   diagnostics?: PluginLoadDiagnostics,
 ): (skip: ExpandPluginPathSkip) => void {
-  return diagnostics !== undefined ? expandSkipDiagnosticsHandler(diagnostics) : stderrExpandSkip;
+  return diagnostics !== undefined
+    ? expandSkipDiagnosticsHandler(diagnostics)
+    : stderrExpandSkip;
 }
 
 /**
@@ -399,14 +417,19 @@ export async function expandPluginPath(
   // 1. Declared marketplace: relative `source` list, contained under containRoot
   // (or parent of marketplace root for path plugins — any depth under that parent).
   try {
-    const raw = await readFile(join(marketplaceRoot, ".claude-plugin", "marketplace.json"), "utf8");
+    const raw = await readFile(
+      join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
+      "utf8",
+    );
     const parsed = JSON.parse(raw) as unknown;
     if (
       typeof parsed === "object" &&
       parsed !== null &&
       Array.isArray((parsed as { plugins?: unknown }).plugins)
     ) {
-      const containRoot = resolve(opts.containRoot ?? defaultContainRoot(marketplaceRoot));
+      const containRoot = resolve(
+        opts.containRoot ?? defaultContainRoot(marketplaceRoot),
+      );
       const candidates: { source: string; resolved: string }[] = [];
       for (const p of (parsed as { plugins: unknown[] }).plugins) {
         if (typeof p !== "object" || p === null) {
@@ -415,7 +438,10 @@ export async function expandPluginPath(
         }
         const src = (p as { source?: unknown }).source;
         if (typeof src !== "string" || src.length === 0) {
-          report({ source: typeof src === "string" ? src : "", reason: "invalid-entry" });
+          report({
+            source: typeof src === "string" ? src : "",
+            reason: "invalid-entry",
+          });
           continue;
         }
         // Absolute `source` would jump any relative contain check.
@@ -430,10 +456,13 @@ export async function expandPluginPath(
         }
         candidates.push({ source: src, resolved });
       }
-      const existing = await Promise.all(candidates.map((c) => pathExists(c.resolved)));
+      const existing = await Promise.all(
+        candidates.map((c) => pathExists(c.resolved)),
+      );
       const surviving: string[] = [];
       for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i]!;
+        const c = candidates[i];
+        if (c === undefined) continue;
         if (existing[i]) {
           surviving.push(c.resolved);
         } else {
@@ -460,14 +489,20 @@ export async function expandPluginPath(
     (await pathExists(join(marketplaceRoot, "commands"))) ||
     (await pathExists(join(marketplaceRoot, "command"))) ||
     (await pathExists(join(marketplaceRoot, "manifest.json"))) ||
-    (await pathExists(join(marketplaceRoot, ".claude-plugin", "plugin.json"))) ||
+    (await pathExists(
+      join(marketplaceRoot, ".claude-plugin", "plugin.json"),
+    )) ||
     (await pathExists(join(marketplaceRoot, "index.ts"))) ||
     (await pathExists(join(marketplaceRoot, "src", "index.ts")));
   if (hasPluginsSubdir && !rootIsPlugin) {
-    const containRoot = resolve(opts.containRoot ?? defaultContainRoot(marketplaceRoot));
+    const containRoot = resolve(
+      opts.containRoot ?? defaultContainRoot(marketplaceRoot),
+    );
     let entries: import("node:fs").Dirent[];
     try {
-      entries = await readdir(join(marketplaceRoot, "plugins"), { withFileTypes: true });
+      entries = await readdir(join(marketplaceRoot, "plugins"), {
+        withFileTypes: true,
+      });
     } catch {
       return [marketplaceRoot];
     }
@@ -477,7 +512,11 @@ export async function expandPluginPath(
       const child = join(marketplaceRoot, "plugins", entry.name);
       if (!(await pathExists(child))) continue;
       if (!(await pathContainedUnder(child, containRoot))) {
-        report({ source: child, reason: "outside-contain-root", resolved: child });
+        report({
+          source: child,
+          reason: "outside-contain-root",
+          resolved: child,
+        });
         continue;
       }
       dirs.push(child);
@@ -500,7 +539,9 @@ export async function expandExistingPluginMembers(
   cwd: string,
   onSkip: (skip: ExpandPluginPathSkip) => void,
 ): Promise<string[]> {
-  const abs = isAbsolute(registeredPath) ? registeredPath : resolve(cwd, registeredPath);
+  const abs = isAbsolute(registeredPath)
+    ? registeredPath
+    : resolve(cwd, registeredPath);
   const members = await expandPluginPath(abs, { onSkip });
   const existing = await Promise.all(members.map((m) => pathExists(m)));
   return members.filter((_, i) => existing[i]);
@@ -536,7 +577,11 @@ async function scanPluginsDir(
     });
     for (const d of dirs) {
       const abs = resolve(d);
-      if (originRequiresTrust(origin) && isTrusted !== undefined && !isTrusted(abs)) {
+      if (
+        originRequiresTrust(origin) &&
+        isTrusted !== undefined &&
+        !isTrusted(abs)
+      ) {
         const meta = await readPluginMetadataOnly(abs, origin);
         if (meta !== null) results.push(meta);
         continue;
@@ -578,7 +623,14 @@ export async function discoverUserPlugins(
       opts.diagnostics,
       opts.telemetry,
     ),
-    scanPluginsDir(userDir, cwd, "user", undefined, opts.diagnostics, opts.telemetry),
+    scanPluginsDir(
+      userDir,
+      cwd,
+      "user",
+      undefined,
+      opts.diagnostics,
+      opts.telemetry,
+    ),
   ]);
   return [...project, ...user];
 }
@@ -606,11 +658,14 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
     }
     const existing = indexById.get(id);
     if (existing !== undefined) {
-      const prev = result[existing]!;
+      const prev = result[existing];
+      if (prev === undefined) continue;
       const wasRepoDefaultEnabled =
         prev.shadowedRepoDefaultEnabled === true ||
         (prev.origin === "repo" && prev.manifest?.defaultEnabled === true);
-      result[existing] = wasRepoDefaultEnabled ? { ...mod, shadowedRepoDefaultEnabled: true } : mod;
+      result[existing] = wasRepoDefaultEnabled
+        ? { ...mod, shadowedRepoDefaultEnabled: true }
+        : mod;
     } else {
       indexById.set(id, result.length);
       result.push(mod);
@@ -659,8 +714,12 @@ export async function loadPluginsFromPaths(
         return loadPluginEntry(p, {
           cwd,
           origin: "path",
-          ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
-          ...(opts.telemetry !== undefined ? { telemetry: opts.telemetry } : {}),
+          ...(opts.diagnostics !== undefined
+            ? { diagnostics: opts.diagnostics }
+            : {}),
+          ...(opts.telemetry !== undefined
+            ? { telemetry: opts.telemetry }
+            : {}),
         });
       }),
   );
@@ -722,7 +781,14 @@ export async function discoverRepoPlugins(
     execPath: opts.execPath ?? process.execPath,
   });
   if (pluginsDir === undefined) return [];
-  return scanPluginsDir(pluginsDir, cwd, "repo", undefined, opts.diagnostics, opts.telemetry);
+  return scanPluginsDir(
+    pluginsDir,
+    cwd,
+    "repo",
+    undefined,
+    opts.diagnostics,
+    opts.telemetry,
+  );
 }
 
 // Claude Code records marketplace installs in
@@ -746,7 +812,12 @@ export async function discoverClaudeInstalledPlugins(
   } = {},
 ): Promise<PluginModule[]> {
   const home = opts.home ?? homedir();
-  const registryPath = join(home, ".claude", "plugins", "installed_plugins.json");
+  const registryPath = join(
+    home,
+    ".claude",
+    "plugins",
+    "installed_plugins.json",
+  );
   let raw: string;
   try {
     raw = await readFile(registryPath, "utf8");
@@ -769,7 +840,11 @@ export async function discoverClaudeInstalledPlugins(
     return [];
   }
   const pluginsField = (parsed as { plugins?: unknown }).plugins;
-  if (typeof pluginsField !== "object" || pluginsField === null || Array.isArray(pluginsField)) {
+  if (
+    typeof pluginsField !== "object" ||
+    pluginsField === null ||
+    Array.isArray(pluginsField)
+  ) {
     return [];
   }
 
@@ -791,7 +866,9 @@ export async function discoverClaudeInstalledPlugins(
     });
   const installPaths: { abs: string; registryKey: string }[] = [];
   const seen = new Set<string>();
-  for (const [registryKey, entries] of Object.entries(pluginsField as Record<string, unknown>)) {
+  for (const [registryKey, entries] of Object.entries(
+    pluginsField as Record<string, unknown>,
+  )) {
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -827,7 +904,9 @@ export async function discoverClaudeInstalledPlugins(
       // stay on explicit pluginPaths (user-opted load path).
       const dataOnly = await loadDataOnlyPlugin(d, {
         cwd,
-        ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
+        ...(opts.diagnostics !== undefined
+          ? { diagnostics: opts.diagnostics }
+          : {}),
       });
       if (dataOnly === null) continue;
       const plugin: PluginModule = {
@@ -837,8 +916,10 @@ export async function discoverClaudeInstalledPlugins(
         pluginPath: resolve(d),
         source: "claude",
       };
-      if (dataOnly.agentPlugin !== undefined) plugin.agentPlugin = dataOnly.agentPlugin;
-      if (dataOnly.commandPlugin !== undefined) plugin.commandPlugin = dataOnly.commandPlugin;
+      if (dataOnly.agentPlugin !== undefined)
+        plugin.agentPlugin = dataOnly.agentPlugin;
+      if (dataOnly.commandPlugin !== undefined)
+        plugin.commandPlugin = dataOnly.commandPlugin;
       // Version-dir basenames (e.g. .../cmo/1.0.0 → "1.0.0") collide across
       // installs and break settings.plugins enable keys. Prefer a stable id
       // from the registry key (name before @) when the resolved id looks like
@@ -854,7 +935,10 @@ export async function discoverClaudeInstalledPlugins(
         plugin.manifest = {
           ...plugin.manifest,
           id: idFromKey,
-          name: plugin.manifest.name === plugin.manifest.id ? idFromKey : plugin.manifest.name,
+          name:
+            plugin.manifest.name === plugin.manifest.id
+              ? idFromKey
+              : plugin.manifest.name,
         };
       }
       if (opts.telemetry !== undefined) {

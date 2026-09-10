@@ -44,13 +44,17 @@ export async function gateToolCall(
 
 // Bind full AgentTools to a gate. Workers pass workerPermissionGate so inherited
 // MCP handlers skip middleware the same way posix plugins do.
-export function gateAgentTools(tools: readonly AgentTool[], gate: PermissionGate): AgentTool[] {
+export function gateAgentTools(
+  tools: readonly AgentTool[],
+  gate: PermissionGate,
+): AgentTool[] {
   return tools.map((tool) => {
     if (tool.kind !== "full") return tool;
     const inner = tool.handler;
     return {
       ...tool,
-      handler: (call: ToolCall, signal: AbortSignal) => gateToolCall(gate, call, signal, inner),
+      handler: (call: ToolCall, signal: AbortSignal) =>
+        gateToolCall(gate, call, signal, inner),
     };
   });
 }
@@ -61,6 +65,7 @@ export function gateAgentTools(tools: readonly AgentTool[], gate: PermissionGate
 // either finds it pre-approved, asks the operator, or denies it in headless runs.
 export function permissionPlugin(gate: PermissionGate): ToolPlugin {
   return {
-    middleware: (next) => (call, signal) => gateToolCall(gate, call, signal, next),
+    middleware: (next) => (call, signal) =>
+      gateToolCall(gate, call, signal, next),
   };
 }

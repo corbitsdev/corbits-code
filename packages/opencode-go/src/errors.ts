@@ -10,10 +10,18 @@
  */
 
 export type GoErrorKind =
-  "quota_exhausted" | "rate_limit" | "unauthorized" | "unavailable" | "unknown";
+  | "quota_exhausted"
+  | "rate_limit"
+  | "unauthorized"
+  | "unavailable"
+  | "unknown";
 
 /** Subset of InferenceError.category used when reclassifying Go failures. */
-export type GoErrorCategory = "quota_exhausted" | "retryable" | "auth" | "fatal";
+export type GoErrorCategory =
+  | "quota_exhausted"
+  | "retryable"
+  | "auth"
+  | "fatal";
 
 export interface ParsedGoAPIError {
   kind: GoErrorKind;
@@ -124,7 +132,8 @@ function extractErrorNode(body: unknown): {
     };
     if (typeof nested["type"] === "string") out.typeName = nested["type"];
     if (typeof nested["code"] === "string") out.code = nested["code"];
-    if (typeof meta?.["workspace"] === "string") out.workspace = meta["workspace"];
+    if (typeof meta?.["workspace"] === "string")
+      out.workspace = meta["workspace"];
     return out;
   }
   // Shape B: flat { type, message, code }
@@ -158,7 +167,8 @@ function looksLikeRateLimit(
   code: string | undefined,
   message: string,
 ): boolean {
-  if (typeName !== undefined && RATE_LIMIT_TYPE_NAMES.has(typeName)) return true;
+  if (typeName !== undefined && RATE_LIMIT_TYPE_NAMES.has(typeName))
+    return true;
   if (code !== undefined && /rate_limit/i.test(code)) return true;
   const lower = message.toLowerCase();
   return RATE_LIMIT_MESSAGE_MARKERS.some((m) => lower.includes(m));
@@ -186,7 +196,10 @@ function userMessageFor(
       retryAfterSec !== undefined && retryAfterSec > 0
         ? ` Retry after ~${formatReset(retryAfterSec)}.`
         : " Retry shortly.";
-    return (original.length > 0 ? original : "OpenCode Go rate limit exceeded.") + wait;
+    return (
+      (original.length > 0 ? original : "OpenCode Go rate limit exceeded.") +
+      wait
+    );
   }
   if (kind === "unauthorized") {
     return original.length > 0
@@ -231,7 +244,10 @@ export function parseGoAPIError(args: {
   // 400 is intentional — the gateway has been observed returning 400 for limit hits.
   if (
     quota &&
-    (statusCode === 429 || statusCode === 402 || statusCode === 400 || statusCode === 403)
+    (statusCode === 429 ||
+      statusCode === 402 ||
+      statusCode === 400 ||
+      statusCode === 403)
   ) {
     return {
       kind: "quota_exhausted",
@@ -246,7 +262,10 @@ export function parseGoAPIError(args: {
   }
 
   // Provider / console rate limit (retryable). Same 400 quirk.
-  if (rateLimit && (statusCode === 429 || statusCode === 400 || statusCode === 503)) {
+  if (
+    rateLimit &&
+    (statusCode === 429 || statusCode === 400 || statusCode === 503)
+  ) {
     return {
       kind: "rate_limit",
       category: "retryable",
@@ -303,7 +322,9 @@ export function parseGoAPIError(args: {
     typeName !== undefined &&
     (QUOTA_TYPE_NAMES.has(typeName) || RATE_LIMIT_TYPE_NAMES.has(typeName))
   ) {
-    const kind: GoErrorKind = QUOTA_TYPE_NAMES.has(typeName) ? "quota_exhausted" : "rate_limit";
+    const kind: GoErrorKind = QUOTA_TYPE_NAMES.has(typeName)
+      ? "quota_exhausted"
+      : "rate_limit";
     return {
       kind,
       category: kind === "quota_exhausted" ? "quota_exhausted" : "retryable",

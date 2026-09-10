@@ -3,7 +3,10 @@ import type { ConversationTurn } from "@intx/types/runtime";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 import { hydrateTasksFromTurns } from "../agent/director.js";
 
-function manageTasksTurn(id: string, status: "todo" | "doing" | "done"): ConversationTurn {
+function manageTasksTurn(
+  id: string,
+  status: "todo" | "doing" | "done",
+): ConversationTurn {
   return {
     role: "assistant",
     model: "test",
@@ -13,7 +16,10 @@ function manageTasksTurn(id: string, status: "todo" | "doing" | "done"): Convers
         type: "tool_call",
         id,
         name: "manage_tasks",
-        arguments: { action: "create", tasks: [{ id: "t1", title: "work", status }] },
+        arguments: {
+          action: "create",
+          tasks: [{ id: "t1", title: "work", status }],
+        },
       },
     ],
   } as unknown as ConversationTurn;
@@ -40,8 +46,12 @@ describe("turnsToContentBlocks no longer derives tasks", () => {
       toolResultTurn("m2", false),
     ];
     const blocks = turnsToContentBlocks(turns);
-    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
-    expect(blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks")).toBe(false);
+    expect(
+      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
+    ).toBe(false);
+    expect(
+      blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks"),
+    ).toBe(false);
   });
 
   // hydrateTasksFromTurns applies manage_tasks on the tool_call regardless of
@@ -51,14 +61,20 @@ describe("turnsToContentBlocks no longer derives tasks", () => {
   test("strips a manage_tasks call whose result errored", () => {
     const turns = [manageTasksTurn("m1", "doing"), toolResultTurn("m1", true)];
     const blocks = turnsToContentBlocks(turns);
-    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
-    expect(blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks")).toBe(false);
+    expect(
+      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
+    ).toBe(false);
+    expect(
+      blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks"),
+    ).toBe(false);
   });
 
   test("strips a manage_tasks call with no result at all (interrupted turn)", () => {
     const turns = [manageTasksTurn("m1", "doing")];
     const blocks = turnsToContentBlocks(turns);
-    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+    expect(
+      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
+    ).toBe(false);
   });
 });
 
@@ -95,8 +111,12 @@ describe("resume rendering, end to end (mirrors runner.ts's hydrate composition)
 
     // The restored list goes to the task panel and nowhere else: the transcript
     // carries neither the raw call rows nor an aggregated copy of the list.
-    expect(hydrateTasksFromTurns(turns)).toEqual([{ id: "t1", title: "work", status: "doing" }]);
-    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+    expect(hydrateTasksFromTurns(turns)).toEqual([
+      { id: "t1", title: "work", status: "doing" },
+    ]);
+    expect(
+      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
+    ).toBe(false);
     expect(blocks.some((b) => b.type === "tool_result")).toBe(false);
   });
 
@@ -105,7 +125,11 @@ describe("resume rendering, end to end (mirrors runner.ts's hydrate composition)
 
     const blocks = turnsToContentBlocks(turns);
 
-    expect(hydrateTasksFromTurns(turns)).toEqual([{ id: "t1", title: "work", status: "doing" }]);
-    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+    expect(hydrateTasksFromTurns(turns)).toEqual([
+      { id: "t1", title: "work", status: "doing" },
+    ]);
+    expect(
+      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
+    ).toBe(false);
   });
 });

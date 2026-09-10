@@ -8,7 +8,11 @@ import {
   type SelectOption,
 } from "@opentui/core";
 import { UI } from "../theme.js";
-import { overlayRowsPerItem, overlayChromeRows, overlayMinHostRows } from "../overlay-view.js";
+import {
+  overlayRowsPerItem,
+  overlayChromeRows,
+  overlayMinHostRows,
+} from "../overlay-view.js";
 
 import {
   type AppShell,
@@ -17,7 +21,12 @@ import {
   type OverlaySelection,
   shellInternals,
 } from "./internals.js";
-import { activeOverlayItemId, overlayAnswerState, paintOverlayList, relayout } from "./chrome.js";
+import {
+  activeOverlayItemId,
+  overlayAnswerState,
+  paintOverlayList,
+  relayout,
+} from "./chrome.js";
 
 /** Dispatch accept to per-open callback, then shell-level kind hooks. */
 export function dispatchOverlayAccept(
@@ -116,7 +125,10 @@ interface OverlayListShape {
 }
 
 function placeholderOptions(count: number): SelectOption[] {
-  return Array.from({ length: Math.max(0, count) }, () => ({ name: "", description: "" }));
+  return Array.from({ length: Math.max(0, count) }, () => ({
+    name: "",
+    description: "",
+  }));
 }
 
 /**
@@ -125,7 +137,10 @@ function placeholderOptions(count: number): SelectOption[] {
  * so the wrapper reads them reflectively and narrows the values instead of
  * asserting a shape.
  */
-function selectScrollState(select: SelectRenderable): { offset: number; visible: number } {
+function selectScrollState(select: SelectRenderable): {
+  offset: number;
+  visible: number;
+} {
   const numberProp = (name: string): number => {
     const value = Object.getOwnPropertyDescriptor(select, name)?.value;
     return typeof value === "number" ? value : 1;
@@ -140,7 +155,10 @@ export function createOverlayList(
   ctx: RenderContext,
   opts: { count: number; items: number; activeIndex?: number },
 ): OverlayList {
-  let shape: OverlayListShape = { items: Math.max(1, opts.items), rowsPerItem: 1 };
+  let shape: OverlayListShape = {
+    items: Math.max(1, opts.items),
+    rowsPerItem: 1,
+  };
   let count = Math.max(0, opts.count);
   const activeIndex = opts.activeIndex ?? 0;
   let options = placeholderOptions(count);
@@ -171,7 +189,10 @@ export function createOverlayList(
 
   const reshape = (next: Partial<OverlayListShape>): void => {
     const merged = { ...shape, ...next };
-    if (merged.items === shape.items && merged.rowsPerItem === shape.rowsPerItem) {
+    if (
+      merged.items === shape.items &&
+      merged.rowsPerItem === shape.rowsPerItem
+    ) {
       return;
     }
     // A rebuild lands on the open-time index; carry the live selection across
@@ -179,7 +200,9 @@ export function createOverlayList(
     const current = select.getSelectedIndex();
     shape = merged;
     select = build();
-    select.setSelectedIndex(count === 0 ? 0 : Math.min(count - 1, Math.max(0, current)));
+    select.setSelectedIndex(
+      count === 0 ? 0 : Math.min(count - 1, Math.max(0, current)),
+    );
   };
 
   return {
@@ -207,7 +230,9 @@ export function createOverlayList(
     },
     jump(index: number) {
       if (count === 0) return;
-      select.setSelectedIndex(Math.max(0, Math.min(count - 1, Math.floor(index))));
+      select.setSelectedIndex(
+        Math.max(0, Math.min(count - 1, Math.floor(index))),
+      );
     },
     setCount(next: number) {
       count = Math.max(0, Math.floor(next));
@@ -215,7 +240,10 @@ export function createOverlayList(
       select.options = options;
     },
     setHeight(items: number, rowsPerItem?: number) {
-      reshape({ items: Math.max(1, Math.floor(items)), ...(rowsPerItem ? { rowsPerItem } : {}) });
+      reshape({
+        items: Math.max(1, Math.floor(items)),
+        ...(rowsPerItem ? { rowsPerItem } : {}),
+      });
     },
     visibleRange() {
       const { offset, visible } = selectScrollState(select);
@@ -245,7 +273,10 @@ export function moveOverlaySelection(shell: AppShell, delta: number): void {
  * `onCycle` (settings inline cycling). No-op when the open overlay did not
  * supply a cycle hook, so Left/Right stay unclaimed everywhere else.
  */
-export function cycleOverlaySelection(shell: AppShell, direction: -1 | 1): boolean {
+export function cycleOverlaySelection(
+  shell: AppShell,
+  direction: -1 | 1,
+): boolean {
   const list = shell.overlayList;
   if (!list) return false;
   const onCycle = shellInternals(shell)?.primaryBindings.onCycle;

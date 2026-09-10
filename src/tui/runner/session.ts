@@ -17,22 +17,34 @@ import {
   toolWatchdogFromSettings,
 } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
-import { createGlobalSettingsWriter, createLocalSettingsWriter } from "../../mcp/add-server.js";
+import {
+  createGlobalSettingsWriter,
+  createLocalSettingsWriter,
+} from "../../mcp/add-server.js";
 import { getProcessAdmissionQueue } from "../../subagent/admission.js";
-import { createSubAgentSessionStore, liveFleetCount } from "../../subagent/index.js";
+import {
+  createSubAgentSessionStore,
+  liveFleetCount,
+} from "../../subagent/index.js";
 import {
   buildPluginDescriptor,
   createPluginsAdmin,
   type PluginsAdminState,
 } from "../plugins-admin-backend.js";
 import type { PluginDescriptor } from "../../plugins/admin.js";
-import { createPluginLoadDiagnostics, emitPluginWarningLog } from "../../plugins/diagnostics.js";
+import {
+  createPluginLoadDiagnostics,
+  emitPluginWarningLog,
+} from "../../plugins/diagnostics.js";
 import {
   collectWebPlugins,
   resolveWebProviderFromPlugins,
   webBrand,
 } from "../../web/plugin-provider.js";
-import { collectToolPlugins, resolveToolPlugins } from "../../plugins/tool-plugins.js";
+import {
+  collectToolPlugins,
+  resolveToolPlugins,
+} from "../../plugins/tool-plugins.js";
 import { resolveAgentPluginProfiles } from "../../plugins/agent-plugins.js";
 import { loadAgentProfiles } from "../../agent/profiles.js";
 import { createPermissionsAdmin } from "../../permission/admin.js";
@@ -56,12 +68,19 @@ import {
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../../session/runtime-assembly.js";
-import { createModelSummarizer, type SummaryContext } from "../../session/summarizer.js";
+import {
+  createModelSummarizer,
+  type SummaryContext,
+} from "../../session/summarizer.js";
 import { createSessionCostAccumulator } from "../../cost/session-cost.js";
 import { createSessionOperationQueue } from "../session-operation-queue.js";
 import { createDeliveryGeneration } from "../queued-delivery.js";
 import { createCorrelationAcceptance } from "../correlation-acceptance.js";
-import { createAgentToolset, type MCPServerState, type OperatorResult } from "../../agent/tools.js";
+import {
+  createAgentToolset,
+  type MCPServerState,
+  type OperatorResult,
+} from "../../agent/tools.js";
 import type { ToolAvailability } from "../../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
 import type { SessionMode } from "../../config/session-mode.js";
@@ -92,27 +111,35 @@ export async function assembleTUISession(
 ): Promise<RunnerServices> {
   const config = state.config;
   const emitter = new EventEmitter();
-  const globalSettingsWriter = createGlobalSettingsWriter(config.globalSettingsPath);
-  const localSettingsWriter = createLocalSettingsWriter(localSettingsPath(config.cwd));
-  const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
-    Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [id, v.enabled]),
+  const globalSettingsWriter = createGlobalSettingsWriter(
+    config.globalSettingsPath,
   );
-  const { hookManager, runSink, cycleRecorder } = await assembleSessionLifecycle({
-    cwd: config.cwd,
-    emitter,
-    getTelemetry,
-    getSessionId: () => state.sessionId,
-    // The lifecycle starts consuming events well after the exit module wires
-    // persistRunSnapshot onto the state this closure reads it from.
-    getSource: () => state.liveSource,
-    initialTurnCount: start.resumeSeed.turnsUsed,
-    onTurnBoundarySnapshot: () => {
-      void state.persistRunSnapshot?.("running");
-    },
-    hookEnabled: initialHookEnabled,
-    onHookEvent: (event) => emitter.emit("hook", event),
-    resolveContextDir: () => state.workdir,
-  });
+  const localSettingsWriter = createLocalSettingsWriter(
+    localSettingsPath(config.cwd),
+  );
+  const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
+    Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [
+      id,
+      v.enabled,
+    ]),
+  );
+  const { hookManager, runSink, cycleRecorder } =
+    await assembleSessionLifecycle({
+      cwd: config.cwd,
+      emitter,
+      getTelemetry,
+      getSessionId: () => state.sessionId,
+      // The lifecycle starts consuming events well after the exit module wires
+      // persistRunSnapshot onto the state this closure reads it from.
+      getSource: () => state.liveSource,
+      initialTurnCount: start.resumeSeed.turnsUsed,
+      onTurnBoundarySnapshot: () => {
+        void state.persistRunSnapshot?.("running");
+      },
+      hookEnabled: initialHookEnabled,
+      onHookEvent: (event) => emitter.emit("hook", event),
+      resolveContextDir: () => state.workdir,
+    });
 
   // Shared by the permission gate and every operator-gate emission site: an
   // unattended auto-continue run must not park on any gate forever, whichever
@@ -122,8 +149,9 @@ export async function assembleTUISession(
   // OperatorGateEvent/PermissionGateEvent emission site below) stays for a
   // future generalized auto-continue mechanism to re-arm by giving this a
   // real body again.
-  const approvalTimeout = (): { timeoutMs: number; timeoutMessage: string } | undefined =>
-    undefined;
+  const approvalTimeout = ():
+    | { timeoutMs: number; timeoutMessage: string }
+    | undefined => undefined;
 
   const correlationAcceptance = createCorrelationAcceptance();
   const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
@@ -143,14 +171,16 @@ export async function assembleTUISession(
       approvalTimeout,
       identitySignal: () => deliveryGeneration.signal(),
     }),
-    getActiveProviderModel: () => `${state.config.providerName}:${state.config.model}`,
+    getActiveProviderModel: () =>
+      `${state.config.providerName}:${state.config.model}`,
     onPersistNotice: (text) => state.approvalPersistNotice.notify?.(text),
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
     // Main session: gating rides the reactor's approval-suspend seam.
     reactorGated: true,
-    onGrant: (approval, covers) => emitter.emit("permission.grant", { approval, covers }),
+    onGrant: (approval, covers) =>
+      emitter.emit("permission.grant", { approval, covers }),
   });
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
@@ -168,7 +198,8 @@ export async function assembleTUISession(
     admission: getProcessAdmissionQueue(),
   });
 
-  const executablePlugins = () => pluginState.modules.filter((m) => m.metadataOnly !== true);
+  const executablePlugins = () =>
+    pluginState.modules.filter((m) => m.metadataOnly !== true);
   pluginState.webCandidates = collectWebPlugins(executablePlugins());
   // Tool plugins are wired in only when enabled AND consented.
   pluginState.toolCandidates = collectToolPlugins(executablePlugins());
@@ -186,7 +217,8 @@ export async function assembleTUISession(
       diagnostics: toolPluginDiag,
     }),
   ]);
-  if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
+  if (activeWeb !== undefined)
+    setActiveWebProviderBrand(webBrand(activeWeb.name));
   emitPluginWarningLog(toolPluginDiag);
   state.standingPluginWarnings.push(...toolPluginDiag.warnings);
 
@@ -198,15 +230,23 @@ export async function assembleTUISession(
   // Attach agent profiles to their descriptors so the /plugins UI can show
   // which sub-agents a plugin contributes.
   for (const mod of pluginState.modules) {
-    if (mod.manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
-    const desc = pluginState.descriptors.find((d) => d.id === mod.manifest!.id);
+    const manifest = mod.manifest;
+    if (manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
+    const desc = pluginState.descriptors.find((d) => d.id === manifest.id);
     if (desc === undefined) continue;
-    const agents = Array.isArray(mod.agentPlugin.agents) ? mod.agentPlugin.agents : [];
+    const agents = Array.isArray(mod.agentPlugin.agents)
+      ? mod.agentPlugin.agents
+      : [];
     desc.agentProfiles = agents
-      .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null && "id" in a)
+      .filter(
+        (a): a is Record<string, unknown> =>
+          typeof a === "object" && a !== null && "id" in a,
+      )
       .map((a) => ({
         id: String(a["id"]),
-        ...(typeof a["description"] === "string" ? { description: a["description"] } : {}),
+        ...(typeof a["description"] === "string"
+          ? { description: a["description"] }
+          : {}),
       }));
   }
   const notePluginWarnings = (warnings: readonly string[]): void => {
@@ -229,11 +269,17 @@ export async function assembleTUISession(
   );
   emitPluginWarningLog(profileDiag);
   state.standingPluginWarnings.push(...profileDiag.warnings);
-  const liveAgentProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
+  const liveAgentProfiles = await loadAgentProfiles(
+    profilesDir,
+    pluginAgentProfiles,
+  );
 
   // Skill directories from enabled plugins, in addition to project-local
   // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
-  const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginState.pluginConfig);
+  const skillDirs = skillDirsFromEnabledPlugins(
+    executablePlugins(),
+    pluginState.pluginConfig,
+  );
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
   // Mutable so Settings → waitForApproval takes effect on the next tool call
@@ -263,7 +309,9 @@ export async function assembleTUISession(
     telemetry: liveTelemetry,
     isCodex: isCodexProviderName(config.providerName),
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-    ...(localSettingsForEnv?.env !== undefined ? { shellEnv: localSettingsForEnv.env } : {}),
+    ...(localSettingsForEnv?.env !== undefined
+      ? { shellEnv: localSettingsForEnv.env }
+      : {}),
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => liveAgent(state).blobReader,
     getBlobWriter: () => state.currentStorage?.writeBlob,
@@ -281,10 +329,13 @@ export async function assembleTUISession(
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
-        const { finish, signal } = attachApprovalBudget<OperatorResult>(resolve, {
-          tool: "ask_operator",
-          kind: "operator",
-        });
+        const { finish, signal } = attachApprovalBudget<OperatorResult>(
+          resolve,
+          {
+            tool: "ask_operator",
+            kind: "operator",
+          },
+        );
         const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
           id: randomUUID(),
@@ -298,16 +349,21 @@ export async function assembleTUISession(
       }),
     sessionMode: liveSessionMode,
     toolAvailability,
-    ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
+    ...(config.mcpServers !== undefined
+      ? { mcpServers: config.mcpServers }
+      : {}),
     mcpServersSource: config.mcpServersSource ?? "none",
     projectTrust: pluginState.projectTrust,
     requestMcpTrust: async (server) => {
       // TOFU via operator gate: Trust this local MCP server?
       const result = await new Promise<OperatorResult>((resolve) => {
-        const { finish, signal } = attachApprovalBudget<OperatorResult>(resolve, {
-          tool: `mcp:${server.name}`,
-          kind: "operator",
-        });
+        const { finish, signal } = attachApprovalBudget<OperatorResult>(
+          resolve,
+          {
+            tool: `mcp:${server.name}`,
+            kind: "operator",
+          },
+        );
         const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
           id: randomUUID(),
@@ -355,7 +411,8 @@ export async function assembleTUISession(
     skills: toolset.skills,
   });
 
-  const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
+  const directorHolder: { instance?: ReturnType<typeof createChatDirector> } =
+    {};
   const hostHolder: { instance?: RunnerHost } = {};
 
   // Owns the workflow lifecycle: slash-command starts, capability overrides,
@@ -377,11 +434,12 @@ export async function assembleTUISession(
   // Dynamic tool discovery: only the fixed built-in prefix plus activated
   // tools reach the wire, so the provider cache prefix holds steady; MCP
   // tools must be promoted here before the model can invoke them.
-  const { activated: activatedToolNames, computeAdvertised } = createAdvertisedToolset({
-    sessionMode: liveSessionMode,
-    toolAvailability,
-    getProvider: () => state.config,
-  });
+  const { activated: activatedToolNames, computeAdvertised } =
+    createAdvertisedToolset({
+      sessionMode: liveSessionMode,
+      toolAvailability,
+      getProvider: () => state.config,
+    });
 
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
   // so a rebuild never races an in-flight deliver.
@@ -399,12 +457,15 @@ export async function assembleTUISession(
         if (state.fatalBuildError !== null) throw state.fatalBuildError;
         const correlationId = message.headers.interchangeCorrelationId;
         const accepted =
-          correlationId === undefined ? undefined : correlationAcceptance.wait(correlationId);
+          correlationId === undefined
+            ? undefined
+            : correlationAcceptance.wait(correlationId);
         try {
           liveAgent(state).deliver(message);
           await accepted;
         } catch (err) {
-          if (correlationId !== undefined) correlationAcceptance.settle(correlationId);
+          if (correlationId !== undefined)
+            correlationAcceptance.settle(correlationId);
           throw err;
         }
       });
@@ -479,9 +540,12 @@ export async function assembleTUISession(
     getSessionId: () => state.sessionId,
     authorize: createReactorAuthorize(permissionGate),
     inferenceDeps: start.inferenceDeps,
-    getSources: () => (state.liveSources.length > 0 ? state.liveSources : [state.liveSource]),
+    getSources: () =>
+      state.liveSources.length > 0 ? state.liveSources : [state.liveSource],
     getDefaultSource: () =>
-      state.liveDefaultSource.length > 0 ? state.liveDefaultSource : state.liveSource.id,
+      state.liveDefaultSource.length > 0
+        ? state.liveDefaultSource
+        : state.liveSource.id,
     getCompactor: () =>
       createSessionPruningCompactor({
         compactionMode: state.liveCompactionMode,

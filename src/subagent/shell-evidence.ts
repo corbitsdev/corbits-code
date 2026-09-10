@@ -53,7 +53,9 @@ export interface ShellFileEvidence {
 }
 
 function evidenceKey(program: string, operand: string | undefined): string {
-  return operand !== undefined && operand.length > 0 ? operand : `shell:${program}`;
+  return operand !== undefined && operand.length > 0
+    ? operand
+    : `shell:${program}`;
 }
 
 /**
@@ -72,10 +74,14 @@ const EVIDENCE_VALUE_FLAGS: ReadonlySet<string> = new Set([
 ]);
 
 /** First operand that is not a flag or a flag value, skipping `skip` of them. */
-function firstOperand(args: readonly string[], skip: number): string | undefined {
+function firstOperand(
+  args: readonly string[],
+  skip: number,
+): string | undefined {
   let skipped = 0;
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = args[i];
+    if (arg === undefined) continue;
     if (arg === "--") continue;
     if (arg.startsWith("-")) {
       if (EVIDENCE_VALUE_FLAGS.has(arg)) i += 1;
@@ -94,12 +100,15 @@ function classifySegment(segment: string, evidence: ShellFileEvidence): void {
   const tokens = tokenizeSegment(segment);
   if (tokens.length === 0) return;
 
-  const program = programBasename(tokens[0]!);
+  const head = tokens[0];
+  if (head === undefined) return;
+  const program = programBasename(head);
   const args = tokens.slice(1);
 
   if (SHELL_READ_PROGRAMS.has(program)) {
     // grep-likes take the pattern first, so their file operand is the second.
-    const skip = program === "grep" || program === "egrep" || program === "fgrep" ? 1 : 0;
+    const skip =
+      program === "grep" || program === "egrep" || program === "fgrep" ? 1 : 0;
     evidence.reads.push(evidenceKey(program, firstOperand(args, skip)));
   }
 }

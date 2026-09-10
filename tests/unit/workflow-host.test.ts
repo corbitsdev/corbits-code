@@ -9,10 +9,18 @@ import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
 import { WorkflowHost } from "../../src/workflows/host.js";
 import { findWorkflow } from "../../src/workflows/index.js";
 import { WorkflowRuntime } from "../../src/workflows/runtime.js";
-import { flushWorkflowStateWrites, saveWorkflowState } from "../../src/workflows/state.js";
+import { defined } from "../helpers/defined.js";
+import {
+  flushWorkflowStateWrites,
+  saveWorkflowState,
+} from "../../src/workflows/state.js";
 
 function tool(name: string): ToolDefinition {
-  return { name, description: name, inputSchema: { type: "object", properties: {} } };
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
 }
 
 function drain(
@@ -22,7 +30,7 @@ function drain(
   while (host.isActive()) {
     const stepId = director.coordinator?.currentStepId();
     expect(stepId).not.toBeNull();
-    expect(host.complete(stepId!)).toBe("advanced");
+    expect(host.complete(defined(stepId, "stepId"))).toBe("advanced");
   }
 }
 
@@ -39,7 +47,9 @@ async function withHost(
   const cwd = await mkdtemp(join(tmpdir(), "wf-host-"));
   const home = await mkdtemp(join(tmpdir(), "wf-host-home-"));
   await initSessionDir(cwd, "session-1", home);
-  const director = { coordinator: undefined as WorkflowCoordinator | undefined };
+  const director = {
+    coordinator: undefined as WorkflowCoordinator | undefined,
+  };
   const host = new WorkflowHost({
     cwd,
     getSessionId: () => "session-1",
@@ -91,11 +101,15 @@ test("replacing an active workflow requires a confirming second call", async () 
 
 test("status reports capability connection and override state", async () => {
   await withHost([tool("mcp__Linear__save_issue")], async (host) => {
-    const before = host.status().capabilities.find((c) => c.name === "ticket-tracker");
+    const before = host
+      .status()
+      .capabilities.find((c) => c.name === "ticket-tracker");
     expect(before?.connected).toBe(true);
     expect(before?.disabled).toBe(false);
     host.toggleCapability("ticket-tracker");
-    const after = host.status().capabilities.find((c) => c.name === "ticket-tracker");
+    const after = host
+      .status()
+      .capabilities.find((c) => c.name === "ticket-tracker");
     expect(after?.disabled).toBe(true);
   });
 });
@@ -112,7 +126,7 @@ test("reset detaches the workflow", async () => {
 test("directive uses submit_output with the current step id", async () => {
   await withHost([], async (host, director) => {
     host.start("build");
-    const coordinator = director.coordinator!;
+    const coordinator = defined(director.coordinator, "coordinator");
     expect(coordinator).toBeDefined();
     const directive = coordinator.directive();
     expect(directive).not.toBeNull();
@@ -129,8 +143,10 @@ test("complete() advances the current step and records history", async () => {
     expect(host.isActive()).toBe(false);
     const history = host.history();
     expect(history).toHaveLength(1);
-    expect(history[0]!.name).toBe("review");
-    expect(history[0]!.steps.length).toBeGreaterThan(0);
+    expect(defined(history[0], "history entry").name).toBe("review");
+    expect(defined(history[0], "history entry").steps.length).toBeGreaterThan(
+      0,
+    );
   });
 });
 
@@ -159,14 +175,14 @@ test("resume() uses the same completion listener as a fresh start", async () => 
     const workflow = findWorkflow("review");
     expect(workflow).toBeDefined();
     const runtime = new WorkflowRuntime(new Map());
-    runtime.start(workflow!);
+    runtime.start(defined(workflow, "workflow"));
     await saveWorkflowState(cwd, "session-1", runtime.state(), home);
 
     await host.resume();
     expect(host.isActive()).toBe(true);
     drain(host, director);
     expect(host.history()).toHaveLength(1);
-    expect(host.history()[0]!.name).toBe("review");
+    expect(defined(host.history()[0], "history entry").name).toBe("review");
   });
 });
 
@@ -175,7 +191,7 @@ test("resume() restores an on-disk workflow snapshot for the session", async () 
     const workflow = findWorkflow("review");
     expect(workflow).toBeDefined();
     const runtime = new WorkflowRuntime(new Map());
-    runtime.start(workflow!);
+    runtime.start(defined(workflow, "workflow"));
     runtime.advance();
     await saveWorkflowState(cwd, "session-1", runtime.state(), home);
 

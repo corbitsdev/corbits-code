@@ -2,7 +2,7 @@
  * Regression guard: lifecycle-tools.test.ts proves interrupt_agent /
  * resume_agent behave correctly against *fake registered closures* at the
  * tool/store layer — it never exercises run.ts's real wiring, where
- * `followup` calls `agent!.send()` on the same live agent object created by
+ * `followup` calls `agent.send()` on the same live agent object created by
  * `createAgentWithLiveToolDispatch`. A future refactor could make
  * `resume_agent` rebuild the agent instead of reusing it (exactly the
  * regression this feature exists to prevent — a rebuilt agent means the
@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { defined } from "../../tests/helpers/defined.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
 
@@ -59,7 +60,9 @@ function createStubAgent(opts?: { hangFromSend?: number }) {
           abort(optsSend.signal.reason);
           return;
         }
-        const hang = opts?.hangFromSend !== undefined && sendLog.length >= opts.hangFromSend;
+        const hang =
+          opts?.hangFromSend !== undefined &&
+          sendLog.length >= opts.hangFromSend;
         const timer = hang
           ? undefined
           : setTimeout(
@@ -75,17 +78,20 @@ function createStubAgent(opts?: { hangFromSend?: number }) {
           "abort",
           () => {
             if (timer !== undefined) clearTimeout(timer);
-            abort(optsSend.signal!.reason);
+            abort(defined(optsSend.signal).reason);
           },
           { once: true },
         );
       });
     },
-    stream: () => (async function* () {})(),
-    deliver: () => {},
-    close: async () => {},
-    setSource: () => {},
-    setSources: () => {},
+    stream: () =>
+      (async function* () {
+        yield* [];
+      })(),
+    deliver: () => undefined,
+    close: async () => undefined,
+    setSource: () => undefined,
+    setSources: () => undefined,
     history: async () => [],
     checkpoints: async () => [],
     readAt: async () => [],
@@ -127,7 +133,11 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
           cwd,
           workdirBase: join(cwd, ".ctx"),
           permissionGate: testPermissionGate,
-          provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+          provider: {
+            providerName: "test",
+            baseURL: "http://localhost",
+            model: "test-model",
+          },
           description: "live-agent reuse probe",
           prompt: "explore the codebase for the bug",
           persist: true,
@@ -148,7 +158,9 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
         handles.interrupt();
         const interruptedResult = await runPromise;
 
-        const reply = await handles.followup("do X instead, not what the original prompt said");
+        const reply = await handles.followup(
+          "do X instead, not what the original prompt said",
+        );
         return { interruptedResult, reply };
       },
     );
@@ -163,9 +175,13 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
     // the original turn's prompt and the followup message, proving the
     // followup was sent into the same live object rather than a fresh one
     // with empty history.
-    expect(capturedAgent!.sendLog.length).toBe(2);
-    expect(capturedAgent!.sendLog[0]).toContain("explore the codebase for the bug");
-    expect(capturedAgent!.sendLog[1]).toBe("do X instead, not what the original prompt said");
+    expect(defined(capturedAgent).sendLog.length).toBe(2);
+    expect(defined(capturedAgent).sendLog[0]).toContain(
+      "explore the codebase for the bug",
+    );
+    expect(defined(capturedAgent).sendLog[1]).toBe(
+      "do X instead, not what the original prompt said",
+    );
     expect(outcome.reply).toBe("reply #2");
   });
 
@@ -200,7 +216,11 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
           cwd,
           workdirBase: join(cwd, ".ctx"),
           permissionGate: testPermissionGate,
-          provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+          provider: {
+            providerName: "test",
+            baseURL: "http://localhost",
+            model: "test-model",
+          },
           description: "interrupt salvage stopReason probe",
           prompt: "hang until interrupted",
           persist: true,
@@ -208,7 +228,11 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
             handles = h;
           },
         });
-        for (let i = 0; i < 500 && (capturedAgent?.sendLog.length ?? 0) < 1; i++) {
+        for (
+          let i = 0;
+          i < 500 && (capturedAgent?.sendLog.length ?? 0) < 1;
+          i++
+        ) {
           await new Promise((resolve) => setTimeout(resolve, 1));
         }
         if (handles === undefined) throw new Error("onAgentReady never fired");
@@ -260,7 +284,11 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
           cwd,
           workdirBase: join(cwd, ".ctx"),
           permissionGate: testPermissionGate,
-          provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+          provider: {
+            providerName: "test",
+            baseURL: "http://localhost",
+            model: "test-model",
+          },
           description: "live-agent followup interrupt probe",
           prompt: "finish the first turn",
           persist: true,
@@ -273,7 +301,11 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
         if (handles === undefined) throw new Error("onAgentReady never fired");
 
         const followupPromise = handles.followup("now do the second turn");
-        for (let i = 0; i < 500 && (capturedAgent?.sendLog.length ?? 0) < 2; i++) {
+        for (
+          let i = 0;
+          i < 500 && (capturedAgent?.sendLog.length ?? 0) < 2;
+          i++
+        ) {
           await new Promise((resolve) => setTimeout(resolve, 1));
         }
         handles.interrupt();
@@ -295,6 +327,8 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
     expect(capturedAgent?.abortedSends[1]).toBe(true);
     expect(outcome.followup.ok).toBe(false);
     if (outcome.followup.ok) throw new Error("expected followup send to abort");
-    expect(outcome.followup.message).toContain("interrupted by interrupt_agent");
+    expect(outcome.followup.message).toContain(
+      "interrupted by interrupt_agent",
+    );
   });
 });

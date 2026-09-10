@@ -9,7 +9,10 @@ export interface SubAgentIdentity {
 
 const subAgentIdentityAls = new AsyncLocalStorage<SubAgentIdentity>();
 
-export function runWithSubAgentIdentity<T>(identity: SubAgentIdentity, fn: () => T): T {
+export function runWithSubAgentIdentity<T>(
+  identity: SubAgentIdentity,
+  fn: () => T,
+): T {
   return subAgentIdentityAls.run(identity, fn);
 }
 

@@ -10,7 +10,11 @@ import {
 import { GROK_RESPONSES_PROVIDER } from "../../src/provider/grok-responses-adapter.js";
 import { COMPACTED_PREFIX } from "../../src/session/compactor.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
-import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  InferenceOptions,
+  LastCycleSource,
+} from "@intx/types/runtime";
 
 const SOURCE: LastCycleSource = {
   sourceId: "codex/personal",
@@ -28,11 +32,18 @@ function userTurn(text: string): ConversationTurn {
 
 describe("codex-responses buildRequest", () => {
   const baseOptions: InferenceOptions = {
-    providerOptions: { [CODEX_ACCOUNT_ID_OPTION]: "acct-1", [CODEX_SESSION_ID_OPTION]: "sess-1" },
+    providerOptions: {
+      [CODEX_ACCOUNT_ID_OPTION]: "acct-1",
+      [CODEX_SESSION_ID_OPTION]: "sess-1",
+    },
   };
 
   test("targets the Responses path with the required Codex headers", () => {
-    const req = adapter().buildRequest([userTurn("hi")], "gpt-5-codex", baseOptions);
+    const req = adapter().buildRequest(
+      [userTurn("hi")],
+      "gpt-5-codex",
+      baseOptions,
+    );
     expect(req.url).toBe("/codex/responses");
     expect(req.headers["authorization"]).toBe(BEARER_CREDENTIAL_SENTINEL);
     expect(req.headers["openai-beta"]).toBe("responses=experimental");
@@ -43,7 +54,11 @@ describe("codex-responses buildRequest", () => {
   });
 
   test("builds a Responses body with input items, store off, and reasoning encrypted include", () => {
-    const req = adapter().buildRequest([userTurn("hello")], "gpt-5-codex", baseOptions);
+    const req = adapter().buildRequest(
+      [userTurn("hello")],
+      "gpt-5-codex",
+      baseOptions,
+    );
     const body = JSON.parse(req.body) as Record<string, unknown>;
     expect(body["model"]).toBe("gpt-5-codex");
     expect(body["stream"]).toBe(true);
@@ -54,7 +69,11 @@ describe("codex-responses buildRequest", () => {
     expect(body["prompt_cache_key"]).toBe("sess-1");
     expect(body).not.toHaveProperty("instructions");
     expect(body["input"]).toEqual([
-      { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] },
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "hello" }],
+      },
     ]);
   });
 
@@ -75,7 +94,11 @@ describe("codex-responses buildRequest", () => {
     ) as Record<string, unknown>;
     expect(body["instructions"]).toBe(options.systemPrompt);
     expect(body["input"]).toEqual([
-      { type: "message", role: "user", content: [{ type: "input_text", text: "x" }] },
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "x" }],
+      },
     ]);
     expect(body["tools"]).toEqual([
       {
@@ -95,11 +118,18 @@ describe("codex-responses buildRequest", () => {
     const systemPrompt = "Corbits operating prompt";
     const turns: ConversationTurn[] = [
       userTurn(`${COMPACTED_PREFIX}\nPrior work summarized.`),
-      { role: "assistant", timestamp: 0, content: [{ type: "text", text: "ok" }] },
+      {
+        role: "assistant",
+        timestamp: 0,
+        content: [{ type: "text", text: "ok" }],
+      },
       userTurn("continue"),
     ];
     const body = JSON.parse(
-      adapter().buildRequest(turns, "gpt-5-codex", { ...baseOptions, systemPrompt }).body,
+      adapter().buildRequest(turns, "gpt-5-codex", {
+        ...baseOptions,
+        systemPrompt,
+      }).body,
     ) as Record<string, unknown>;
     expect(body["instructions"]).toBe(systemPrompt);
     const input = body["input"] as {
@@ -110,11 +140,15 @@ describe("codex-responses buildRequest", () => {
     expect(input[0]?.role).toBe("user");
     expect(input[1]?.role).toBe("assistant");
     expect(input[2]?.role).toBe("user");
-    expect(input[0]?.content?.[0]?.text?.startsWith(COMPACTED_PREFIX)).toBe(true);
-    expect(input.every((item) => item.role !== "developer")).toBe(true);
-    expect(input.some((item) => item.content?.some((block) => block.text === systemPrompt))).toBe(
-      false,
+    expect(input[0]?.content?.[0]?.text?.startsWith(COMPACTED_PREFIX)).toBe(
+      true,
     );
+    expect(input.every((item) => item.role !== "developer")).toBe(true);
+    expect(
+      input.some((item) =>
+        item.content?.some((block) => block.text === systemPrompt),
+      ),
+    ).toBe(false);
   });
 
   test.each([undefined, "", "Corbits operating prompt"])(
@@ -122,26 +156,51 @@ describe("codex-responses buildRequest", () => {
     (systemPrompt) => {
       const turns: ConversationTurn[] = [
         userTurn("first"),
-        { role: "system", timestamp: 0, content: [{ type: "text", text: "real instruction" }] },
-        { role: "assistant", timestamp: 0, content: [{ type: "text", text: "reply" }] },
+        {
+          role: "system",
+          timestamp: 0,
+          content: [{ type: "text", text: "real instruction" }],
+        },
+        {
+          role: "assistant",
+          timestamp: 0,
+          content: [{ type: "text", text: "reply" }],
+        },
         userTurn("next"),
       ];
-      const options = systemPrompt === undefined ? baseOptions : { ...baseOptions, systemPrompt };
-      const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", options).body);
+      const options =
+        systemPrompt === undefined
+          ? baseOptions
+          : { ...baseOptions, systemPrompt };
+      const body = JSON.parse(
+        adapter().buildRequest(turns, "gpt-5-codex", options).body,
+      );
       if (systemPrompt === undefined) {
         expect(body).not.toHaveProperty("instructions");
       } else {
         expect(body.instructions).toBe(systemPrompt);
       }
       expect(body.input).toEqual([
-        { type: "message", role: "user", content: [{ type: "input_text", text: "first" }] },
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "first" }],
+        },
         {
           type: "message",
           role: "system",
           content: [{ type: "input_text", text: "real instruction" }],
         },
-        { type: "message", role: "assistant", content: [{ type: "output_text", text: "reply" }] },
-        { type: "message", role: "user", content: [{ type: "input_text", text: "next" }] },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "reply" }],
+        },
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "next" }],
+        },
       ]);
     },
   );
@@ -154,14 +213,23 @@ describe("codex-responses buildRequest", () => {
         timestamp: 0,
         content: [
           { type: "text", text: "calling" },
-          { type: "tool_call", id: "call_1", name: "read_file", arguments: { path: "a.ts" } },
+          {
+            type: "tool_call",
+            id: "call_1",
+            name: "read_file",
+            arguments: { path: "a.ts" },
+          },
         ],
       },
       {
         role: "user",
         timestamp: 0,
         content: [
-          { type: "tool_result", callId: "call_1", content: [{ type: "text", text: "contents" }] },
+          {
+            type: "tool_result",
+            callId: "call_1",
+            content: [{ type: "text", text: "contents" }],
+          },
         ],
       },
     ];
@@ -169,16 +237,32 @@ describe("codex-responses buildRequest", () => {
       adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body,
     ) as Record<string, unknown>;
     expect(body["input"]).toEqual([
-      { type: "message", role: "user", content: [{ type: "input_text", text: "run it" }] },
-      { type: "message", role: "assistant", content: [{ type: "output_text", text: "calling" }] },
-      { type: "function_call", name: "read_file", arguments: '{"path":"a.ts"}', call_id: "call_1" },
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "run it" }],
+      },
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "calling" }],
+      },
+      {
+        type: "function_call",
+        name: "read_file",
+        arguments: '{"path":"a.ts"}',
+        call_id: "call_1",
+      },
       { type: "function_call_output", call_id: "call_1", output: "contents" },
     ]);
   });
 
   test("maps reasoning_effort to the Responses reasoning config", () => {
     const options: InferenceOptions = {
-      providerOptions: { ...baseOptions.providerOptions, reasoning_effort: "high" },
+      providerOptions: {
+        ...baseOptions.providerOptions,
+        reasoning_effort: "high",
+      },
     };
     const body = JSON.parse(
       adapter().buildRequest([userTurn("x")], "gpt-5-codex", options).body,
@@ -193,7 +277,10 @@ describe("codex-responses buildRequest", () => {
     "omits reasoning.summary auto for %s (CL-6893)",
     (model) => {
       const options: InferenceOptions = {
-        providerOptions: { ...baseOptions.providerOptions, reasoning_effort: "high" },
+        providerOptions: {
+          ...baseOptions.providerOptions,
+          reasoning_effort: "high",
+        },
       };
       const body = JSON.parse(
         adapter().buildRequest([userTurn("x")], model, options).body,
@@ -439,9 +526,9 @@ describe("codex-responses buildRequest", () => {
       content: [],
     };
     const tagged = tagSignature(CODEX_RESPONSES_PROVIDER, ciphertext);
-    expect(signatureForModel(turn, "gpt-5-codex", CODEX_RESPONSES_PROVIDER, tagged)).toBe(
-      ciphertext,
-    );
+    expect(
+      signatureForModel(turn, "gpt-5-codex", CODEX_RESPONSES_PROVIDER, tagged),
+    ).toBe(ciphertext);
   });
 
   test("omits the account-id header when no account id is supplied", () => {
@@ -453,7 +540,9 @@ describe("codex-responses buildRequest", () => {
 });
 
 describe("codex-responses parseResponse", () => {
-  function parse(events: object[]): ReturnType<ReturnType<typeof adapter>["parseResponse"]> {
+  function parse(
+    events: object[],
+  ): ReturnType<ReturnType<typeof adapter>["parseResponse"]> {
     const a = adapter();
     return events.flatMap((e) => a.parseResponse(JSON.stringify(e)));
   }
@@ -468,22 +557,43 @@ describe("codex-responses parseResponse", () => {
       type: "inference.text.delta",
       data: { token: "hel", index: 0 },
     });
-    expect(out[1]).toMatchObject({ type: "inference.text.delta", data: { token: "lo", index: 0 } });
+    expect(out[1]).toMatchObject({
+      type: "inference.text.delta",
+      data: { token: "lo", index: 0 },
+    });
   });
 
   test("emits thinking deltas for reasoning summary text", () => {
-    const out = parse([{ type: "response.reasoning_summary_text.delta", delta: "ponder" }]);
-    expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { token: "ponder" } });
+    const out = parse([
+      { type: "response.reasoning_summary_text.delta", delta: "ponder" },
+    ]);
+    expect(out[0]).toMatchObject({
+      type: "inference.thinking.delta",
+      data: { token: "ponder" },
+    });
   });
 
   test("emits tool_call start then argument deltas with a shared block index", () => {
     const out = parse([
       {
         type: "response.output_item.added",
-        item: { type: "function_call", id: "fc_1", call_id: "call_9", name: "read_file" },
+        item: {
+          type: "function_call",
+          id: "fc_1",
+          call_id: "call_9",
+          name: "read_file",
+        },
       },
-      { type: "response.function_call_arguments.delta", item_id: "fc_1", delta: '{"path":' },
-      { type: "response.function_call_arguments.delta", item_id: "fc_1", delta: '"a.ts"}' },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "fc_1",
+        delta: '{"path":',
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "fc_1",
+        delta: '"a.ts"}',
+      },
     ]);
     expect(out[0]).toMatchObject({
       type: "inference.tool_call.start",
@@ -527,22 +637,40 @@ describe("codex-responses parseResponse", () => {
     ]);
     expect(out[0]).toMatchObject({
       type: "inference.usage",
-      data: { usage: { input: 36, output: 20, cacheRead: 64, cacheWrite: 0, thinking: 8 } },
+      data: {
+        usage: {
+          input: 36,
+          output: 20,
+          cacheRead: 64,
+          cacheWrite: 0,
+          thinking: 8,
+        },
+      },
     });
   });
 
   test("captures encrypted reasoning content as a thinking signature for round-trip", () => {
     const out = parse([
-      { type: "response.reasoning_summary_text.delta", item_id: "rs_1", delta: "thinking..." },
+      {
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_1",
+        delta: "thinking...",
+      },
       {
         type: "response.output_item.done",
         item: { type: "reasoning", id: "rs_1", encrypted_content: "ENC_BLOB" },
       },
     ]);
-    expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
+    expect(out[0]).toMatchObject({
+      type: "inference.thinking.delta",
+      data: { index: 0 },
+    });
     expect(out[1]).toMatchObject({
       type: "inference.block.signature",
-      data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB"), index: 0 },
+      data: {
+        signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB"),
+        index: 0,
+      },
     });
   });
 
@@ -563,23 +691,43 @@ describe("codex-responses parseResponse", () => {
     });
     expect(out[1]).toMatchObject({
       type: "inference.block.signature",
-      data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC"), index: 0 },
+      data: {
+        signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC"),
+        index: 0,
+      },
     });
   });
 
   test("keys blocks by item_id so interleaved reasoning and tool calls keep distinct indices", () => {
     const out = parse([
-      { type: "response.reasoning_summary_text.delta", item_id: "rs_1", delta: "a" },
+      {
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_1",
+        delta: "a",
+      },
       {
         type: "response.output_item.added",
         item: { type: "function_call", id: "fc_1", call_id: "c1", name: "t" },
       },
-      { type: "response.reasoning_summary_text.delta", item_id: "rs_2", delta: "b" },
+      {
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_2",
+        delta: "b",
+      },
     ]);
-    expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
-    expect(out[1]).toMatchObject({ type: "inference.tool_call.start", data: { index: 1 } });
+    expect(out[0]).toMatchObject({
+      type: "inference.thinking.delta",
+      data: { index: 0 },
+    });
+    expect(out[1]).toMatchObject({
+      type: "inference.tool_call.start",
+      data: { index: 1 },
+    });
     // A second distinct reasoning item gets its own index, not merged into the first.
-    expect(out[2]).toMatchObject({ type: "inference.thinking.delta", data: { index: 2 } });
+    expect(out[2]).toMatchObject({
+      type: "inference.thinking.delta",
+      data: { index: 2 },
+    });
   });
 
   test("omits max_output_tokens (the Codex backend rejects it)", () => {
@@ -594,7 +742,10 @@ describe("codex-responses parseResponse", () => {
 
   test("ignores lifecycle envelopes", () => {
     expect(
-      parse([{ type: "response.created", response: {} }, { type: "response.in_progress" }]),
+      parse([
+        { type: "response.created", response: {} },
+        { type: "response.in_progress" },
+      ]),
     ).toHaveLength(0);
   });
 
@@ -602,7 +753,10 @@ describe("codex-responses parseResponse", () => {
     const a = adapter();
     expect(() =>
       a.parseResponse(
-        JSON.stringify({ type: "response.failed", response: { error: { message: "boom" } } }),
+        JSON.stringify({
+          type: "response.failed",
+          response: { error: { message: "boom" } },
+        }),
       ),
     ).toThrow(/boom/);
   });

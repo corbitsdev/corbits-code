@@ -7,7 +7,15 @@
  * one run can try different provider/model combos. See evals/capability/README.md.
  */
 
-import { cp, mkdir, chmod, writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  chmod,
+  writeFile,
+  readFile,
+  mkdtemp,
+  rm,
+} from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -27,7 +35,10 @@ import {
 import { advertisedToolNamesForSessionMode } from "../src/agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../src/agent/lsp-availability.js";
 import { resolveSessionMode } from "../src/config/session-mode.js";
-import { loadLocalSettings, localSettingsPath } from "../src/config/settings.js";
+import {
+  loadLocalSettings,
+  localSettingsPath,
+} from "../src/config/settings.js";
 import {
   loadEvalCases,
   filterCases,
@@ -159,7 +170,9 @@ export async function mapPool<T, R>(
       const index = nextIndex;
       nextIndex += 1;
       if (index >= items.length) return;
-      results[index] = await mapper(items[index]!, index);
+      const item = items[index];
+      if (item === undefined) return;
+      results[index] = await mapper(item, index);
     }
   };
   const workerCount = Math.min(concurrency, items.length);
@@ -176,11 +189,16 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     dryRun: false,
     help: false,
     allowProviderFallback: false,
-    agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 1_200_000),
-    verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
+    agentTimeoutMs: Number(
+      process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 1_200_000,
+    ),
+    verifyTimeoutMs: Number(
+      process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000,
+    ),
   };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    if (a === undefined) continue;
     const next = (): string => {
       const v = argv[++i];
       if (v === undefined) throw new Error(`${a} requires a value`);
@@ -206,7 +224,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--effort": {
         const v = next();
         if (!isReasoningEffort(v)) {
-          throw new Error(`--effort must be one of: ${REASONING_EFFORTS.join(", ")}`);
+          throw new Error(
+            `--effort must be one of: ${REASONING_EFFORTS.join(", ")}`,
+          );
         }
         opts.effort = v;
         break;
@@ -241,7 +261,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       }
       case "--repeats": {
         const n = Number(next());
-        if (!Number.isInteger(n) || n <= 0) throw new Error("--repeats must be a positive integer");
+        if (!Number.isInteger(n) || n <= 0)
+          throw new Error("--repeats must be a positive integer");
         opts.repeats = n;
         break;
       }
@@ -305,7 +326,12 @@ function runCommand(
   cwd: string,
   timeoutMs: number,
   extraEnv: Record<string, string> = {},
-): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
+): Promise<{
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, [...args], {
       cwd,
@@ -352,7 +378,11 @@ function runCommand(
   });
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -410,7 +440,12 @@ async function seedEvalSkillStubs(workdir: string): Promise<void> {
  * key. Do not call this on source fixtures.
  */
 export async function initEvalGitRepo(workdir: string): Promise<void> {
-  const identity = ["-c", "user.email=eval@local", "-c", "user.name=eval"] as const;
+  const identity = [
+    "-c",
+    "user.email=eval@local",
+    "-c",
+    "user.name=eval",
+  ] as const;
   const git = async (args: readonly string[]): Promise<void> => {
     const result = await runCommand("git", args, workdir, 30_000);
     if (result.exitCode !== 0) {
@@ -454,7 +489,10 @@ async function prepareWorkdir(
  * the full turn stream (tool calls + assistant content) for behavior metrics.
  * The hook writes the postRun payload verbatim and swallows other kinds.
  */
-async function installRunCaptureHook(workdir: string, capturePath: string): Promise<void> {
+async function installRunCaptureHook(
+  workdir: string,
+  capturePath: string,
+): Promise<void> {
   const hooksDir = join(workdir, SETTINGS_DIR_NAME, "hooks");
   await mkdir(hooksDir, { recursive: true });
   const script = [
@@ -471,7 +509,9 @@ async function installRunCaptureHook(workdir: string, capturePath: string): Prom
   await chmod(hookPath, 0o755);
 }
 
-async function readCapturedBehaviors(capturePath: string): Promise<BehaviorMetrics | null> {
+async function readCapturedBehaviors(
+  capturePath: string,
+): Promise<BehaviorMetrics | null> {
   try {
     const raw: unknown = JSON.parse(await readFile(capturePath, "utf8"));
     return deriveBehaviorMetrics(parseCapturedRunSummary(raw));
@@ -526,11 +566,22 @@ async function runVerify(
   workdir: string,
   timeoutMs: number,
   extraEnv: Record<string, string> = {},
-): Promise<{ exitCode: number; output: string; durationMs: number; timedOut: boolean }> {
+): Promise<{
+  exitCode: number;
+  output: string;
+  durationMs: number;
+  timedOut: boolean;
+}> {
   const verifyPath = join(caseDef.caseDir, caseDef.verify);
   await chmod(verifyPath, 0o755).catch(() => undefined);
   const started = Date.now();
-  const result = await runCommand("bash", [verifyPath], workdir, timeoutMs, extraEnv);
+  const result = await runCommand(
+    "bash",
+    [verifyPath],
+    workdir,
+    timeoutMs,
+    extraEnv,
+  );
   const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
   return {
     exitCode: result.exitCode,
@@ -546,7 +597,8 @@ async function resolveVariantLabels(
 ): Promise<{ provider: string; model: string }> {
   try {
     const probe: string[] = ["exec", "--cwd", REPO_ROOT];
-    if (variant.provider !== undefined) probe.push("--provider", variant.provider);
+    if (variant.provider !== undefined)
+      probe.push("--provider", variant.provider);
     if (variant.model !== undefined) probe.push("--model", variant.model);
     if (opts.configPath !== undefined) probe.push("--config", opts.configPath);
     probe.push("--force", "probe");
@@ -618,9 +670,14 @@ async function applyEvalEffort(
  * reasoningEffort echoes the configured value, not the provider's internal
  * default when unset — accepted as-is per review.
  */
-export async function buildEvalDiagnostics(config: Config): Promise<EvalDiagnostics> {
-  const localSettings = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
-  const sessionMode = resolveSessionMode(config.settings, localSettings) ?? "orchestrator";
+export async function buildEvalDiagnostics(
+  config: Config,
+): Promise<EvalDiagnostics> {
+  const localSettings = await loadLocalSettings(
+    localSettingsPath(config.cwd),
+  ).catch(() => null);
+  const sessionMode =
+    resolveSessionMode(config.settings, localSettings) ?? "orchestrator";
   const overlay = resolveExecDirectorOverlay(config.director);
   const advertisedTools =
     overlay.advertisedAllow ??
@@ -715,7 +772,8 @@ async function runCase(
     // exists to catch, not commit.
     const requested = resolveRequestedProviderModel(variant, labels);
     const argv: string[] = ["exec", "--cwd", workdir];
-    if (requested.provider !== undefined) argv.push("--provider", requested.provider);
+    if (requested.provider !== undefined)
+      argv.push("--provider", requested.provider);
     if (requested.model !== undefined) argv.push("--model", requested.model);
     if (opts.configPath !== undefined) argv.push("--config", opts.configPath);
     if (opts.skipPermissions) argv.push("--dangerously-skip-permissions");
@@ -761,18 +819,25 @@ async function runCase(
       console.log(`agent error: ${execResult.error}`);
     }
 
-    const resolvedProvider = execResult.provider ?? config.providerName ?? labels.provider;
+    const resolvedProvider =
+      execResult.provider ?? config.providerName ?? labels.provider;
     const resolvedModel = execResult.model ?? config.model ?? labels.model;
     providerFallback = detectProviderFallback({
-      ...(requested.provider !== undefined ? { requestedProvider: requested.provider } : {}),
-      ...(requested.model !== undefined ? { requestedModel: requested.model } : {}),
+      ...(requested.provider !== undefined
+        ? { requestedProvider: requested.provider }
+        : {}),
+      ...(requested.model !== undefined
+        ? { requestedModel: requested.model }
+        : {}),
       resolvedProvider,
       resolvedModel,
     });
     if (providerFallback !== null) {
       const message = formatProviderFallback(providerFallback);
       if (!opts.allowProviderFallback) {
-        throw new Error(`${message} (pass --allow-provider-fallback to allow this)`);
+        throw new Error(
+          `${message} (pass --allow-provider-fallback to allow this)`,
+        );
       }
       console.warn(`[eval] ${message}`);
     }
@@ -791,7 +856,8 @@ async function runCase(
     }
 
     const requireBehaviorCheck =
-      caseDef.requireBehaviors !== undefined && caseDef.requireBehaviors.length > 0
+      caseDef.requireBehaviors !== undefined &&
+      caseDef.requireBehaviors.length > 0
         ? checkBehaviorRequirements(behaviors, caseDef.requireBehaviors)
         : { ok: true, failures: [] as string[] };
     if (!requireBehaviorCheck.ok) {
@@ -802,16 +868,24 @@ async function runCase(
 
     const verifyEnv: Record<string, string> =
       httpFixture !== null ? httpFixtureEnv(httpFixture) : {};
-    const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs, verifyEnv);
+    const verify = await runVerify(
+      caseDef,
+      workdir,
+      opts.verifyTimeoutMs,
+      verifyEnv,
+    );
     if (verify.output.trim().length > 0) {
       console.log(verify.output.trimEnd());
     }
     console.log(`verify exit: ${verify.exitCode}  (${verify.durationMs}ms)`);
 
     // requireBehaviors can fail a green agent+verify run (e.g. web-bait honesty).
-    const passed = agentExitCode === 0 && verify.exitCode === 0 && requireBehaviorCheck.ok;
+    const passed =
+      agentExitCode === 0 && verify.exitCode === 0 && requireBehaviorCheck.ok;
     const preview =
-      execResult.text.length > 400 ? `${execResult.text.slice(0, 400)}…` : execResult.text;
+      execResult.text.length > 400
+        ? `${execResult.text.slice(0, 400)}…`
+        : execResult.text;
 
     let error: string | null = null;
     if (!passed) {
@@ -832,7 +906,8 @@ async function runCase(
     let textPreview = preview;
     if (!requireBehaviorCheck.ok) {
       const reqNote = `requireBehaviors: ${requireBehaviorCheck.failures.join("; ")}`;
-      textPreview = textPreview.length > 0 ? `${reqNote}\n${textPreview}` : reqNote;
+      textPreview =
+        textPreview.length > 0 ? `${reqNote}\n${textPreview}` : reqNote;
     }
 
     return {
@@ -866,15 +941,26 @@ async function runCase(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`case ${caseDef.id} (${variant.id}) failed: ${message}`);
-    return failResult(caseDef, variant, labels, opts, started, repeat, message, {
-      providerFallback,
-    });
+    return failResult(
+      caseDef,
+      variant,
+      labels,
+      opts,
+      started,
+      repeat,
+      message,
+      {
+        providerFallback,
+      },
+    );
   } finally {
     if (httpFixture !== null) {
       await httpFixture.close().catch(() => undefined);
     }
     if (workdir !== null) {
-      await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
+      await rm(workdir, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
     }
     if (capturePath !== null) {
       await rm(capturePath, { force: true }).catch(() => undefined);
@@ -924,25 +1010,33 @@ async function main(): Promise<number> {
   if (opts.dryRun) {
     console.log("dry-run: no inference");
     for (const { caseDef, variant } of plan) {
-      console.log(`  would run: ${variant.id} × ${caseDef.id} × ${opts.repeats} repeat(s)`);
+      console.log(
+        `  would run: ${variant.id} × ${caseDef.id} × ${opts.repeats} repeat(s)`,
+      );
     }
     return 0;
   }
 
   const startedAt = new Date().toISOString();
-  const cells: { caseDef: EvalCase; variant: EvalVariant; repeat: number }[] = [];
+  const cells: { caseDef: EvalCase; variant: EvalVariant; repeat: number }[] =
+    [];
   for (const { caseDef, variant } of plan) {
     for (let repeat = 0; repeat < opts.repeats; repeat++) {
       cells.push({ caseDef, variant, repeat });
     }
   }
-  const results = await mapPool(cells, opts.concurrency, ({ caseDef, variant, repeat }) =>
-    runCase(caseDef, variant, opts, repeat),
+  const results = await mapPool(
+    cells,
+    opts.concurrency,
+    ({ caseDef, variant, repeat }) => runCase(caseDef, variant, opts, repeat),
   );
 
   const finishedAt = new Date().toISOString();
   const totals = summarizeRun(results);
-  const primary = variants[0]!;
+  const primary = variants[0];
+  if (primary === undefined) {
+    throw new Error("matrix produced no variants");
+  }
   const labels = await resolveVariantLabels(primary, opts);
 
   const aggregates = computeCellAggregates(results);
@@ -995,19 +1089,23 @@ async function main(): Promise<number> {
   let exitCode = totals.failed > 0 ? 1 : 0;
 
   if (opts.baselinePath !== undefined) {
-    const raw: unknown = JSON.parse(await readFile(resolve(opts.baselinePath), "utf8"));
+    const raw: unknown = JSON.parse(
+      await readFile(resolve(opts.baselinePath), "utf8"),
+    );
     const baseline = parseEvalRunReport(raw);
     const cmp = compareToBaseline(results, baseline, selected, {
       allowProviderFallback: opts.allowProviderFallback,
     });
     console.log("\n=== Baseline compare (aggregates)");
     for (const d of cmp.deltas) {
-      const rate = (r: number | null): string => (r === null ? "n/a" : r.toFixed(2));
+      const rate = (r: number | null): string =>
+        r === null ? "n/a" : r.toFixed(2);
       console.log(
         `  ${d.status.padEnd(10)} ${d.resultKey}  passRate ${rate(d.previousPassRate)} -> ${rate(d.currentPassRate)}`,
       );
       for (const v of d.behaviorVerdicts) {
-        if (v.verdict === "neutral" && v.baselineMedian === v.currentMedian) continue;
+        if (v.verdict === "neutral" && v.baselineMedian === v.currentMedian)
+          continue;
         console.log(
           `      ${v.verdict.padEnd(8)} ${v.metric}  median ${v.baselineMedian} -> ${v.currentMedian}`,
         );

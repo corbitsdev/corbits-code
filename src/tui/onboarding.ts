@@ -7,11 +7,16 @@ import {
   markOnboarded,
   resolveLocalSettingsPath,
 } from "../config/settings.js";
-import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
+import {
+  activateHeldTelemetry,
+  telemetryFirstRunPending,
+} from "../telemetry/first-run.js";
 import { runProviderSetup } from "./provider/setup.js";
 import { runWelcome } from "./welcome.js";
 
-export async function runOnboarding(config: UnconfiguredConfig): Promise<number> {
+export async function runOnboarding(
+  config: UnconfiguredConfig,
+): Promise<number> {
   const settingsPath = config.globalSettingsPath;
 
   // Disclosure before any send: startup held telemetry because the notice
@@ -20,7 +25,9 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   // Read from the TRUE global settings file — telemetry state never lives in
   // a --config override file.
   const trueGlobalPath = globalSettingsPath();
-  const trueGlobalSettings = await loadSettings(trueGlobalPath).catch(() => null);
+  const trueGlobalSettings = await loadSettings(trueGlobalPath).catch(
+    () => null,
+  );
   const showTelemetryNotice = telemetryFirstRunPending(trueGlobalSettings);
 
   // Welcome is global first-run state (same TRUE global file as telemetry /
@@ -62,14 +69,18 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   }
 
   const argv: string[] = ["--cwd", config.cwd];
-  if (config.cliConfigPath !== undefined) argv.push("--config", config.cliConfigPath);
-  if (config.dangerouslySkipPermissions) argv.push("--dangerously-skip-permissions");
+  if (config.cliConfigPath !== undefined)
+    argv.push("--config", config.cliConfigPath);
+  if (config.dangerouslySkipPermissions)
+    argv.push("--dangerously-skip-permissions");
   if (config.force) argv.push("--force");
   if (config.task.length > 0) argv.push(config.task);
 
   // Preserve programmatic isolation independently of the path that won settings
   // precedence; CLI --config remains the write and reload target when both exist.
-  const loadOptions = config.programmaticSettingsPath ? { globalSettingsPath: settingsPath } : {};
+  const loadOptions = config.programmaticSettingsPath
+    ? { globalSettingsPath: settingsPath }
+    : {};
   const newConfig = await loadConfig(argv, loadOptions);
   return runTUI(newConfig);
 }

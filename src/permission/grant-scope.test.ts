@@ -104,7 +104,9 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   test("does not replay a grant scoped to a different cwd", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "npm i", cwd: "/other-project" }],
+      approvals: [
+        { tool: "run_shell", pattern: "npm i", cwd: "/other-project" },
+      ],
       requestApproval: async () => {
         asked++;
         return { allow: true };
@@ -120,7 +122,9 @@ describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   test("does not replay a grant scoped to a different provider model", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "npm i", providerModel: "openai:gpt-5" }],
+      approvals: [
+        { tool: "run_shell", pattern: "npm i", providerModel: "openai:gpt-5" },
+      ],
       providerName: "anthropic",
       model: "opus",
       requestApproval: async () => {
@@ -329,13 +333,24 @@ describe("queue reconcile drains an identical chain after per-segment mint", () 
 // sites (evaluateApprovals, isRequestCoveredByGrant) must all reject the foreign
 // case and agree.
 describe("foreign grant cwd matching request cwd under a different workspace is rejected (CL-6706)", () => {
-  const workspace: GrantWorkspace = { resolvedCwd: "/proj", roots: ["/proj", "/proj/wt1"] };
+  const workspace: GrantWorkspace = {
+    resolvedCwd: "/proj",
+    roots: ["/proj", "/proj/wt1"],
+  };
   const noopRestricted = () => false;
 
   // Foreign grant: stamped for a different project's root.
-  const foreignGrant: Approval = { tool: "run_shell", pattern: "npm test", cwd: "/foreign" };
+  const foreignGrant: Approval = {
+    tool: "run_shell",
+    pattern: "npm test",
+    cwd: "/foreign",
+  };
   // Own grant: stamped for this gate's workspace root.
-  const ownGrant: Approval = { tool: "run_shell", pattern: "npm test", cwd: "/proj" };
+  const ownGrant: Approval = {
+    tool: "run_shell",
+    pattern: "npm test",
+    cwd: "/proj",
+  };
 
   test("cwdMatchesGrant: foreign grant cwd equals request cwd but differs from workspace → false", () => {
     // The pre-CL-6706 short-circuit would have returned true here.
@@ -349,9 +364,15 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
   });
 
   test("grantScopeMatches agrees: foreign scope does not cover a coinciding request cwd", () => {
-    expect(grantScopeMatches(foreignGrant, "run_shell", undefined, "/foreign", workspace)).toBe(
-      false,
-    );
+    expect(
+      grantScopeMatches(
+        foreignGrant,
+        "run_shell",
+        undefined,
+        "/foreign",
+        workspace,
+      ),
+    ).toBe(false);
   });
 
   test("both live call sites refuse a foreign grant replaying into /proj's workspace", async () => {
@@ -375,7 +396,13 @@ describe("foreign grant cwd matching request cwd under a different workspace is 
       cwd: "/foreign",
     };
     expect(
-      isRequestCoveredByGrant(request, foreignGrant, undefined, noopRestricted, workspace),
+      isRequestCoveredByGrant(
+        request,
+        foreignGrant,
+        undefined,
+        noopRestricted,
+        workspace,
+      ),
     ).toBe(false);
   });
 

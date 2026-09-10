@@ -6,7 +6,13 @@
 // Every node produces a predictable number of visual lines for a given width,
 // which the event log uses for scrolling and slicing.
 
-export type Tone = "default" | "muted" | "success" | "warning" | "danger" | "accent";
+export type Tone =
+  | "default"
+  | "muted"
+  | "success"
+  | "warning"
+  | "danger"
+  | "accent";
 
 export type ViewNode =
   | { type: "text"; text: string; tone?: Tone; bold?: boolean; dim?: boolean }

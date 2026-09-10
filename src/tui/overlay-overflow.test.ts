@@ -8,6 +8,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { PermissionRequest } from "../permission/types.js";
+import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness.js";
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js";
 import { appendStreamRow } from "./shell/chrome.js";
@@ -38,7 +39,10 @@ const tallBody = [
   "Scopes include session, project, and once-only grants.",
 ].join("\n");
 
-const manyChoices = Array.from({ length: 16 }, (_, i) => `Choice ${String(i).padStart(2, "0")}`);
+const manyChoices = Array.from(
+  { length: 16 },
+  (_, i) => `Choice ${String(i).padStart(2, "0")}`,
+);
 
 function primeSession(shell: AppShell): void {
   // Non-landing layout: the host sits in-flow and competes with the prompt
@@ -71,7 +75,7 @@ describe("approval overlay overflow (short terminal)", () => {
         });
         expect(shell.overlayKind).toBe("permissions");
         expect(shell.overlayList).not.toBeNull();
-        const list = shell.overlayList!;
+        const list = defined(shell.overlayList, "overlayList");
         // Host is fraction-capped: the window holds fewer items than exist.
         expect(list.height).toBeLessThan(items.length);
         expect(list.height).toBeGreaterThanOrEqual(1);
@@ -85,16 +89,22 @@ describe("approval overlay overflow (short terminal)", () => {
         for (let i = 0; i < list.height + 3; i++) {
           moveOverlaySelection(shell, 1);
         }
-        expect(shell.overlayList!.activeIndex).toBe(list.height + 3);
-        expect(shell.overlayList!.offset).toBeGreaterThan(startOffset);
+        expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(
+          list.height + 3,
+        );
+        expect(
+          defined(shell.overlayList, "overlayList").offset,
+        ).toBeGreaterThan(startOffset);
         activeVisible(shell);
 
         // Last choice is still reachable and accept closes the overlay.
         const last = items.length - 1;
-        while (shell.overlayList!.activeIndex < last) {
+        while (defined(shell.overlayList, "overlayList").activeIndex < last) {
           moveOverlaySelection(shell, 1);
         }
-        expect(shell.overlayList!.activeIndex).toBe(last);
+        expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(
+          last,
+        );
         activeVisible(shell);
         acceptOverlaySelection(shell);
         expect(shell.overlayList).toBeNull();
@@ -117,14 +127,14 @@ describe("approval overlay overflow (short terminal)", () => {
           items,
           body: "run_shell\nRun shell command\nbun test",
         });
-        const list = shell.overlayList!;
+        const list = defined(shell.overlayList, "overlayList");
         expect(list.count).toBe(2);
         // On a short terminal the host fraction can leave only one list row.
         // Both choices must still be reachable and accept must close.
         expect(list.height).toBeGreaterThanOrEqual(1);
         expect(list.offset).toBe(0);
         moveOverlaySelection(shell, 1);
-        expect(shell.overlayList!.activeIndex).toBe(1);
+        expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(1);
         activeVisible(shell);
         acceptOverlaySelection(shell);
         expect(shell.overlayList).toBeNull();
@@ -147,7 +157,7 @@ describe("approval overlay overflow (short terminal)", () => {
           choices: manyChoices,
         });
         expect(shell.overlayKind).toBe("operator");
-        const list = shell.overlayList!;
+        const list = defined(shell.overlayList, "overlayList");
         expect(list.height).toBeLessThan(manyChoices.length);
         expect(list.offset).toBe(0);
 
@@ -155,8 +165,12 @@ describe("approval overlay overflow (short terminal)", () => {
           moveOverlaySelection(shell, 1);
           activeVisible(shell);
         }
-        expect(shell.overlayList!.activeIndex).toBe(manyChoices.length - 1);
-        expect(shell.overlayList!.offset).toBeGreaterThan(0);
+        expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(
+          manyChoices.length - 1,
+        );
+        expect(
+          defined(shell.overlayList, "overlayList").offset,
+        ).toBeGreaterThan(0);
         // Keep active in the viewport window (offset/height contract), not a
         // frame substring — on short terminals the tall body can own the host
         // paint while the list still scrolls in state.
@@ -166,7 +180,9 @@ describe("approval overlay overflow (short terminal)", () => {
 
         await h.renderOnce();
         const frame = h.captureCharFrame();
-        expect(frame.replace(/\n$/, "").split("\n").length).toBeLessThanOrEqual(SHORT.height);
+        expect(frame.replace(/\n$/, "").split("\n").length).toBeLessThanOrEqual(
+          SHORT.height,
+        );
       } finally {
         shell.dispose();
       }
@@ -183,14 +199,16 @@ describe("approval overlay overflow (short terminal)", () => {
         primeSession(shell);
         const items = makePermissionItems(40);
         openPermissionsOverlay(shell, { items, body: tallBody });
-        const list = shell.overlayList!;
+        const list = defined(shell.overlayList, "overlayList");
         // Even at 24 rows the fraction cap can force a window smaller than 40.
         if (list.height < items.length) {
           const start = list.offset;
           for (let i = 0; i < list.height + 2; i++) {
             moveOverlaySelection(shell, 1);
           }
-          expect(shell.overlayList!.offset).toBeGreaterThan(start);
+          expect(
+            defined(shell.overlayList, "overlayList").offset,
+          ).toBeGreaterThan(start);
           activeVisible(shell);
         } else {
           // Cap did not bind; every item is already visible without scroll.
@@ -237,17 +255,20 @@ describe("gate-wire approval overflow on short terminal", () => {
         const choices = permissionChoicesFromRequest(request, "req-1");
         expect(shell.overlayKind).toBe("permissions");
         expect(shell.overlayItems).toEqual([...choices.items]);
-        const list = shell.overlayList!;
+        const list = defined(shell.overlayList, "overlayList");
         expect(list.height).toBeLessThan(choices.items.length);
 
         const last = choices.items.length - 1;
-        while (shell.overlayList!.activeIndex < last) {
+        while (defined(shell.overlayList, "overlayList").activeIndex < last) {
           moveOverlaySelection(shell, 1);
         }
         activeVisible(shell);
         acceptOverlaySelection(shell);
         expect(resolved).toEqual(
-          expect.objectContaining({ allow: true, persist: expect.objectContaining({ id: "s11" }) }),
+          expect.objectContaining({
+            allow: true,
+            persist: expect.objectContaining({ id: "s11" }),
+          }),
         );
         expect(shell.overlayList).toBeNull();
         dispose();
@@ -281,11 +302,11 @@ describe("gate-wire approval overflow on short terminal", () => {
         const choices = operatorChoicesFromOptions(options, "ask-1");
         expect(shell.overlayKind).toBe("operator");
         expect(shell.overlayItems).toEqual([...choices.items]);
-        const list = shell.overlayList!;
+        const list = defined(shell.overlayList, "overlayList");
         expect(list.height).toBeLessThan(options.length);
 
         const target = options.length - 1;
-        while (shell.overlayList!.activeIndex < target) {
+        while (defined(shell.overlayList, "overlayList").activeIndex < target) {
           moveOverlaySelection(shell, 1);
         }
         activeVisible(shell);
@@ -308,13 +329,20 @@ describe("gate-wire approval overflow on short terminal", () => {
       const request: PermissionRequest = {
         tool: "run_shell",
         action: "Run shell command",
-        subject: 'git commit -m "line one\nline two\nline three\nline four\nline five"',
-        scopes: [{ id: "session", label: "Allow for session", pattern: "git *" }],
+        subject:
+          'git commit -m "line one\nline two\nline three\nline four\nline five"',
+        scopes: [
+          { id: "session", label: "Allow for session", pattern: "git *" },
+        ],
       };
       try {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
+        emitter.emit("permission.gate", {
+          id: "req-1",
+          request,
+          resolve: () => undefined,
+        });
 
         const body = permissionBodyFromRequest(request, { hint: true });
         // The raw body still carries the collapsed-command hint — only what

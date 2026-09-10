@@ -23,7 +23,9 @@ export function contextTokensFromUsage(usage: TokenUsage | undefined): number {
 // Exact model-id match wins over the family heuristics below.
 let contextWindowRegistry: Record<string, number> = {};
 
-export function setModelContextWindows(windows: Record<string, number> | undefined): void {
+export function setModelContextWindows(
+  windows: Record<string, number> | undefined,
+): void {
   contextWindowRegistry = windows ?? {};
 }
 
@@ -106,12 +108,14 @@ export function contextMeterBand(percentUsed: number): ContextMeterBand {
 // real window. `model` may be undefined early in a session (no cycle yet); we
 // fall back to the default window in that case.
 export function compactionThresholdFor(model: string | undefined): number {
-  const window = model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
+  const window =
+    model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
   return Math.floor(window * COMPACTION_WINDOW_FRACTION);
 }
 
 /** Tokens of growth past the last post-compact measurement before re-arming. */
 export function compactionResumeDeltaFor(model: string | undefined): number {
-  const window = model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
+  const window =
+    model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
   return Math.floor(window * COMPACTION_RESUME_FRACTION);
 }

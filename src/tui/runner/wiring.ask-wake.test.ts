@@ -1,15 +1,24 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { createSubAgentSessionStore } from "../../subagent/session-store.js";
-import { createFleetMailbox, createWaitAgentsTool } from "../../subagent/agent-fleet.js";
+import {
+  createFleetMailbox,
+  createWaitAgentsTool,
+} from "../../subagent/agent-fleet.js";
 import { createFleetWakePublisher } from "./wiring.js";
-import { attachSessionBridge, type BridgeInboundEvent } from "../runtime-bridge.js";
+import {
+  attachSessionBridge,
+  type BridgeInboundEvent,
+} from "../runtime-bridge.js";
 import { createLiveSessionPort } from "../live-session-port.js";
 import { createAppShell } from "../shell/index.js";
 import { withTestRenderer } from "../harness.js";
 import { resetSessionForRotation } from "./exit.js";
 import { clearTranscript } from "../shell/chrome.js";
-import { createDeliveryGeneration, createLeftoverSend } from "../queued-delivery.js";
+import {
+  createDeliveryGeneration,
+  createLeftoverSend,
+} from "../queued-delivery.js";
 import { createSessionOperationQueue } from "../session-operation-queue.js";
 
 test("failed reset releases publication without flushing partially cancelled workers", () => {
@@ -20,13 +29,18 @@ test("failed reset releases publication without flushing partially cancelled wor
   emitter.on("event", (event: BridgeInboundEvent) => events.push(event));
   const unsubscribe = store.subscribe(publisher.publish);
   try {
-    store.start({ id: "old", agentId: "builder", description: "old", brief: "build" });
+    store.start({
+      id: "old",
+      agentId: "builder",
+      description: "old",
+      brief: "build",
+    });
     store.markRunning("old");
     store.registerAsk("old", {
       question: "Old question?",
       questionId: "old-question",
-      resolve: () => {},
-      reject: () => {},
+      resolve: () => undefined,
+      reject: () => undefined,
     });
     events.length = 0;
     const error = new Error("reset failed");
@@ -88,7 +102,7 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
               scheduled.push(text);
               deliver(text);
             },
-            interrupt: () => {},
+            interrupt: () => undefined,
           }),
         );
         let resetting = false;
@@ -108,13 +122,18 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
         const publisher = createFleetWakePublisher(store, emitter);
         const unsubscribe = store.subscribe(publisher.publish);
         const start = (id: string) => {
-          store.start({ id, agentId: "builder", description: id, brief: "build" });
+          store.start({
+            id,
+            agentId: "builder",
+            description: id,
+            brief: "build",
+          });
           store.markRunning(id);
           store.registerAsk(id, {
             question: `question ${id}`,
             questionId: `question-${id}`,
-            resolve: () => {},
-            reject: () => {},
+            resolve: () => undefined,
+            reject: () => undefined,
           });
         };
         try {
@@ -122,7 +141,8 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
             bridge.handle({ type: "inference.start", data: {} });
             start(`old-${round}-one`);
             start(`old-${round}-two`);
-            if (phase !== "deferred") bridge.handle({ type: "inference.done", data: {} });
+            if (phase !== "deferred")
+              bridge.handle({ type: "inference.done", data: {} });
             if (phase === "settled") {
               await queue.awaitTail();
               bridge.handle({ type: "inference.done", data: {} });
@@ -141,7 +161,9 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
               { type: "agent-ask", asks: [] },
               { type: "fleet", running: 0 },
             ]);
-            expect(store.list().every((worker) => worker.status === "cancelled")).toBe(true);
+            expect(
+              store.list().every((worker) => worker.status === "cancelled"),
+            ).toBe(true);
             await queue.awaitTail();
             expect(sends).toHaveLength(beforeSent);
             bridge.handle({ type: "inference.done", data: {} });
@@ -167,7 +189,13 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
   });
 }
 
-for (const removal of ["answer", "cancel", "terminal", "remove", "replace"] as const) {
+for (const removal of [
+  "answer",
+  "cancel",
+  "terminal",
+  "remove",
+  "replace",
+] as const) {
   test(`production pending snapshot drops a deferred ask on ${removal}`, async () => {
     await withTestRenderer(
       async (h) => {
@@ -181,7 +209,11 @@ for (const removal of ["answer", "cancel", "terminal", "remove", "replace"] as c
         };
         const bridge = attachSessionBridge(
           shell,
-          createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+          createLiveSessionPort({
+            send,
+            deliver: send,
+            interrupt: () => undefined,
+          }),
         );
         const store = createSubAgentSessionStore();
         const emitter = new EventEmitter();
@@ -204,14 +236,18 @@ for (const removal of ["answer", "cancel", "terminal", "remove", "replace"] as c
           store.registerAsk(worker.id, {
             question: "Which port?",
             questionId: "q1",
-            resolve: () => {},
-            reject: () => {},
+            resolve: () => undefined,
+            reject: () => undefined,
           });
           if (removal === "answer") {
             const mailbox = createFleetMailbox(store);
             mailbox.register(worker.id);
-            const wait = createWaitAgentsTool({ sessions: store, fleetRecords: mailbox });
-            if (wait.kind !== "full") throw new Error("expected full wait tool");
+            const wait = createWaitAgentsTool({
+              sessions: store,
+              fleetRecords: mailbox,
+            });
+            if (wait.kind !== "full")
+              throw new Error("expected full wait tool");
             const result = await wait.handler(
               {
                 id: "wait-call",
@@ -234,7 +270,9 @@ for (const removal of ["answer", "cancel", "terminal", "remove", "replace"] as c
               brief: "build",
             });
           }
-          expect(events.at(-1)?.type === "fleet" ? events.at(-2) : events.at(-1)).toEqual({
+          expect(
+            events.at(-1)?.type === "fleet" ? events.at(-2) : events.at(-1),
+          ).toEqual({
             type: "agent-ask",
             asks: [],
           });
@@ -264,7 +302,11 @@ test("same catalog workers answer by session, reconcile one resolution and repla
       };
       const bridge = attachSessionBridge(
         shell,
-        createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+        createLiveSessionPort({
+          send,
+          deliver: send,
+          interrupt: () => undefined,
+        }),
       );
       const store = createSubAgentSessionStore();
       const emitter = new EventEmitter();
@@ -279,7 +321,7 @@ test("same catalog workers answer by session, reconcile one resolution and repla
           resolve: (answer) => {
             answers.push(`${id}:${answer}`);
           },
-          reject: () => {},
+          reject: () => undefined,
         });
       try {
         bridge.handle({ type: "inference.start", data: {} });

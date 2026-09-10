@@ -7,7 +7,11 @@ export class XaiAuthError extends Error {
   readonly profile: string;
   readonly reason: "missing" | "refresh-failed";
 
-  constructor(profile: string, reason: "missing" | "refresh-failed", message: string) {
+  constructor(
+    profile: string,
+    reason: "missing" | "refresh-failed",
+    message: string,
+  ) {
     super(message);
     this.name = "XaiAuthError";
     this.profile = profile;
@@ -26,7 +30,9 @@ export function xaiUserIdFromAccessToken(access: string): string | undefined {
   const payload = access.split(".")[1];
   if (payload === undefined) return undefined;
   try {
-    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+    const decoded = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as {
       sub?: unknown;
     };
     return typeof decoded.sub === "string" ? decoded.sub : undefined;
@@ -42,7 +48,11 @@ const session = createTokenSession<XaiTokens, XaiAccess>({
   refreshTokens,
   toAccess: (tokens) => ({ access: tokens.access }),
   missingError: (name) =>
-    new XaiAuthError(name, "missing", `xAI profile "${name}" is not authorized. Log in again.`),
+    new XaiAuthError(
+      name,
+      "missing",
+      `xAI profile "${name}" is not authorized. Log in again.`,
+    ),
   refreshFailedError: (name, err) =>
     new XaiAuthError(
       name,

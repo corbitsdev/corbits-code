@@ -13,7 +13,7 @@ import {
 describe("order notifications", () => {
   beforeEach(() => {
     reset();
-    setDeliver(async () => {});
+    setDeliver(async () => undefined);
   });
 
   test("a queued notification is delivered", async () => {

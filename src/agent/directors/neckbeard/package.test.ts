@@ -77,11 +77,17 @@ describe("neckbeardPackage", () => {
   });
 
   test("optionalSkills are style and philosophy", () => {
-    expect(neckbeardPackage.optionalSkills).toEqual(["style", "philosophy", "native-integration"]);
+    expect(neckbeardPackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+    ]);
   });
 
   test("primaryIntent and outOfLane match neckbeard lane", () => {
-    expect(neckbeardPackage.primaryIntent).toBe("Adversarial pedantic review; never fix");
+    expect(neckbeardPackage.primaryIntent).toBe(
+      "Adversarial pedantic review; never fix",
+    );
     expect(neckbeardPackage.outOfLane).toContain("applying fixes");
     expect(neckbeardPackage.outOfLane).toContain("product implementation");
     expect(neckbeardPackage.outOfLane).toContain("architecture ownership");

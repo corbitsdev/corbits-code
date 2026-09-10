@@ -71,14 +71,19 @@ export async function readPathTrustStore(
   return { state: "valid", store: { trustedPluginPaths: paths } };
 }
 
-export async function loadPathTrust(home: string = homedir()): Promise<PathTrustStore> {
+export async function loadPathTrust(
+  home: string = homedir(),
+): Promise<PathTrustStore> {
   return (await readPathTrustStore(home)).store;
 }
 
 // Written via temp-file + rename (same pattern as saveGlobalSettings) so a
 // concurrent reader never sees a truncated or half-written store — a torn read
 // would disable every path plugin for that session.
-async function savePathTrust(store: PathTrustStore, home: string = homedir()): Promise<void> {
+async function savePathTrust(
+  store: PathTrustStore,
+  home: string = homedir(),
+): Promise<void> {
   const path = pathTrustPath(home);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;
@@ -98,7 +103,10 @@ function enqueueMutation<T>(run: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function isPathPluginTrusted(store: PathTrustStore, pluginPath: string): boolean {
+export function isPathPluginTrusted(
+  store: PathTrustStore,
+  pluginPath: string,
+): boolean {
   if (!isAbsolute(pluginPath)) return false;
   return store.trustedPluginPaths.includes(resolve(pluginPath));
 }

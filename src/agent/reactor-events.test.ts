@@ -49,7 +49,9 @@ const emittedEvents: ReactorEmittedEvent[] = [
   {
     type: "message.received",
     seq: 0,
-    data: { message: { role: "user", content: [{ type: "text", text: "hi" }] } },
+    data: {
+      message: { role: "user", content: [{ type: "text", text: "hi" }] },
+    },
   } as unknown as ReactorEmittedEvent,
   { type: "inference.done", data: {} } as unknown as ReactorEmittedEvent,
   { type: "reactor.done", data: {} } as unknown as ReactorEmittedEvent,

@@ -11,7 +11,10 @@ import {
   openListOverlay,
   setOwnedOverlayItems,
 } from "./shell/overlay-host";
-import { cycleOverlaySelection, toggleOverlayExpand } from "./shell/overlay-list";
+import {
+  cycleOverlaySelection,
+  toggleOverlayExpand,
+} from "./shell/overlay-list";
 import { openPalette } from "./shell/palette";
 
 const catalog = [{ id: "help", label: "/help", keywords: ["help"] }];
@@ -44,7 +47,13 @@ describe("overlay primary bindings across host transitions", () => {
         acceptOverlaySelection(shell);
         expect(events).toEqual(["dispose:null", "accept:null"]);
         expect(selections).toEqual([
-          { kind: "model_picker", index: 0, label: "beta", id: "b", value: "second" },
+          {
+            kind: "model_picker",
+            index: 0,
+            label: "beta",
+            id: "b",
+            value: "second",
+          },
         ]);
         expect(shell.overlayItems).toEqual(["next"]);
       } finally {
@@ -68,7 +77,9 @@ describe("overlay primary bindings across host transitions", () => {
         openPalette(shell, { catalog, typeToFilter: true });
         h.pressKey("h");
         expect(shell.overlayBodyLines).toEqual(["> h"]);
-        expect(shell.paletteCommands.map((command) => command.id)).toEqual(["help"]);
+        expect(shell.paletteCommands.map((command) => command.id)).toEqual([
+          "help",
+        ]);
         expect(toggleOverlayExpand(shell)).toBe(false);
         expect(cycleOverlaySelection(shell, 1)).toBe(false);
         closeInsetOverlay(shell);
@@ -134,7 +145,12 @@ describe("overlay primary bindings across host transitions", () => {
           expect(focusOwner(shell.focus)).toBe("palette");
           expect(events).toEqual([]);
           expect(
-            setOwnedOverlayItems(shell, "model_picker", ["alpha", "new beta"], ["a", "b"]),
+            setOwnedOverlayItems(
+              shell,
+              "model_picker",
+              ["alpha", "new beta"],
+              ["a", "b"],
+            ),
           ).toBe(true);
           closeInsetOverlay(shell);
           expect(shell.overlayKind).toBe("model_picker");
@@ -150,7 +166,13 @@ describe("overlay primary bindings across host transitions", () => {
             acceptOverlaySelection(shell);
             expect(events).toEqual(["dispose:null", "accept:null"]);
             expect(selections).toEqual([
-              { kind: "model_picker", index: 1, label: "new beta", id: "b", value: "second" },
+              {
+                kind: "model_picker",
+                index: 1,
+                label: "new beta",
+                id: "b",
+                value: "second",
+              },
             ]);
           } else if (settlement === "cancel") {
             closeInsetOverlay(shell);

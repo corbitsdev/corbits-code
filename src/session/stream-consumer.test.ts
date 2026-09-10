@@ -25,7 +25,7 @@ describe("consumeStream", () => {
       return true;
     }) as typeof process.stderr.write;
     try {
-      await consumeStream(eventsThenError(), () => {});
+      await consumeStream(eventsThenError(), () => undefined);
     } finally {
       process.stderr.write = original;
     }

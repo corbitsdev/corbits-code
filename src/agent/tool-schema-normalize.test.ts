@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { presentDefinition } from "./director.js";
 import { manageTasksDefinition } from "./tasks.js";
@@ -39,9 +40,12 @@ describe("normalizeToolDefinitionsForProvider", () => {
 
   test("present description and kimi view description share primitives guidance (no dual prose drift)", () => {
     expect(PRESENT_VIEW_PRIMITIVES_GUIDANCE.length).toBeGreaterThan(0);
-    expect(presentDefinition.description).toContain(PRESENT_VIEW_PRIMITIVES_GUIDANCE);
-    const viewDesc = (KIMI_PRESENT_INPUT_SCHEMA.properties.view as { description: string })
-      .description;
+    expect(presentDefinition.description).toContain(
+      PRESENT_VIEW_PRIMITIVES_GUIDANCE,
+    );
+    const viewDesc = (
+      KIMI_PRESENT_INPUT_SCHEMA.properties.view as { description: string }
+    ).description;
     expect(viewDesc).toContain(PRESENT_VIEW_PRIMITIVES_GUIDANCE);
   });
 
@@ -52,9 +56,9 @@ describe("normalizeToolDefinitionsForProvider", () => {
     });
     const present = out.find((d) => d.name === "present");
     expect(present).toBeDefined();
-    expect(schemaHasRef(present!.inputSchema)).toBe(false);
-    expect(schemaHasDefs(present!.inputSchema)).toBe(false);
-    const schema = present!.inputSchema as {
+    expect(schemaHasRef(defined(present).inputSchema)).toBe(false);
+    expect(schemaHasDefs(defined(present).inputSchema)).toBe(false);
+    const schema = defined(present).inputSchema as {
       type?: string;
       required?: string[];
       properties?: {
@@ -68,11 +72,13 @@ describe("normalizeToolDefinitionsForProvider", () => {
     expect(schema.required).toEqual(["view"]);
     // Richer non-recursive shape: view is oneOf of primitives, not bare freeform.
     expect(Array.isArray(schema.properties?.view?.oneOf)).toBe(true);
-    expect((schema.properties?.view?.oneOf ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(
+      (schema.properties?.view?.oneOf ?? []).length,
+    ).toBeGreaterThanOrEqual(4);
     expect(schema.properties?.view?.description).toContain("Primitives:");
     // Description + examples stay on the tool for model guidance.
-    expect(present!.description).toBe(recursivePresent.description);
-    expect(present!.description.length).toBeGreaterThan(0);
+    expect(defined(present).description).toBe(recursivePresent.description);
+    expect(defined(present).description.length).toBeGreaterThan(0);
   });
 
   test("kimi advertise payload is the exact Moonshot wire shape (pinned fixture, no live Moonshot)", () => {
@@ -83,12 +89,14 @@ describe("normalizeToolDefinitionsForProvider", () => {
       providerName: "moonshot",
       model: "kimi-k2",
     });
-    const present = out.find((d) => d.name === "present")!;
+    const present = defined(out.find((d) => d.name === "present"));
     expect(present.inputSchema).toEqual(
       structuredClone(KIMI_PRESENT_INPUT_SCHEMA) as typeof present.inputSchema,
     );
     // Stable JSON pin of the full wire schema object.
-    expect(JSON.stringify(present.inputSchema)).toBe(JSON.stringify(KIMI_PRESENT_INPUT_SCHEMA));
+    expect(JSON.stringify(present.inputSchema)).toBe(
+      JSON.stringify(KIMI_PRESENT_INPUT_SCHEMA),
+    );
   });
 
   test("opencode-go + kimi-k3 rewrites present (model-id gate)", () => {
@@ -96,7 +104,7 @@ describe("normalizeToolDefinitionsForProvider", () => {
       providerName: "opencode-go",
       model: "kimi-k3",
     });
-    const present = out.find((d) => d.name === "present")!;
+    const present = defined(out.find((d) => d.name === "present"));
     expect(schemaHasRef(present.inputSchema)).toBe(false);
     expect(schemaHasDefs(present.inputSchema)).toBe(false);
   });
@@ -106,7 +114,9 @@ describe("normalizeToolDefinitionsForProvider", () => {
       providerName: "openai-compat",
       model: "kimi-k3",
     });
-    expect(schemaHasRef(out.find((d) => d.name === "present")!.inputSchema)).toBe(false);
+    expect(
+      schemaHasRef(defined(out.find((d) => d.name === "present")).inputSchema),
+    ).toBe(false);
   });
 
   test("non-kimi providers get identity schemas (recursive present kept)", () => {
@@ -118,7 +128,7 @@ describe("normalizeToolDefinitionsForProvider", () => {
     ] as const) {
       const out = normalizeToolDefinitionsForProvider(defs, ctx);
       expect(out).toBe(defs);
-      const present = out.find((d) => d.name === "present")!;
+      const present = defined(out.find((d) => d.name === "present"));
       expect(schemaHasRef(present.inputSchema)).toBe(true);
       expect(present.inputSchema).toBe(recursivePresent.inputSchema);
     }

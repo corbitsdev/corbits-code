@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { createToolRunner } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
@@ -66,7 +67,9 @@ function makeRecorder(initial: Record<string, string> = {}): {
   return { calls, files, runTool, readRawFile };
 }
 
-const unusedManageTasks: CodexRunManageTasks = async () => ({ content: "unused" });
+const unusedManageTasks: CodexRunManageTasks = async () => ({
+  content: "unused",
+});
 const unusedReadRawFile: CodexReadRawFile = async () => ({ content: "unused" });
 
 // A real manage_tasks dispatch: parses with the actual arktype schema and
@@ -103,9 +106,16 @@ async function invokeApplyPatch(tools: AgentTool[], input: string) {
   );
 }
 
-async function invokeTool(tools: AgentTool[], name: string, args: Record<string, unknown>) {
+async function invokeTool(
+  tools: AgentTool[],
+  name: string,
+  args: Record<string, unknown>,
+) {
   const runner = createToolRunner(tools);
-  return runner.run({ id: "call-1", name, arguments: args }, new AbortController().signal);
+  return runner.run(
+    { id: "call-1", name, arguments: args },
+    new AbortController().signal,
+  );
 }
 
 describe("createCodexToolProxies", () => {
@@ -126,9 +136,13 @@ describe("createCodexToolProxies", () => {
       readRawFile: unusedReadRawFile,
       runManageTasks: unusedManageTasks,
     });
-    expect(tools.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
+    expect(tools.map((t) => t.definition.name)).toEqual([
+      "apply_patch",
+      "shell",
+      "update_plan",
+    ]);
     expect(tools.every((t) => t.kind === "string")).toBe(true);
-    expect(tools[0]!.definition.inputSchema).toMatchObject({
+    expect(defined(tools[0]).definition.inputSchema).toMatchObject({
       required: ["input"],
     });
   });
@@ -162,7 +176,9 @@ describe("createCodexToolProxies", () => {
   });
 
   test("delete forwards delete_file", async () => {
-    const { calls, files, runTool, readRawFile } = makeRecorder({ "obsolete.txt": "gone" });
+    const { calls, files, runTool, readRawFile } = makeRecorder({
+      "obsolete.txt": "gone",
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -177,13 +193,17 @@ describe("createCodexToolProxies", () => {
 `,
     );
     expect(result.isError).toBeFalsy();
-    expect(calls).toEqual([{ name: "delete_file", args: { path: "obsolete.txt" } }]);
+    expect(calls).toEqual([
+      { name: "delete_file", args: { path: "obsolete.txt" } },
+    ]);
     expect(files.has("obsolete.txt")).toBe(false);
     expect(result.content).toContain("Deleted file: obsolete.txt");
   });
 
   test("allowDelete false refuses Delete without calling delete_file", async () => {
-    const { calls, files, runTool, readRawFile } = makeRecorder({ "obsolete.txt": "gone" });
+    const { calls, files, runTool, readRawFile } = makeRecorder({
+      "obsolete.txt": "gone",
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -209,7 +229,9 @@ describe("createCodexToolProxies", () => {
     const original = `def greet():
 print("Hi")
 `;
-    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({
+      "src/app.py": original,
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -239,7 +261,9 @@ print("Hi")
     const original = `def greet():
 print("Hi")
 `;
-    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({
+      "src/app.py": original,
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -269,7 +293,9 @@ print("Hello, world!")
 print("Hi")
 print("bye")
 `;
-    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({
+      "src/app.py": original,
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -288,7 +314,7 @@ print("bye")
     );
     expect(result.isError).toBeFalsy();
     expect(calls.map((c) => c.name)).toEqual(["write_file"]);
-    expect(calls[0]!.args.path).toBe("src/app.py");
+    expect(defined(calls[0]).args.path).toBe("src/app.py");
     expect(files.get("src/app.py")).toBe(`def greet():
 print("Hello, world!")
 print("bye")
@@ -299,7 +325,9 @@ print("bye")
     const original = `def greet():
 print("Hi")
 `;
-    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({
+      "src/app.py": original,
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -319,11 +347,11 @@ print("Hi")
     );
     expect(result.isError).toBeFalsy();
     expect(calls.map((c) => c.name)).toEqual(["write_file", "delete_file"]);
-    expect(calls[0]!.args.path).toBe("src/main.py");
-    expect(calls[0]!.args.content).toBe(`def greet():
+    expect(defined(calls[0]).args.path).toBe("src/main.py");
+    expect(defined(calls[0]).args.content).toBe(`def greet():
 print("Hello, world!")
 `);
-    expect(calls[1]!.args).toEqual({ path: "src/app.py" });
+    expect(defined(calls[1]).args).toEqual({ path: "src/app.py" });
     expect(files.has("src/app.py")).toBe(false);
     expect(files.get("src/main.py")).toBe(`def greet():
 print("Hello, world!")
@@ -355,7 +383,11 @@ print("Hello, world!")
 `,
     );
     expect(result.isError).toBeFalsy();
-    expect(calls.map((c) => c.name)).toEqual(["write_file", "write_file", "delete_file"]);
+    expect(calls.map((c) => c.name)).toEqual([
+      "write_file",
+      "write_file",
+      "delete_file",
+    ]);
     expect(files.get("hello.txt")).toBe("Hello world\n");
     expect(files.get("src/app.py")).toBe("new\n");
     expect(files.has("obsolete.txt")).toBe(false);
@@ -442,8 +474,12 @@ describe("shell proxy", () => {
       readRawFile,
       runManageTasks: unusedManageTasks,
     });
-    await invokeTool(tools, "shell", { command: ["bash", "-lc", "echo 'hi there'"] });
-    expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hi there'" } }]);
+    await invokeTool(tools, "shell", {
+      command: ["bash", "-lc", "echo 'hi there'"],
+    });
+    expect(calls).toEqual([
+      { name: "run_shell", args: { command: "echo 'hi there'" } },
+    ]);
   });
 
   test("other argv arrays are shell-quoted and joined", async () => {
@@ -455,7 +491,9 @@ describe("shell proxy", () => {
       runManageTasks: unusedManageTasks,
     });
     await invokeTool(tools, "shell", { command: ["echo", "hello world"] });
-    expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hello world'" } }]);
+    expect(calls).toEqual([
+      { name: "run_shell", args: { command: "echo 'hello world'" } },
+    ]);
   });
 
   test("workdir and timeout_ms translate to cwd and timeout", async () => {
@@ -472,7 +510,10 @@ describe("shell proxy", () => {
       timeout_ms: 5000,
     });
     expect(calls).toEqual([
-      { name: "run_shell", args: { command: "pwd", cwd: "/tmp/work", timeout: 5000 } },
+      {
+        name: "run_shell",
+        args: { command: "pwd", cwd: "/tmp/work", timeout: 5000 },
+      },
     ]);
   });
 
@@ -506,7 +547,10 @@ describe("shell proxy", () => {
   });
 
   test("run_shell isError propagates as tool error", async () => {
-    const runTool: CodexRunTool = async () => ({ content: "boom", isError: true });
+    const runTool: CodexRunTool = async () => ({
+      content: "boom",
+      isError: true,
+    });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
@@ -598,20 +642,36 @@ describe("update_plan proxy", () => {
 
 describe("allowDeleteFromCapabilities", () => {
   test("docs allowlist (includes delete_file) → true; build → true", () => {
-    expect(allowDeleteFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(true);
-    expect(allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS })).toBe(true);
+    expect(
+      allowDeleteFromCapabilities({ mode: "allow", tools: DOCS_TOOLS }),
+    ).toBe(true);
+    expect(
+      allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),
+    ).toBe(true);
     expect(allowDeleteFromCapabilities(undefined)).toBe(true);
-    expect(allowDeleteFromCapabilities({ mode: "exclude", tools: ["run_shell"] })).toBe(true);
-    expect(allowDeleteFromCapabilities({ mode: "exclude", tools: ["delete_file"] })).toBe(false);
+    expect(
+      allowDeleteFromCapabilities({ mode: "exclude", tools: ["run_shell"] }),
+    ).toBe(true);
+    expect(
+      allowDeleteFromCapabilities({ mode: "exclude", tools: ["delete_file"] }),
+    ).toBe(false);
   });
 });
 
 describe("allowShellFromCapabilities", () => {
   test("docs allowlist (no run_shell) → false; build → true", () => {
-    expect(allowShellFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(false);
-    expect(allowShellFromCapabilities({ mode: "allow", tools: BUILD_TOOLS })).toBe(true);
+    expect(
+      allowShellFromCapabilities({ mode: "allow", tools: DOCS_TOOLS }),
+    ).toBe(false);
+    expect(
+      allowShellFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),
+    ).toBe(true);
     expect(allowShellFromCapabilities(undefined)).toBe(true);
-    expect(allowShellFromCapabilities({ mode: "exclude", tools: ["delete_file"] })).toBe(true);
-    expect(allowShellFromCapabilities({ mode: "exclude", tools: ["run_shell"] })).toBe(false);
+    expect(
+      allowShellFromCapabilities({ mode: "exclude", tools: ["delete_file"] }),
+    ).toBe(true);
+    expect(
+      allowShellFromCapabilities({ mode: "exclude", tools: ["run_shell"] }),
+    ).toBe(false);
   });
 });

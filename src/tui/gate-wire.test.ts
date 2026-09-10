@@ -16,7 +16,10 @@ import {
   handleOverlayAnswerKey,
   setOverlayAnswerActive,
 } from "./shell/overlay-host.js";
-import { moveOverlaySelection, toggleOverlayExpand } from "./shell/overlay-list.js";
+import {
+  moveOverlaySelection,
+  toggleOverlayExpand,
+} from "./shell/overlay-list.js";
 import { streamRowGutter } from "./stream.js";
 import { APPROVAL_UNAVAILABLE_MESSAGE } from "./gate-events.js";
 import { SESSION_IDENTITY_ABORT_REASON } from "./queued-delivery.js";
@@ -33,7 +36,9 @@ import {
   wireGates,
 } from "./gate-wire.js";
 
-const baseRequest = (overrides: Partial<PermissionRequest> = {}): PermissionRequest => ({
+const baseRequest = (
+  overrides: Partial<PermissionRequest> = {},
+): PermissionRequest => ({
   tool: "run_shell",
   action: "Run shell command",
   subject: "bun test",
@@ -47,7 +52,10 @@ describe("permissionChoicesFromRequest", () => {
   test("always includes reject + accept once", () => {
     const choices = permissionChoicesFromRequest(baseRequest(), "req-1");
     expect(choices.items).toEqual(["Reject", "Accept once"]);
-    expect(choices.itemIds).toEqual([`req-1:${PERMISSION_DENY_ID}`, `req-1:${PERMISSION_ONCE_ID}`]);
+    expect(choices.itemIds).toEqual([
+      `req-1:${PERMISSION_DENY_ID}`,
+      `req-1:${PERMISSION_ONCE_ID}`,
+    ]);
     expect(choices.outcomes).toEqual([{ allow: false }, { allow: true }]);
   });
 
@@ -70,7 +78,12 @@ describe("permissionChoicesFromRequest", () => {
       }),
       "req-1",
     );
-    expect(choices.items).toEqual(["Reject", "Accept once", "Allow git *", "Allow this path"]);
+    expect(choices.items).toEqual([
+      "Reject",
+      "Accept once",
+      "Allow git *",
+      "Allow this path",
+    ]);
     expect(choices.itemIds).toEqual([
       `req-1:${PERMISSION_DENY_ID}`,
       `req-1:${PERMISSION_ONCE_ID}`,
@@ -116,12 +129,20 @@ describe("approvalOutcomeFromSelection", () => {
     ).toEqual({
       allow: true,
     });
-    expect(approvalOutcomeFromSelection(choices, { index: 0, id: "req-1:proj" }).allow).toBe(true);
-    expect(approvalOutcomeFromSelection(choices, { index: 0, id: "req-1:proj" }).persist?.id).toBe(
-      "proj",
+    expect(
+      approvalOutcomeFromSelection(choices, { index: 0, id: "req-1:proj" })
+        .allow,
+    ).toBe(true);
+    expect(
+      approvalOutcomeFromSelection(choices, { index: 0, id: "req-1:proj" })
+        .persist?.id,
+    ).toBe("proj");
+    expect(approvalOutcomeFromSelection(choices, { index: 0 })).toEqual(
+      unavailable,
     );
-    expect(approvalOutcomeFromSelection(choices, { index: 0 })).toEqual(unavailable);
-    expect(approvalOutcomeFromSelection(choices, { index: 99 })).toEqual(unavailable);
+    expect(approvalOutcomeFromSelection(choices, { index: 99 })).toEqual(
+      unavailable,
+    );
   });
 
   test("id preferred over index when present", () => {
@@ -155,7 +176,9 @@ describe("approvalOutcomeFromSelection", () => {
 
 describe("permissionBodyFromRequest", () => {
   test("joins tool/action/subject and optional agent/notice", () => {
-    expect(permissionBodyFromRequest(baseRequest())).toBe("run_shell\nRun shell command\nbun test");
+    expect(permissionBodyFromRequest(baseRequest())).toBe(
+      "run_shell\nRun shell command\nbun test",
+    );
     expect(
       permissionBodyFromRequest(
         baseRequest({
@@ -163,7 +186,9 @@ describe("permissionBodyFromRequest", () => {
           notice: "mega-chain",
         }),
       ),
-    ).toBe("run_shell\nRun shell command\nbun test\nagent: explorer\nmega-chain");
+    ).toBe(
+      "run_shell\nRun shell command\nbun test\nagent: explorer\nmega-chain",
+    );
   });
 
   test("scope hints paint in the body above the choices, collapsed and expanded", () => {
@@ -180,7 +205,9 @@ describe("permissionBodyFromRequest", () => {
     });
     for (const opts of [{}, { expanded: true } as const]) {
       const body = permissionBodyFromRequest(request, opts);
-      expect(body).toContain("Allow always: deletes generated output before the next build starts");
+      expect(body).toContain(
+        "Allow always: deletes generated output before the next build starts",
+      );
     }
   });
 
@@ -239,11 +266,15 @@ describe("operatorChoicesFromOptions / operatorResultFromSelection", () => {
 
   test("selection id → option; omitted or unknown id → cancel", () => {
     const choices = operatorChoicesFromOptions(["A", "B"], "ask-1");
-    expect(operatorResultFromSelection(choices, { index: 0, id: "ask-1:0" })).toEqual({
+    expect(
+      operatorResultFromSelection(choices, { index: 0, id: "ask-1:0" }),
+    ).toEqual({
       kind: "option",
       index: 0,
     });
-    expect(operatorResultFromSelection(choices, { index: 1, id: "ask-1:1" })).toEqual({
+    expect(
+      operatorResultFromSelection(choices, { index: 1, id: "ask-1:1" }),
+    ).toEqual({
       kind: "option",
       index: 1,
     });
@@ -257,16 +288,22 @@ describe("operatorChoicesFromOptions / operatorResultFromSelection", () => {
 
   test("id preferred when present in itemIds", () => {
     const choices = operatorChoicesFromOptions(["A", "B", "C"], "ask-1");
-    expect(operatorResultFromSelection(choices, { index: 0, id: "ask-1:2" })).toEqual({
+    expect(
+      operatorResultFromSelection(choices, { index: 0, id: "ask-1:2" }),
+    ).toEqual({
       kind: "option",
       index: 2,
     });
-    expect(operatorResultFromSelection(choices, { index: 1, id: "nope" })).toEqual({
+    expect(
+      operatorResultFromSelection(choices, { index: 1, id: "nope" }),
+    ).toEqual({
       kind: "cancel",
     });
-    expect(operatorResultFromSelection(choices, { index: 1, id: "2" })).toEqual({
-      kind: "cancel",
-    });
+    expect(operatorResultFromSelection(choices, { index: 1, id: "2" })).toEqual(
+      {
+        kind: "cancel",
+      },
+    );
   });
 
   test("cancel / custom constructors", () => {
@@ -352,7 +389,11 @@ describe("wireGates", () => {
         };
         try {
           const dispose = wireGates(emitter, shell);
-          emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
+          emitter.emit("permission.gate", {
+            id: "req-1",
+            request,
+            resolve: () => undefined,
+          });
 
           const collapsed = shell.overlayBodyLines.join("\n");
           expect(collapsed).toContain("1) echo start");
@@ -367,11 +408,15 @@ describe("wireGates", () => {
 
           // Full text also lands in the scrollable transcript, which no
           // overlay height cap can clip.
-          const dumped = shell.streamLog.filter((r) => r.text.includes("alpha"));
+          const dumped = shell.streamLog.filter((r) =>
+            r.text.includes("alpha"),
+          );
           expect(dumped.length).toBeGreaterThan(0);
           for (const row of dumped) {
             expect(row.meta).toBeUndefined();
-            expect(streamRowGutter(row, { width: 80, multiAgent: false }).content).toBe("");
+            expect(
+              streamRowGutter(row, { width: 80, multiAgent: false }).content,
+            ).toBe("");
           }
 
           expect(toggleOverlayExpand(shell)).toBe(true);
@@ -437,10 +482,9 @@ describe("wireGates", () => {
           },
         });
         expect(shell.overlayKind).toBe("operator");
-        expect(shell.overlayList?.select.options.map((option) => option.name)).toEqual([
-          "Stay on A",
-          "Leave A",
-        ]);
+        expect(
+          shell.overlayList?.select.options.map((option) => option.name),
+        ).toEqual(["Stay on A", "Leave A"]);
 
         acceptOverlaySelection(shell);
         expect(resolvedA).toEqual({ kind: "option", index: 0 });
@@ -456,8 +500,14 @@ describe("wireGates", () => {
         });
         expect(shell.overlayKind).toBe("operator");
         const painted = shell.overlayList?.select.options ?? [];
-        expect(painted.map((option) => option.name)).toEqual(["Go with B", "Skip B"]);
-        expect(painted.map((option) => option.value)).toEqual(["ask-b:0", "ask-b:1"]);
+        expect(painted.map((option) => option.name)).toEqual([
+          "Go with B",
+          "Skip B",
+        ]);
+        expect(painted.map((option) => option.value)).toEqual([
+          "ask-b:0",
+          "ask-b:1",
+        ]);
         expect(painted.map((option) => option.value)).not.toContain("ask-a:0");
         expect(painted.map((option) => option.value)).not.toContain("0");
 
@@ -486,18 +536,18 @@ describe("wireGates", () => {
           id: "req-a",
           request: baseRequest({
             subject: "git status",
-            scopes: [{ id: "scope-a", label: "Allow git A", pattern: "git A*" }],
+            scopes: [
+              { id: "scope-a", label: "Allow git A", pattern: "git A*" },
+            ],
           }),
           resolve: (outcome: unknown) => {
             resolvedA = outcome;
           },
         });
         expect(shell.overlayKind).toBe("permissions");
-        expect(shell.overlayList?.select.options.map((option) => option.name)).toEqual([
-          "Reject",
-          "Accept once",
-          "Allow git A",
-        ]);
+        expect(
+          shell.overlayList?.select.options.map((option) => option.name),
+        ).toEqual(["Reject", "Accept once", "Allow git A"]);
 
         closeInsetOverlay(shell);
         expect(resolvedA).toEqual({ allow: false });
@@ -507,7 +557,9 @@ describe("wireGates", () => {
           id: "req-b",
           request: baseRequest({
             subject: "git push",
-            scopes: [{ id: "scope-b", label: "Allow git B", pattern: "git B*" }],
+            scopes: [
+              { id: "scope-b", label: "Allow git B", pattern: "git B*" },
+            ],
           }),
           resolve: (outcome: unknown) => {
             resolvedB = outcome;
@@ -525,9 +577,15 @@ describe("wireGates", () => {
           `req-b:${PERMISSION_ONCE_ID}`,
           "req-b:scope-b",
         ]);
-        expect(painted.map((option) => option.value)).not.toContain(`req-a:${PERMISSION_DENY_ID}`);
-        expect(painted.map((option) => option.value)).not.toContain(`req-a:${PERMISSION_ONCE_ID}`);
-        expect(painted.map((option) => option.value)).not.toContain("req-a:scope-a");
+        expect(painted.map((option) => option.value)).not.toContain(
+          `req-a:${PERMISSION_DENY_ID}`,
+        );
+        expect(painted.map((option) => option.value)).not.toContain(
+          `req-a:${PERMISSION_ONCE_ID}`,
+        );
+        expect(painted.map((option) => option.value)).not.toContain(
+          "req-a:scope-a",
+        );
 
         acceptOverlaySelection(shell);
         expect(resolvedB).toEqual({ allow: false });
@@ -554,7 +612,9 @@ describe("wireGates", () => {
           id: "req-a",
           request: baseRequest({
             subject: "git status",
-            scopes: [{ id: "scope-a", label: "Allow git A", pattern: "git A*" }],
+            scopes: [
+              { id: "scope-a", label: "Allow git A", pattern: "git A*" },
+            ],
           }),
           resolve: (outcome: unknown) => {
             resolvedA = outcome;
@@ -568,14 +628,18 @@ describe("wireGates", () => {
           id: "req-b",
           request: baseRequest({
             subject: "git push",
-            scopes: [{ id: "scope-b", label: "Allow git B", pattern: "git B*" }],
+            scopes: [
+              { id: "scope-b", label: "Allow git B", pattern: "git B*" },
+            ],
           }),
           resolve: (outcome: unknown) => {
             resolvedB = outcome;
           },
         });
         expect(shell.overlayKind).toBe("permissions");
-        expect(shell.overlayList?.select.options.map((option) => option.value)).toEqual([
+        expect(
+          shell.overlayList?.select.options.map((option) => option.value),
+        ).toEqual([
           `req-b:${PERMISSION_DENY_ID}`,
           `req-b:${PERMISSION_ONCE_ID}`,
           "req-b:scope-b",
@@ -614,8 +678,16 @@ describe("wireGates", () => {
         const list = shell.overlayList;
         if (!list) throw new Error("expected an open overlay list");
         list.select.options = [
-          { name: "Reject", description: "", value: `req-a:${PERMISSION_DENY_ID}` },
-          { name: "Accept once", description: "", value: `req-a:${PERMISSION_ONCE_ID}` },
+          {
+            name: "Reject",
+            description: "",
+            value: `req-a:${PERMISSION_DENY_ID}`,
+          },
+          {
+            name: "Accept once",
+            description: "",
+            value: `req-a:${PERMISSION_ONCE_ID}`,
+          },
         ];
         list.select.setSelectedIndex(1);
         acceptOverlaySelection(shell);
@@ -729,13 +801,21 @@ describe("wireGates", () => {
       };
       try {
         const dispose = wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
+        emitter.emit("permission.gate", {
+          id: "req-1",
+          request,
+          resolve: () => undefined,
+        });
 
-        expect(shell.streamLog.filter((r) => r.meta === "permission")).toHaveLength(0);
+        expect(
+          shell.streamLog.filter((r) => r.meta === "permission"),
+        ).toHaveLength(0);
 
         acceptOverlaySelection(shell);
 
-        expect(shell.streamLog.filter((r) => r.meta === "permission")).toHaveLength(0);
+        expect(
+          shell.streamLog.filter((r) => r.meta === "permission"),
+        ).toHaveLength(0);
 
         dispose();
       } finally {
@@ -755,7 +835,11 @@ describe("gate decisions stay out of the transcript", () => {
       const emitter = new EventEmitter();
       try {
         wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request: baseRequest(), resolve: () => {} });
+        emitter.emit("permission.gate", {
+          id: "req-1",
+          request: baseRequest(),
+          resolve: () => undefined,
+        });
 
         const before = shell.streamLog.length;
         acceptOverlaySelection(shell);
@@ -775,7 +859,11 @@ describe("gate decisions stay out of the transcript", () => {
       const emitter = new EventEmitter();
       try {
         wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request: baseRequest(), resolve: () => {} });
+        emitter.emit("permission.gate", {
+          id: "req-1",
+          request: baseRequest(),
+          resolve: () => undefined,
+        });
 
         const before = shell.streamLog.length;
         closeInsetOverlay(shell);
@@ -799,7 +887,7 @@ describe("gate decisions stay out of the transcript", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Cancel", "Continue"],
-          resolve: () => {},
+          resolve: () => undefined,
         });
 
         const before = shell.streamLog.length;
@@ -824,7 +912,7 @@ describe("gate decisions stay out of the transcript", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Cancel", "Continue"],
-          resolve: () => {},
+          resolve: () => undefined,
         });
 
         const before = shell.streamLog.length;
@@ -849,7 +937,7 @@ describe("gate decisions stay out of the transcript", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Cancel", "Continue"],
-          resolve: () => {},
+          resolve: () => undefined,
         });
 
         setOverlayAnswerActive(shell, true);
@@ -890,7 +978,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
           timeoutMs: 5,
         });
         await new Promise((r) => setTimeout(r, 20));
@@ -915,7 +1003,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
           signal: controller.signal,
         });
         controller.abort();
@@ -979,7 +1067,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
         });
         const before = shell.streamLog.length;
         emitter.emit("permission.gate", {
@@ -1028,7 +1116,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
         });
         const before = shell.streamLog.length;
         emitter.emit("permission.gate", {
@@ -1411,7 +1499,7 @@ describe("operator.gate auto-cancel", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
         });
         emitter.emit("operator.gate", {
           id: "ask-1",
@@ -1530,7 +1618,7 @@ describe("operator.gate auto-cancel", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Yes", "No"],
-          resolve: () => {},
+          resolve: () => undefined,
           timeoutMs: 5,
         });
         await new Promise((r) => setTimeout(r, 20));
@@ -1669,11 +1757,14 @@ describe("permission overlay height", () => {
           pattern: `p${i}`,
         })),
       },
-      resolve: () => {},
+      resolve: () => undefined,
     });
   };
 
-  const hostRowsFor = async (rows: number, scopeCount: number): Promise<number> => {
+  const hostRowsFor = async (
+    rows: number,
+    scopeCount: number,
+  ): Promise<number> => {
     let height = -1;
     await withTestRenderer(
       async (h) => {
@@ -1741,7 +1832,11 @@ describe("operator question overlay", () => {
   const withOperator = async (
     rows: number,
     options: readonly string[],
-    body: (h: Harness, shell: AppShell, resolved: () => unknown) => void | Promise<void>,
+    body: (
+      h: Harness,
+      shell: AppShell,
+      resolved: () => unknown,
+    ) => void | Promise<void>,
   ): Promise<void> => {
     await withTestRenderer(
       async (h) => {
@@ -1771,14 +1866,22 @@ describe("operator question overlay", () => {
 
   for (const rows of [24, 60]) {
     test(`several options render and resolve by index at ${rows} rows`, async () => {
-      await withOperator(rows, ["repo only", "docs too", "everything"], (h, shell, resolved) => {
-        expect(shell.overlayKind).toBe("operator");
-        expect(shell.overlayItems).toEqual(["repo only", "docs too", "everything"]);
-        moveOverlaySelection(shell, 1);
-        acceptOverlaySelection(shell);
-        expect(resolved()).toEqual({ kind: "option", index: 1 });
-        void h;
-      });
+      await withOperator(
+        rows,
+        ["repo only", "docs too", "everything"],
+        (h, shell, resolved) => {
+          expect(shell.overlayKind).toBe("operator");
+          expect(shell.overlayItems).toEqual([
+            "repo only",
+            "docs too",
+            "everything",
+          ]);
+          moveOverlaySelection(shell, 1);
+          acceptOverlaySelection(shell);
+          expect(resolved()).toEqual({ kind: "option", index: 1 });
+          void h;
+        },
+      );
     });
 
     test(`a single option still renders a choosable row at ${rows} rows`, async () => {
@@ -1815,18 +1918,24 @@ describe("operator question overlay", () => {
   });
 
   test("a typed answer round-trips as a custom OperatorResult", async () => {
-    await withOperator(40, ["repo only", "everything"], (h, shell, resolved) => {
-      expect(setOverlayAnswerActive(shell, true)).toBe(true);
-      for (const ch of "src and docs") {
-        expect(handleOverlayAnswerKey(shell, keyOf(ch))).toBe(true);
-      }
-      expect(handleOverlayAnswerKey(shell, keyOf("x", "backspace"))).toBe(true);
-      expect(handleOverlayAnswerKey(shell, keyOf("", "return"))).toBe(true);
-      expect(resolved()).toEqual({ kind: "custom", text: "src and doc" });
-      // Submitting closes the overlay, so the host is free for the next gate.
-      expect(shell.overlayList).toBeNull();
-      void h;
-    });
+    await withOperator(
+      40,
+      ["repo only", "everything"],
+      (h, shell, resolved) => {
+        expect(setOverlayAnswerActive(shell, true)).toBe(true);
+        for (const ch of "src and docs") {
+          expect(handleOverlayAnswerKey(shell, keyOf(ch))).toBe(true);
+        }
+        expect(handleOverlayAnswerKey(shell, keyOf("x", "backspace"))).toBe(
+          true,
+        );
+        expect(handleOverlayAnswerKey(shell, keyOf("", "return"))).toBe(true);
+        expect(resolved()).toEqual({ kind: "custom", text: "src and doc" });
+        // Submitting closes the overlay, so the host is free for the next gate.
+        expect(shell.overlayList).toBeNull();
+        void h;
+      },
+    );
   });
 
   test("Esc in the answer field returns to the choices instead of cancelling", async () => {

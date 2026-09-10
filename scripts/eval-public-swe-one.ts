@@ -88,7 +88,8 @@ export function parseArgs(argv: string[]): CliOptions {
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    if (a === undefined) continue;
     const next = () => {
       const v = argv[++i];
       if (v === undefined) throw new Error(`missing value for ${a}`);
@@ -170,7 +171,11 @@ function run(
       opts.timeoutMs !== undefined
         ? setTimeout(() => {
             child.kill("SIGKILL");
-            reject(new Error(`timeout after ${opts.timeoutMs}ms: ${cmd} ${args.join(" ")}`));
+            reject(
+              new Error(
+                `timeout after ${opts.timeoutMs}ms: ${cmd} ${args.join(" ")}`,
+              ),
+            );
           }, opts.timeoutMs)
         : null;
     child.on("error", (err) => {
@@ -213,16 +218,25 @@ for k in keys:
         out[k] = v if isinstance(v, str) else json.dumps(v)
 print(json.dumps(out))
 `;
-  const result = await run("uv", ["run", "--with", "datasets", "python", "-c", py], {
-    timeoutMs: 180_000,
-  });
+  const result = await run(
+    "uv",
+    ["run", "--with", "datasets", "python", "-c", py],
+    {
+      timeoutMs: 180_000,
+    },
+  );
   if (result.code !== 0) {
-    throw new Error(`failed to load instance:\n${result.stderr || result.stdout}`);
+    throw new Error(
+      `failed to load instance:\n${result.stderr || result.stdout}`,
+    );
   }
   return JSON.parse(result.stdout.trim()) as SweInstance;
 }
 
-async function prepareRepo(instance: SweInstance, workRoot: string): Promise<string> {
+async function prepareRepo(
+  instance: SweInstance,
+  workRoot: string,
+): Promise<string> {
   const repoDir = join(workRoot, "repo");
   const url = `https://github.com/${instance.repo}.git`;
   console.log(`cloning ${url} …`);
@@ -240,16 +254,26 @@ async function prepareRepo(instance: SweInstance, workRoot: string): Promise<str
   });
   if (co.code !== 0) {
     // try fetch then checkout
-    await run("git", ["fetch", "--depth", "1", "origin", instance.base_commit], {
-      cwd: repoDir,
-      timeoutMs: 300_000,
-    });
-    const co2 = await run("git", ["checkout", "--force", instance.base_commit], {
-      cwd: repoDir,
-      timeoutMs: 120_000,
-    });
+    await run(
+      "git",
+      ["fetch", "--depth", "1", "origin", instance.base_commit],
+      {
+        cwd: repoDir,
+        timeoutMs: 300_000,
+      },
+    );
+    const co2 = await run(
+      "git",
+      ["checkout", "--force", instance.base_commit],
+      {
+        cwd: repoDir,
+        timeoutMs: 120_000,
+      },
+    );
     if (co2.code !== 0) {
-      throw new Error(`git checkout ${instance.base_commit} failed:\n${co2.stderr || co2.stdout}`);
+      throw new Error(
+        `git checkout ${instance.base_commit} failed:\n${co2.stderr || co2.stdout}`,
+      );
     }
   }
   // Detach cleanly; agent may commit.
@@ -280,7 +304,10 @@ function buildPrompt(instance: SweInstance): string {
   ].join("\n");
 }
 
-async function capturePatch(repoDir: string, baseCommit: string): Promise<string> {
+async function capturePatch(
+  repoDir: string,
+  baseCommit: string,
+): Promise<string> {
   // Stage everything, then diff the index tree against the SWE base commit so
   // we include new files and agent commits without depending on HEAD movement.
   await run("git", ["add", "-A"], { cwd: repoDir });
@@ -289,20 +316,31 @@ async function capturePatch(repoDir: string, baseCommit: string): Promise<string
     throw new Error(`git write-tree failed:\n${tree.stderr || tree.stdout}`);
   }
   const treeSha = tree.stdout.trim();
-  const diff = await run("git", ["diff", "--binary", baseCommit, treeSha], { cwd: repoDir });
+  const diff = await run("git", ["diff", "--binary", baseCommit, treeSha], {
+    cwd: repoDir,
+  });
   if (diff.code !== 0) {
-    throw new Error(`git diff ${baseCommit}..${treeSha} failed:\n${diff.stderr || diff.stdout}`);
+    throw new Error(
+      `git diff ${baseCommit}..${treeSha} failed:\n${diff.stderr || diff.stdout}`,
+    );
   }
   return diff.stdout;
 }
 
-async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       p,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${ms}ms`)),
+          ms,
+        );
       }),
     ]);
   } finally {
@@ -331,7 +369,10 @@ async function main(): Promise<void> {
   console.log(`out: ${outDir}`);
 
   const instance = await loadInstance(opts);
-  await writeFile(join(outDir, "instance.json"), JSON.stringify(instance, null, 2));
+  await writeFile(
+    join(outDir, "instance.json"),
+    JSON.stringify(instance, null, 2),
+  );
   console.log(
     `loaded ${instance.instance_id} (${instance.repo} @ ${instance.base_commit.slice(0, 12)})`,
   );
@@ -436,10 +477,15 @@ async function main(): Promise<void> {
         "Patch captured from host-side Corbits run. Official resolved/not-resolved " +
         "requires SWE-bench Docker eval (--evaluate or external harness).",
     };
-    await writeFile(join(outDir, "report.json"), JSON.stringify(report, null, 2));
+    await writeFile(
+      join(outDir, "report.json"),
+      JSON.stringify(report, null, 2),
+    );
 
     // Keep a copy of the final tree for debugging (may be large — skip if huge).
-    console.log(`patch bytes: ${report.patchBytes}${report.patchEmpty ? " (EMPTY)" : ""}`);
+    console.log(
+      `patch bytes: ${report.patchBytes}${report.patchEmpty ? " (EMPTY)" : ""}`,
+    );
     console.log(`report: ${join(outDir, "report.json")}`);
 
     if (opts.evaluate) {

@@ -8,7 +8,9 @@ import { corbitsLogFilePath, installFileLogSink } from "./sink.js";
 
 describe("corbitsLogFilePath", () => {
   test("nests under the settings dir, not directly in home", () => {
-    expect(corbitsLogFilePath("/home/dev")).toBe("/home/dev/.corbits/logs/corbits.log");
+    expect(corbitsLogFilePath("/home/dev")).toBe(
+      "/home/dev/.corbits/logs/corbits.log",
+    );
   });
 });
 
@@ -22,7 +24,9 @@ describe("installFileLogSink", () => {
       const stdoutWrite = spyOn(process.stdout, "write");
       const stderrWrite = spyOn(process.stderr, "write");
       try {
-        getLogger(["some", "vendored", "logger"]).error("boom {detail}", { detail: "bad" });
+        getLogger(["some", "vendored", "logger"]).error("boom {detail}", {
+          detail: "bad",
+        });
       } finally {
         stdoutWrite.mockRestore();
         stderrWrite.mockRestore();

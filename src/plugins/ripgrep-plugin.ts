@@ -8,7 +8,12 @@ import {
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
 import { createRgCollector } from "./rg-output.js";
-import { MAX_OUTPUT_BYTES, runRg, type RgLimits, type SpawnRg } from "./rg-run.js";
+import {
+  MAX_OUTPUT_BYTES,
+  runRg,
+  type RgLimits,
+  type SpawnRg,
+} from "./rg-run.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
@@ -35,10 +40,16 @@ function capLines(text: string, max: number): string {
 // surfaces whatever matches were collected before it fired, instead of
 // discarding them behind a bare error. `notice` is only set for conditions
 // neither cap describes, like a run timing out.
-function partialContent(stdout: string, maxResults: number, notice?: string): string {
+function partialContent(
+  stdout: string,
+  maxResults: number,
+  notice?: string,
+): string {
   const capped = capLines(stdout, maxResults);
   if (capped.length === 0) {
-    return notice === undefined ? "no matches collected" : `no matches collected before ${notice}`;
+    return notice === undefined
+      ? "no matches collected"
+      : `no matches collected before ${notice}`;
   }
   return notice === undefined ? capped : `${capped}\n... ${notice}`;
 }
@@ -46,7 +57,11 @@ function partialContent(stdout: string, maxResults: number, notice?: string): st
 // The fallback walker collects its whole result in memory before returning, so
 // the byte cap has to be applied here. Without this the cap simply does not
 // exist on a host without ripgrep, and an unbounded grep reaches the model.
-function boundedContent(content: string, maxResults: number, maxOutputBytes: number): string {
+function boundedContent(
+  content: string,
+  maxResults: number,
+  maxOutputBytes: number,
+): string {
   const breach = createRgCollector(maxOutputBytes).push(content);
   if (breach?.kind !== "partial") return capLines(content, maxResults);
   return partialContent(breach.stdout, maxResults, breach.notice);
@@ -57,13 +72,18 @@ function str(value: unknown): string | undefined {
 }
 
 function num(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 // rg prints paths relative to its cwd when the search target is ".", matching
 // the posix tool's directory-relative output. For a single file we search from
 // its parent so the printed path stays short and relative.
-function searchLocation(path: string, fallbackCwd: string): { cwd: string; target: string } {
+function searchLocation(
+  path: string,
+  fallbackCwd: string,
+): { cwd: string; target: string } {
   try {
     const info = statSync(path);
     if (info.isDirectory()) return { cwd: path, target: "." };
@@ -108,7 +128,10 @@ export function ripgrepPlugin(
             };
             if (glob !== undefined) boundedArgs.glob = glob;
             const content = await runBoundedGrep(boundedArgs, signal, rgCwd);
-            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
+            return {
+              callId: call.id,
+              content: boundedContent(content, maxResults, maxBytes),
+            };
           } catch (err) {
             return {
               callId: call.id,
@@ -129,17 +152,26 @@ export function ripgrepPlugin(
             content: partialContent(result.stdout, maxResults, result.notice),
           };
         }
-        return { callId: call.id, content: capLines(result.stdout, maxResults) };
+        return {
+          callId: call.id,
+          content: capLines(result.stdout, maxResults),
+        };
       }
 
       if (call.name === "search_files") {
         const pattern = str(call.arguments.pattern);
         if (pattern === undefined) return next(call, signal);
         const path = str(call.arguments.path) ?? cwd;
-        const maxResults = num(call.arguments.max_results) ?? DEFAULT_SEARCH_MAX;
+        const maxResults =
+          num(call.arguments.max_results) ?? DEFAULT_SEARCH_MAX;
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
-        const result = await runRg(["--files", "-g", pattern, target], rgCwd, signal, limits);
+        const result = await runRg(
+          ["--files", "-g", pattern, target],
+          rgCwd,
+          signal,
+          limits,
+        );
         if (result.kind === "unavailable") {
           try {
             const content = await runBoundedSearchFiles(
@@ -147,7 +179,10 @@ export function ripgrepPlugin(
               signal,
               rgCwd,
             );
-            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
+            return {
+              callId: call.id,
+              content: boundedContent(content, maxResults, maxBytes),
+            };
           } catch (err) {
             return {
               callId: call.id,
@@ -168,7 +203,10 @@ export function ripgrepPlugin(
             content: partialContent(result.stdout, maxResults, result.notice),
           };
         }
-        return { callId: call.id, content: capLines(result.stdout, maxResults) };
+        return {
+          callId: call.id,
+          content: capLines(result.stdout, maxResults),
+        };
       }
 
       return next(call, signal);

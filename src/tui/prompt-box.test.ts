@@ -4,9 +4,14 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input";
 import { withTestRenderer, type Harness } from "./harness";
-import { PROMPT_BASE_ROWS, PROMPT_CAP_FRACTION, PROMPT_IDLE_ROWS } from "./geometry/index.js";
+import {
+  PROMPT_BASE_ROWS,
+  PROMPT_CAP_FRACTION,
+  PROMPT_IDLE_ROWS,
+} from "./geometry/index.js";
 import { focusOwner } from "./focus/index.js";
 import { promptCaretRow, promptRowCount } from "./prompt-input.js";
 import { appendStreamRow, toggleShellFocus } from "./shell/chrome";
@@ -37,7 +42,11 @@ function withShell(
 }
 
 /** The wrapped-line table is rebuilt during layout, so compose then render. */
-async function compose(shell: AppShell, h: Harness, value: string): Promise<void> {
+async function compose(
+  shell: AppShell,
+  h: Harness,
+  value: string,
+): Promise<void> {
   shell.prompt.value = value;
   await h.renderOnce();
   await h.renderOnce();
@@ -70,7 +79,9 @@ describe("prompt box height", () => {
     await withShell({ columns: 80, rows: 40 }, async (shell, h) => {
       await compose(shell, h, "w".repeat(400));
       expect(promptRowCount(shell.prompt)).toBeGreaterThan(3);
-      expect(shell.layout.heights.prompt).toBe(promptRowCount(shell.prompt) + 2);
+      expect(shell.layout.heights.prompt).toBe(
+        promptRowCount(shell.prompt) + 2,
+      );
     });
   });
 
@@ -108,8 +119,12 @@ describe("prompt box height", () => {
   test("shrinks back toward the base box on a terminal too short for both", async () => {
     await withShell({ columns: 80, rows: 16 }, (shell) => {
       expect(shell.layout.heights.prompt).toBeLessThan(PROMPT_IDLE_ROWS);
-      expect(shell.layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
-      expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(shell.layout.transcriptFloor);
+      expect(shell.layout.heights.prompt).toBeGreaterThanOrEqual(
+        PROMPT_BASE_ROWS,
+      );
+      expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+        shell.layout.transcriptFloor,
+      );
     });
   });
 
@@ -117,8 +132,12 @@ describe("prompt box height", () => {
     for (const rows of [16, 20, 24, 40]) {
       await withShell({ columns: 80, rows }, async (shell, h) => {
         await compose(shell, h, lines(80));
-        expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(shell.layout.transcriptFloor);
-        expect(shell.layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
+        expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+          shell.layout.transcriptFloor,
+        );
+        expect(shell.layout.heights.prompt).toBeGreaterThanOrEqual(
+          PROMPT_BASE_ROWS,
+        );
       });
     }
   });
@@ -128,9 +147,8 @@ describe("prompt box height", () => {
     // the version badge reserves the terminal's last row.
     await withShell({ columns: 80, rows: 31 }, async (shell, h) => {
       await compose(shell, h, lines(5));
-      const box = shell.layout.regions.prompt;
-      expect(box).toBeDefined();
-      expect(box!.y + box!.height).toBe(30);
+      const box = defined(shell.layout.regions.prompt);
+      expect(box.y + box.height).toBe(30);
     });
   });
 });
@@ -185,9 +203,15 @@ describe("Enter is still the send key", () => {
     // `return` submit entry. Whether the modifier ever arrives is the
     // terminal's business — without the kitty keyboard protocol both Enter and
     // Shift+Enter are a bare CR — so this asserts the table, not the chord.
-    const names = PROMPT_KEY_BINDINGS.map((b) => `${b.name}:${String("shift" in b)}`);
-    expect(names.indexOf("return:true")).toBeLessThan(names.indexOf("return:false"));
-    expect(names.indexOf("kpenter:true")).toBeLessThan(names.indexOf("kpenter:false"));
+    const names = PROMPT_KEY_BINDINGS.map(
+      (b) => `${b.name}:${String("shift" in b)}`,
+    );
+    expect(names.indexOf("return:true")).toBeLessThan(
+      names.indexOf("return:false"),
+    );
+    expect(names.indexOf("kpenter:true")).toBeLessThan(
+      names.indexOf("kpenter:false"),
+    );
   });
 });
 

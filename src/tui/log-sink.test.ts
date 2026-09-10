@@ -45,7 +45,11 @@ describe("log sink during a live TUI session", () => {
 
         // Same category and tagged-template call shape as
         // vendor/intx-inference's default-director.
-        const vendoredLogger = getLogger(["interchange", "inference", "default-director"]);
+        const vendoredLogger = getLogger([
+          "interchange",
+          "inference",
+          "default-director",
+        ]);
         vendoredLogger.error`Inference error in default director: ${"could not be verified"} [HTTP 400] (category: ${"fatal"})`;
 
         await h.renderOnce();

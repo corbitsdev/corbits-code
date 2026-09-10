@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ConversationTurn, LastCycleSource, TokenUsage } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  LastCycleSource,
+  TokenUsage,
+} from "@intx/types/runtime";
 import {
   createCodexResponsesAdapter,
   isResponsesStreamTerminal,
@@ -23,7 +27,10 @@ describe("createCodexResponsesAdapter", () => {
         timestamp: 0,
         content: [
           { type: "text", text: "what is this?" },
-          { type: "image", source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" } },
+          {
+            type: "image",
+            source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" },
+          },
         ],
       },
     ];
@@ -56,7 +63,9 @@ describe("createCodexResponsesAdapter", () => {
     const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
     const body = JSON.parse(request.body) as { input: { content?: unknown }[] };
 
-    expect(body.input[0]?.content).toEqual([{ type: "input_text", text: "hello" }]);
+    expect(body.input[0]?.content).toEqual([
+      { type: "input_text", text: "hello" },
+    ]);
   });
 
   test("reports the adapter as terminating on response.completed", () => {
@@ -66,8 +75,12 @@ describe("createCodexResponsesAdapter", () => {
 
   test("extracts Retry-After pacing from response headers", () => {
     const adapter = createCodexResponsesAdapter(source);
-    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after": "7" }))).toBe(7_000);
-    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" }))).toBe(1_500);
+    expect(
+      adapter.extractRetryAfterMs?.(new Headers({ "retry-after": "7" })),
+    ).toBe(7_000);
+    expect(
+      adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" })),
+    ).toBe(1_500);
     expect(adapter.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
   });
 });
@@ -81,8 +94,11 @@ describe("createCodexResponsesAdapter usage parsing", () => {
     adapter: ReturnType<typeof createCodexResponsesAdapter>,
     sseData: string,
   ): { usage: TokenUsage; source: LastCycleSource } => {
-    const event = adapter.parseResponse(sseData).find((e) => e.type === "inference.usage");
-    if (event === undefined) throw new Error("stream carried no inference.usage event");
+    const event = adapter
+      .parseResponse(sseData)
+      .find((e) => e.type === "inference.usage");
+    if (event === undefined)
+      throw new Error("stream carried no inference.usage event");
     return event.data as { usage: TokenUsage; source: LastCycleSource };
   };
 
@@ -101,7 +117,13 @@ describe("createCodexResponsesAdapter usage parsing", () => {
     });
 
     expect(completedUsage(adapter, sseData)).toEqual({
-      usage: { input: 200, output: 50, cacheRead: 800, cacheWrite: 0, thinking: 5 },
+      usage: {
+        input: 200,
+        output: 50,
+        cacheRead: 800,
+        cacheWrite: 0,
+        thinking: 5,
+      },
       source,
     });
   });
@@ -137,7 +159,13 @@ describe("createCodexResponsesAdapter usage parsing", () => {
     });
 
     expect(completedUsage(adapter, sseData)).toEqual({
-      usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      usage: {
+        input: 100,
+        output: 50,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
       source,
     });
   });
@@ -156,7 +184,13 @@ describe("createCodexResponsesAdapter usage parsing", () => {
     });
 
     expect(completedUsage(adapter, sseData)).toEqual({
-      usage: { input: 0, output: 50, cacheRead: 25, cacheWrite: 0, thinking: 0 },
+      usage: {
+        input: 0,
+        output: 50,
+        cacheRead: 25,
+        cacheWrite: 0,
+        thinking: 0,
+      },
       source,
     });
   });
@@ -168,7 +202,10 @@ describe("createCodexResponsesAdapter usage parsing", () => {
       response: {
         usage: {
           input_tokens: 100,
-          input_tokens_details: { cached_tokens: 20, cache_creation_tokens: 15 },
+          input_tokens_details: {
+            cached_tokens: 20,
+            cache_creation_tokens: 15,
+          },
           output_tokens: 50,
           output_tokens_details: { reasoning_tokens: 5 },
         },
@@ -176,7 +213,13 @@ describe("createCodexResponsesAdapter usage parsing", () => {
     });
 
     expect(completedUsage(adapter, sseData)).toEqual({
-      usage: { input: 80, output: 50, cacheRead: 20, cacheWrite: 15, thinking: 5 },
+      usage: {
+        input: 80,
+        output: 50,
+        cacheRead: 20,
+        cacheWrite: 15,
+        thinking: 5,
+      },
       source,
     });
   });
@@ -235,7 +278,11 @@ describe("createCodexResponsesAdapter orphaned function_call suppression", () =>
         model: "gpt-5.0-codex",
         timestamp: 0,
         content: [
-          { type: "thinking", thinking: "ponder", signature: tagSignature("codex-responses", "c") },
+          {
+            type: "thinking",
+            thinking: "ponder",
+            signature: tagSignature("codex-responses", "c"),
+          },
           { type: "tool_call", id: "call_1", name: "shell", arguments: {} },
         ],
       },
@@ -245,7 +292,9 @@ describe("createCodexResponsesAdapter orphaned function_call suppression", () =>
     const body = JSON.parse(request.body) as { input: { type: string }[] };
 
     expect(body.input.some((item) => item.type === "reasoning")).toBe(false);
-    expect(body.input.some((item) => item.type === "function_call")).toBe(false);
+    expect(body.input.some((item) => item.type === "function_call")).toBe(
+      false,
+    );
   });
 
   test("keeps the function_call when its reasoning signature replays cleanly", () => {
@@ -257,7 +306,11 @@ describe("createCodexResponsesAdapter orphaned function_call suppression", () =>
         model: "gpt-5.1-codex",
         timestamp: 0,
         content: [
-          { type: "thinking", thinking: "ponder", signature: tagSignature("codex-responses", "c") },
+          {
+            type: "thinking",
+            thinking: "ponder",
+            signature: tagSignature("codex-responses", "c"),
+          },
           { type: "tool_call", id: "call_1", name: "shell", arguments: {} },
         ],
       },
@@ -290,7 +343,9 @@ describe("createCodexResponsesAdapter tool-name codec", () => {
     const body = JSON.parse(request.body) as { tools: { name: string }[] };
 
     expect(body.tools[0]?.name).toMatch(/^[A-Za-z_][A-Za-z0-9_-]*$/);
-    expect(body.tools[0]?.name).not.toBe("@intx/tools-posix/sidecar-bundle:run_shell");
+    expect(body.tools[0]?.name).not.toBe(
+      "@intx/tools-posix/sidecar-bundle:run_shell",
+    );
   });
 
   test("decodes an encoded tool_call.start name back to the internal id", () => {
@@ -298,7 +353,12 @@ describe("createCodexResponsesAdapter tool-name codec", () => {
     const encoded = "IX_-40intx-2Ftools-2Dposix-2Fsidecar-2Dbundle-3Arun_shell";
     const sseData = JSON.stringify({
       type: "response.output_item.added",
-      item: { type: "function_call", id: "item_1", call_id: "call_1", name: encoded },
+      item: {
+        type: "function_call",
+        id: "item_1",
+        call_id: "call_1",
+        name: encoded,
+      },
     });
 
     const events = adapter.parseResponse(sseData);
@@ -317,10 +377,18 @@ describe("createCodexResponsesAdapter block indexer reset", () => {
 
     adapter.buildRequest(turns, "gpt-5.1-codex", {});
     adapter.parseResponse(
-      JSON.stringify({ type: "response.output_text.delta", item_id: "item_1", delta: "a" }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        item_id: "item_1",
+        delta: "a",
+      }),
     );
     adapter.parseResponse(
-      JSON.stringify({ type: "response.output_text.delta", item_id: "item_2", delta: "b" }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        item_id: "item_2",
+        delta: "b",
+      }),
     );
 
     // A new request (a fresh HTTP round trip) with a brand-new item id should
@@ -328,7 +396,11 @@ describe("createCodexResponsesAdapter block indexer reset", () => {
     // request's indexer state.
     adapter.buildRequest(turns, "gpt-5.1-codex", {});
     const secondRequestDelta = adapter.parseResponse(
-      JSON.stringify({ type: "response.output_text.delta", item_id: "item_3", delta: "c" }),
+      JSON.stringify({
+        type: "response.output_text.delta",
+        item_id: "item_3",
+        delta: "c",
+      }),
     );
     expect((secondRequestDelta[0]?.data as { index?: number })?.index).toBe(0);
   });
@@ -336,13 +408,21 @@ describe("createCodexResponsesAdapter block indexer reset", () => {
 
 describe("isResponsesStreamTerminal", () => {
   test("is true for the Responses end-of-turn events", () => {
-    for (const type of ["response.completed", "response.incomplete", "response.done"]) {
+    for (const type of [
+      "response.completed",
+      "response.incomplete",
+      "response.done",
+    ]) {
       expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(true);
     }
   });
 
   test("is false for streaming and lifecycle events", () => {
-    for (const type of ["response.output_text.delta", "response.created", "response.in_progress"]) {
+    for (const type of [
+      "response.output_text.delta",
+      "response.created",
+      "response.in_progress",
+    ]) {
       expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(false);
     }
   });

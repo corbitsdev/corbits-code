@@ -93,16 +93,24 @@ export function createTelemetryToggleHandler(
       // re-created instance resolving disabled and the toggle a silent no-op.
       // Opt-out keeps plain loadSettings: disabling must never generate an id.
       const current = enabled
-        ? await deps.ensureTelemetrySettings(globalSettingsPath).catch((err: unknown) => {
-            logger.warn("Failed to ensure telemetry settings for re-enable: {error}", {
-              error: err,
-            });
-            return undefined;
-          })
+        ? await deps
+            .ensureTelemetrySettings(globalSettingsPath)
+            .catch((err: unknown) => {
+              logger.warn(
+                "Failed to ensure telemetry settings for re-enable: {error}",
+                {
+                  error: err,
+                },
+              );
+              return undefined;
+            })
         : await deps.loadSettings(globalSettingsPath).catch((err: unknown) => {
-            logger.warn("Failed to load global settings for telemetry toggle: {error}", {
-              error: err,
-            });
+            logger.warn(
+              "Failed to load global settings for telemetry toggle: {error}",
+              {
+                error: err,
+              },
+            );
             return undefined;
           });
       if (current === undefined) {
@@ -124,7 +132,9 @@ export function createTelemetryToggleHandler(
         base.telemetry.installationId.length > 0
           ? base.telemetry.installationId
           : undefined) ??
-        (previous.installationId.length > 0 ? previous.installationId : undefined);
+        (previous.installationId.length > 0
+          ? previous.installationId
+          : undefined);
       const next: Settings = {
         ...base,
         telemetry: {
@@ -139,7 +149,9 @@ export function createTelemetryToggleHandler(
         // Persistence failure only threatens durability across restarts, not
         // the in-memory state already set above — swallow, per telemetry's
         // fail-silent contract.
-        logger.warn("Failed to persist telemetry setting: {error}", { error: err });
+        logger.warn("Failed to persist telemetry setting: {error}", {
+          error: err,
+        });
       }
       // Re-create so this session's remaining captures honor the change (and,
       // on the load-succeeded path, carry forward the real installationId).

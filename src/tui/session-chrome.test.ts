@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import {
   ACTIVITY_STATES,
   classifyAgentSendFailure,
@@ -50,7 +51,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
         null,
       );
       expect(label).not.toBe(currentToolName);
-      expect(ACTIVITY_STATES).toContain(label!);
+      expect(ACTIVITY_STATES).toContain(defined(label));
     });
   }
 
@@ -67,7 +68,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
     );
     // Recovery is silent — never paint "stalled" in the ticker.
     expect(label).toBe("building");
-    expect(ACTIVITY_STATES).toContain(label!);
+    expect(ACTIVITY_STATES).toContain(defined(label));
   });
 
   test("waiting on the operator is distinguishable from working", () => {
@@ -83,7 +84,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
     );
     expect(label).toBe("waiting");
     expect(label).not.toBe("working");
-    expect(ACTIVITY_STATES).toContain(label!);
+    expect(ACTIVITY_STATES).toContain(defined(label));
   });
 });
 
@@ -154,9 +155,15 @@ describe("resolveTurnLabel", () => {
       status: "running" as const,
       currentToolName: null,
     };
-    expect(resolveTurnLabel({ ...base, streamingType: "thinking" }, false, null)).toBe("thinking");
-    expect(resolveTurnLabel({ ...base, streamingType: "text" }, false, null)).toBe("working");
-    expect(resolveTurnLabel({ ...base, streamingType: null }, false, null)).toBe("working");
+    expect(
+      resolveTurnLabel({ ...base, streamingType: "thinking" }, false, null),
+    ).toBe("thinking");
+    expect(
+      resolveTurnLabel({ ...base, streamingType: "text" }, false, null),
+    ).toBe("working");
+    expect(
+      resolveTurnLabel({ ...base, streamingType: null }, false, null),
+    ).toBe("working");
   });
 });
 
@@ -168,24 +175,36 @@ describe("resolveRampPhase", () => {
   };
 
   test("blocked gate freezes the ramp", () => {
-    expect(resolveRampPhase({ ...base, status: "blocked" }, false, null)).toBe("blocked");
+    expect(resolveRampPhase({ ...base, status: "blocked" }, false, null)).toBe(
+      "blocked",
+    );
   });
 
   test("done fills the ramp", () => {
-    expect(resolveRampPhase({ ...base, status: "done" }, false, null)).toBe("done");
+    expect(resolveRampPhase({ ...base, status: "done" }, false, null)).toBe(
+      "done",
+    );
   });
 
   test("everything else is working", () => {
-    expect(resolveRampPhase({ ...base, status: "running" }, false, null)).toBe("working");
-    expect(resolveRampPhase({ ...base, status: "stopping" }, false, null)).toBe("working");
+    expect(resolveRampPhase({ ...base, status: "running" }, false, null)).toBe(
+      "working",
+    );
+    expect(resolveRampPhase({ ...base, status: "stopping" }, false, null)).toBe(
+      "working",
+    );
   });
 
   test("a silent running turn still paints working, not stalled", () => {
-    expect(resolveRampPhase({ ...base, status: "running" }, true, null)).toBe("working");
+    expect(resolveRampPhase({ ...base, status: "running" }, true, null)).toBe(
+      "working",
+    );
   });
 
   test("a blocked gate beats stalled — waiting on you outranks silence", () => {
-    expect(resolveRampPhase({ ...base, status: "blocked" }, true, null)).toBe("blocked");
+    expect(resolveRampPhase({ ...base, status: "blocked" }, true, null)).toBe(
+      "blocked",
+    );
   });
 });
 
@@ -202,7 +221,9 @@ describe("classifyAgentSendFailure", () => {
   });
 
   test("generic error settles ui", () => {
-    expect(classifyAgentSendFailure(new Error("boom"), false, codex, xai)).toEqual({
+    expect(
+      classifyAgentSendFailure(new Error("boom"), false, codex, xai),
+    ).toEqual({
       kind: "error",
       authProvider: null,
     });
@@ -223,7 +244,12 @@ describe("classifyAgentSendFailure", () => {
 
   test("anthropic and generic credential rejections classify as auth", () => {
     expect(
-      classifyAgentSendFailure(new Error("anthropic: invalid x-api-key"), false, codex, xai),
+      classifyAgentSendFailure(
+        new Error("anthropic: invalid x-api-key"),
+        false,
+        codex,
+        xai,
+      ),
     ).toEqual({ kind: "auth", authProvider: "anthropic" });
     expect(
       classifyAgentSendFailure(
@@ -238,24 +264,34 @@ describe("classifyAgentSendFailure", () => {
 
 describe("sendFailureText", () => {
   test("an expired subscription sign-in says what to press", () => {
-    const codex = sendFailureText('Codex profile "default" is not authorized. Log in again.');
+    const codex = sendFailureText(
+      'Codex profile "default" is not authorized. Log in again.',
+    );
     expect(
-      classifySendFailureMessage('Codex profile "default" is not authorized. Log in again.'),
+      classifySendFailureMessage(
+        'Codex profile "default" is not authorized. Log in again.',
+      ),
     ).toEqual({ kind: "auth", authProvider: "codex" });
     expect(codex).toContain("sign-in expired");
     expect(codex).toContain("/model");
 
-    const xai = sendFailureText('xAI profile "default" could not be refreshed (401).');
+    const xai = sendFailureText(
+      'xAI profile "default" could not be refreshed (401).',
+    );
     expect(xai).toContain("/model");
     expect(xai).not.toContain("401");
 
-    const anthropic = sendFailureText("authentication_error: invalid x-api-key");
+    const anthropic = sendFailureText(
+      "authentication_error: invalid x-api-key",
+    );
     expect(anthropic).toContain("anthropic");
     expect(anthropic).toContain("/model");
   });
 
   test("an unclassified failure keeps its raw message", () => {
-    expect(sendFailureText("connection reset by peer")).toBe("connection reset by peer");
+    expect(sendFailureText("connection reset by peer")).toBe(
+      "connection reset by peer",
+    );
     expect(classifySendFailureMessage("connection reset by peer")).toEqual({
       kind: "error",
       authProvider: null,
@@ -286,19 +322,27 @@ describe("fleet state in the top-level indicator", () => {
   test("a healthy fleet reads as working, not the parent's own tool", () => {
     const label = resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 0));
     expect(label).toBe("working");
-    expect(ACTIVITY_STATES).toContain(label!);
+    expect(ACTIVITY_STATES).toContain(defined(label));
   });
 
   test("a quiet fleet still reads working at the top level", () => {
-    expect(resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 1))).toBe("working");
-    expect(resolveRampPhase(parentAwaitingChildren, false, fleet(6, 1))).toBe("working");
+    expect(resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 1))).toBe(
+      "working",
+    );
+    expect(resolveRampPhase(parentAwaitingChildren, false, fleet(6, 1))).toBe(
+      "working",
+    );
   });
 
   // The parent is idle by design while children run, so its own stall clock
   // firing says nothing about whether the session is progressing.
   test("live lanes outrank the parent's own stall clock", () => {
-    expect(resolveTurnLabel(parentAwaitingChildren, true, fleet(6, 0))).toBe("working");
-    expect(resolveRampPhase(parentAwaitingChildren, true, fleet(6, 0))).toBe("working");
+    expect(resolveTurnLabel(parentAwaitingChildren, true, fleet(6, 0))).toBe(
+      "working",
+    );
+    expect(resolveRampPhase(parentAwaitingChildren, true, fleet(6, 0))).toBe(
+      "working",
+    );
   });
 
   test("with no sub-agents running the single-agent case is unchanged", () => {
@@ -306,16 +350,28 @@ describe("fleet state in the top-level indicator", () => {
     expect(resolveTurnLabel(parentAwaitingChildren, false, none)).toBe(
       resolveTurnLabel(parentAwaitingChildren, false, null),
     );
-    expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe("planning");
-    expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe("working");
+    expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe(
+      "planning",
+    );
+    expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe(
+      "working",
+    );
   });
 
   test("a blocked gate still outranks the fleet", () => {
     expect(
-      resolveTurnLabel({ ...parentAwaitingChildren, status: "blocked" }, false, fleet(6, 3)),
+      resolveTurnLabel(
+        { ...parentAwaitingChildren, status: "blocked" },
+        false,
+        fleet(6, 3),
+      ),
     ).toBe("waiting");
     expect(
-      resolveTurnLabel({ ...parentAwaitingChildren, status: "stopping" }, false, fleet(6, 3)),
+      resolveTurnLabel(
+        { ...parentAwaitingChildren, status: "stopping" },
+        false,
+        fleet(6, 3),
+      ),
     ).toBe("stopping");
   });
 });

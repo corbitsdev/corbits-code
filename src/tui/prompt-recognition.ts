@@ -41,7 +41,9 @@ export function buildPromptRecognitionMatcher(
   commandNames: readonly string[],
 ): PromptRecognitionMatcher | null {
   const unique = [
-    ...new Set(commandNames.map(normalizeCommandName).filter((name) => name.length > 0)),
+    ...new Set(
+      commandNames.map(normalizeCommandName).filter((name) => name.length > 0),
+    ),
   ];
   if (unique.length === 0) return null;
   const sorted = unique.sort((a, b) => b.length - a.length);

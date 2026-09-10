@@ -3,6 +3,20 @@
 
 import { splitChainedCommand, tokenize } from "../permission/command.js";
 
+function skipMatching(
+  tokens: readonly string[],
+  start: number,
+  pred: (token: string) => boolean,
+): number {
+  let i = start;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token === undefined || !pred(token)) break;
+    i++;
+  }
+  return i;
+}
+
 // A command-position anchor: the start of the command, or immediately after a
 // shell separator or subshell open, optionally preceded by a run of NAME=value
 // environment assignments (so `X=1 sudo …` is still recognised as `sudo` in
@@ -21,7 +35,8 @@ const cmd = (name: string): RegExp => new RegExp(`${CMD}${name}\\b`);
 // neither carries piped data to the following stage — matched as explicit
 // two-character operators so a lone `|` inside them is not mistaken for the
 // single-pipe case.
-const CMD_HEAD = String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
+const CMD_HEAD =
+  String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
 
 const cmdHead = (name: string): RegExp => new RegExp(`${CMD_HEAD}${name}\\b`);
 
@@ -58,7 +73,9 @@ const BLOCKED_PATTERNS: RegExp[] = [
   // inside quotes and would otherwise miss the `;` these patterns need.
   /:\(\)\s*\{\s*:\|:&\s*\};/,
   // Piping a network download straight into a shell (through any wrappers).
-  new RegExp(String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`),
+  new RegExp(
+    String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`,
+  ),
   // Privilege escalation and shell replacement, only in command position.
   cmd("sudo"),
   /(?:^|[\n;&|(])\s*su\s+-/,
@@ -118,15 +135,40 @@ const NEVER_TERMINATING_PATTERNS: RegExp[] = [
 // file (and not downstream of a pipe) they block on a terminal that never
 // arrives. `git log | tail` is fine (tail reads the pipe); `tail -n 50 file.log`
 // is fine (it has a file); a bare `tail`, `cat`, or `grep pattern` is not.
-const STDIN_READERS = new Set(["cat", "tac", "nl", "rev", "head", "tail", "sort", "uniq", "wc"]);
+const STDIN_READERS = new Set([
+  "cat",
+  "tac",
+  "nl",
+  "rev",
+  "head",
+  "tail",
+  "sort",
+  "uniq",
+  "wc",
+]);
 
 // Short flags that consume the following token as their value, so the value is
 // not mistaken for a file operand (e.g. the `50` in `tail -n 50`). These are
 // value-taking only for `head` and `tail`; for the other stdin readers the same
 // letters are boolean flags (e.g. `wc -c`, `uniq -c`, `sort -c`), so consuming a
 // following token there would wrongly drop a real file operand.
-export const HEAD_TAIL_VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
-export const GREP_VALUE_FLAGS = new Set(["-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file"]);
+export const HEAD_TAIL_VALUE_FLAGS = new Set([
+  "-n",
+  "-c",
+  "-C",
+  "--lines",
+  "--bytes",
+]);
+export const GREP_VALUE_FLAGS = new Set([
+  "-e",
+  "-f",
+  "-m",
+  "-A",
+  "-B",
+  "-C",
+  "--regexp",
+  "--file",
+]);
 
 // The head of each pipeline (the stage before the first `|`) is the only stage
 // that reads the terminal's stdin; later stages read the pipe. A naive regex
@@ -147,7 +189,8 @@ function pipelineHeads(command: string): string[] {
   };
 
   for (let i = 0; i < command.length; i++) {
-    const ch = command[i]!;
+    const ch = command[i];
+    if (ch === undefined) break;
     if (quote !== undefined) {
       if (ch === quote) quote = undefined;
       if (!headClosed) head += ch;
@@ -184,9 +227,8 @@ function pipelineHeads(command: string): string[] {
 // (e.g. `grep 'a b'` has one operand, not two).
 export function tokenizeSegment(segment: string): string[] {
   const tokens = tokenize(segment);
-  let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
-  while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  let i = skipMatching(tokens, 0, (t) => ENV_ASSIGNMENT.test(t));
+  i = skipMatching(tokens, i, (t) => RM_WRAPPER.test(t));
   return tokens.slice(i);
 }
 
@@ -196,7 +238,8 @@ export function tokenizeSegment(segment: string): string[] {
 function fileOperandCount(args: string[], valueFlags: Set<string>): number {
   let count = 0;
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = args[i];
+    if (arg === undefined) continue;
     if (arg === "--") continue;
     if (arg.startsWith("-")) {
       if (valueFlags.has(arg)) i++;
@@ -229,7 +272,9 @@ function readsStdinWithoutInput(head: string): boolean {
   }
   if (STDIN_READERS.has(exec)) {
     const valueFlags =
-      exec === "head" || exec === "tail" ? HEAD_TAIL_VALUE_FLAGS : new Set<string>();
+      exec === "head" || exec === "tail"
+        ? HEAD_TAIL_VALUE_FLAGS
+        : new Set<string>();
     return fileOperandCount(args, valueFlags) < 1;
   }
   return false;
@@ -255,7 +300,9 @@ const STRIP_WRAPPER = String.raw`(?:command|env|builtin)`;
 // before the deny patterns run. Only the executable token is rewritten, so
 // redirect targets and later arguments are left intact.
 const NORMALIZE_COMMAND_POSITION = new RegExp(
-  String.raw`(^|[\n;&|(` + "`" + String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
+  String.raw`(^|[\n;&|(` +
+    "`" +
+    String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
   "g",
 );
 
@@ -272,7 +319,15 @@ const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 // Exported so tests and callers share one explicit list with the peeler.
 export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 // Transparent prefixes that sit in front of a real program without changing it.
-const PREFIX_WRAPPERS = new Set(["command", "env", "builtin", "time", "nice", "nohup", "timeout"]);
+const PREFIX_WRAPPERS = new Set([
+  "command",
+  "env",
+  "builtin",
+  "time",
+  "nice",
+  "nohup",
+  "timeout",
+]);
 // Max recursive peel depth for nested wrappers. Exported so the depth cap is a
 // named policy knob tests can assert against, not a magic number.
 export const MAX_PEEL_DEPTH = 4;
@@ -305,7 +360,8 @@ const XARGS_VALUE_FLAGS = new Set([
 // routine and is left to the permission gate to ask about, not hard-denied here.
 function isDangerousTarget(token: string): boolean {
   const t = token.replace(/['"]/g, "");
-  if (["/", "~", "~/", "$HOME", "*", ".", "..", "./", "../"].includes(t)) return true;
+  if (["/", "~", "~/", "$HOME", "*", ".", "..", "./", "../"].includes(t))
+    return true;
   if (/^\$HOME\b/.test(t)) return true;
   if (/^~\//.test(t)) return true;
   if (/^\/\*/.test(t)) return true;
@@ -336,7 +392,10 @@ function isOpaquePayload(payload: string): boolean {
   return false;
 }
 
-type PeelOutcome = { kind: "inner"; command: string } | { kind: "opaque" } | { kind: "none" };
+type PeelOutcome =
+  | { kind: "inner"; command: string }
+  | { kind: "opaque" }
+  | { kind: "none" };
 
 // Tokens that survive rejoining without quotes. Anything else is re-quoted so
 // a payload token that originally carried quotes (e.g. the argument of a
@@ -395,7 +454,10 @@ function shellPayloadReferencesPositional(payload: string): boolean {
   return /\$(?:[0-9@*#]|\{(?:[0-9]+|[@*#])\})/.test(payload);
 }
 
-function nestedInterpreterPayloadOpaque(payload: string, rest: readonly string[]): boolean {
+function nestedInterpreterPayloadOpaque(
+  payload: string,
+  rest: readonly string[],
+): boolean {
   if (isBackslashInterpreterToken(payload)) return true;
   const first = tokenize(payload)[0];
   if (first !== undefined && isBackslashInterpreterToken(first)) return true;
@@ -414,23 +476,27 @@ const SHELL_SEPARATE_VALUE_FLAGS = new Set(["-O", "-o"]);
 function peelShellDashC(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") {
       i++;
       break;
     }
     if (t === "-c" || t === "--command") {
       const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      if (payload === undefined || isOpaquePayload(payload))
+        return { kind: "opaque" };
       const rest = tokens.slice(i + 2);
-      if (nestedInterpreterPayloadOpaque(payload, rest)) return { kind: "opaque" };
+      if (nestedInterpreterPayloadOpaque(payload, rest))
+        return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (t.startsWith("--command=")) {
       const payload = t.slice("--command=".length);
       if (isOpaquePayload(payload)) return { kind: "opaque" };
       // Glued `--command=` has no separate rest tokens; still reject `\bash`.
-      if (nestedInterpreterPayloadOpaque(payload, [])) return { kind: "opaque" };
+      if (nestedInterpreterPayloadOpaque(payload, []))
+        return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (SHELL_SEPARATE_VALUE_FLAGS.has(t)) {
@@ -441,9 +507,11 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
     // next token as the command string, matching bash/sh/zsh.
     if (/^-[A-Za-z]*c[A-Za-z]*$/.test(t)) {
       const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      if (payload === undefined || isOpaquePayload(payload))
+        return { kind: "opaque" };
       const rest = tokens.slice(i + 2);
-      if (nestedInterpreterPayloadOpaque(payload, rest)) return { kind: "opaque" };
+      if (nestedInterpreterPayloadOpaque(payload, rest))
+        return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (t.startsWith("-") && t !== "-") {
@@ -458,7 +526,8 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
 function peelXargs(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") {
       i++;
       break;
@@ -470,7 +539,10 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
     }
     if (XARGS_VALUE_FLAGS.has(t)) {
       i++;
-      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+      if (i < tokens.length) {
+        const next = tokens[i];
+        if (next !== undefined && !next.startsWith("-")) i++;
+      }
       continue;
     }
     // Clustered short options; -I/-i/-n/… with glued values are treated as one token.
@@ -519,7 +591,10 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
   if (t === undefined) return null;
   if (ENV_VALUE_FLAGS.has(t)) {
     let j = i + 1;
-    if (j < tokens.length && !tokens[j]!.startsWith("-")) j++;
+    if (j < tokens.length) {
+      const next = tokens[j];
+      if (next !== undefined && !next.startsWith("-")) j++;
+    }
     return j;
   }
   if (isEnvValueEqualsFlag(t)) return i + 1;
@@ -539,7 +614,8 @@ function expandEnvSplitSeparators(payload: string): string | null {
   let out = "";
   let quote: "'" | '"' | null = null;
   for (let i = 0; i < payload.length; i++) {
-    const c = payload[i]!;
+    const c = payload[i];
+    if (c === undefined) break;
     if (quote === "'") {
       out += c;
       if (c === "'") quote = null;
@@ -579,7 +655,7 @@ function peelEnvSplitUtility(command: string): PeelOutcome {
   if (expanded === null || isOpaquePayload(expanded)) return { kind: "opaque" };
   const tokens = tokenize(expanded);
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   i = skipEnvFlagsAndAssignments(tokens, i);
   if (i >= tokens.length) return { kind: "opaque" };
@@ -593,7 +669,11 @@ function peelEnvSplitUtility(command: string): PeelOutcome {
 // real program, not just the assignment fragment that -S consumed.
 // Empty/opaque payloads with a trailing utility still execute that utility
 // (`env -S " " find /`), so prefer the trailing tokens over opaque-dropping them.
-function finishEnvSplitPayload(payload: string, tokens: string[], restStart: number): PeelOutcome {
+function finishEnvSplitPayload(
+  payload: string,
+  tokens: string[],
+  restStart: number,
+): PeelOutcome {
   const rest = tokens.slice(restStart);
   let raw: string | null;
   if (isOpaquePayload(payload)) {
@@ -625,16 +705,25 @@ function finishEnvSplitPayload(payload: string, tokens: string[], restStart: num
 function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") return { kind: "none" };
 
     // --split-string=PAYLOAD
     if (t.startsWith("--split-string=")) {
-      return finishEnvSplitPayload(t.slice("--split-string=".length), tokens, i + 1);
+      return finishEnvSplitPayload(
+        t.slice("--split-string=".length),
+        tokens,
+        i + 1,
+      );
     }
     // Glued long form without `=`: --split-string"find /" → one token.
     if (t.startsWith("--split-string") && t !== "--split-string") {
-      return finishEnvSplitPayload(t.slice("--split-string".length), tokens, i + 1);
+      return finishEnvSplitPayload(
+        t.slice("--split-string".length),
+        tokens,
+        i + 1,
+      );
     }
     // Separate-arg forms: -S PAYLOAD / --split-string PAYLOAD
     if (t === "-S" || t === "--split-string") {
@@ -648,12 +737,18 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
     //   -iS / -0S            → S at end of cluster; next token is payload
     //   -Si / -Sv            → S then only boolean shorts; next token is payload
     //   -Sifind              → S then non-bool remainder; treat as glued payload
-    if (t.startsWith("-") && t !== "-" && t.includes("S") && !t.startsWith("--")) {
+    if (
+      t.startsWith("-") &&
+      t !== "-" &&
+      t.includes("S") &&
+      !t.startsWith("--")
+    ) {
       const sIdx = t.indexOf("S", 1);
       if (sIdx >= 1) {
         const afterS = t.slice(sIdx + 1);
         const onlyBoolAfter =
-          afterS.length === 0 || [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
+          afterS.length === 0 ||
+          [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
         if (onlyBoolAfter) {
           // Clustered flags; S consumes the following argv token.
           const payload = tokens[i + 1];
@@ -691,7 +786,8 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
 function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") return i + 1;
     if (ENV_ASSIGNMENT.test(t)) {
       i++;
@@ -716,11 +812,13 @@ function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
 function peelOnce(segment: string): PeelOutcome {
   const tokens = tokenize(segment);
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
 
   let strippedPrefix = false;
   while (i < tokens.length) {
-    const base = programBasename(tokens[i]!);
+    const current = tokens[i];
+    if (current === undefined) break;
+    const base = programBasename(current);
     if (base === "env") {
       // Prefer split-string peel: the whole payload is one quoted argument
       // that env re-splits itself, so the transparent-prefix path below
@@ -736,7 +834,8 @@ function peelOnce(segment: string): PeelOutcome {
       i++;
       // Optional duration (10, 30s, 1m, …) and common long/short flags.
       while (i < tokens.length) {
-        const t = tokens[i]!;
+        const t = tokens[i];
+        if (t === undefined) break;
         if (/^\d/.test(t)) {
           i++;
           continue;
@@ -752,7 +851,10 @@ function peelOnce(segment: string): PeelOutcome {
             t.startsWith("--signal=")
           ) {
             i++;
-            if (!t.includes("=") && i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+            if (!t.includes("=") && i < tokens.length) {
+              const next = tokens[i];
+              if (next !== undefined && !next.startsWith("-")) i++;
+            }
             continue;
           }
           i++;
@@ -770,9 +872,13 @@ function peelOnce(segment: string): PeelOutcome {
     break;
   }
 
-  if (i >= tokens.length) return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
+  if (i >= tokens.length)
+    return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
 
-  const prog = programBasename(tokens[i]!);
+  const current = tokens[i];
+  if (current === undefined)
+    return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
+  const prog = programBasename(current);
   if (SHELL_INTERPRETERS.has(prog)) {
     // A backtick or `$(` anywhere in the raw segment means the -c payload may
     // contain command substitution. tokenize() surfaces substitution content as
@@ -781,7 +887,8 @@ function peelOnce(segment: string): PeelOutcome {
     // first fragment of the original quoted argument, not the whole string —
     // reconstructing it accurately is not possible from tokens alone. Treat the
     // wrapper as opaque rather than risk peeling a truncated, misleading payload.
-    if (segment.includes("`") || segment.includes("$(")) return { kind: "opaque" };
+    if (segment.includes("`") || segment.includes("$("))
+      return { kind: "opaque" };
     const shellPeel = peelShellDashC(tokens, i + 1);
     if (shellPeel.kind !== "none") return shellPeel;
     // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
@@ -818,7 +925,7 @@ export interface ShellExpandResult {
 // Assignments before the marker are preserved (`FOO=1 -- find /` → `FOO=1 find /`).
 function dropLeadingEndOfOptionsTokens(tokens: string[]): string[] {
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
   const head = tokens.slice(0, i);
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   return head.concat(tokens.slice(i));
@@ -841,7 +948,10 @@ function stripEndOfOptionsCommand(command: string): string {
   return rejoinTokens(next) ?? next.join(" ");
 }
 
-export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH): ShellExpandResult {
+export function expandShellSubjects(
+  command: string,
+  maxDepth = MAX_PEEL_DEPTH,
+): ShellExpandResult {
   const subjects: string[] = [];
   const seen = new Set<string>();
   let opaque = false;
@@ -883,9 +993,9 @@ function segmentRmArgs(segment: string): string[] | undefined {
   // Quote-aware: env -S payloads often carry quoted flags (`rm '-rf' '/'`).
   const tokens = tokenize(segment);
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
-  while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => RM_WRAPPER.test(t));
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   if (programBasename(tokens[i] ?? "") !== "rm") return undefined;
   return tokens.slice(i + 1);
@@ -901,7 +1011,9 @@ export function commandHasRecursiveRm(command: string): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
   const { subjects } = expandShellSubjects(trimmed);
-  return subjects.some((subject) => subject.split(CHAIN).some(segmentHasRecursiveRm));
+  return subjects.some((subject) =>
+    subject.split(CHAIN).some(segmentHasRecursiveRm),
+  );
 }
 
 function isCatastrophicRm(segment: string): boolean {
@@ -931,7 +1043,8 @@ function skipQuotedSpans(command: string): string {
   };
 
   for (let i = 0; i < command.length; i++) {
-    const ch = command[i]!;
+    const ch = command[i];
+    if (ch === undefined) break;
     if (quote === "'") {
       if (ch === "'") {
         quote = undefined;
@@ -1005,8 +1118,14 @@ function skipQuotedSpans(command: string): string {
 function isDestructiveExpanded(command: string): boolean {
   const { subjects } = expandShellSubjects(command);
   return subjects.some((subject) => {
-    if (BLOCKED_PATTERNS.some((pattern) => pattern.test(skipQuotedSpans(subject)))) return true;
-    if (BLOCKED_QUOTED_PAYLOAD_PATTERNS.some((pattern) => pattern.test(subject))) return true;
+    if (
+      BLOCKED_PATTERNS.some((pattern) => pattern.test(skipQuotedSpans(subject)))
+    )
+      return true;
+    if (
+      BLOCKED_QUOTED_PAYLOAD_PATTERNS.some((pattern) => pattern.test(subject))
+    )
+      return true;
     return subject.split(CHAIN).some(isCatastrophicRm);
   });
 }
@@ -1030,7 +1149,10 @@ function isOpenEndedSearch(command: string): boolean {
 // so `env -S "find /"`, `bash -c 'watch ls'`, and similar wrappers cannot hide
 // the real program inside a quoted payload. Normalize each subject so path-
 // qualified binaries still match command-position patterns.
-function subjectsHit(command: string, pred: (normalizedSubject: string) => boolean): boolean {
+function subjectsHit(
+  command: string,
+  pred: (normalizedSubject: string) => boolean,
+): boolean {
   const { subjects } = expandShellSubjects(command);
   if (subjects.some((subject) => pred(normalizeCommand(subject)))) return true;
   const normalized = normalizeCommand(command);
@@ -1055,7 +1177,9 @@ function openEndedSearchReason(command: string): string | undefined {
 // Pipeline segments are judged in isolation for open-ended/destructive rules only.
 // Stdin and never-terminating checks apply across expanded subjects so wrapper
 // payloads (env -S, bash -c, …) are visible.
-export function runShellAuthzSegmentBlockReason(segment: string): string | undefined {
+export function runShellAuthzSegmentBlockReason(
+  segment: string,
+): string | undefined {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return undefined;
   // Pass the raw segment: isDestructive expands both raw and normalized forms.

@@ -1,6 +1,7 @@
 /**
  * CL-5170: permission.wait and subagent spans at the ask gate and task fleet.
  */
+import { defined } from "../../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPermissionGate } from "../permission/gate.js";
@@ -47,7 +48,10 @@ describe("permission.wait spans", () => {
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    expect(waits[0]!.tags).toEqual({ tool_id: "run_shell", decision: "allow" });
+    expect(defined(waits[0]).tags).toEqual({
+      tool_id: "run_shell",
+      decision: "allow",
+    });
   });
 
   test("records deny decision when operator declines", async () => {
@@ -64,8 +68,8 @@ describe("permission.wait spans", () => {
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    expect(waits[0]!.tags?.decision).toBe("deny");
-    expect(waits[0]!.tags?.tool_id).toBe("run_shell");
+    expect(defined(waits[0]).tags?.decision).toBe("deny");
+    expect(defined(waits[0]).tags?.tool_id).toBe("run_shell");
   });
 
   test("permission.wait tags never include free-text reason/prompt — only tool_id + decision", async () => {
@@ -85,11 +89,13 @@ describe("permission.wait spans", () => {
     const verdict = await gate.evaluate(shellCall("curl example.com"));
     expect(verdict.allowed).toBe(false);
     // Free text reaches the operator-facing reason only (not span tags).
-    expect(!verdict.allowed && "reason" in verdict ? verdict.reason : "").toContain(freeText);
+    expect(
+      !verdict.allowed && "reason" in verdict ? verdict.reason : "",
+    ).toContain(freeText);
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    const tags = waits[0]!.tags ?? {};
+    const tags = defined(waits[0]).tags ?? {};
     // Allowlist: only tool_id + decision enums on permission.wait.
     expect(Object.keys(tags).sort()).toEqual(["decision", "tool_id"]);
     expect(tags).toEqual({ tool_id: "run_shell", decision: "deny" });
@@ -130,7 +136,10 @@ describe("permission.wait spans", () => {
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    expect(waits[0]!.tags).toEqual({ tool_id: "write_file", decision: "allow" });
+    expect(defined(waits[0]).tags).toEqual({
+      tool_id: "write_file",
+      decision: "allow",
+    });
   });
 
   test("closes permission.wait when requestApproval throws", async () => {
@@ -144,14 +153,16 @@ describe("permission.wait spans", () => {
       },
     });
 
-    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow("ui aborted");
+    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow(
+      "ui aborted",
+    );
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    expect(waits[0]!.endNs).toBeDefined();
-    expect(waits[0]!.tags?.tool_id).toBe("run_shell");
+    expect(defined(waits[0]).endNs).toBeDefined();
+    expect(defined(waits[0]).tags?.tool_id).toBe("run_shell");
     // No decision tag when approval never returned.
-    expect(waits[0]!.tags?.decision).toBeUndefined();
+    expect(defined(waits[0]).tags?.decision).toBeUndefined();
   });
 
   test("clear() nulls process-wide currentTurnId", () => {
@@ -188,11 +199,19 @@ describe("permission.wait spans", () => {
       event("inference.done", {
         turn: {
           role: "assistant",
-          content: [{ type: "tool_call", id: "t1", name: "run_shell", arguments: {} }],
+          content: [
+            { type: "tool_call", id: "t1", name: "run_shell", arguments: {} },
+          ],
           model: "m",
           timestamp: 0,
         },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "p", model: "m" },
       }),
     );
@@ -208,8 +227,8 @@ describe("permission.wait spans", () => {
     });
     await gate.evaluate(shellCall("curl x"));
 
-    const wait = byName(completed(snapshot()), "permission.wait")[0]!;
-    expect(wait.parentId).toBe(turnId!);
+    const wait = defined(byName(completed(snapshot()), "permission.wait")[0]);
+    expect(wait.parentId).toBe(defined(turnId));
 
     obs.reset();
   });

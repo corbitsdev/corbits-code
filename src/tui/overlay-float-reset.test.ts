@@ -35,7 +35,10 @@ test("slash popup stays above the prompt after a landing-floated overlay", async
 
         // Transcript starts; overlays are in-flow bands from here on.
         appendStreamRow(shell, { role: "user", text: "hi" });
-        appendStreamRow(shell, { role: "assistant", text: "Hi! What can I help you with?" });
+        appendStreamRow(shell, {
+          role: "assistant",
+          text: "Hi! What can I help you with?",
+        });
         await h.renderOnce();
 
         h.pressKey("/");
@@ -45,7 +48,9 @@ test("slash popup stays above the prompt after a landing-floated overlay", async
         const frame = h.captureCharFrame();
         const lines = frame.split("\n");
         const popupRow = lines.findIndex((l) => l.includes("/model"));
-        const promptRow = lines.findIndex((l) => l.includes("/mo") && !l.includes("/model"));
+        const promptRow = lines.findIndex(
+          (l) => l.includes("/mo") && !l.includes("/model"),
+        );
         expect(popupRow).toBeGreaterThanOrEqual(0);
         expect(promptRow).toBeGreaterThanOrEqual(0);
         expect(popupRow).toBeLessThan(promptRow);

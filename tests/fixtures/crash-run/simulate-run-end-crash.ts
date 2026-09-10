@@ -4,7 +4,10 @@
 // rather than simulate-crash.ts's scenario of a crash escaping before any
 // terminal write is issued at all.
 import { installCrashHandlers } from "../../../src/index.js";
-import { setActiveRun, setTestWriteGate } from "../../../src/session/active-run.js";
+import {
+  setActiveRun,
+  setTestWriteGate,
+} from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { finalizeRunState, saveState } from "../../../src/session/state.js";
 
@@ -37,7 +40,7 @@ process.stdout.write(`${sessionDir(cwd, sessionId)}\n`);
 // write is still in flight" without needing to release it: whether the
 // process observes "done" or "crashed" is decided before this write would
 // ever land.
-setTestWriteGate(new Promise(() => {}));
+setTestWriteGate(new Promise(() => undefined));
 
 // Fire the run-end write the same way writeRunSnapshot does for a terminal
 // status, but don't await it — runner.ts doesn't either from the crash

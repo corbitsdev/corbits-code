@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -19,7 +20,11 @@ import {
 import { createAppShell } from "./shell/index";
 import { isTranscriptFollowing, stickyMode } from "./shell/internals";
 import { closeInsetOverlay, openInsetOverlay } from "./shell/overlay-host";
-import { applyShellCancelLast, interruptShell, submitPrompt } from "./shell/prompt";
+import {
+  applyShellCancelLast,
+  interruptShell,
+  submitPrompt,
+} from "./shell/prompt";
 import { transcriptRowLayout } from "./shell/transcript";
 
 /** The transient notice row sits directly above the prompt box's top rule. */
@@ -45,7 +50,9 @@ describe("createAppShell", () => {
           expect(shell.promptTopRule).toBeDefined();
           expect(shell.promptBottomRule).toBeDefined();
           expect(shell.transcript.stickyScroll).toBe(true);
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
           expect(focusOwner(shell.focus)).toBe("prompt");
           expect(scrollLease(shell.focus)).toBe("transcript");
           await h.renderOnce();
@@ -107,7 +114,9 @@ describe("createAppShell", () => {
           appendTranscript(shell, "after-pin");
           await h.renderOnce();
           expect(isTranscriptFollowing(shell)).toBe(false);
-          expect(Math.abs(shell.transcript.scrollTop - pinnedTop)).toBeLessThan(2);
+          expect(Math.abs(shell.transcript.scrollTop - pinnedTop)).toBeLessThan(
+            2,
+          );
         } finally {
           shell.dispose();
         }
@@ -135,7 +144,8 @@ describe("createAppShell", () => {
           await h.renderOnce();
           expect(noticeText(shell)).toContain("pinned");
 
-          shell.transcript.scrollTop = shell.transcript.scrollHeight - shell.transcript.height;
+          shell.transcript.scrollTop =
+            shell.transcript.scrollHeight - shell.transcript.height;
           await h.renderOnce();
           expect(noticeText(shell)).not.toContain("pinned");
         } finally {
@@ -168,7 +178,7 @@ describe("createAppShell", () => {
           // would pass even if the renderer never routed the event here.
           const rows = h.captureCharFrame().split("\n");
           const borderRow = rows.findIndex((r) => r.includes("╭"));
-          const promptX = rows[borderRow]!.indexOf("╭") + 2;
+          const promptX = defined(rows[borderRow]).indexOf("╭") + 2;
           const promptY = borderRow + 1;
 
           for (let i = 0; i < 5; i++) {
@@ -252,20 +262,20 @@ describe("createAppShell", () => {
 
         h.pressKey("Enter");
         await h.renderOnce();
-        const enter = captured.at(-1)!;
+        const enter = defined(captured.at(-1));
         expect(enter.name === "return" || enter.name === "enter").toBe(true);
         expect(enter.ctrl).toBe(false);
         expect(enter.meta).toBe(false);
 
         h.pressKey("Alt+Enter");
         await h.renderOnce();
-        const alt = captured.at(-1)!;
+        const alt = defined(captured.at(-1));
         expect(alt.name === "return" || alt.name === "enter").toBe(true);
         expect(alt.meta === true || alt.option === true).toBe(true);
 
         h.pressKey("Ctrl+C");
         await h.renderOnce();
-        const ctrlC = captured.at(-1)!;
+        const ctrlC = defined(captured.at(-1));
         expect(ctrlC.name).toBe("c");
         expect(ctrlC.ctrl).toBe(true);
       } finally {
@@ -343,13 +353,21 @@ describe("product skin: stream + queue + overlay", () => {
           expect(frame).toContain("hi there");
           expect(frame).toContain("bash");
           // One agent is answering, so no row spends columns naming it.
-          const inkRows = frame.split("\n").filter((row) => row.trim().length > 0);
-          expect(inkRows.filter((row) => row.includes("● agent"))).toHaveLength(0);
-          expect(inkRows.filter((row) => row.includes(" tool "))).toHaveLength(0);
+          const inkRows = frame
+            .split("\n")
+            .filter((row) => row.trim().length > 0);
+          expect(inkRows.filter((row) => row.includes("● agent"))).toHaveLength(
+            0,
+          );
+          expect(inkRows.filter((row) => row.includes(" tool "))).toHaveLength(
+            0,
+          );
           // User row content is in the scroll buffer (pure paint covered in stream.test).
           expect(
-            paintStreamRow({ role: "user", text: "hello world" }, transcriptRowLayout(shell))
-              .content,
+            paintStreamRow(
+              { role: "user", text: "hello world" },
+              transcriptRowLayout(shell),
+            ).content,
           ).toContain("hello world");
         } finally {
           shell.dispose();
@@ -395,7 +413,7 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "queue me";
           submitPrompt(shell, "queue");
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("queue");
+          expect(defined(shell.session.items[0]).kind).toBe("queue");
           expect(shell.prompt.value).toBe("");
           await h.renderOnce();
           expect(h.captureCharFrame()).toContain("follow-up 1");
@@ -419,7 +437,7 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "steer me";
           submitPrompt(shell, "steer");
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("steer");
+          expect(defined(shell.session.items[0]).kind).toBe("steer");
           await h.renderOnce();
           await h.renderOnce();
           const frame = h.captureCharFrame();
@@ -498,7 +516,7 @@ describe("product skin: stream + queue + overlay", () => {
           applyShellCancelLast(shell);
 
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.text).toBe("keep this one");
+          expect(defined(shell.session.items[0]).text).toBe("keep this one");
 
           const after = shell.streamLog.map((row) => ({
             text: row.text,
@@ -539,7 +557,7 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "steer me now";
           submitPrompt(shell, "steer");
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("steer");
+          expect(defined(shell.session.items[0]).kind).toBe("steer");
 
           applyShellCancelLast(shell);
 
@@ -622,12 +640,16 @@ describe("product skin: stream + queue + overlay", () => {
           wireKeys: false,
         });
         try {
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
           openInsetOverlay(shell);
           // Inset may shrink transcript but still uses resolver floors.
           expect(shell.layout.overlayHeight).toBeGreaterThan(0);
           closeInsetOverlay(shell);
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
         } finally {
           shell.dispose();
         }

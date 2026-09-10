@@ -23,7 +23,11 @@ function roleForClass(cls: string): SemanticRole | undefined {
   if (cls.includes("function")) return "syntaxFunction";
   if (cls.includes("class") || cls.includes("type") || cls.includes("built_in"))
     return "syntaxType";
-  if (cls.includes("keyword") || cls.includes("literal") || cls.includes("meta"))
+  if (
+    cls.includes("keyword") ||
+    cls.includes("literal") ||
+    cls.includes("meta")
+  )
     return "syntaxKeyword";
   if (cls.includes("operator")) return "syntaxOperator";
   if (cls.includes("punctuation")) return "syntaxPunctuation";
@@ -50,7 +54,10 @@ const ENTITIES: Record<string, string> = {
 };
 
 function decodeEntities(text: string): string {
-  return text.replace(/&(#x27|#39|amp|lt|gt|quot);/g, (_, name: string) => ENTITIES[name] ?? _);
+  return text.replace(
+    /&(#x27|#39|amp|lt|gt|quot);/g,
+    (_, name: string) => ENTITIES[name] ?? _,
+  );
 }
 
 interface Token {
@@ -78,7 +85,9 @@ function tokenizeHljsHtml(html: string): Token[] {
     last = tagRe.lastIndex;
     if (m[1] !== undefined) {
       const role = roleForClass(m[1]);
-      stack.push(role ?? (stack.length > 0 ? stack[stack.length - 1] : undefined));
+      stack.push(
+        role ?? (stack.length > 0 ? stack[stack.length - 1] : undefined),
+      );
     } else {
       stack.pop();
     }
@@ -99,20 +108,27 @@ function tokensToLines(tokens: Token[]): StyledSegment[][] {
       if (part.length === 0) return;
       const seg: StyledSegment = { text: part, code: true };
       if (token.role !== undefined) seg.color = color(token.role);
-      lines[lines.length - 1]!.push(seg);
+      const line = lines[lines.length - 1];
+      if (line == null) throw new Error("highlight line missing");
+      line.push(seg);
     });
   }
   return lines;
 }
 
 function plainLines(code: string): StyledSegment[][] {
-  return code.split("\n").map((line) => (line.length === 0 ? [] : [{ text: line, code: true }]));
+  return code
+    .split("\n")
+    .map((line) => (line.length === 0 ? [] : [{ text: line, code: true }]));
 }
 
 const cache = new Map<string, StyledSegment[][]>();
 const CACHE_LIMIT = 256;
 
-function cached(key: string, compute: () => StyledSegment[][]): StyledSegment[][] {
+function cached(
+  key: string,
+  compute: () => StyledSegment[][],
+): StyledSegment[][] {
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
   const value = compute();
@@ -136,11 +152,16 @@ export function highlightCode(
   width: number,
 ): StyledSegment[][] {
   const lang =
-    language !== undefined && hljs.getLanguage(language) !== undefined ? language : undefined;
+    language !== undefined && hljs.getLanguage(language) !== undefined
+      ? language
+      : undefined;
   const key = `${width}\x1f${lang ?? ""}\x1f${code}`;
   return cached(key, () => {
     if (lang === undefined) return plainLines(code);
-    const html = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+    const html = hljs.highlight(code, {
+      language: lang,
+      ignoreIllegals: true,
+    }).value;
     return tokensToLines(tokenizeHljsHtml(html));
   });
 }

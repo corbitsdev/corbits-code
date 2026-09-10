@@ -18,7 +18,10 @@ export interface QueuedApprovalSummary {
 
 export interface PermissionRequestQueue {
   /** Register a live request; the returned id is what settle/reconcile key on. */
-  enqueue: (request: PermissionRequest, resolve: (outcome: ApprovalOutcome) => void) => number;
+  enqueue: (
+    request: PermissionRequest,
+    resolve: (outcome: ApprovalOutcome) => void,
+  ) => number;
   /** Settle one entry (accept, deny, timeout, or abort). False once already settled. */
   settle: (id: number, outcome: ApprovalOutcome) => boolean;
   /** One line per still-queued request, for a queue-depth indicator. */
@@ -28,7 +31,9 @@ export interface PermissionRequestQueue {
    * a prompt. Runs against a snapshot so settling mid-loop never skips or
    * double-visits an entry. Returns the ids settled.
    */
-  reconcile: (covers: (request: PermissionRequest) => boolean) => readonly number[];
+  reconcile: (
+    covers: (request: PermissionRequest) => boolean,
+  ) => readonly number[];
   /** Deny and remove everything still queued (session teardown) so no awaited resolve is left hanging. */
   drain: () => void;
   size: () => number;
@@ -60,7 +65,9 @@ export function createPermissionRequestQueue(): PermissionRequestQueue {
       [...entries.entries()].map(([id, entry]) => ({
         id,
         tool: entry.request.tool,
-        ...(entry.request.agentLabel !== undefined ? { agentLabel: entry.request.agentLabel } : {}),
+        ...(entry.request.agentLabel !== undefined
+          ? { agentLabel: entry.request.agentLabel }
+          : {}),
       })),
     reconcile: (covers) => {
       const coveredIds = [...entries.entries()]
@@ -90,7 +97,9 @@ function isPermissionGrantEvent(raw: unknown): raw is PermissionGrantEvent {
   if (approval === null || typeof approval !== "object") return false;
   const a = approval as Record<string, unknown>;
   return (
-    typeof a.tool === "string" && typeof a.pattern === "string" && typeof covers === "function"
+    typeof a.tool === "string" &&
+    typeof a.pattern === "string" &&
+    typeof covers === "function"
   );
 }
 

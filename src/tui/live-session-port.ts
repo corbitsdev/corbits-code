@@ -24,7 +24,11 @@ export interface LiveSessionPortDeps {
   /** Hard interrupt current run (runner close/rebuild). */
   interrupt: () => void;
   /** Drained queue/steer item. Kind routing (live inject vs send) is the host's. */
-  deliver: (text: string, kind: QueueKind, attachments?: readonly PendingImageAttachment[]) => void;
+  deliver: (
+    text: string,
+    kind: QueueKind,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void;
 }
 
 /**
@@ -40,7 +44,10 @@ export function createLiveSessionPort(deps: LiveSessionPortDeps): SessionPort {
     ): SubmitClassification => {
       return deps.classifySubmit?.(text, attachments) ?? "agent";
     },
-    sendImmediate: (text: string, attachments?: readonly PendingImageAttachment[]): void => {
+    sendImmediate: (
+      text: string,
+      attachments?: readonly PendingImageAttachment[],
+    ): void => {
       deps.send(text, attachments);
     },
     enqueue: (_text: string, _kind: QueueKind): void => {

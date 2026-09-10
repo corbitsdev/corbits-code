@@ -1,7 +1,9 @@
 import type { BlobReader } from "@intx/types/runtime";
 
 /** Blob reader that resolves the backing store on each read (e.g. after agent rebuild). */
-export function createLazyBlobReader(get: () => BlobReader | undefined): BlobReader {
+export function createLazyBlobReader(
+  get: () => BlobReader | undefined,
+): BlobReader {
   return {
     read: async (uri: string) => {
       const reader = get();
@@ -20,7 +22,9 @@ export function createLazyBlobReader(get: () => BlobReader | undefined): BlobRea
 export function isBlobNotFoundError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message;
-  return msg.includes("Blob not found") || msg === "blob reader is not configured";
+  return (
+    msg.includes("Blob not found") || msg === "blob reader is not configured"
+  );
 }
 
 /**

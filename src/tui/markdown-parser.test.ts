@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   createMemoizedParseMarkdown,
   parseMarkdown,
@@ -71,14 +72,18 @@ describe("headings", () => {
 
   test("h3 through h6 are headings at their level", () => {
     expect(firstLine("### Deep").every((s) => s.heading === 3)).toBe(true);
-    expect(firstLine("###### Deepest").every((s) => s.heading === 6)).toBe(true);
+    expect(firstLine("###### Deepest").every((s) => s.heading === 6)).toBe(
+      true,
+    );
     expect(allText(firstLine("### Deep"))).toBe("Deep");
   });
 });
 
 describe("extended inline tokens", () => {
   test("strikethrough with ~~", () => {
-    expect(firstLine("~~gone~~")).toEqual([{ text: "gone", strikethrough: true }]);
+    expect(firstLine("~~gone~~")).toEqual([
+      { text: "gone", strikethrough: true },
+    ]);
   });
 
   test("link shows text and url, drops the brackets", () => {
@@ -153,7 +158,7 @@ describe("block elements", () => {
     const steps = [base, `${base}\``, `${base}\`\``, `${base}\`\`\``];
     const lineCounts = steps.map((content) => parseMarkdown(content).length);
     for (let i = 1; i < lineCounts.length; i++) {
-      expect(lineCounts[i]).toBeGreaterThanOrEqual(lineCounts[i - 1]!);
+      expect(lineCounts[i]).toBeGreaterThanOrEqual(defined(lineCounts[i - 1]));
     }
   });
 
@@ -161,15 +166,22 @@ describe("block elements", () => {
     const lines = parseMarkdown("```ts\nconst a = 1;\n\nconst b = 2;\n```");
     // Cap, body, blank, body, foot — every non-cap/foot body row (incl. blank)
     // carries the gutter so the frame does not fragment.
-    const gutterLines = lines.filter((line) => line.some((s) => s.text.includes("▏")));
+    const gutterLines = lines.filter((line) =>
+      line.some((s) => s.text.includes("▏")),
+    );
     expect(gutterLines.length).toBeGreaterThanOrEqual(3);
     // The blank body line is not an empty segment array — it still paints ▏.
     const blankBody = lines.find(
-      (line) => line.length === 1 && line[0]?.text === "▏ " && line[0]?.codeFence === true,
+      (line) =>
+        line.length === 1 &&
+        line[0]?.text === "▏ " &&
+        line[0]?.codeFence === true,
     );
     expect(blankBody).toBeDefined();
     expect(lines[0]?.some((s) => s.text.includes("╭"))).toBe(true);
-    expect(lines[lines.length - 1]?.some((s) => s.text.includes("╰"))).toBe(true);
+    expect(lines[lines.length - 1]?.some((s) => s.text.includes("╰"))).toBe(
+      true,
+    );
   });
 });
 
@@ -280,7 +292,9 @@ describe("F2: link URL handling", () => {
   });
 
   test("very long URL is not shown in parens", () => {
-    const segs = firstLine("[docs](https://example.com/path/to/very/long/documentation/page)");
+    const segs = firstLine(
+      "[docs](https://example.com/path/to/very/long/documentation/page)",
+    );
     expect(allText(segs)).toBe("docs");
     expect(segs.find((s) => s.link)?.text).toBe("docs");
   });
@@ -322,7 +336,9 @@ describe("F3: GFM table relaxation", () => {
   });
 
   test("table separator with alignment colons", () => {
-    const lines = parseMarkdown("| left | center | right |\n|:---|:--:|--:|\n| a | b | c |");
+    const lines = parseMarkdown(
+      "| left | center | right |\n|:---|:--:|--:|\n| a | b | c |",
+    );
     expect(lines).toHaveLength(3);
     expect(allText(lines[0] ?? [])).toContain("left");
   });
@@ -390,7 +406,9 @@ describe("multi-line", () => {
   });
 
   test("inline markdown inside table cells is parsed, not left literal", () => {
-    const lines = parseMarkdown("| Item | Status |\n| --- | --- |\n| name | **done** |");
+    const lines = parseMarkdown(
+      "| Item | Status |\n| --- | --- |\n| name | **done** |",
+    );
     for (const line of lines) {
       expect(allText(line)).not.toContain("**");
     }
@@ -459,7 +477,11 @@ describe("multi-line", () => {
     for (const t of texts) {
       expect(t.length).toBeLessThanOrEqual(80);
     }
-    expect(texts.some((t) => t.includes("|") && !t.includes("│") && !t.includes("─"))).toBe(false);
+    expect(
+      texts.some(
+        (t) => t.includes("|") && !t.includes("│") && !t.includes("─"),
+      ),
+    ).toBe(false);
 
     const gridRows = texts.filter((t) => t.includes("│"));
     const patterns = new Set(
@@ -576,7 +598,9 @@ describe("withholdIncompleteHeading", () => {
   });
 
   test("keeps a heading that already has a title", () => {
-    expect(withholdIncompleteHeading("hello\n#### Title")).toBe("hello\n#### Title");
+    expect(withholdIncompleteHeading("hello\n#### Title")).toBe(
+      "hello\n#### Title",
+    );
   });
 });
 

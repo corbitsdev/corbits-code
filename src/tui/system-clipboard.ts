@@ -27,8 +27,13 @@ export function createSystemClipboard(
 ): ClipboardPort {
   return {
     writeText: async (text: string) => {
-      const result = await service.writeText(text, { destination: "best-available" });
-      if (result.host.status !== "written" && result.terminal.status !== "attempted") {
+      const result = await service.writeText(text, {
+        destination: "best-available",
+      });
+      if (
+        result.host.status !== "written" &&
+        result.terminal.status !== "attempted"
+      ) {
         throw new Error(
           `clipboard write failed (host: ${result.host.status}, terminal: ${result.terminal.status})`,
         );

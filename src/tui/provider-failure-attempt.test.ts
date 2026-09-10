@@ -14,7 +14,11 @@ describe("provider failure attempt tracker", () => {
 
     const second = tracker.begin();
 
-    expect(second).toEqual({ observed: false, presented: false, error: undefined });
+    expect(second).toEqual({
+      observed: false,
+      presented: false,
+      error: undefined,
+    });
   });
 
   test("a settled send remains current until its terminal stream event is consumed", () => {
@@ -40,7 +44,11 @@ describe("provider failure attempt tracker", () => {
         message: "HTTP 401",
       },
     });
-    expect(second).toEqual({ observed: false, presented: false, error: undefined });
+    expect(second).toEqual({
+      observed: false,
+      presented: false,
+      error: undefined,
+    });
     expect(tracker.current()).toBe(first);
     tracker.consumeTerminal();
     expect(tracker.current()).toBe(second);

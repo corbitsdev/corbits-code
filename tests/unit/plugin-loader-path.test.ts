@@ -1,12 +1,18 @@
 import { test, expect } from "bun:test";
-import { loadPluginEntry, loadPluginsFromPaths } from "../../src/plugins/loader.js";
+import {
+  loadPluginEntry,
+  loadPluginsFromPaths,
+} from "../../src/plugins/loader.js";
+import { defined } from "../helpers/defined.js";
 
 test("loadPluginEntry loads a plugin directory by path and reads its manifest", async () => {
-  const mod = await loadPluginEntry("tests/fixtures/plugins/exa");
-  expect(mod).not.toBeNull();
-  expect(mod!.manifest?.id).toBe("exa");
-  expect(mod!.manifest?.kind).toBe("web");
-  expect(typeof mod!.createWebProvider).toBe("function");
+  const mod = defined(
+    await loadPluginEntry("tests/fixtures/plugins/exa"),
+    "plugin module",
+  );
+  expect(mod.manifest?.id).toBe("exa");
+  expect(mod.manifest?.kind).toBe("web");
+  expect(typeof mod.createWebProvider).toBe("function");
 });
 
 test("loadPluginEntry returns null for a non-existent path", async () => {
@@ -26,14 +32,21 @@ import { parsePluginManifest } from "../../src/plugins/manifest.js";
 import type { PluginModule } from "../../src/plugins/loader.js";
 
 test("manifest requires a kind", () => {
-  expect(parsePluginManifest({ id: "x", name: "X", kind: "web" })).not.toBeNull();
+  expect(
+    parsePluginManifest({ id: "x", name: "X", kind: "web" }),
+  ).not.toBeNull();
   expect(parsePluginManifest({ id: "x", name: "X" })).toBeNull();
   expect(parsePluginManifest({ id: "x", name: "X", kind: "bogus" })).toBeNull();
 });
 
 test("manifest parses optional defaultEnabled", () => {
   expect(
-    parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: true }),
+    parsePluginManifest({
+      id: "x",
+      name: "X",
+      kind: "command",
+      defaultEnabled: true,
+    }),
   ).toEqual({
     id: "x",
     name: "X",
@@ -41,10 +54,16 @@ test("manifest parses optional defaultEnabled", () => {
     defaultEnabled: true,
   });
   expect(
-    parsePluginManifest({ id: "x", name: "X", kind: "command" })?.defaultEnabled,
+    parsePluginManifest({ id: "x", name: "X", kind: "command" })
+      ?.defaultEnabled,
   ).toBeUndefined();
   expect(
-    parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: "yes" }),
+    parsePluginManifest({
+      id: "x",
+      name: "X",
+      kind: "command",
+      defaultEnabled: "yes",
+    }),
   ).toBeNull();
 });
 
@@ -57,10 +76,14 @@ test("dedupePluginModules keeps the last module per id (path > user > repo)", ()
     manifest: { id: "dup", name: "User", kind: "command" },
     commandPlugin: { commands: [] },
   };
-  const other: PluginModule = { manifest: { id: "other", name: "Other", kind: "web" } };
+  const other: PluginModule = {
+    manifest: { id: "other", name: "Other", kind: "web" },
+  };
   const noManifest: PluginModule = { commandPlugin: { commands: [] } };
   const out = dedupePluginModules([repo, other, user, noManifest]);
-  expect(out.find((m) => m.manifest?.id === "dup")?.manifest?.name).toBe("User");
+  expect(out.find((m) => m.manifest?.id === "dup")?.manifest?.name).toBe(
+    "User",
+  );
   expect(out.filter((m) => m.manifest?.id === "dup").length).toBe(1);
   expect(out).toContain(noManifest); // kept (no id)
   expect(out.length).toBe(3);

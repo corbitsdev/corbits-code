@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { isSessionMode, resolveSessionMode, sessionModeEnablesSubAgents } from "./session-mode.js";
+import {
+  isSessionMode,
+  resolveSessionMode,
+  sessionModeEnablesSubAgents,
+} from "./session-mode.js";
 
 describe("resolveSessionMode", () => {
   test("always returns orchestrator regardless of settings", () => {
@@ -10,9 +14,12 @@ describe("resolveSessionMode", () => {
         { sessionMode: "single" as never },
       ),
     ).toBe("orchestrator");
-    expect(resolveSessionMode({ providers: {}, sessionMode: "single" as never }, null)).toBe(
-      "orchestrator",
-    );
+    expect(
+      resolveSessionMode(
+        { providers: {}, sessionMode: "single" as never },
+        null,
+      ),
+    ).toBe("orchestrator");
     expect(resolveSessionMode({ providers: {} }, null)).toBe("orchestrator");
   });
 });

@@ -3,7 +3,9 @@ import { scrubSecrets } from "./secret-scrub.js";
 
 test("redacts api_key query param", () => {
   const text = "Request failed: https://api.example.com/?api_key=sk-abc123";
-  expect(scrubSecrets(text)).toBe("Request failed: https://api.example.com/?api_key=[REDACTED]");
+  expect(scrubSecrets(text)).toBe(
+    "Request failed: https://api.example.com/?api_key=[REDACTED]",
+  );
 });
 
 test("redacts token query param", () => {

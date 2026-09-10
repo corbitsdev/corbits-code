@@ -29,7 +29,11 @@ export {
   type GoUsageWindow,
 } from "./usage.js";
 export { buildGoCatalogEntry, type GoCatalogEntry } from "./catalog.js";
-export { isOpenCodeGoProvider, isOpenCodeGoProviderId, isOpenCodeGoURL } from "./identity.js";
+export {
+  isOpenCodeGoProvider,
+  isOpenCodeGoProviderId,
+  isOpenCodeGoURL,
+} from "./identity.js";
 export {
   parseGoAPIError,
   type GoErrorCategory,

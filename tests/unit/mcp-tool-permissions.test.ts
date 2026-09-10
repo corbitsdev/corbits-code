@@ -8,11 +8,15 @@ import { classifyTool } from "../../src/permission/classify.js";
 
 describe("tierFromMcpTool", () => {
   test("readOnlyHint true allows", () => {
-    expect(tierFromMcpTool({ readOnlyHint: true }, "srv", "mutate_everything")).toBe("allow");
+    expect(
+      tierFromMcpTool({ readOnlyHint: true }, "srv", "mutate_everything"),
+    ).toBe("allow");
   });
 
   test("explicit non-read-only annotations ask even for list_ names", () => {
-    expect(tierFromMcpTool({ readOnlyHint: false }, "srv", "list_everything")).toBe("ask");
+    expect(
+      tierFromMcpTool({ readOnlyHint: false }, "srv", "list_everything"),
+    ).toBe("ask");
   });
 
   test("missing annotations use prefix heuristics", () => {
@@ -22,7 +26,9 @@ describe("tierFromMcpTool", () => {
 
   test("empty annotation object falls back to prefix heuristics", () => {
     expect(tierFromMcpTool({}, "linear", "list_teams")).toBe("allow");
-    expect(tierFromMcpTool({ title: "List teams" }, "linear", "save_issue")).toBe("ask");
+    expect(
+      tierFromMcpTool({ title: "List teams" }, "linear", "save_issue"),
+    ).toBe("ask");
   });
 });
 

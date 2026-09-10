@@ -7,7 +7,10 @@ import { requestModelsEndpoint } from "../provider/models-endpoint.js";
  *
  * Returns only the model id strings. Throws on HTTP or parse errors.
  */
-export async function fetchBifrostModels(baseURL: string, apiKey: string): Promise<string[]> {
+export async function fetchBifrostModels(
+  baseURL: string,
+  apiKey: string,
+): Promise<string[]> {
   const headers: Record<string, string> = {
     "x-bf-vk": apiKey,
   };

@@ -10,8 +10,12 @@ function decodeEntities(text: string): string {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCodePoint(parseInt(dec, 10)));
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) =>
+      String.fromCodePoint(parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_m, dec: string) =>
+      String.fromCodePoint(parseInt(dec, 10)),
+    );
 }
 
 function stripTagsAndScripts(html: string): string {
@@ -40,9 +44,12 @@ export function htmlToText(html: string): string {
 export function htmlToMarkdown(html: string): string {
   let working = stripTagsAndScripts(html);
   working = working
-    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level: string, inner: string) => {
-      return `\n${"#".repeat(Number(level))} ${htmlToText(inner)}\n`;
-    })
+    .replace(
+      /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi,
+      (_m, level: string, inner: string) => {
+        return `\n${"#".repeat(Number(level))} ${htmlToText(inner)}\n`;
+      },
+    )
     .replace(
       /<a\s[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi,
       (_m, href: string, inner: string) => {
@@ -58,8 +65,14 @@ export function htmlToMarkdown(html: string): string {
       /<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi,
       (_m, _tag: string, inner: string) => `_${htmlToText(inner)}_`,
     )
-    .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_m, inner: string) => `\`${htmlToText(inner)}\``)
-    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m, inner: string) => `\n- ${htmlToText(inner)}`)
+    .replace(
+      /<code[^>]*>([\s\S]*?)<\/code>/gi,
+      (_m, inner: string) => `\`${htmlToText(inner)}\``,
+    )
+    .replace(
+      /<li[^>]*>([\s\S]*?)<\/li>/gi,
+      (_m, inner: string) => `\n- ${htmlToText(inner)}`,
+    )
     .replace(/<\/(p|div|tr|table|ul|ol)>/gi, "\n")
     .replace(/<br\s*\/?>/gi, "\n");
   const text = decodeEntities(working.replace(/<[^>]+>/g, ""));

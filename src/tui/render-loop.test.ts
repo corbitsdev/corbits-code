@@ -57,7 +57,11 @@ describe("monitor cadence", () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, SHELL_OPTS);
       const m = recordingMonitor();
-      const bridge = attachSessionBridge(shell, createRecordingPort(), m.monitor);
+      const bridge = attachSessionBridge(
+        shell,
+        createRecordingPort(),
+        m.monitor,
+      );
       try {
         // Attaching to an idle session must not start a repaint loop.
         expect(m.running()).toBe(false);
@@ -79,7 +83,11 @@ describe("monitor cadence", () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, SHELL_OPTS);
       const m = recordingMonitor();
-      const bridge = attachSessionBridge(shell, createRecordingPort(), m.monitor);
+      const bridge = attachSessionBridge(
+        shell,
+        createRecordingPort(),
+        m.monitor,
+      );
       try {
         bridge.handle({ type: "run", state: "busy" });
         const tickMs = m.intervalMs();

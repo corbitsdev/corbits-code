@@ -27,7 +27,10 @@ export interface WidthContractReport {
 }
 
 /** Width OpenTUI's own table assigns `text`, or null when it cannot encode it. */
-export function measureRendererWidth(text: string, widthMethod: WidthMethod): number | null {
+export function measureRendererWidth(
+  text: string,
+  widthMethod: WidthMethod,
+): number | null {
   const lib = resolveRenderLib();
   const encoded = lib.encodeUnicode(text, widthMethod);
   if (encoded === null) return null;
@@ -45,7 +48,10 @@ export function measureRendererWidth(text: string, widthMethod: WidthMethod): nu
  */
 export function checkWidthContract(
   widthMethod: WidthMethod,
-  measure: (text: string, method: WidthMethod) => number | null = measureRendererWidth,
+  measure: (
+    text: string,
+    method: WidthMethod,
+  ) => number | null = measureRendererWidth,
 ): WidthContractReport {
   const ours = stringWidth(WIDTH_PROBE);
   const renderer = measure(WIDTH_PROBE, widthMethod);

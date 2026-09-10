@@ -3,8 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { AgentClosedError, type SendResult } from "@intx/agent";
 import type { ConversationTurn, InboundMessage } from "@intx/types/runtime";
 
-import { createPermissionGate, type PermissionGate } from "../../src/permission/gate.js";
-import type { Approval, ApprovalScope, PermissionRequest } from "../../src/permission/types.js";
+import {
+  createPermissionGate,
+  type PermissionGate,
+} from "../../src/permission/gate.js";
+import type {
+  Approval,
+  ApprovalScope,
+  PermissionRequest,
+} from "../../src/permission/types.js";
 import {
   APPROVAL_DROPPED_NOTICE,
   createApprovalResume,
@@ -23,7 +30,10 @@ import { createSessionOperationQueue } from "../../src/tui/session-operation-que
 const SUSPENDED: SendResult = {
   type: "suspended",
   correlationId: "corr-1",
-  approvalSnapshot: { name: "run_shell", arguments: { command: "curl -sS https://example.com" } },
+  approvalSnapshot: {
+    name: "run_shell",
+    arguments: { command: "curl -sS https://example.com" },
+  },
 } as unknown as SendResult;
 
 function userTurn(): ConversationTurn {
@@ -85,8 +95,13 @@ describe("approval resume late-decision guard", () => {
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(1);
     const message = delivered[0] as { content: string };
-    expect(JSON.parse(message.content)).toEqual({ outcome: "rejected", message: "not today" });
-    expect(correlationHeaders(delivered[0]).interchangeCorrelationId).toBe("corr-1");
+    expect(JSON.parse(message.content)).toEqual({
+      outcome: "rejected",
+      message: "not today",
+    });
+    expect(correlationHeaders(delivered[0]).interchangeCorrelationId).toBe(
+      "corr-1",
+    );
     expect(correlationHeaders(delivered[0]).messageId).toBe("approval-corr-1");
   });
 
@@ -116,20 +131,26 @@ describe("approval resume delivery", () => {
         customResolved = true;
         customDelivered.push(message);
       },
-      gate: { resolveSuspended: async () => ({ allow: true }) } as unknown as PermissionGate,
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
     });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(customResolved).toBe(true);
     expect(agentDelivered).toEqual([]);
     expect(customDelivered).toHaveLength(1);
-    expect(correlationHeaders(customDelivered[0]).interchangeCorrelationId).toBe("corr-1");
+    expect(
+      correlationHeaders(customDelivered[0]).interchangeCorrelationId,
+    ).toBe("corr-1");
   });
 
   test("undefined agent throws instead of returning true", async () => {
     const resume = createApprovalResume({
       getAgent: () => undefined,
-      gate: { resolveSuspended: async () => ({ allow: true }) } as unknown as PermissionGate,
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
     });
     await expect(resume.handle(SUSPENDED)).rejects.toThrow(/agent/i);
   });
@@ -143,7 +164,9 @@ describe("approval resume delivery", () => {
     };
     const resume = createApprovalResume({
       getAgent: () => agent,
-      gate: { resolveSuspended: async () => ({ allow: true }) } as unknown as PermissionGate,
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
     });
     await expect(resume.handle(SUSPENDED)).rejects.toThrow(AgentClosedError);
   });
@@ -168,7 +191,9 @@ describe("approval resume delivery", () => {
     expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
       outcome: "approved",
     });
-    expect(correlationHeaders(delivered[0]).interchangeCorrelationId).toBe("corr-1");
+    expect(correlationHeaders(delivered[0]).interchangeCorrelationId).toBe(
+      "corr-1",
+    );
   });
 });
 
@@ -217,7 +242,9 @@ describe("approval resume generation capture", () => {
         if (!stillCurrent()) return;
         delivered.push(message);
       },
-      gate: { resolveSuspended: async () => ({ allow: true }) } as unknown as PermissionGate,
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
     });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
@@ -227,7 +254,10 @@ describe("approval resume generation capture", () => {
     });
   });
 
-  async function interruptDuringOverlayThenDecide(outcome: { allow: boolean; message?: string }) {
+  async function interruptDuringOverlayThenDecide(outcome: {
+    allow: boolean;
+    message?: string;
+  }) {
     const generation = createDeliveryGeneration();
     const deliveredA: unknown[] = [];
     const deliveredB: unknown[] = [];
@@ -270,7 +300,10 @@ describe("approval resume generation capture", () => {
   });
 
   test("interrupt during overlay then decline does not deliver to the rebuilt agent", async () => {
-    await interruptDuringOverlayThenDecide({ allow: false, message: "not today" });
+    await interruptDuringOverlayThenDecide({
+      allow: false,
+      message: "not today",
+    });
   });
 
   test("interrupt during overlay rejects the parked call before rebuild enqueue", async () => {
@@ -461,7 +494,10 @@ describe("approval resume stillCurrent at resolve", () => {
       }),
       captureGeneration: generation.capture,
       gate: {
-        resolveSuspended: async (_request: PermissionRequest, stillCurrent?: () => boolean) => {
+        resolveSuspended: async (
+          _request: PermissionRequest,
+          stillCurrent?: () => boolean,
+        ) => {
           expect(stillCurrent?.()).toBe(true);
           generation.bump();
           atResolve = stillCurrent?.();
@@ -532,7 +568,9 @@ describe("approval resume occupancy until correlation", () => {
         enqueue(async () => {
           const correlationId = message.headers.interchangeCorrelationId;
           const accepted =
-            correlationId === undefined ? undefined : correlationAcceptance.wait(correlationId);
+            correlationId === undefined
+              ? undefined
+              : correlationAcceptance.wait(correlationId);
           agent.deliver(message);
           delivered?.();
           await accepted;
@@ -594,7 +632,9 @@ describe("approval resume occupancy until correlation", () => {
         enqueue(async () => {
           const correlationId = message.headers.interchangeCorrelationId;
           const accepted =
-            correlationId === undefined ? undefined : correlationAcceptance.wait(correlationId);
+            correlationId === undefined
+              ? undefined
+              : correlationAcceptance.wait(correlationId);
           agent.deliver(message);
           delivered?.();
           await accepted;
@@ -644,7 +684,9 @@ describe("approval resume occupancy until correlation", () => {
 
   test("generation bump settleAll releases occupancy without a correlation event", async () => {
     const correlationAcceptance = createCorrelationAcceptance();
-    const generation = createDeliveryGeneration(() => correlationAcceptance.settleAll());
+    const generation = createDeliveryGeneration(() =>
+      correlationAcceptance.settleAll(),
+    );
     let waiting: (() => void) | undefined;
     const waitUntilWaiting = new Promise<void>((resolve) => {
       waiting = resolve;

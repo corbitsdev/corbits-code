@@ -20,20 +20,26 @@ describe("formatMcpResult", () => {
   });
 
   test("summarizes a bare array", () => {
-    const r = formatMcpResult(JSON.stringify([{ title: "A" }, { title: "B" }, { title: "C" }]));
+    const r = formatMcpResult(
+      JSON.stringify([{ title: "A" }, { title: "B" }, { title: "C" }]),
+    );
     expect(r.preview).toBe("3 items");
     expect(r.full).toContain("1. A");
   });
 
   test("uses the singular noun for a single item", () => {
-    expect(formatMcpResult(JSON.stringify({ projects: [{ name: "Solo" }] })).preview).toBe(
-      "1 project",
-    );
+    expect(
+      formatMcpResult(JSON.stringify({ projects: [{ name: "Solo" }] })).preview,
+    ).toBe("1 project");
   });
 
   test("renders a single record's scalar fields", () => {
     const r = formatMcpResult(
-      JSON.stringify({ name: "Alpha", priority: { name: "Medium" }, items: [1, 2] }),
+      JSON.stringify({
+        name: "Alpha",
+        priority: { name: "Medium" },
+        items: [1, 2],
+      }),
     );
     expect(r.full).toContain("name: Alpha");
     expect(r.full).toContain("priority: Medium");
@@ -41,7 +47,9 @@ describe("formatMcpResult", () => {
   });
 
   test("bounds a huge list instead of dumping it", () => {
-    const items = Array.from({ length: 500 }, (_, i) => ({ name: `Item ${i}` }));
+    const items = Array.from({ length: 500 }, (_, i) => ({
+      name: `Item ${i}`,
+    }));
     const r = formatMcpResult(JSON.stringify({ results: items }));
     expect(r.preview).toBe("500 results");
     expect(r.full).toContain("and 470 more");
@@ -64,7 +72,9 @@ describe("extractMcpRecords (list detection)", () => {
   });
 
   test("a wrapper with a single array key alongside scalars uses that key as the label", () => {
-    const r = extractMcpRecords(JSON.stringify({ projects: [{ name: "a" }], hasNextPage: false }));
+    const r = extractMcpRecords(
+      JSON.stringify({ projects: [{ name: "a" }], hasNextPage: false }),
+    );
     expect(r?.label).toBe("projects");
     expect(r?.items).toHaveLength(1);
   });
@@ -74,12 +84,16 @@ describe("extractMcpRecords (list detection)", () => {
   });
 
   test("an object with two array keys is ambiguous and not a list", () => {
-    expect(extractMcpRecords(JSON.stringify({ a: [{ x: 1 }], b: [{ y: 2 }] }))).toBeNull();
+    expect(
+      extractMcpRecords(JSON.stringify({ a: [{ x: 1 }], b: [{ y: 2 }] })),
+    ).toBeNull();
   });
 
   test("a wrapper with a non-scalar sibling is treated as a record, not a list", () => {
     expect(
-      extractMcpRecords(JSON.stringify({ projects: [{ name: "a" }], meta: { page: 1 } })),
+      extractMcpRecords(
+        JSON.stringify({ projects: [{ name: "a" }], meta: { page: 1 } }),
+      ),
     ).toBeNull();
   });
 
@@ -90,12 +104,16 @@ describe("extractMcpRecords (list detection)", () => {
 
 describe("extractMcpRecord (single record detection)", () => {
   test("a single object is a record", () => {
-    const rec = extractMcpRecord(JSON.stringify({ name: "Proj", status: "active" }));
+    const rec = extractMcpRecord(
+      JSON.stringify({ name: "Proj", status: "active" }),
+    );
     expect(rec?.name).toBe("Proj");
   });
 
   test("a record list is not a single record", () => {
-    expect(extractMcpRecord(JSON.stringify([{ name: "a" }, { name: "b" }]))).toBeNull();
+    expect(
+      extractMcpRecord(JSON.stringify([{ name: "a" }, { name: "b" }])),
+    ).toBeNull();
   });
 
   test("a bare scalar or array is not a single record", () => {

@@ -61,7 +61,11 @@ describe("primary fleet verb mount", () => {
       getSkipPermissions: () => false,
     } as never;
     const sessions = createSubAgentSessionStore();
-    const worker = sessions.start({ description: "d", agentId: "a", brief: "b" });
+    const worker = sessions.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.markRunning(worker.id);
     sessions.registerClose(worker.id, async () => {
       throw new Error("1 shell child process still live after 2000ms reap");
@@ -82,7 +86,9 @@ describe("primary fleet verb mount", () => {
       },
     });
 
-    await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
+    await expect(toolset.dispose()).rejects.toThrow(
+      /still live after 2000ms reap/,
+    );
   });
 
   test("createAgentToolset dispose rejects when a retained completed persist worker leaves children", async () => {
@@ -119,7 +125,9 @@ describe("primary fleet verb mount", () => {
       },
     });
 
-    await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
+    await expect(toolset.dispose()).rejects.toThrow(
+      /still live after 2000ms reap/,
+    );
   });
 
   test("createAgentToolset dispose closes remaining retained workers after the first leftover", async () => {
@@ -169,7 +177,9 @@ describe("primary fleet verb mount", () => {
       },
     });
 
-    await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
+    await expect(toolset.dispose()).rejects.toThrow(
+      /still live after 2000ms reap/,
+    );
     expect(firstCloseCalls).toBe(1);
     expect(secondCloseCalls).toBe(1);
   });
@@ -208,7 +218,9 @@ describe("primary fleet verb mount", () => {
       },
     });
 
-    await expect(toolset.dispose()).rejects.toThrow(/still live after 2000ms reap/);
+    await expect(toolset.dispose()).rejects.toThrow(
+      /still live after 2000ms reap/,
+    );
   });
 
   test("createAgentToolset omits fleet verbs when subAgent is not set", async () => {

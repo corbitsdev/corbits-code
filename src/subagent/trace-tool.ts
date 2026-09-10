@@ -61,7 +61,8 @@ export const readAgentTraceDefinition: ToolDefinition = {
     properties: {
       target: {
         type: "string",
-        description: "Worker id (the id you spawned/see for it) whose trace to read.",
+        description:
+          "Worker id (the id you spawned/see for it) whose trace to read.",
       },
       kinds: {
         type: "array",
@@ -71,11 +72,13 @@ export const readAgentTraceDefinition: ToolDefinition = {
       },
       fromTurn: {
         type: "number",
-        description: "0-based inclusive start turn index. Omit to default to the recent tail.",
+        description:
+          "0-based inclusive start turn index. Omit to default to the recent tail.",
       },
       toTurn: {
         type: "number",
-        description: "0-based exclusive end turn index. Omit to default to the end of the trace.",
+        description:
+          "0-based exclusive end turn index. Omit to default to the end of the trace.",
       },
       limit: {
         type: "number",
@@ -100,14 +103,17 @@ function formatTraceResult(result: TraceReadResult): string {
     `turns: ${result.fromTurn}-${result.toTurn} of ${result.totalTurns} total`,
   ];
   if (result.parseWarnings > 0) {
-    lines.push(`(skipped ${result.parseWarnings} malformed/partial line(s) while reading)`);
+    lines.push(
+      `(skipped ${result.parseWarnings} malformed/partial line(s) while reading)`,
+    );
   }
   if (result.entries.length === 0) {
     lines.push("", "No matching entries in this range.");
   } else {
     lines.push("");
     for (const entry of result.entries) {
-      const tag = entry.name !== undefined ? `${entry.kind}:${entry.name}` : entry.kind;
+      const tag =
+        entry.name !== undefined ? `${entry.kind}:${entry.name}` : entry.kind;
       const callId = entry.callId !== undefined ? ` [${entry.callId}]` : "";
       const truncatedMark = entry.truncated === true ? " …[truncated]" : "";
       lines.push(`--- turn ${entry.turn} ${entry.role} ${tag}${callId} ---`);
@@ -152,20 +158,28 @@ export function createReadAgentTraceTool(
             authority.getNodes(),
           );
         } catch (cause) {
-          if (cause instanceof FleetAuthorityError) return `Error: ${cause.message}`;
+          if (cause instanceof FleetAuthorityError)
+            return `Error: ${cause.message}`;
           throw cause;
         }
       }
       try {
-        const result = await readAgentTrace(getRootWorkdirBase(), parsed.target, {
-          ...(parsed.kinds !== undefined ? { kinds: parsed.kinds } : {}),
-          ...(parsed.fromTurn !== undefined ? { fromTurn: parsed.fromTurn } : {}),
-          ...(parsed.toTurn !== undefined ? { toTurn: parsed.toTurn } : {}),
-          ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
-        });
+        const result = await readAgentTrace(
+          getRootWorkdirBase(),
+          parsed.target,
+          {
+            ...(parsed.kinds !== undefined ? { kinds: parsed.kinds } : {}),
+            ...(parsed.fromTurn !== undefined
+              ? { fromTurn: parsed.fromTurn }
+              : {}),
+            ...(parsed.toTurn !== undefined ? { toTurn: parsed.toTurn } : {}),
+            ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
+          },
+        );
         return formatTraceResult(result);
       } catch (cause) {
-        if (cause instanceof AgentTraceNotFoundError) return `Error: ${cause.message}`;
+        if (cause instanceof AgentTraceNotFoundError)
+          return `Error: ${cause.message}`;
         throw cause;
       }
     },

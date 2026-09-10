@@ -113,14 +113,23 @@ describe("buildFleetDryContinuationPrompt", () => {
   test("contains the prefix, open-task ids, and collected JSON", () => {
     const prompt = buildFleetDryContinuationPrompt(
       [openTask, { id: "t2", title: "done already", status: "done" }],
-      [{ agent_id: "worker-1", status: "done", report: "shipped", description: "lane" }],
+      [
+        {
+          agent_id: "worker-1",
+          status: "done",
+          report: "shipped",
+          description: "lane",
+        },
+      ],
     );
     expect(prompt.startsWith(FLEET_DRY_CONTINUATION_PREFIX)).toBe(true);
     expect(prompt).toContain("- t1: keep going (todo)");
     expect(prompt).not.toContain("t2:");
     expect(prompt).toContain("worker-1");
     expect(prompt).toContain("shipped");
-    expect(prompt).toContain("already collected — do not call wait_agents for these agent_ids");
+    expect(prompt).toContain(
+      "already collected — do not call wait_agents for these agent_ids",
+    );
   });
 
   test("empty reports still produce the prefix and an empty JSON array", () => {
@@ -189,7 +198,9 @@ describe("collectUncollectedTerminals", () => {
   });
 
   test("fills report/error from the session-store lane when the mailbox snapshot is empty", () => {
-    const records = new Map<string, FleetDryMailboxRecord>([["ghost", { status: "done" }]]);
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["ghost", { status: "done" }],
+    ]);
     const mailbox: FleetDryMailbox = {
       ids: () => [...records.keys()],
       peek: (id) => records.get(id),
@@ -219,7 +230,10 @@ describe("collectUncollectedTerminals", () => {
 
   test("projects mailbox stopReason as stop_reason", () => {
     const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "interrupted", report: "salvage", stopReason: "interrupted" }],
+      [
+        "w1",
+        { status: "interrupted", report: "salvage", stopReason: "interrupted" },
+      ],
     ]);
     const mailbox: FleetDryMailbox = {
       ids: () => [...records.keys()],
@@ -238,7 +252,10 @@ describe("collectUncollectedTerminals", () => {
 
   test("clips oversized reports", () => {
     const records = new Map<string, FleetDryMailboxRecord>([
-      ["big", { status: "done", report: "x".repeat(FLEET_DRY_REPORT_CHARS + 40) }],
+      [
+        "big",
+        { status: "done", report: "x".repeat(FLEET_DRY_REPORT_CHARS + 40) },
+      ],
     ]);
     const mailbox: FleetDryMailbox = {
       ids: () => [...records.keys()],

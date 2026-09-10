@@ -1,4 +1,8 @@
-import { CREDENTIAL_SENTINEL, type BuiltRequest, type ProviderAdapter } from "@intx/inference";
+import {
+  CREDENTIAL_SENTINEL,
+  type BuiltRequest,
+  type ProviderAdapter,
+} from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
 // Small adapter for Bifrost (https://docs.getbifrost.ai).
@@ -25,7 +29,11 @@ type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 export function createBifrostAdapter(source: AdapterSource): ProviderAdapter {
   const base = createOpenAICompatibleAdapter(source);
 
-  const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
+  const buildRequest: ProviderAdapter["buildRequest"] = (
+    messages,
+    model,
+    options,
+  ) => {
     const req = base.buildRequest(messages, model, options);
     return {
       ...req,

@@ -12,7 +12,10 @@ const source = {
 } as unknown as Parameters<typeof createBifrostAdapter>[0];
 
 const messages: ConversationTurn[] = [
-  { role: "user", content: [{ type: "text", text: "hi" }] } as unknown as ConversationTurn,
+  {
+    role: "user",
+    content: [{ type: "text", text: "hi" }],
+  } as unknown as ConversationTurn,
 ];
 
 function requestFor(options: InferenceOptions) {
@@ -33,7 +36,9 @@ describe("bifrost adapter", () => {
   });
 
   test("merges providerOptions into the request body", () => {
-    const built = requestFor({ providerOptions: { reasoning_effort: "high" } } as InferenceOptions);
+    const built = requestFor({
+      providerOptions: { reasoning_effort: "high" },
+    } as InferenceOptions);
     const body = JSON.parse(built.body) as Record<string, unknown>;
     expect(body["reasoning_effort"]).toBe("high");
   });

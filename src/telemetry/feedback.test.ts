@@ -19,7 +19,8 @@ afterEach(() => {
   resetFeedbackStateForTests();
 });
 
-const noopFetch = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+const noopFetch = (async () =>
+  new Response("{}", { status: 200 })) as unknown as typeof fetch;
 
 function captureSpy(): {
   telemetry: Telemetry;
@@ -95,7 +96,9 @@ describe("captureFeedback", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.event).toBe("survey sent");
     expect(events[0]?.properties.$survey_response).toBe("great product");
-    expect(events[0]?.properties.$survey_id).toBe("019fe7ff-d12a-0000-7a63-303f3a874b90");
+    expect(events[0]?.properties.$survey_id).toBe(
+      "019fe7ff-d12a-0000-7a63-303f3a874b90",
+    );
   });
 
   test("rejects empty text", () => {
@@ -152,7 +155,9 @@ describe("captureFeedback", () => {
     const status = captureFeedback(telemetry, long);
     expect(status).toBe("sent_truncated");
     expect(events).toHaveLength(1);
-    expect(String(events[0]?.properties.$survey_response).length).toBe(FEEDBACK_MAX_CHARS);
+    expect(String(events[0]?.properties.$survey_response).length).toBe(
+      FEEDBACK_MAX_CHARS,
+    );
   });
 
   test("rejects non-survey events on the intentional door", () => {

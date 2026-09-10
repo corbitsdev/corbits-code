@@ -79,12 +79,17 @@ describe("resolveExitCode", () => {
 
 describe("resolveLocalSettingsPath", () => {
   test("treats an aliased --config path as the global settings target", () => {
-    expect(resolveLocalSettingsPath("/repo", "/repo/.corbits/settings.json")).toBeNull();
+    expect(
+      resolveLocalSettingsPath("/repo", "/repo/.corbits/settings.json"),
+    ).toBeNull();
   });
 
   test("preserves the normal distinct global and project settings paths", () => {
-    expect(resolveLocalSettingsPath("/tmp/repo", "/tmp/home/user/.corbits/settings.json")).toBe(
-      "/tmp/repo/.corbits/settings.json",
-    );
+    expect(
+      resolveLocalSettingsPath(
+        "/tmp/repo",
+        "/tmp/home/user/.corbits/settings.json",
+      ),
+    ).toBe("/tmp/repo/.corbits/settings.json");
   });
 });

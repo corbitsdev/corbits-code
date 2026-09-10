@@ -17,7 +17,10 @@ import { readdirSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-import { APPROVAL_LOG_FILE, type ApprovalRecord } from "../src/permission/approval-log.js";
+import {
+  APPROVAL_LOG_FILE,
+  type ApprovalRecord,
+} from "../src/permission/approval-log.js";
 
 // lstat, and skip symlinks: session dirs carry a `latest` symlink to a real
 // session, and following it double-counts every record in that session.
@@ -44,8 +47,13 @@ function findAll(dir: string, name: string, out: string[]): void {
 
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[index]!;
+  const index = Math.min(
+    sorted.length - 1,
+    Math.floor((p / 100) * sorted.length),
+  );
+  const value = sorted[index];
+  if (value === undefined) return 0;
+  return value;
 }
 
 interface Bucket {
@@ -103,10 +111,15 @@ for (const file of files) {
       buckets.set(key, bucket);
     }
     bucket.count++;
-    bucket.byOutcome.set(record.outcome, (bucket.byOutcome.get(record.outcome) ?? 0) + 1);
+    bucket.byOutcome.set(
+      record.outcome,
+      (bucket.byOutcome.get(record.outcome) ?? 0) + 1,
+    );
     bucket.byMode.set(record.mode, (bucket.byMode.get(record.mode) ?? 0) + 1);
-    if (typeof record.durationMs === "number") bucket.durations.push(record.durationMs);
-    if (typeof record.displayDelayMs === "number") bucket.displayDelays.push(record.displayDelayMs);
+    if (typeof record.durationMs === "number")
+      bucket.durations.push(record.durationMs);
+    if (typeof record.displayDelayMs === "number")
+      bucket.displayDelays.push(record.displayDelayMs);
 
     // Duplicate-rate proxy: how often the same rule fires more than once per
     // session file (a session repeatedly asking for something it was already
@@ -120,7 +133,9 @@ for (const file of files) {
 }
 
 console.log(`approval logs: ${files.length}`);
-console.log(`records: ${records}${malformed > 0 ? ` (${malformed} malformed, skipped)` : ""}`);
+console.log(
+  `records: ${records}${malformed > 0 ? ` (${malformed} malformed, skipped)` : ""}`,
+);
 if (records === 0) {
   console.log("\nNo approvals logged yet. Run some sessions first.");
   process.exit(0);
@@ -133,14 +148,16 @@ console.log(
 for (const [key, bucket] of rows) {
   const durations = [...bucket.durations].sort((a, b) => a - b);
   const delays = [...bucket.displayDelays].sort((a, b) => a - b);
+  const lastDur = durations[durations.length - 1];
+  const lastDelay = delays[delays.length - 1];
   const durDist =
-    durations.length === 0
+    durations.length === 0 || lastDur === undefined
       ? "-"
-      : `${percentile(durations, 50)}/${percentile(durations, 90)}/${durations[durations.length - 1]!}`;
+      : `${percentile(durations, 50)}/${percentile(durations, 90)}/${lastDur}`;
   const delayDist =
-    delays.length === 0
+    delays.length === 0 || lastDelay === undefined
       ? "-"
-      : `${percentile(delays, 50)}/${percentile(delays, 90)}/${delays[delays.length - 1]!}`;
+      : `${percentile(delays, 50)}/${percentile(delays, 90)}/${lastDelay}`;
   const autoCount = bucket.byMode.get("auto") ?? 0;
   const interactiveCount = bucket.byMode.get("interactive") ?? 0;
   console.log(
@@ -157,7 +174,9 @@ for (const [key, bucket] of rows) {
   console.log(`${key.padEnd(26)} ${outcomes}`);
 }
 
-console.log("\nrule -> sessions that hit it at least once (duplicate-rate proxy)");
+console.log(
+  "\nrule -> sessions that hit it at least once (duplicate-rate proxy)",
+);
 for (const [rule, sessions] of [...sessionsByRule.entries()].sort(
   (a, b) => b[1].size - a[1].size,
 )) {

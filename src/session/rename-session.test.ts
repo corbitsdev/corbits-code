@@ -3,7 +3,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { generateSessionId, initSessionDir, renameSession, sessionDir } from "./index.js";
+import {
+  generateSessionId,
+  initSessionDir,
+  renameSession,
+  sessionDir,
+} from "./index.js";
 import { loadState } from "./state.js";
 
 let cwd = "";
@@ -82,6 +87,8 @@ test("renameSession throws on unreadable run.json and leaves the bytes unchanged
     thrown = err;
   }
   expect(thrown).toBeInstanceOf(Error);
-  expect(thrown instanceof Error ? thrown.message : "").toBe("Session state is unreadable");
+  expect(thrown instanceof Error ? thrown.message : "").toBe(
+    "Session state is unreadable",
+  );
   expect(await readFile(path, "utf8")).toBe(corrupt);
 });

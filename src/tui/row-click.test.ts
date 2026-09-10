@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
@@ -45,13 +46,16 @@ describe("clicking a row's expand arrow", () => {
         });
         try {
           appendStreamRow(shell, CALL);
-          appendStreamRow(shell, { ...CALL, summary: "https://www.example.com" });
+          appendStreamRow(shell, {
+            ...CALL,
+            summary: "https://www.example.com",
+          });
           await h.renderOnce();
 
           const arrow = findCell(h.captureCharFrame(), ROW_ARROW.collapsed);
           expect(arrow).not.toBeNull();
 
-          await h.mockMouse.click(arrow!.x, arrow!.y);
+          await h.mockMouse.click(defined(arrow).x, defined(arrow).y);
           await h.renderOnce();
           // One row only: the pointer said which.
           expect(shell.streamLog[0]?.expanded).toBe(true);
@@ -59,13 +63,13 @@ describe("clicking a row's expand arrow", () => {
 
           const open = findCell(h.captureCharFrame(), ROW_ARROW.expanded);
           expect(open).not.toBeNull();
-          await h.mockMouse.click(open!.x, open!.y);
+          await h.mockMouse.click(defined(open).x, defined(open).y);
           await h.renderOnce();
           expect(shell.streamLog[0]?.expanded).toBe(false);
 
           const text = findCell(h.captureCharFrame(), "apple.com");
           expect(text).not.toBeNull();
-          await h.mockMouse.click(text!.x, text!.y);
+          await h.mockMouse.click(defined(text).x, defined(text).y);
           await h.renderOnce();
           expect(shell.streamLog[0]?.expanded).toBe(false);
         } finally {

@@ -45,7 +45,9 @@ export function prefixIndexForWidth(text: string, width: number): number {
   let used = 0;
   let i = 0;
   while (i < text.length) {
-    const ch = String.fromCodePoint(text.codePointAt(i)!);
+    const codePoint = text.codePointAt(i);
+    if (codePoint == null) break;
+    const ch = String.fromCodePoint(codePoint);
     const cw = stringWidth(ch);
     if (used + cw > width) return i;
     used += cw;
@@ -65,7 +67,8 @@ export function sliceTailToWidth(text: string, width: number): string {
   let used = 0;
   let start = text.length;
   while (start > 0) {
-    const prev = text.codePointAt(start - 1)!;
+    const prev = text.codePointAt(start - 1);
+    if (prev == null) break;
     const step = prev >= 0xdc00 && prev <= 0xdfff && start >= 2 ? 2 : 1;
     const ch = text.slice(start - step, start);
     const cw = stringWidth(ch);
@@ -93,7 +96,8 @@ export function wrapRanges(line: string, width: number): RowRange[] {
   // Pure single-column text (no wide glyphs, no surrogate pairs) takes the code
   // unit path, where an index is a column — the common case and the one every
   // wrap test pins.
-  if (displayWidth === line.length && !SURROGATE_RE.test(line)) return wrapNarrow(line, w);
+  if (displayWidth === line.length && !SURROGATE_RE.test(line))
+    return wrapNarrow(line, w);
   return wrapWide(line, w);
 }
 
@@ -104,7 +108,8 @@ function wrapNarrow(line: string, w: number): RowRange[] {
     const windowEnd = pos + w;
     let breakAt = -1;
     for (let i = windowEnd; i > pos; i--) {
-      if (/\s/.test(line[i]!)) {
+      const ch = line[i];
+      if (ch != null && /\s/.test(ch)) {
         breakAt = i;
         break;
       }
@@ -133,7 +138,9 @@ function wrapWide(line: string, w: number): RowRange[] {
   let i = 0;
 
   while (i < line.length) {
-    const ch = String.fromCodePoint(line.codePointAt(i)!);
+    const codePoint = line.codePointAt(i);
+    if (codePoint == null) break;
+    const ch = String.fromCodePoint(codePoint);
     const cw = stringWidth(ch);
     const isSpace = /\s/.test(ch);
 
@@ -174,5 +181,7 @@ export function wrapLines(line: string, width: number): string[] {
 
 export function wrapCount(text: string, width: number): number {
   const w = Math.max(1, width);
-  return text.split("\n").reduce((n, line) => n + wrapRanges(line, w).length, 0);
+  return text
+    .split("\n")
+    .reduce((n, line) => n + wrapRanges(line, w).length, 0);
 }

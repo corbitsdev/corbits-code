@@ -6,7 +6,8 @@ import { formatRelativeTime } from "./format-relative-time.js";
 export const RESUME_PICKER_LIMIT = 10;
 
 export function sessionResumeLabel(session: SessionSummary): string {
-  const title = session.task.trim().length > 0 ? session.task.trim() : "Untitled session";
+  const title =
+    session.task.trim().length > 0 ? session.task.trim() : "Untitled session";
   return `${title} · ${formatRelativeTime(session.updatedAt)} · ${session.status}`;
 }
 
@@ -21,7 +22,9 @@ export function recentResumeSessions(
 export async function pickSession(cwd: string): Promise<SessionSummary | null> {
   const catalog = await listSessions(cwd);
   if (catalog.length === 0) {
-    process.stderr.write(`${COMMAND_NAME}: no previous sessions found in this directory.\n`);
+    process.stderr.write(
+      `${COMMAND_NAME}: no previous sessions found in this directory.\n`,
+    );
     return null;
   }
 

@@ -30,7 +30,10 @@ function wake(id: string, questionId: string): PendingAskWake {
 }
 
 async function withWakeBridge(
-  run: (bridge: ReturnType<typeof attachSessionBridge>, sends: string[]) => void,
+  run: (
+    bridge: ReturnType<typeof attachSessionBridge>,
+    sends: string[],
+  ) => void,
 ) {
   await withTestRenderer(
     async (h) => {
@@ -45,7 +48,11 @@ async function withWakeBridge(
       };
       const bridge = attachSessionBridge(
         shell,
-        createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+        createLiveSessionPort({
+          send,
+          deliver: send,
+          interrupt: () => undefined,
+        }),
       );
       try {
         run(bridge, sends);
@@ -58,7 +65,14 @@ async function withWakeBridge(
   );
 }
 
-for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ordinary"] as const) {
+for (const action of [
+  "retry",
+  "interrupt",
+  "reset",
+  "dispose",
+  "composer",
+  "ordinary",
+] as const) {
   test(`quota replay preserves submission origin (${action})`, async () => {
     await withTestRenderer(
       async (h) => {
@@ -72,9 +86,9 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
         const feedback: string[] = [];
         let cancellations = 0;
         let nowMs = 0;
-        let tick = () => {};
+        let tick: () => void = () => undefined;
         const submit = createSubmitHandler({
-          dispatchCommand: () => {},
+          dispatchCommand: () => undefined,
           sendPrompt: (text) => {
             composerSends.push(text);
             sends.push(text);
@@ -97,7 +111,7 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
               feedbackPending: isFeedbackCapturePending(),
               feedbackCaptureEnabled: true,
             }),
-          interrupt: () => {},
+          interrupt: () => undefined,
           deliver: routeQueuedDelivery({
             send: (text) => {
               sends.push(text);
@@ -113,7 +127,7 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
           schedule: (fn) => {
             tick = fn;
             // Retain the callback to exercise even a stale timer after disposal.
-            return () => {};
+            return () => undefined;
           },
         });
         try {
@@ -127,14 +141,17 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
             bridge.handle({ type: "inference.done", data: {} });
             if (action !== "composer") armFeedbackCapture();
             bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-            if (action === "composer") bridge.submit("operator prompt", "immediate");
+            if (action === "composer")
+              bridge.submit("operator prompt", "immediate");
           }
           const queued = shell.session.items;
           const before = sends.length;
           const replay = sends.at(-1);
           bridge.handle({
             type: "inference.error",
-            data: { error: { category: "quota_exhausted", retryAfterMs: 1000 } },
+            data: {
+              error: { category: "quota_exhausted", retryAfterMs: 1000 },
+            },
           });
           if (action === "interrupt") bridge.interrupt();
           if (action === "reset") bridge.clearQueuedDelivery();
@@ -146,7 +163,11 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
           nowMs = 1000;
           tick();
           tick();
-          if (action === "interrupt" || action === "reset" || action === "dispose") {
+          if (
+            action === "interrupt" ||
+            action === "reset" ||
+            action === "dispose"
+          ) {
             expect(sends).toHaveLength(afterCleanup);
             expect(feedback).toEqual([]);
           } else {
@@ -159,12 +180,18 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
               expect(feedback).toEqual([]);
               expect(cancellations).toBe(0);
               expect(isFeedbackCapturePending()).toBe(true);
-              expect(queued.map((item) => item.text)).toEqual(["held first", "held second"]);
+              expect(queued.map((item) => item.text)).toEqual([
+                "held first",
+                "held second",
+              ]);
               bridge.submit("actual feedback", "immediate");
               expect(feedback).toEqual(["actual feedback"]);
               expect(sends).toHaveLength(2);
             } else {
-              expect(composerSends).toEqual(["operator prompt", "operator prompt"]);
+              expect(composerSends).toEqual([
+                "operator prompt",
+                "operator prompt",
+              ]);
             }
           }
         } finally {
@@ -190,7 +217,7 @@ describe("agent ask wake delivery", () => {
         const feedback: string[] = [];
         let cancellations = 0;
         const submit = createSubmitHandler({
-          dispatchCommand: () => {},
+          dispatchCommand: () => undefined,
           sendPrompt: (text) => {
             sends.push(text);
           },
@@ -212,7 +239,7 @@ describe("agent ask wake delivery", () => {
               feedbackPending: isFeedbackCapturePending(),
               feedbackCaptureEnabled: true,
             }),
-          interrupt: () => {},
+          interrupt: () => undefined,
           deliver: routeQueuedDelivery({
             send: (text) => {
               sends.push(text);
@@ -338,7 +365,10 @@ describe("agent ask wake delivery", () => {
     await withWakeBridge((bridge, sends) => {
       bridge.handle({ type: "inference.start", data: {} });
       bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1"), wake("a2", "q2")] });
+      bridge.handle({
+        type: "agent-ask",
+        asks: [wake("a1", "q1"), wake("a2", "q2")],
+      });
       bridge.handle({ type: "inference.done", data: {} });
       expect(sends).toHaveLength(1);
       expect(sends[0]).toContain("a1");
@@ -396,7 +426,7 @@ describe("agent ask wake delivery", () => {
           });
           const sends: string[] = [];
           let nowMs = 0;
-          let tick = () => {};
+          let tick: () => void = () => undefined;
           const bridge = attachSessionBridge(
             shell,
             createLiveSessionPort({
@@ -406,7 +436,7 @@ describe("agent ask wake delivery", () => {
               deliver: (text) => {
                 sends.push(text);
               },
-              interrupt: () => {},
+              interrupt: () => undefined,
             }),
             {
               now: () => nowMs,
@@ -414,13 +444,16 @@ describe("agent ask wake delivery", () => {
               stallNoticeMs: 400,
               schedule: (fn) => {
                 tick = fn;
-                return () => {};
+                return () => undefined;
               },
             },
           );
           try {
             bridge.handle({ type: "inference.start", data: {} });
-            bridge.handle({ type: "inference.text.delta", data: { token: "ok" } });
+            bridge.handle({
+              type: "inference.text.delta",
+              data: { token: "ok" },
+            });
             bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
             expect(sends).toEqual([]);
             if (stop === "interrupt") {
@@ -456,7 +489,11 @@ describe("agent ask wake delivery", () => {
         };
         const bridge = attachSessionBridge(
           shell,
-          createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+          createLiveSessionPort({
+            send,
+            deliver: send,
+            interrupt: () => undefined,
+          }),
         );
         try {
           const ask = {
@@ -471,14 +508,20 @@ describe("agent ask wake delivery", () => {
             type: "message.received",
             data: { message: { content: wakeText } },
           });
-          expect(shell.streamLog.filter((row) => row.role === "user")).toHaveLength(1);
+          expect(
+            shell.streamLog.filter((row) => row.role === "user"),
+          ).toHaveLength(1);
           bridge.submit("hello", "immediate");
           bridge.handle({
             type: "message.received",
-            data: { message: { content: "hello\n[1 image attached: shot.png]" } },
+            data: {
+              message: { content: "hello\n[1 image attached: shot.png]" },
+            },
           });
           expect(
-            shell.streamLog.filter((row) => row.role === "user").map((row) => row.text),
+            shell.streamLog
+              .filter((row) => row.role === "user")
+              .map((row) => row.text),
           ).toEqual([wakeText, "hello"]);
         } finally {
           bridge.dispose();
@@ -537,7 +580,7 @@ describe("agent ask wake delivery", () => {
               },
               parentCycleLive: () => bridge.parentCycleLive,
             }),
-            interrupt: () => {},
+            interrupt: () => undefined,
           }),
         );
         try {
@@ -554,12 +597,16 @@ describe("agent ask wake delivery", () => {
           expect(wakeText).not.toContain("(not found)");
           expect(attachments).toEqual([0]);
           expect(ingested).toEqual([]);
-          expect(shell.streamLog.filter((row) => row.role === "user")).toHaveLength(1);
+          expect(
+            shell.streamLog.filter((row) => row.role === "user"),
+          ).toHaveLength(1);
           bridge.handle({
             type: "message.received",
             data: { message: { content: wakeText } },
           });
-          expect(shell.streamLog.filter((row) => row.role === "user")).toHaveLength(1);
+          expect(
+            shell.streamLog.filter((row) => row.role === "user"),
+          ).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();

@@ -24,7 +24,8 @@ export const BLOCKED_BY_POLICY_PREFIX = "Blocked by permission policy: ";
 export const OPERATOR_DECLINED_PREFIX = "Operator declined: ";
 
 /** Composed middleware text the director matches for an operator decline. */
-export const OPERATOR_DECLINED_MARKER = BLOCKED_BY_POLICY_PREFIX + OPERATOR_DECLINED_PREFIX;
+export const OPERATOR_DECLINED_MARKER =
+  BLOCKED_BY_POLICY_PREFIX + OPERATOR_DECLINED_PREFIX;
 
 /** vendor/intx-inference reactor.ts — rejected approval decision result. */
 export const APPROVER_REJECTION_MARKER = "denied by approver";
@@ -33,4 +34,5 @@ export const APPROVER_REJECTION_MARKER = "denied by approver";
 export const APPROVAL_TIMEOUT_RESULT_TEXT = "approval timed out";
 
 /** Worker unresolved-ask deny — parent grants the named subject and retries. */
-export const WORKER_CANNOT_COMPLETE_APPROVAL = "workers cannot complete operator approval.";
+export const WORKER_CANNOT_COMPLETE_APPROVAL =
+  "workers cannot complete operator approval.";

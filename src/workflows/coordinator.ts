@@ -12,7 +12,7 @@ export class WorkflowCoordinator {
     // Persist runtime state after every transition so a run can resume
     // mid-recipe. Failures are swallowed — losing the workflow checkpoint must
     // not crash the agent loop.
-    private readonly persist: () => void = () => {},
+    private readonly persist: () => void = () => undefined,
     // When true the workflow pauses after each step for user confirmation; the
     // directive tells the agent to gate via ask_operator before advancing.
     private readonly stepThrough = false,
@@ -80,7 +80,11 @@ export class WorkflowCoordinator {
   // already reset their idle counters on any tool call, so a workflow
   // advance is never seen as a stall). Already-complete and not-current
   // completions are acknowledged here without moving the cursor.
-  handleToolDone(name: string | undefined, args: unknown, isError: boolean): boolean {
+  handleToolDone(
+    name: string | undefined,
+    args: unknown,
+    isError: boolean,
+  ): boolean {
     if (isError || !this.runtime.isActive()) return false;
     if (name !== "submit_output") return false;
     const stepId = stepIdOf(args);

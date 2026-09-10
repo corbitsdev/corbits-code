@@ -3,7 +3,11 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import type { LastCycleSource, TokenUsage } from "@intx/types/runtime";
 import { createPerfReactorObserver } from "../perf/reactor-spans.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { createTurnContextCollector, type LifecycleHookManager, type RunSummary } from "./hooks.js";
+import {
+  createTurnContextCollector,
+  type LifecycleHookManager,
+  type RunSummary,
+} from "./hooks.js";
 
 type TurnCollector = ReturnType<typeof createTurnContextCollector>;
 
@@ -15,20 +19,27 @@ export interface RunSinkArgs {
   // knowing anything about telemetry. The TurnContext carries the source the
   // turn actually ran against, so consumers report per-turn provider/model
   // even if the live selection changed mid-run.
-  onTurnComplete?: ((ctx: import("./hooks.js").TurnContext) => void) | undefined;
+  onTurnComplete?:
+    | ((ctx: import("./hooks.js").TurnContext) => void)
+    | undefined;
   // Fired at most once per turn, when that turn ends in an error instead of
   // completing. onTurnComplete only ever sees turns that produced a full
   // TurnContext, so a consumer relying on it alone goes silent exactly when a
   // run goes wrong. The turn index is the collector's current count: the
   // in-flight turn is the one that would have been recorded next.
-  onTurnFailed?: ((info: { turnIndex: number; error: string }) => void) | undefined;
+  onTurnFailed?:
+    | ((info: { turnIndex: number; error: string }) => void)
+    | undefined;
   // Fired for every inference attempt. The model comes from inference.start,
   // while the turn index is the collector's current in-flight turn count.
-  onTurnStarted?: ((info: { turnIndex: number; model: string }) => void) | undefined;
+  onTurnStarted?:
+    | ((info: { turnIndex: number; model: string }) => void)
+    | undefined;
   // inference.usage is the first attempt event carrying the runtime-resolved
   // provider/model pair. It remains authoritative across retry attempts.
   onTurnSourceObserved?:
-    ((info: { turnIndex: number; source: LastCycleSource }) => void) | undefined;
+    | ((info: { turnIndex: number; source: LastCycleSource }) => void)
+    | undefined;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
   initialTurnCount?: number | undefined;
@@ -84,7 +95,8 @@ export function resolveExecRunStatus(args: {
   sinkStatus: RunSummary["status"];
   runError: string | undefined;
 }): RunSummary["status"] {
-  if (args.runError !== undefined || args.sinkStatus === "failed") return "failed";
+  if (args.runError !== undefined || args.sinkStatus === "failed")
+    return "failed";
   if (args.sendCompleted) return "done";
   if (args.sinkStatus === "done") return "done";
   return "cancelled";
@@ -111,7 +123,9 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   // retains full turn history — including tool results — when a hook is
   // configured to consume it, so a hookless run never carries a second
   // standing copy of recent history.
-  const handleTurn = (ctx: Parameters<NonNullable<typeof onTurnComplete>>[0]): void => {
+  const handleTurn = (
+    ctx: Parameters<NonNullable<typeof onTurnComplete>>[0],
+  ): void => {
     hookManager.dispatchPostTurn(ctx);
     onTurnComplete?.(ctx);
   };
@@ -122,7 +136,9 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   function createCollector(seedTurnCount?: number): TurnCollector {
     return createTurnContextCollector(handleTurn, Date.now, {
       retainHistory: hasConfiguredHooks(),
-      ...(seedTurnCount !== undefined ? { initialTurnCount: seedTurnCount } : {}),
+      ...(seedTurnCount !== undefined
+        ? { initialTurnCount: seedTurnCount }
+        : {}),
     });
   }
 
@@ -149,7 +165,10 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     perfObserver.observe(event);
     if (event.type === "inference.start") {
       turnInFlight = true;
-      onTurnStarted?.({ turnIndex: turnCollector.getTurnCount(), model: event.data.model });
+      onTurnStarted?.({
+        turnIndex: turnCollector.getTurnCount(),
+        model: event.data.model,
+      });
     }
     if (event.type === "inference.usage") {
       onTurnSourceObserved?.({
@@ -183,7 +202,11 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     }
     if (event.type === "message.run.ended") {
       if (event.data.status === "failed" && turnInFlight) {
-        settleTurnFailure(pendingInferenceError ?? event.data.error?.message ?? "Inference failed");
+        settleTurnFailure(
+          pendingInferenceError ??
+            event.data.error?.message ??
+            "Inference failed",
+        );
       } else {
         pendingInferenceError = undefined;
       }

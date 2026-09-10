@@ -1,4 +1,10 @@
-export type { FocusFrame, FocusState, FocusTarget, OpenOverlayOpts, ScrollLease } from "./types.js";
+export type {
+  FocusFrame,
+  FocusState,
+  FocusTarget,
+  OpenOverlayOpts,
+  ScrollLease,
+} from "./types.js";
 
 export {
   canPopFocus,

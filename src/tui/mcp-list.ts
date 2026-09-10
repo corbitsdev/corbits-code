@@ -1,10 +1,15 @@
 import type { MCPServerState } from "../agent/tools.js";
-import type { MCPServerConfig, MCPServerSettingsEntry } from "../config/settings.js";
+import type {
+  MCPServerConfig,
+  MCPServerSettingsEntry,
+} from "../config/settings.js";
 import { isExaMCPPreset } from "../config/settings.js";
 import { EXA_MCP_SERVER_NAME, isBuiltinExaMCPServer } from "../mcp/exa.js";
 import type { McpEntry } from "./command-surfaces.js";
 
-function isConfiguredDisabled(entry: MCPServerSettingsEntry | undefined): boolean {
+function isConfiguredDisabled(
+  entry: MCPServerSettingsEntry | undefined,
+): boolean {
   return entry?.enabled === false;
 }
 
@@ -23,18 +28,31 @@ function withBuiltin(entry: McpEntry, builtin: boolean): McpEntry {
   return builtin ? { ...entry, builtin: true } : entry;
 }
 
-function liveMcpEntry(status: MCPServerState, builtin: boolean): McpEntry | undefined {
+function liveMcpEntry(
+  status: MCPServerState,
+  builtin: boolean,
+): McpEntry | undefined {
   if (status.state === "disconnected") return undefined;
   switch (status.state) {
     case "connected":
       return withBuiltin(
-        { name: status.name, state: "connected", toolCount: status.tools.length },
+        {
+          name: status.name,
+          state: "connected",
+          toolCount: status.tools.length,
+        },
         builtin,
       );
     case "needs-auth":
-      return withBuiltin({ name: status.name, state: "needs-auth", authURL: status.url }, builtin);
+      return withBuiltin(
+        { name: status.name, state: "needs-auth", authURL: status.url },
+        builtin,
+      );
     case "failed":
-      return withBuiltin({ name: status.name, state: "failed", error: status.error }, builtin);
+      return withBuiltin(
+        { name: status.name, state: "failed", error: status.error },
+        builtin,
+      );
     case "connecting":
       return withBuiltin({ name: status.name, state: "connecting" }, builtin);
   }
@@ -75,7 +93,10 @@ export function mergeMcpSurfaceEntries(
     }
     const status = live.get(name);
     if (status !== undefined && status.state !== "disconnected") {
-      return liveMcpEntry(status, builtin) ?? withBuiltin({ name, state: "connecting" }, builtin);
+      return (
+        liveMcpEntry(status, builtin) ??
+        withBuiltin({ name, state: "connecting" }, builtin)
+      );
     }
     return withBuiltin({ name, state: "connecting" }, builtin);
   });

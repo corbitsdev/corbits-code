@@ -1,6 +1,10 @@
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { loadSettings, markTelemetryNoticeShown, type Settings } from "../config/settings.js";
+import {
+  loadSettings,
+  markTelemetryNoticeShown,
+  type Settings,
+} from "../config/settings.js";
 import {
   createTelemetry,
   resolveTelemetryEnabled,
@@ -19,7 +23,10 @@ export function telemetryFirstRunPending(
   settings: Settings | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return resolveTelemetryEnabled(settings, env) && settings?.telemetry?.noticeShown !== true;
+  return (
+    resolveTelemetryEnabled(settings, env) &&
+    settings?.telemetry?.noticeShown !== true
+  );
 }
 
 export interface FirstRunDeps {
@@ -62,12 +69,18 @@ export async function activateHeldTelemetry(
     // On the onboarding path a failed stamp means the TUI banner reappears
     // in the same launch and its first prompt fires a second cli_start —
     // accepted: only under disk failure, and it fails toward disclosure.
-    logger.warn("Failed to stamp telemetry notice as shown: {error}", { error: err });
+    logger.warn("Failed to stamp telemetry notice as shown: {error}", {
+      error: err,
+    });
   }
-  const settings = await deps.loadSettings(globalSettingsPath).catch((err: unknown) => {
-    logger.warn("Failed to load settings for telemetry activation: {error}", { error: err });
-    return undefined;
-  });
+  const settings = await deps
+    .loadSettings(globalSettingsPath)
+    .catch((err: unknown) => {
+      logger.warn("Failed to load settings for telemetry activation: {error}", {
+        error: err,
+      });
+      return undefined;
+    });
   if (settings === undefined) {
     // Unreadable settings: the persisted opt-in state is unknown, so stay
     // held rather than guess toward sending.

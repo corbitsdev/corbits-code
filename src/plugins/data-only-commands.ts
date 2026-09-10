@@ -35,7 +35,9 @@ interface LoadedBody {
 
 // Replace `$ARGUMENTS` (Claude Code / OpenCode convention) with the args string.
 function interpolate(body: string, args: string): string {
-  return args.length > 0 ? body.replaceAll("$ARGUMENTS", args) : body.replaceAll("$ARGUMENTS", "");
+  return args.length > 0
+    ? body.replaceAll("$ARGUMENTS", args)
+    : body.replaceAll("$ARGUMENTS", "");
 }
 
 function firstLineDescription(body: string, fallback: string): string {
@@ -47,7 +49,10 @@ function firstLineDescription(body: string, fallback: string): string {
   return line.length > 80 ? `${line.slice(0, 77)}...` : line;
 }
 
-async function loadBody(filePath: string, name: string): Promise<LoadedBody | null> {
+async function loadBody(
+  filePath: string,
+  name: string,
+): Promise<LoadedBody | null> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
@@ -57,7 +62,8 @@ async function loadBody(filePath: string, name: string): Promise<LoadedBody | nu
   const { frontmatter, body } = splitFrontmatter(raw);
   if (frontmatter === null) return null;
   const description =
-    typeof frontmatter.description === "string" && frontmatter.description.trim().length > 0
+    typeof frontmatter.description === "string" &&
+    frontmatter.description.trim().length > 0
       ? frontmatter.description.trim()
       : firstLineDescription(body, name);
   const argumentHint = argumentHintFromFrontmatter(frontmatter);
@@ -79,7 +85,10 @@ function buildFlatCommand(name: string, loaded: LoadedBody): CommandDefinition {
   return def;
 }
 
-function buildNamespacedCommand(ns: string, subs: Map<string, LoadedBody>): CommandDefinition {
+function buildNamespacedCommand(
+  ns: string,
+  subs: Map<string, LoadedBody>,
+): CommandDefinition {
   const subcommands: SubcommandDefinition[] = [...subs.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, loaded]) => ({ name, description: loaded.description }));
@@ -111,7 +120,7 @@ export async function loadDataOnlyCommands(
   pluginDir: string,
   opts: { onWarning?: (msg: string) => void } = {},
 ): Promise<{ commandPlugin: CommandPlugin } | null> {
-  const warn = opts.onWarning ?? (() => {});
+  const warn = opts.onWarning ?? (() => undefined);
 
   // Accept both `commands/` (Claude Code) and `command/` (OpenCode) roots.
   let root: string | null = null;
@@ -184,13 +193,17 @@ export async function loadDataOnlyCommands(
   if (flat.size === 0 && namespaces.size === 0) return null;
 
   const commands: CommandDefinition[] = [];
-  for (const [name, loaded] of [...flat.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, loaded] of [...flat.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
     // A namespace directory and a same-named flat file collide on the command
     // name; the richer namespaced command wins so its subcommands are visible.
     if (namespaces.has(name)) continue;
     commands.push(buildFlatCommand(name, loaded));
   }
-  for (const [ns, subs] of [...namespaces.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [ns, subs] of [...namespaces.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
     commands.push(buildNamespacedCommand(ns, subs));
   }
 

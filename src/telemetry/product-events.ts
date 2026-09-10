@@ -1,12 +1,18 @@
 // Shared product-event emitters that every surface (TUI, exec, future
 // headless) must call so dashboards are not silently TUI-only.
 
-import type { SubAgentTelemetryRollup, SubAgentTerminalReason } from "../subagent/types.js";
+import type {
+  SubAgentTelemetryRollup,
+  SubAgentTerminalReason,
+} from "../subagent/types.js";
 import type { Telemetry } from "./index.js";
 import { classifyCommandName } from "./classify.js";
 
 /** Emit slash_command with a classified first-party (or `custom`) name. */
-export function captureSlashCommand(telemetry: Telemetry, commandName: string): void {
+export function captureSlashCommand(
+  telemetry: Telemetry,
+  commandName: string,
+): void {
   telemetry.capture("slash_command", {
     command_name: classifyCommandName(commandName),
   });
@@ -28,7 +34,9 @@ export interface CaptureSubagentEndArgs {
 }
 
 /** Build allowlisted `subagent_end` properties from a finished run. */
-export function buildSubagentEndProperties(args: CaptureSubagentEndArgs): Record<string, unknown> {
+export function buildSubagentEndProperties(
+  args: CaptureSubagentEndArgs,
+): Record<string, unknown> {
   const props: Record<string, unknown> = {
     agent_name: args.agentName,
     status: args.status,
@@ -57,16 +65,28 @@ export function buildSubagentEndProperties(args: CaptureSubagentEndArgs): Record
 }
 
 /** Emit `subagent_end` with rollup fields when available. */
-export function captureSubagentEnd(telemetry: Telemetry, args: CaptureSubagentEndArgs): void {
+export function captureSubagentEnd(
+  telemetry: Telemetry,
+  args: CaptureSubagentEndArgs,
+): void {
   telemetry.capture("subagent_end", buildSubagentEndProperties(args));
 }
 
-export type PluginLoadReporter = (telemetry: Telemetry, origin: string, identity: string) => void;
+export type PluginLoadReporter = (
+  telemetry: Telemetry,
+  origin: string,
+  identity: string,
+) => void;
 
 export function createPluginLoadReporter(): PluginLoadReporter {
   const loadedPluginIdentities = new Set<string>();
   return (telemetry, origin, identity) => {
-    if (!telemetry.enabled || identity.length === 0 || loadedPluginIdentities.has(identity)) return;
+    if (
+      !telemetry.enabled ||
+      identity.length === 0 ||
+      loadedPluginIdentities.has(identity)
+    )
+      return;
     telemetry.capture("plugin_loaded", { origin });
     loadedPluginIdentities.add(identity);
   };

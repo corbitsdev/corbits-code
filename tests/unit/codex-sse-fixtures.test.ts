@@ -13,6 +13,7 @@ import {
   tagSignature,
 } from "../../src/provider/codex-responses-adapter.js";
 import type { InferenceEvent, LastCycleSource } from "@intx/types/runtime";
+import { defined } from "../helpers/defined.js";
 import { ProtocolMismatchError } from "@intx/inference";
 
 const SOURCE: LastCycleSource = {
@@ -43,7 +44,10 @@ function parseFixture(name: string): InferenceEvent[] {
 }
 
 /** Parse until the first throw; return events emitted before the failure. */
-function parseUntilError(name: string): { events: InferenceEvent[]; error: unknown } {
+function parseUntilError(name: string): {
+  events: InferenceEvent[];
+  error: unknown;
+} {
   const adapter = createCodexResponsesAdapter(SOURCE);
   const events: InferenceEvent[] = [];
   let error: unknown;
@@ -96,7 +100,10 @@ describe("codex-sse fixtures (golden parse)", () => {
     });
     expect(out[3]).toMatchObject({
       type: "inference.block.signature",
-      data: { signature: tagSignature(SOURCE.provider, "ENC_FIXTURE_BLOB_NOT_REAL"), index: 0 },
+      data: {
+        signature: tagSignature(SOURCE.provider, "ENC_FIXTURE_BLOB_NOT_REAL"),
+        index: 0,
+      },
     });
     expect(out[4]).toMatchObject({
       type: "inference.text.delta",
@@ -123,20 +130,32 @@ describe("codex-sse fixtures (golden parse)", () => {
     expect(out[9]).toMatchObject({
       type: "inference.usage",
       data: {
-        usage: { input: 104, output: 40, cacheRead: 16, cacheWrite: 0, thinking: 12 },
+        usage: {
+          input: 104,
+          output: 40,
+          cacheRead: 16,
+          cacheWrite: 0,
+          thinking: 12,
+        },
         source: SOURCE,
       },
     });
 
     // Terminal event in the fixture is response.completed.
-    const lastPayload = loadFixture("interleaved-reasoning-text-tools.json").at(-1)!;
+    const lastPayload = defined(
+      loadFixture("interleaved-reasoning-text-tools.json").at(-1),
+      "last payload",
+    );
     expect(isResponsesStreamTerminal(JSON.stringify(lastPayload))).toBe(true);
   });
 
   test("incomplete stream emits partial text and is terminal without usage", () => {
     const out = parseFixture("incomplete.json");
 
-    expect(eventTypes(out)).toEqual(["inference.text.delta", "inference.text.delta"]);
+    expect(eventTypes(out)).toEqual([
+      "inference.text.delta",
+      "inference.text.delta",
+    ]);
     expect(out[0]).toMatchObject({
       type: "inference.text.delta",
       data: { token: "partial ", index: 0 },
@@ -148,7 +167,10 @@ describe("codex-sse fixtures (golden parse)", () => {
     // response.incomplete is intentionally not mapped to usage (completed-only).
     expect(out.some((e) => e.type === "inference.usage")).toBe(false);
 
-    const lastPayload = loadFixture("incomplete.json").at(-1)!;
+    const lastPayload = defined(
+      loadFixture("incomplete.json").at(-1),
+      "last payload",
+    );
     expect(isResponsesStreamTerminal(JSON.stringify(lastPayload))).toBe(true);
   });
 
@@ -177,7 +199,10 @@ describe("codex-sse fixtures (golden parse)", () => {
     expect(out).toEqual([]);
 
     // response.done is a terminal alias even when it yields no payload events.
-    const lastPayload = loadFixture("lifecycle-ignored.json").at(-1)!;
+    const lastPayload = defined(
+      loadFixture("lifecycle-ignored.json").at(-1),
+      "last payload",
+    );
     expect((lastPayload as { type: string }).type).toBe("response.done");
     expect(isResponsesStreamTerminal(JSON.stringify(lastPayload))).toBe(true);
   });

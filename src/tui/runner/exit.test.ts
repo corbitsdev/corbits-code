@@ -2,10 +2,14 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { defined } from "../../../tests/helpers/defined.js";
 import { finalizeTUIRun } from "./exit.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 
-function stubQuit(args: { awaitTail: () => Promise<void>; shutdownRuntime: () => Promise<void> }): {
+function stubQuit(args: {
+  awaitTail: () => Promise<void>;
+  shutdownRuntime: () => Promise<void>;
+}): {
   state: RunnerState;
   services: RunnerServices;
 } {
@@ -55,7 +59,7 @@ function stubQuit(args: { awaitTail: () => Promise<void>; shutdownRuntime: () =>
 describe("finalizeTUIRun quit order", () => {
   test("starts runtime shutdown without waiting on a hung session-op tail", async () => {
     const order: string[] = [];
-    let settleTail!: (err: Error) => void;
+    let settleTail: ((err: Error) => void) | undefined;
     const hungTail = new Promise<void>((_, reject) => {
       settleTail = reject;
     });
@@ -74,7 +78,7 @@ describe("finalizeTUIRun quit order", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(order[0]).toBe("shutdown");
     } finally {
-      settleTail(new Error("stop"));
+      defined(settleTail, "settleTail")(new Error("stop"));
     }
     await expect(pending).rejects.toThrow("stop");
   });
@@ -82,7 +86,7 @@ describe("finalizeTUIRun quit order", () => {
   test("logs a runtime shutdown failure instead of swallowing it", async () => {
     const logger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
     const errorSpy = spyOn(logger, "error");
-    let settleTail!: (err: Error) => void;
+    let settleTail: ((err: Error) => void) | undefined;
     const hungTail = new Promise<void>((_, reject) => {
       settleTail = reject;
     });
@@ -97,14 +101,15 @@ describe("finalizeTUIRun quit order", () => {
     try {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(errorSpy).toHaveBeenCalled();
-      const logged = errorSpy.mock.calls as unknown as readonly (readonly unknown[])[];
+      const logged = errorSpy.mock
+        .calls as unknown as readonly (readonly unknown[])[];
       const first = logged[0];
       expect(first).toBeDefined();
       expect(String(first?.[0])).toMatch(/shutdown/i);
       expect(first?.[1]).toEqual({ error: "plugin dispose failed" });
     } finally {
       errorSpy.mockRestore();
-      settleTail(new Error("stop"));
+      defined(settleTail, "settleTail")(new Error("stop"));
     }
     await expect(pending).rejects.toThrow("stop");
   });

@@ -3,7 +3,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { rgbToHex, type KeyEvent } from "@opentui/core";
-import { IDLE_TRANSCRIPT_FLOOR, OVERLAY_TRANSCRIPT_FLOOR } from "./geometry/index";
+import { defined } from "../../tests/helpers/defined.js";
+import {
+  IDLE_TRANSCRIPT_FLOOR,
+  OVERLAY_TRANSCRIPT_FLOOR,
+} from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import {
   makePermissionItems,
@@ -11,7 +15,11 @@ import {
   makeOperatorQuestion,
   withTestRenderer,
 } from "./harness";
-import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays";
+import {
+  openModelPickerOverlay,
+  openOperatorOverlay,
+  openPermissionsOverlay,
+} from "./overlays";
 import { wrapOverlayText } from "./overlay-body";
 import { relayout } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
@@ -20,8 +28,15 @@ import {
   setShellOverlayHooks,
   type OverlaySelection,
 } from "./shell/internals";
-import { acceptOverlaySelection, closeInsetOverlay, openListOverlay } from "./shell/overlay-host";
-import { moveOverlaySelection, pageOverlaySelection } from "./shell/overlay-list";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+  openListOverlay,
+} from "./shell/overlay-host";
+import {
+  moveOverlaySelection,
+  pageOverlaySelection,
+} from "./shell/overlay-list";
 import { handleListFilterKey } from "./shell/palette";
 import { UI } from "./theme";
 
@@ -83,11 +98,13 @@ describe("permissions overlay", () => {
           expect(shell.overlayKind).toBe("permissions");
           expect(shell.overlayList).not.toBeNull();
           expect(shell.overlayItems.length).toBe(30);
-          expect(shell.overlayList!.activeIndex).toBe(0);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(0);
           expect(focusOwner(shell.focus)).toBe("overlay");
           expect(scrollLease(shell.focus)).toBe("overlay");
           expect(shell.layout.overlayMode).toBe("inset");
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            OVERLAY_TRANSCRIPT_FLOOR,
+          );
           expect(shell.overlayHost.visible).toBe(true);
 
           await h.renderOnce();
@@ -97,21 +114,35 @@ describe("permissions overlay", () => {
           expect(shell.overlayItems[0]).toBe("Allow once");
           expect(frame).toMatch(/Allow/);
           expect(frame).toContain("/yolo");
-          expect(frame).toContain("Esc cancel · Enter choose · /yolo skip prompts");
+          expect(frame).toContain(
+            "Esc cancel · Enter choose · /yolo skip prompts",
+          );
 
           // Navigate deep enough that window must scroll (keep-active-visible).
-          const listH = shell.overlayList!.height;
+          const listH = defined(shell.overlayList, "overlayList").height;
           for (let i = 0; i < listH + 5; i++) {
             moveOverlaySelection(shell, 1);
           }
-          expect(shell.overlayList!.activeIndex).toBe(listH + 5);
-          const slice = shell.overlayList!.visibleRange();
-          expect(shell.overlayList!.activeIndex).toBeGreaterThanOrEqual(slice.start);
-          expect(shell.overlayList!.activeIndex).toBeLessThan(slice.end);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(
+            listH + 5,
+          );
+          const slice = defined(
+            shell.overlayList,
+            "overlayList",
+          ).visibleRange();
+          expect(
+            defined(shell.overlayList, "overlayList").activeIndex,
+          ).toBeGreaterThanOrEqual(slice.start);
+          expect(
+            defined(shell.overlayList, "overlayList").activeIndex,
+          ).toBeLessThan(slice.end);
 
           await h.renderOnce();
           frame = h.captureCharFrame();
-          const activeLabel = shell.overlayItems[shell.overlayList!.activeIndex] ?? "";
+          const activeLabel =
+            shell.overlayItems[
+              defined(shell.overlayList, "overlayList").activeIndex
+            ] ?? "";
           expect(frame).toContain(activeLabel.slice(0, 20));
 
           h.pressKey("Escape");
@@ -122,7 +153,9 @@ describe("permissions overlay", () => {
           expect(shell.overlayKind).toBeNull();
           expect(focusOwner(shell.focus)).toBe("prompt");
           expect(shell.layout.overlayMode).toBe("closed");
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
         } finally {
           shell.dispose();
         }
@@ -185,12 +218,21 @@ describe("permissions overlay", () => {
         });
         try {
           openPermissionsOverlay(shell, { items: makePermissionItems(30) });
-          const before = shell.overlayList!.activeIndex;
+          const before = defined(shell.overlayList, "overlayList").activeIndex;
           pageOverlaySelection(shell, 1);
-          expect(shell.overlayList!.activeIndex).toBeGreaterThan(before);
-          const slice = shell.overlayList!.visibleRange();
-          expect(shell.overlayList!.activeIndex).toBeGreaterThanOrEqual(slice.start);
-          expect(shell.overlayList!.activeIndex).toBeLessThan(slice.end);
+          expect(
+            defined(shell.overlayList, "overlayList").activeIndex,
+          ).toBeGreaterThan(before);
+          const slice = defined(
+            shell.overlayList,
+            "overlayList",
+          ).visibleRange();
+          expect(
+            defined(shell.overlayList, "overlayList").activeIndex,
+          ).toBeGreaterThanOrEqual(slice.start);
+          expect(
+            defined(shell.overlayList, "overlayList").activeIndex,
+          ).toBeLessThan(slice.end);
         } finally {
           shell.dispose();
         }
@@ -213,7 +255,9 @@ describe("operator question overlay", () => {
           openOperatorOverlay(shell, makeOperatorQuestion());
           expect(shell.overlayKind).toBe("operator");
           expect(shell.layout.overlayMode).toBe("inset");
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            OVERLAY_TRANSCRIPT_FLOOR,
+          );
           expect(shell.overlayBodyLines.length).toBeGreaterThan(0);
           expect(shell.overlayItems.length).toBeGreaterThan(3);
           expect(focusOwner(shell.focus)).toBe("overlay");
@@ -421,7 +465,9 @@ describe("overlay accept callbacks", () => {
             },
           });
           acceptOverlaySelection(shell);
-          expect(accepted).toEqual([{ kind: "permissions", index: 0, label: "" }]);
+          expect(accepted).toEqual([
+            { kind: "permissions", index: 0, label: "" },
+          ]);
           expect(cancelled).toBe(0);
           expect(shell.overlayList).toBeNull();
         } finally {
@@ -445,10 +491,9 @@ describe("overlay accept callbacks", () => {
             choices: ["Stay on A", "Leave A"],
             itemIds: ["ask-a:0", "ask-a:1"],
           });
-          expect(shell.overlayList?.select.options.map((option) => option.name)).toEqual([
-            "Stay on A",
-            "Leave A",
-          ]);
+          expect(
+            shell.overlayList?.select.options.map((option) => option.name),
+          ).toEqual(["Stay on A", "Leave A"]);
           closeInsetOverlay(shell);
 
           openOperatorOverlay(shell, {
@@ -457,9 +502,17 @@ describe("overlay accept callbacks", () => {
             itemIds: ["ask-b:0", "ask-b:1"],
           });
           const painted = shell.overlayList?.select.options ?? [];
-          expect(painted.map((option) => option.name)).toEqual(["Go with B", "Skip B"]);
-          expect(painted.map((option) => option.value)).toEqual(["ask-b:0", "ask-b:1"]);
-          expect(painted.map((option) => option.value)).not.toContain("ask-a:0");
+          expect(painted.map((option) => option.name)).toEqual([
+            "Go with B",
+            "Skip B",
+          ]);
+          expect(painted.map((option) => option.value)).toEqual([
+            "ask-b:0",
+            "ask-b:1",
+          ]);
+          expect(painted.map((option) => option.value)).not.toContain(
+            "ask-a:0",
+          );
         } finally {
           shell.dispose();
         }
@@ -622,7 +675,11 @@ describe("type-to-filter list overlay", () => {
           acceptOverlaySelection(shell);
           expect(shell.overlayList).not.toBeNull();
           expect(shell.overlayItems).toEqual(["(no matches)"]);
-          expect(shell.streamLog.some((row) => /Chose \(no matches\)/.test(row.text))).toBe(false);
+          expect(
+            shell.streamLog.some((row) =>
+              /Chose \(no matches\)/.test(row.text),
+            ),
+          ).toBe(false);
         } finally {
           shell.dispose();
         }
@@ -643,7 +700,9 @@ describe("resize mid-overlay", () => {
         });
         try {
           openPermissionsOverlay(shell, { items: makePermissionItems(30) });
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            OVERLAY_TRANSCRIPT_FLOOR,
+          );
 
           relayout(shell, {
             columns: 120,
@@ -651,7 +710,9 @@ describe("resize mid-overlay", () => {
             overlayMode: "inset",
             overlayBodyRows: shell.layout.overlayHeight,
           });
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            OVERLAY_TRANSCRIPT_FLOOR,
+          );
           expect(shell.overlayList).not.toBeNull();
           expect(shell.layout.overlayHeight).toBeGreaterThan(0);
 
@@ -661,11 +722,15 @@ describe("resize mid-overlay", () => {
             overlayMode: "inset",
             overlayBodyRows: shell.layout.overlayHeight,
           });
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            OVERLAY_TRANSCRIPT_FLOOR,
+          );
 
           closeInsetOverlay(shell);
           expect(shell.layout.overlayMode).toBe("closed");
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
         } finally {
           shell.dispose();
         }

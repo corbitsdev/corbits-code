@@ -77,9 +77,12 @@ describe("intervention log", () => {
   });
 
   test("a write failure never throws into the caller", async () => {
-    const sink = createInterventionLog(join(tmpdir(), "intervention-log-missing-dir-xyz"), {
-      role: "leaf",
-    });
+    const sink = createInterventionLog(
+      join(tmpdir(), "intervention-log-missing-dir-xyz"),
+      {
+        role: "leaf",
+      },
+    );
     expect(() => {
       sink({ id: "stalled", class: "stop" });
     }).not.toThrow();

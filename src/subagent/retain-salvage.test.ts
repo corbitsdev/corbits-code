@@ -16,7 +16,9 @@ describe("retained session lifecycle", () => {
     // agent. agent-fleet's .then() still routes it to complete() — passing
     // agentRetained:false, exactly as its real call site does whenever
     // result.agentRetained isn't true.
-    store.complete(s.id, "Stopped: deadline\n\nPartial work...", { agentRetained: false });
+    store.complete(s.id, "Stopped: deadline\n\nPartial work...", {
+      agentRetained: false,
+    });
     const outcome = store.resumeOne(s.id, "more");
     expect(outcome.ok).toBe(false);
   });
@@ -48,7 +50,10 @@ describe("retained session lifecycle", () => {
   // test moved from asserting `maxCompleted` bounds them to asserting
   // `maxRetained` does (still bounded, still no leak, just the right knob).
   test("retained completed sessions are bounded by maxRetained, not the display cap", () => {
-    const store = createSubAgentSessionStore({ maxCompleted: 3, maxRetained: 3 });
+    const store = createSubAgentSessionStore({
+      maxCompleted: 3,
+      maxRetained: 3,
+    });
     for (let i = 0; i < 50; i++) {
       const s = store.start({
         description: `w${i}`,
@@ -56,7 +61,7 @@ describe("retained session lifecycle", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(s.id, async () => {});
+      store.registerClose(s.id, async () => undefined);
       store.complete(s.id, "done");
     }
     expect(store.list().length).toBeLessThanOrEqual(3);

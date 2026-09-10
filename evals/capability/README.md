@@ -230,7 +230,9 @@ verify.sh   # objective grader (exit 0 = pass)
   "provider": "...",
   "model": "...",
   "repeats": 5,
-  "variants": [{ "id": "xai/grok-4.5", "provider": "xai", "model": "grok-4.5" }],
+  "variants": [
+    { "id": "xai/grok-4.5", "provider": "xai", "model": "grok-4.5" }
+  ],
   "aggregates": [
     {
       "resultKey": "xai/grok-4.5::simple-health",
@@ -251,7 +253,13 @@ verify.sh   # objective grader (exit 0 = pass)
     "durationMs": 60000,
     "turnsUsed": 12,
     "toolCallCount": 20,
-    "tokenUsage": { "input": 10000, "output": 2000, "cacheRead": 0, "cacheWrite": 0, "thinking": 0 }
+    "tokenUsage": {
+      "input": 10000,
+      "output": 2000,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "thinking": 0
+    }
   },
   "cases": [
     {

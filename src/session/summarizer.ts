@@ -90,7 +90,9 @@ export function condenseTurns(turns: ConversationTurn[]): string {
 
   const sections: (string | null)[] = [
     `Turns dropped: ${turns.length}`,
-    toolNames.size > 0 ? `Tools used: ${[...toolNames].sort().join(", ")}` : null,
+    toolNames.size > 0
+      ? `Tools used: ${[...toolNames].sort().join(", ")}`
+      : null,
     files.size > 0
       ? `Files touched:\n${[...files]
           .slice(0, 40)
@@ -133,7 +135,10 @@ function workflowPreamble(ctx: SummaryContext | undefined): string {
 }
 
 /** Build the user-content prompt for the summary call. Pure and testable. */
-export function buildSummaryPrompt(turns: ConversationTurn[], ctx?: SummaryContext): string {
+export function buildSummaryPrompt(
+  turns: ConversationTurn[],
+  ctx?: SummaryContext,
+): string {
   return `${workflowPreamble(ctx)}Session excerpt:\n\n${condenseTurns(turns)}`;
 }
 
@@ -214,14 +219,19 @@ export function createModelSummarizer(
       const signal = options.getSignal?.() ?? new AbortController().signal;
       const text = await complete(promptTurns, options.getSource(), signal);
       if (text.length === 0) {
-        logger.warn("compaction summary call returned empty text; using deterministic fallback");
+        logger.warn(
+          "compaction summary call returned empty text; using deterministic fallback",
+        );
         return fallback("empty model output");
       }
       return text.length > maxChars ? text.slice(0, maxChars) : text;
     } catch (error) {
-      logger.warn("compaction summary call failed; using deterministic fallback: {error}", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.warn(
+        "compaction summary call failed; using deterministic fallback: {error}",
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
       return fallback("summary call failed");
     }
   };

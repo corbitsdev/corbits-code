@@ -49,11 +49,15 @@ export interface PartialInferenceError {
   statusCode?: number;
 }
 
-function inferenceErrorFromEvent(event: ReactorEmittedEvent): PartialInferenceError | undefined {
+function inferenceErrorFromEvent(
+  event: ReactorEmittedEvent,
+): PartialInferenceError | undefined {
   const data = event.data as { error?: unknown } | undefined;
-  if (data === undefined || typeof data !== "object" || data === null) return undefined;
+  if (data === undefined || typeof data !== "object" || data === null)
+    return undefined;
   const raw = data.error;
-  if (raw === undefined || typeof raw !== "object" || raw === null) return undefined;
+  if (raw === undefined || typeof raw !== "object" || raw === null)
+    return undefined;
   const rec = raw as Record<string, unknown>;
   const error: PartialInferenceError = {};
   if (typeof rec.category === "string") error.category = rec.category;
@@ -87,7 +91,10 @@ export interface CycleTextRecorder {
    * entry snapshot under `reason` and returns it. A second call on an
    * already-closed recorder is a no-op that returns "".
    */
-  dispose: (reason: PartialFlushReason, opts?: { drain?: Promise<unknown> }) => Promise<string>;
+  dispose: (
+    reason: PartialFlushReason,
+    opts?: { drain?: Promise<unknown> },
+  ) => Promise<string>;
   /** Reopen a closed recorder with an empty buffer for the next session. */
   reset: () => void;
 }
@@ -109,8 +116,17 @@ export function createCycleTextRecorder(
     error?: PartialInferenceError,
   ): Promise<void> => {
     const hasErrorPayload = reason === "inference-error" && error !== undefined;
-    if (text.trim().length === 0 && thinkingText.trim().length === 0 && !hasErrorPayload) return;
-    const record: Record<string, unknown> = { reason, chars: text.length, text };
+    if (
+      text.trim().length === 0 &&
+      thinkingText.trim().length === 0 &&
+      !hasErrorPayload
+    )
+      return;
+    const record: Record<string, unknown> = {
+      reason,
+      chars: text.length,
+      text,
+    };
     // Omitted when empty: a text-only abort (the common case) keeps the
     // existing record shape, and diagnosing a thinking-loop abort needs the
     // looped window that never reached visible text.
@@ -148,12 +164,14 @@ export function createCycleTextRecorder(
     if (closed) return;
     if (event.type === "inference.text.delta") {
       const token = (event.data as { token?: unknown }).token;
-      if (typeof token === "string") cycleText = appendCycleText(cycleText, token);
+      if (typeof token === "string")
+        cycleText = appendCycleText(cycleText, token);
       return;
     }
     if (event.type === "inference.thinking.delta") {
       const token = (event.data as { token?: unknown }).token;
-      if (typeof token === "string") cycleThinkingText = appendCycleText(cycleThinkingText, token);
+      if (typeof token === "string")
+        cycleThinkingText = appendCycleText(cycleThinkingText, token);
       return;
     }
     if (onTurnBoundary(event)) {

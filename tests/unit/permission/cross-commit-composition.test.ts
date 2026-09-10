@@ -9,7 +9,11 @@ import {
 import { buildRequests } from "../../../src/permission/classify.js";
 import type { RequestApproval } from "../../../src/permission/types.js";
 
-const call = (command: string) => ({ id: "t", name: "run_shell", arguments: { command } });
+const call = (command: string) => ({
+  id: "t",
+  name: "run_shell",
+  arguments: { command },
+});
 
 function gateWith(onAsk: RequestApproval) {
   return createPermissionGate({
@@ -30,10 +34,13 @@ describe("comment normalization x exact full-command grants", () => {
       const exact = req.scopes.find((s) => s.id === "exact");
       return {
         allow: true,
-        ...(exact !== undefined ? { persist: { ...exact, grant: "session" as const } } : {}),
+        ...(exact !== undefined
+          ? { persist: { ...exact, grant: "session" as const } }
+          : {}),
       };
     });
-    const withComment = "# build then test\ngit fetch origin && git rebase origin/main";
+    const withComment =
+      "# build then test\ngit fetch origin && git rebase origin/main";
     expect((await gate.evaluate(call(withComment))).allowed).toBe(true);
     expect(prompts).toBe(1);
     const withoutComment = "git fetch origin && git rebase origin/main";

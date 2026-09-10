@@ -18,14 +18,24 @@ function turns(): ConversationTurn[] {
   return [
     {
       role: "user",
-      content: [{ type: "text", text: "Fix the login bug, see https://example.com/ticket/42" }],
+      content: [
+        {
+          type: "text",
+          text: "Fix the login bug, see https://example.com/ticket/42",
+        },
+      ],
       timestamp: 1,
     },
     {
       role: "assistant",
       content: [
         { type: "text", text: "Looking at the auth handler." },
-        { type: "tool_call", id: "c1", name: "read_file", arguments: { path: "src/auth.ts" } },
+        {
+          type: "tool_call",
+          id: "c1",
+          name: "read_file",
+          arguments: { path: "src/auth.ts" },
+        },
       ],
       model: "test-model",
       timestamp: 2,
@@ -33,7 +43,12 @@ function turns(): ConversationTurn[] {
     {
       role: "assistant",
       content: [
-        { type: "tool_call", id: "c2", name: "edit_file", arguments: { path: "src/session.ts" } },
+        {
+          type: "tool_call",
+          id: "c2",
+          name: "edit_file",
+          arguments: { path: "src/session.ts" },
+        },
       ],
       model: "test-model",
       timestamp: 3,

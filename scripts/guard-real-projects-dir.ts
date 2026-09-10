@@ -54,7 +54,10 @@ async function main(): Promise<void> {
   // arguments the full default suite runs via `bun run test`, so `bun run
   // check` behavior is unchanged.
   const shardArgs = process.argv.slice(2);
-  const testCommand = shardArgs.length > 0 ? ["run", "test:paths", ...shardArgs] : ["run", "test"];
+  const testCommand =
+    shardArgs.length > 0
+      ? ["run", "test:paths", ...shardArgs]
+      : ["run", "test"];
 
   const child = spawn("bun", testCommand, {
     stdio: "inherit",
@@ -64,7 +67,7 @@ async function main(): Promise<void> {
     child.on("exit", (code) => resolve(code ?? 1));
   });
 
-  await rm(runTmpDir, { recursive: true, force: true }).catch(() => {});
+  await rm(runTmpDir, { recursive: true, force: true }).catch(() => undefined);
 
   const after = await listEntries();
   const newEntries = [...after].filter((name) => !before.has(name));

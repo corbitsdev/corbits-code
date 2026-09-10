@@ -1,5 +1,9 @@
 import type { ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
-import { type AgentTool, type AgentToolRunner, DuplicateToolError } from "@intx/agent";
+import {
+  type AgentTool,
+  type AgentToolRunner,
+  DuplicateToolError,
+} from "@intx/agent";
 import {
   resolveToolExecutionTimeoutMs,
   resolveWaitForApproval,
@@ -33,7 +37,8 @@ export function createDynamicToolRunner(
     const incoming = new Set<string>();
     for (const tool of tools) {
       const name = tool.definition.name;
-      if (byName.has(name) || incoming.has(name)) throw new DuplicateToolError(name);
+      if (byName.has(name) || incoming.has(name))
+        throw new DuplicateToolError(name);
       incoming.add(name);
     }
     for (const tool of tools) byName.set(tool.definition.name, tool);
@@ -45,7 +50,8 @@ export function createDynamicToolRunner(
 
   addTools(initial);
 
-  const currentDefinitions = (): ToolDefinition[] => [...byName.values()].map((t) => t.definition);
+  const currentDefinitions = (): ToolDefinition[] =>
+    [...byName.values()].map((t) => t.definition);
 
   return {
     get definitions(): readonly ToolDefinition[] {
@@ -57,9 +63,16 @@ export function createDynamicToolRunner(
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
       const found = byName.get(call.name);
       if (found === undefined) {
-        return { callId: call.id, content: `unknown tool: ${call.name}`, isError: true };
+        return {
+          callId: call.id,
+          content: `unknown tool: ${call.name}`,
+          isError: true,
+        };
       }
-      const executionTimeoutMs = resolveToolExecutionTimeoutMs(watchdogConfig, call);
+      const executionTimeoutMs = resolveToolExecutionTimeoutMs(
+        watchdogConfig,
+        call,
+      );
       const waitForApproval = resolveWaitForApproval(watchdogConfig);
       const result = await runWithToolExecutionWatchdog(
         call,
@@ -67,7 +80,8 @@ export function createDynamicToolRunner(
         executionTimeoutMs,
         async (budgetSignal) => {
           try {
-            if (found.kind === "full") return await found.handler(call, budgetSignal);
+            if (found.kind === "full")
+              return await found.handler(call, budgetSignal);
             const text = await found.handler(call.arguments, budgetSignal);
             return { callId: call.id, content: text };
           } catch (err) {
@@ -85,7 +99,9 @@ export function createDynamicToolRunner(
       // place a terminal-control sanitizer needs to run.
       if (typeof result.content !== "string") return result;
       const sanitized = stripTerminalControlSequences(result.content);
-      return sanitized === result.content ? result : { ...result, content: sanitized };
+      return sanitized === result.content
+        ? result
+        : { ...result, content: sanitized };
     },
   };
 }

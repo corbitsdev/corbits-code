@@ -18,13 +18,21 @@ function colored(
   palette: ViewPalette,
   extra?: Partial<StyledSegment>,
 ): StyledSegment {
-  return { text, ...(role !== undefined ? { color: palette(role) } : {}), ...extra };
+  return {
+    text,
+    ...(role !== undefined ? { color: palette(role) } : {}),
+    ...extra,
+  };
 }
 
 // Render a leaf-ish node to a single inline StyledLine (for use inside row/grid cells).
 // If the node would produce multiple lines we take only the first (agent should use
 // simple text nodes inside aligned structures).
-function renderCell(node: ViewNode, available: number, palette: ViewPalette): StyledLine {
+function renderCell(
+  node: ViewNode,
+  available: number,
+  palette: ViewPalette,
+): StyledLine {
   const lines = viewToLines(node, available + PAD, palette); // +PAD so inner doesn't subtract again
   return lines[0] ?? [];
 }
@@ -42,12 +50,17 @@ function padSegments(
   align: "left" | "right" | "center" = "left",
 ): StyledLine {
   const current = segments.reduce((n, s) => n + s.text.length, 0);
-  if (current >= width) return segments.map((s) => ({ ...s, text: truncate(s.text, width) })); // crude per-seg, good enough
+  if (current >= width)
+    return segments.map((s) => ({ ...s, text: truncate(s.text, width) })); // crude per-seg, good enough
   const remain = width - current;
   if (align === "right") return [{ text: " ".repeat(remain) }, ...segments];
   if (align === "center") {
     const left = Math.floor(remain / 2);
-    return [{ text: " ".repeat(left) }, ...segments, { text: " ".repeat(remain - left) }];
+    return [
+      { text: " ".repeat(left) },
+      ...segments,
+      { text: " ".repeat(remain - left) },
+    ];
   }
   return [...segments, { text: " ".repeat(remain) }];
 }
@@ -72,7 +85,9 @@ export function viewToLines(
         ...(node.bold ? { bold: true } : {}),
         ...(node.dim ? { dim: true } : {}),
       };
-      return wrapLines(node.text, available).map((row) => [colored(row, role, palette, extra)]);
+      return wrapLines(node.text, available).map((row) => [
+        colored(row, role, palette, extra),
+      ]);
     }
 
     case "stack": {
@@ -87,7 +102,9 @@ export function viewToLines(
     case "row": {
       if (node.children.length === 0) return [[]];
       // Render children as inline segments on a single row. Use first line of each.
-      const parts: StyledLine[] = node.children.map((c) => renderCell(c, available, palette));
+      const parts: StyledLine[] = node.children.map((c) =>
+        renderCell(c, available, palette),
+      );
       const out: StyledLine = [];
       const gapSeg = { text: " ".repeat(node.gap ?? 0) };
       parts.forEach((p, i) => {
@@ -102,7 +119,9 @@ export function viewToLines(
         4,
         available - (node.border ? 2 : 0) - (node.padding ? 2 : 0) * 2,
       );
-      const inner = node.children.flatMap((c) => viewToLines(c, innerWidth + PAD, palette));
+      const inner = node.children.flatMap((c) =>
+        viewToLines(c, innerWidth + PAD, palette),
+      );
       if (!node.border && !node.padding) return inner;
       const out: StyledLine[] = [];
       const border = "─".repeat(Math.max(1, innerWidth));
@@ -110,7 +129,11 @@ export function viewToLines(
       const pad = node.padding ? " ".repeat(node.padding) : "";
       for (const ln of inner) {
         const content = ln.map((s) => ({ ...s }));
-        out.push([colored(pad, undefined, palette), ...content, colored(pad, undefined, palette)]);
+        out.push([
+          colored(pad, undefined, palette),
+          ...content,
+          colored(pad, undefined, palette),
+        ]);
       }
       if (node.border) out.push([colored(`└${border}┘`, "muted", palette)]);
       return out;
@@ -135,25 +158,39 @@ export function viewToLines(
       // Simple drop-right if too wide (port of allocate heuristic)
       const widths = [...natural];
       let cols = node.columns ?? [];
-      const total = () => widths.reduce((n, w) => n + w, 0) + GAP * Math.max(0, widths.length - 1);
+      const total = () =>
+        widths.reduce((n, w) => n + w, 0) +
+        GAP * Math.max(0, widths.length - 1);
       while (total() > available && widths.length > 1) {
         widths.pop();
         cols = cols.slice(0, widths.length);
       }
-      if (widths.length === 1 && widths[0]! > available) widths[0] = available;
+      const firstWidth = widths[0];
+      if (widths.length === 1 && firstWidth != null && firstWidth > available)
+        widths[0] = available;
       const leftover = available - total();
-      if (leftover > 0 && widths.length > 0)
-        widths[widths.length - 1] = widths[widths.length - 1]! + leftover;
+      if (leftover > 0 && widths.length > 0) {
+        const lastIndex = widths.length - 1;
+        const last = widths[lastIndex];
+        if (last == null) throw new Error("grid column width missing");
+        widths[lastIndex] = last + leftover;
+      }
 
       const lines: StyledLine[] = [];
       for (const r of allRows) {
         const cells = r.slice(0, widths.length);
         const segs: StyledLine = [];
         for (let i = 0; i < cells.length; i++) {
-          const cellNode = cells[i]!;
-          const cellLine = renderCell(cellNode, widths[i]!, palette);
-          const align = (cols[i]?.align ?? "left") as "left" | "right" | "center";
-          const padded = padSegments(cellLine, widths[i]!, align);
+          const cellNode = cells[i];
+          if (cellNode == null) throw new Error("grid cell missing");
+          const colWidth = widths[i];
+          if (colWidth == null) throw new Error("grid column width missing");
+          const cellLine = renderCell(cellNode, colWidth, palette);
+          const align = (cols[i]?.align ?? "left") as
+            | "left"
+            | "right"
+            | "center";
+          const padded = padSegments(cellLine, colWidth, align);
           segs.push(...padded);
           if (i < cells.length - 1) segs.push({ text: " ".repeat(GAP) });
         }
@@ -161,7 +198,12 @@ export function viewToLines(
       }
       if (node.rows.length > allRows.length) {
         lines.push([
-          colored(`+${node.rows.length - allRows.length} more`, "muted", palette, { dim: true }),
+          colored(
+            `+${node.rows.length - allRows.length} more`,
+            "muted",
+            palette,
+            { dim: true },
+          ),
         ]);
       }
       return lines;

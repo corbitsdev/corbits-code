@@ -89,10 +89,14 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
   }
 
   if (lines[0]?.trim() !== BEGIN_PATCH) {
-    throw new CodexApplyPatchError("malformed envelope: first line must be '*** Begin Patch'");
+    throw new CodexApplyPatchError(
+      "malformed envelope: first line must be '*** Begin Patch'",
+    );
   }
   if (lines[lines.length - 1]?.trim() !== END_PATCH) {
-    throw new CodexApplyPatchError("malformed envelope: last line must be '*** End Patch'");
+    throw new CodexApplyPatchError(
+      "malformed envelope: last line must be '*** End Patch'",
+    );
   }
 
   const body = lines.slice(1, -1);
@@ -100,50 +104,72 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
   let i = 0;
 
   while (i < body.length) {
-    const line = body[i]!;
+    const line = body[i];
+    if (line === undefined) {
+      throw new CodexApplyPatchError("unexpected end of patch body");
+    }
     if (line.startsWith(ADD_FILE)) {
       const path = requireRelativePath(line.slice(ADD_FILE.length), "Add File");
       i += 1;
       const contentLines: string[] = [];
-      while (i < body.length && body[i]!.startsWith("+")) {
-        contentLines.push(body[i]!.slice(1));
+      while (i < body.length) {
+        const contentLine = body[i];
+        if (contentLine === undefined || !contentLine.startsWith("+")) break;
+        contentLines.push(contentLine.slice(1));
         i += 1;
       }
-      if (i < body.length && !isFileOpHeader(body[i]!)) {
+      const next = body[i];
+      if (next !== undefined && !isFileOpHeader(next)) {
         throw new CodexApplyPatchError(
-          `malformed Add File '${path}': expected '+' content lines or next file op, got: ${body[i]}`,
+          `malformed Add File '${path}': expected '+' content lines or next file op, got: ${next}`,
         );
       }
       // Codex-rs: each '+' line contributes text + "\n".
-      const content = contentLines.length === 0 ? "" : contentLines.map((l) => `${l}\n`).join("");
+      const content =
+        contentLines.length === 0
+          ? ""
+          : contentLines.map((l) => `${l}\n`).join("");
       ops.push({ type: "add", path, content });
       continue;
     }
 
     if (line.startsWith(DELETE_FILE)) {
-      const path = requireRelativePath(line.slice(DELETE_FILE.length), "Delete File");
+      const path = requireRelativePath(
+        line.slice(DELETE_FILE.length),
+        "Delete File",
+      );
       i += 1;
       ops.push({ type: "delete", path });
       continue;
     }
 
     if (line.startsWith(UPDATE_FILE)) {
-      const path = requireRelativePath(line.slice(UPDATE_FILE.length), "Update File");
+      const path = requireRelativePath(
+        line.slice(UPDATE_FILE.length),
+        "Update File",
+      );
       i += 1;
       let moveTo: string | undefined;
-      if (i < body.length && body[i]!.startsWith(MOVE_TO)) {
-        moveTo = requireRelativePath(body[i]!.slice(MOVE_TO.length), "Move to");
+      const maybeMove = body[i];
+      if (maybeMove !== undefined && maybeMove.startsWith(MOVE_TO)) {
+        moveTo = requireRelativePath(
+          maybeMove.slice(MOVE_TO.length),
+          "Move to",
+        );
         i += 1;
       }
       const hunks: PatchHunk[] = [];
-      while (i < body.length && isHunkStart(body[i]!)) {
+      while (i < body.length) {
+        const hunkLine = body[i];
+        if (hunkLine === undefined || !isHunkStart(hunkLine)) break;
         const { hunk, next } = parseHunk(body, i);
         hunks.push(hunk);
         i = next;
       }
-      if (i < body.length && !isFileOpHeader(body[i]!)) {
+      const afterHunks = body[i];
+      if (afterHunks !== undefined && !isFileOpHeader(afterHunks)) {
         throw new CodexApplyPatchError(
-          `malformed Update File '${path}': expected hunk ('@@') or next file op, got: ${body[i]}`,
+          `malformed Update File '${path}': expected hunk ('@@') or next file op, got: ${afterHunks}`,
         );
       }
       ops.push(
@@ -201,7 +227,9 @@ export function applyUpdateHunks(original: string, hunks: PatchHunk[]): string {
     if (hunk.header !== undefined && hunk.header.length > 0) {
       const idx = findLineFrom(lines, hunk.header, cursor);
       if (idx === -1) {
-        throw new CodexApplyPatchError(`failed to find hunk context header '${hunk.header}'`);
+        throw new CodexApplyPatchError(
+          `failed to find hunk context header '${hunk.header}'`,
+        );
       }
       cursor = idx + 1;
     }
@@ -223,13 +251,22 @@ export function applyUpdateHunks(original: string, hunks: PatchHunk[]): string {
       continue;
     }
 
-    const start = findSequence(lines, oldLines, cursor, hunk.endOfFile === true);
+    const start = findSequence(
+      lines,
+      oldLines,
+      cursor,
+      hunk.endOfFile === true,
+    );
     if (start === -1) {
       throw new CodexApplyPatchError(
         `failed to find expected lines in file:\n${oldLines.join("\n")}`,
       );
     }
-    lines = [...lines.slice(0, start), ...newLines, ...lines.slice(start + oldLines.length)];
+    lines = [
+      ...lines.slice(0, start),
+      ...newLines,
+      ...lines.slice(start + oldLines.length),
+    ];
     cursor = start + newLines.length;
   }
 
@@ -246,8 +283,14 @@ export function contentFromAddOp(op: PatchAddOp): string {
   return op.content;
 }
 
-function parseHunk(body: string[], start: number): { hunk: PatchHunk; next: number } {
-  const headerLine = body[start]!;
+function parseHunk(
+  body: string[],
+  start: number,
+): { hunk: PatchHunk; next: number } {
+  const headerLine = body[start];
+  if (headerLine === undefined) {
+    throw new CodexApplyPatchError("expected hunk start '@@'");
+  }
   let header: string | undefined;
   if (headerLine === "@@") {
     header = undefined;
@@ -256,18 +299,23 @@ function parseHunk(body: string[], start: number): { hunk: PatchHunk; next: numb
   } else if (headerLine.startsWith("@@")) {
     header = headerLine.slice(2).trimStart();
   } else {
-    throw new CodexApplyPatchError(`expected hunk start '@@', got: ${headerLine}`);
+    throw new CodexApplyPatchError(
+      `expected hunk start '@@', got: ${headerLine}`,
+    );
   }
 
   let i = start + 1;
   const lines: PatchHunkLine[] = [];
   while (i < body.length) {
-    const raw = body[i]!;
+    const raw = body[i];
+    if (raw === undefined) break;
     if (raw === END_OF_FILE) {
       i += 1;
       return {
         hunk:
-          header === undefined ? { lines, endOfFile: true } : { header, lines, endOfFile: true },
+          header === undefined
+            ? { lines, endOfFile: true }
+            : { header, lines, endOfFile: true },
         next: i,
       };
     }
@@ -302,7 +350,11 @@ function parseHunk(body: string[], start: number): { hunk: PatchHunk; next: numb
 }
 
 function isFileOpHeader(line: string): boolean {
-  return line.startsWith(ADD_FILE) || line.startsWith(DELETE_FILE) || line.startsWith(UPDATE_FILE);
+  return (
+    line.startsWith(ADD_FILE) ||
+    line.startsWith(DELETE_FILE) ||
+    line.startsWith(UPDATE_FILE)
+  );
 }
 
 function isHunkStart(line: string): boolean {
@@ -337,10 +389,12 @@ function findLineFrom(lines: string[], target: string, from: number): number {
   }
   // Soften header seek the same way as hunk body matching.
   for (let i = from; i < lines.length; i++) {
-    if (lines[i]!.trimEnd() === target.trimEnd()) return i;
+    const line = lines[i];
+    if (line !== undefined && line.trimEnd() === target.trimEnd()) return i;
   }
   for (let i = from; i < lines.length; i++) {
-    if (lines[i]!.trim() === target.trim()) return i;
+    const line = lines[i];
+    if (line !== undefined && line.trim() === target.trim()) return i;
   }
   return -1;
 }
@@ -359,13 +413,20 @@ function findSequence(
   if (pattern.length > lines.length) return -1;
 
   const searchStart =
-    endOfFile && lines.length >= pattern.length ? lines.length - pattern.length : from;
+    endOfFile && lines.length >= pattern.length
+      ? lines.length - pattern.length
+      : from;
 
-  const tryFrom = (start: number, eq: (a: string, b: string) => boolean): number => {
+  const tryFrom = (
+    start: number,
+    eq: (a: string, b: string) => boolean,
+  ): number => {
     for (let i = start; i <= lines.length - pattern.length; i++) {
       let ok = true;
       for (let j = 0; j < pattern.length; j++) {
-        if (!eq(lines[i + j]!, pattern[j]!)) {
+        const a = lines[i + j];
+        const b = pattern[j];
+        if (a === undefined || b === undefined || !eq(a, b)) {
           ok = false;
           break;
         }
@@ -376,7 +437,8 @@ function findSequence(
   };
 
   // When eof, try the eof-aligned window first, then fall through from `from`.
-  const starts = endOfFile && searchStart !== from ? [searchStart, from] : [searchStart];
+  const starts =
+    endOfFile && searchStart !== from ? [searchStart, from] : [searchStart];
 
   for (const start of starts) {
     const exact = tryFrom(start, (a, b) => a === b);

@@ -79,7 +79,8 @@ export function coreToolNamesForSessionMode(
 ): readonly string[] {
   const orchestratorEnabled = sessionModeEnablesSubAgents(mode);
   return CORE_TOOL_NAMES.filter((name) => {
-    if (!orchestratorEnabled && ORCHESTRATOR_ONLY_TOOL_NAMES.includes(name)) return false;
+    if (!orchestratorEnabled && ORCHESTRATOR_ONLY_TOOL_NAMES.includes(name))
+      return false;
     if (name === "lsp") return availability.languageServerAvailable;
     return true;
   });
@@ -89,7 +90,10 @@ export function advertisedToolNamesForSessionMode(
   mode: SessionMode,
   availability: ToolAvailability,
 ): readonly string[] {
-  return [...coreToolNamesForSessionMode(mode, availability), ...CATALOG_TOOL_NAMES];
+  return [
+    ...coreToolNamesForSessionMode(mode, availability),
+    ...CATALOG_TOOL_NAMES,
+  ];
 }
 
 // Built-in file/search/web tools advertised alongside the core set. They carry full
@@ -119,7 +123,10 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
 // Primary TUI/exec sessions should pass
 // `advertisedToolNamesForSessionMode(sessionMode, toolAvailability)` as the
 // `builtInPrefix` to `advertisedTools` — not this constant alone.
-export const ADVERTISED_TOOL_NAMES: readonly string[] = [...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES];
+export const ADVERTISED_TOOL_NAMES: readonly string[] = [
+  ...CORE_TOOL_NAMES,
+  ...CATALOG_TOOL_NAMES,
+];
 
 // Project the live tool registry onto the advertised set: the fixed built-in
 // prefix (its order never changes — this is what keeps the provider cache
@@ -184,7 +191,10 @@ export const toolSearchDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      query: { type: "string", description: "A short description of the capability you need." },
+      query: {
+        type: "string",
+        description: "A short description of the capability you need.",
+      },
     },
     required: ["query"],
   },
@@ -206,7 +216,11 @@ export function createToolIndex(
   getDefs: () => readonly ToolDefinition[],
   advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
 ): ToolIndex {
-  const score = (def: ToolDefinition, queryTokens: string[], rawQuery: string): number => {
+  const score = (
+    def: ToolDefinition,
+    queryTokens: string[],
+    rawQuery: string,
+  ): number => {
     const nameTokens = tokenize(def.name);
     const descTokens = new Set(tokenize(def.description ?? ""));
     let total = 0;
@@ -214,7 +228,8 @@ export function createToolIndex(
       if (nameTokens.includes(token)) total += 3;
       else if (descTokens.has(token)) total += 1;
       else if (def.name.toLowerCase().includes(token)) total += 0.75;
-      else if ((def.description ?? "").toLowerCase().includes(token)) total += 0.25;
+      else if ((def.description ?? "").toLowerCase().includes(token))
+        total += 0.25;
     }
     if (def.name.toLowerCase().includes(rawQuery)) total += 1;
     return total;
@@ -227,7 +242,10 @@ export function createToolIndex(
       if (queryTokens.length === 0) return [];
       return getDefs()
         .filter((def) => !advertisedNames.includes(def.name))
-        .map((def) => ({ name: def.name, score: score(def, queryTokens, rawQuery) }))
+        .map((def) => ({
+          name: def.name,
+          score: score(def, queryTokens, rawQuery),
+        }))
         .filter((entry) => entry.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
@@ -274,7 +292,8 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
         return "Error: tool_search requires query (string).";
       }
       const query = parsed.query.trim();
-      if (query.length === 0) return "Error: tool_search requires a non-empty query.";
+      if (query.length === 0)
+        return "Error: tool_search requires a non-empty query.";
       const names = deps.search(query);
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
@@ -286,7 +305,9 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       // so the model can shape arguments this same turn, before the promoted
       // definition round-trips through the next infer call.
       deps.promote(names);
-      const blocks = names.map((name) => renderToolCard(deps.lookup(name), name));
+      const blocks = names.map((name) =>
+        renderToolCard(deps.lookup(name), name),
+      );
       return `These tools are available — you can call them now:\n\n${blocks.join("\n\n")}`;
     },
   });

@@ -42,7 +42,8 @@ export function ownedDiskOriginRoot(args: {
   const userRoot = resolve(userPluginsRoot(args.home));
   const projectRoot = resolve(projectPluginsRoot(args.cwd));
   if (abs !== userRoot && pathIsInsideOrEqual(abs, userRoot)) return userRoot;
-  if (abs !== projectRoot && pathIsInsideOrEqual(abs, projectRoot)) return projectRoot;
+  if (abs !== projectRoot && pathIsInsideOrEqual(abs, projectRoot))
+    return projectRoot;
   return undefined;
 }
 
@@ -66,7 +67,11 @@ export function isOwnedDiskInstall(args: {
 }
 
 export type PluginRemoveAction =
-  "disable-bundled" | "disable-unowned-user" | "delete-owned" | "remove-path" | "cannot";
+  | "disable-bundled"
+  | "disable-unowned-user"
+  | "delete-owned"
+  | "remove-path"
+  | "cannot";
 
 /** Shared TUI/runner policy for Alt+X / pluginsAdmin.remove. */
 export function classifyPluginRemove(args: {
@@ -88,7 +93,9 @@ export interface DeleteOwnedPluginDirArgs {
   readonly cwd: string;
 }
 
-export type DeleteOwnedPluginDirResult = { ok: true } | { ok: false; message: string };
+export type DeleteOwnedPluginDirResult =
+  | { ok: true }
+  | { ok: false; message: string };
 
 /**
  * Delete a discovered plugin directory after realpath + containment under the
@@ -108,16 +115,25 @@ export async function deleteOwnedPluginDir(
     const lexical = pluginAbs;
     const lexicalClaude = absPath(args.claudeRoot, args.cwd);
     if (pathIsInsideOrEqual(lexical, lexicalClaude)) {
-      return { ok: false, message: "Refusing to delete a path under ~/.claude" };
+      return {
+        ok: false,
+        message: "Refusing to delete a path under ~/.claude",
+      };
     }
     const lexicalRoot = absPath(args.originRoot, args.cwd);
-    if (pathIsInsideOrEqual(lexical, lexicalRoot) && lexical !== resolve(lexicalRoot)) {
+    if (
+      pathIsInsideOrEqual(lexical, lexicalRoot) &&
+      lexical !== resolve(lexicalRoot)
+    ) {
       // Missing, or a dangling symlink inside the origin root — `force` removes
       // the symlink without following it; a truly absent path is a no-op.
       await rm(lexical, { recursive: true, force: true });
       return { ok: true };
     }
-    return { ok: false, message: "Plugin path is outside the origin plugins root" };
+    return {
+      ok: false,
+      message: "Plugin path is outside the origin plugins root",
+    };
   }
   if (pathIsInsideOrEqual(realPlugin, claude)) {
     return { ok: false, message: "Refusing to delete a path under ~/.claude" };
@@ -127,7 +143,10 @@ export async function deleteOwnedPluginDir(
     return { ok: false, message: "Refusing to delete the plugins root" };
   }
   if (!pathIsInsideOrEqual(realPlugin, realRoot)) {
-    return { ok: false, message: "Plugin path is outside the origin plugins root" };
+    return {
+      ok: false,
+      message: "Plugin path is outside the origin plugins root",
+    };
   }
   await rm(realPlugin, { recursive: true, force: true });
   return { ok: true };
@@ -153,15 +172,20 @@ export async function nextPluginPathsAfterRemove(args: {
   let keptSharedRoot = false;
   for (const raw of args.pluginPaths) {
     const entry = absPath(raw, args.cwd);
-    const members = (await args.expandMembers(entry)).map((m) => absPath(m, args.cwd));
+    const members = (await args.expandMembers(entry)).map((m) =>
+      absPath(m, args.cwd),
+    );
     const identifies =
-      entry === target || members.includes(target) || pathIsInsideOrEqual(target, entry);
+      entry === target ||
+      members.includes(target) ||
+      pathIsInsideOrEqual(target, entry);
     if (!identifies) {
       next.push(raw);
       continue;
     }
     const shared = others.some(
-      (o) => o === entry || members.includes(o) || pathIsInsideOrEqual(o, entry),
+      (o) =>
+        o === entry || members.includes(o) || pathIsInsideOrEqual(o, entry),
     );
     if (shared) {
       next.push(raw);
@@ -199,7 +223,9 @@ export type PluginRemoveResult =
   | { ok: false; message: string };
 
 function withToolsNote(hadTools: boolean, message: string): string {
-  return hadTools ? `${message} Tools from this plugin stay until you restart.` : message;
+  return hadTools
+    ? `${message} Tools from this plugin stay until you restart.`
+    : message;
 }
 
 /**
@@ -207,7 +233,9 @@ function withToolsNote(hadTools: boolean, message: string): string {
  * path-drop, and `enabled: false`. Session lists and settings persist stay
  * with the caller.
  */
-export async function executePluginRemove(args: PluginRemoveArgs): Promise<PluginRemoveResult> {
+export async function executePluginRemove(
+  args: PluginRemoveArgs,
+): Promise<PluginRemoveResult> {
   const owned = isOwnedDiskInstall({
     origin: args.origin,
     ...(args.pluginPath !== undefined ? { pluginPath: args.pluginPath } : {}),
@@ -228,13 +256,19 @@ export async function executePluginRemove(args: PluginRemoveArgs): Promise<Plugi
   });
 
   if (action === "disable-bundled") {
-    return disabled(`${args.name} is bundled and cannot be uninstalled — disabled instead.`);
+    return disabled(
+      `${args.name} is bundled and cannot be uninstalled — disabled instead.`,
+    );
   }
   if (action === "disable-unowned-user") {
-    return disabled(`Disabled ${args.name}. Claude marketplace files were not removed.`);
+    return disabled(
+      `Disabled ${args.name}. Claude marketplace files were not removed.`,
+    );
   }
 
-  const dropPath = async (path: string): Promise<{ extra: string; pluginPaths: string[] }> => {
+  const dropPath = async (
+    path: string,
+  ): Promise<{ extra: string; pluginPaths: string[] }> => {
     if (args.revokePathPlugin !== undefined) await args.revokePathPlugin(path);
     const planned = await nextPluginPathsAfterRemove({
       pluginPaths: args.pluginPaths,

@@ -106,7 +106,11 @@ function parseSegments(text: string): StyledSegment[] {
     if (linkMatch && linkMatch[1] !== undefined && linkMatch[2] !== undefined) {
       const text = linkMatch[1];
       const url = linkMatch[2];
-      segments.push({ text, link: true, ...(url.length > 0 ? { linkUrl: url } : {}) });
+      segments.push({
+        text,
+        link: true,
+        ...(url.length > 0 ? { linkUrl: url } : {}),
+      });
       if (url.length > 0 && url.length <= 40) {
         segments.push({ text: ` (${url})` });
       }
@@ -126,7 +130,9 @@ function parseSegments(text: string): StyledSegment[] {
 
     // A marker character that did not start a token (e.g. a lone `[`): emit it
     // as plain text and move on.
-    segments.push({ text: remaining[0]! });
+    const ch = remaining[0];
+    if (ch == null) break;
+    segments.push({ text: ch });
     remaining = remaining.slice(1);
     offset += 1;
   }
@@ -134,7 +140,10 @@ function parseSegments(text: string): StyledSegment[] {
   return segments;
 }
 
-function applyFlag(segments: StyledSegment[], flag: Partial<StyledSegment>): StyledSegment[] {
+function applyFlag(
+  segments: StyledSegment[],
+  flag: Partial<StyledSegment>,
+): StyledSegment[] {
   return segments.map((seg) => ({ ...seg, ...flag }));
 }
 
@@ -149,7 +158,9 @@ function parseLine(line: string): StyledSegment[] {
   // Headings h1–h6. The marker is stripped; inline markdown still applies.
   const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
   if (headingMatch) {
-    const level = headingMatch[1]!.length;
+    const hashes = headingMatch[1];
+    if (hashes == null) throw new Error("heading marker missing");
+    const level = hashes.length;
     return applyFlag(parseSegments(headingMatch[2] || ""), { heading: level });
   }
 
@@ -157,23 +168,38 @@ function parseLine(line: string): StyledSegment[] {
   const quoteMatch = line.match(/^\s*>\s?(.*)$/);
   if (quoteMatch) {
     const marker: StyledSegment = { text: "│ ", blockquote: true };
-    return [marker, ...applyFlag(parseSegments(quoteMatch[1] || ""), { blockquote: true })];
+    return [
+      marker,
+      ...applyFlag(parseSegments(quoteMatch[1] || ""), { blockquote: true }),
+    ];
   }
 
   // Ordered list: optional indent, then "1." or "1)" then content. The number
   // is kept; inline markdown in the content still applies.
   const orderedMatch = line.match(/^(\s*)(\d+)[.)]\s+(.+)$/);
   if (orderedMatch) {
-    const marker: StyledSegment = { text: `${orderedMatch[1]}${orderedMatch[2]}. `, bullet: true };
-    return [marker, ...applyFlag(parseSegments(orderedMatch[3] || ""), { bullet: true })];
+    const marker: StyledSegment = {
+      text: `${orderedMatch[1]}${orderedMatch[2]}. `,
+      bullet: true,
+    };
+    return [
+      marker,
+      ...applyFlag(parseSegments(orderedMatch[3] || ""), { bullet: true }),
+    ];
   }
 
   // Unordered list: optional indent, then - or * marker. The raw marker becomes
   // a "• " glyph; inline markdown in the content still applies.
   const listMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
   if (listMatch) {
-    const marker: StyledSegment = { text: (listMatch[1] || "") + "• ", bullet: true };
-    return [marker, ...applyFlag(parseSegments(listMatch[2] || ""), { bullet: true })];
+    const marker: StyledSegment = {
+      text: (listMatch[1] || "") + "• ",
+      bullet: true,
+    };
+    return [
+      marker,
+      ...applyFlag(parseSegments(listMatch[2] || ""), { bullet: true }),
+    ];
   }
 
   return parseSegments(line);
@@ -200,7 +226,10 @@ interface FencedBlock {
 // left disconnected bar fragments (a floating language cap, gaps mid-block, a
 // dangling foot) instead of one continuous container.
 function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
-  return [{ text: CODE_GUTTER, code: true, dim: true, codeFence: true }, ...line];
+  return [
+    { text: CODE_GUTTER, code: true, dim: true, codeFence: true },
+    ...line,
+  ];
 }
 
 function fencedCap(label: string): StyledSegment[] {
@@ -218,50 +247,73 @@ function fencedFoot(): StyledSegment[] {
 // language token, and frame it with cap/gutter glyphs. The block may be
 // unclosed while it streams; in that case a nascent closing fence is dropped so
 // the trailing block re-highlights cleanly rather than flickering.
-function parseFencedBlock(input: string[], start: number, width: number): FencedBlock {
-  const language = input[start]!.match(/^\s*(?:```+|~~~+)\s*([^\s`]*)/)?.[1] || undefined;
+function parseFencedBlock(
+  input: string[],
+  start: number,
+  width: number,
+): FencedBlock {
+  const openerLine = input[start];
+  if (openerLine == null) throw new Error("fence opener missing");
+  const language =
+    openerLine.match(/^\s*(?:```+|~~~+)\s*([^\s`]*)/)?.[1] || undefined;
   const body: string[] = [];
   let i = start + 1;
   let closed = false;
   for (; i < input.length; i++) {
-    if (FENCE_CLOSE_RE.test(input[i]!)) {
+    const line = input[i];
+    if (line == null) throw new Error("fence line missing");
+    if (FENCE_CLOSE_RE.test(line)) {
       closed = true;
       break;
     }
-    body.push(input[i]!);
+    body.push(line);
   }
   const consumed = closed ? i - start + 1 : i - start;
 
-  if (!closed && body.length > 0 && PARTIAL_FENCE_RE.test(body[body.length - 1]!)) {
+  const last = body[body.length - 1];
+  if (!closed && last != null && PARTIAL_FENCE_RE.test(last)) {
     body.pop();
   }
 
   const capLabel = language && language.length > 0 ? language : "code";
   const lines: StyledSegment[][] = [fencedCap(capLabel)];
   if (body.length > 0) {
-    lines.push(...highlightCode(body.join("\n"), language, width).map(codeGutterPrefix));
+    lines.push(
+      ...highlightCode(body.join("\n"), language, width).map(codeGutterPrefix),
+    );
   }
   if (closed) lines.push(fencedFoot());
   return { lines, consumed };
 }
 
-function parseIndentedCodeBlock(input: string[], start: number, width: number): FencedBlock {
+function parseIndentedCodeBlock(
+  input: string[],
+  start: number,
+  width: number,
+): FencedBlock {
   const body: string[] = [];
   let i = start;
   for (; i < input.length; i++) {
-    const match = input[i]!.match(INDENTED_CODE_RE);
+    const line = input[i];
+    if (line == null) throw new Error("indented code line missing");
+    const match = line.match(INDENTED_CODE_RE);
     if (!match) break;
     body.push(match[1] ?? "");
   }
   const lines: StyledSegment[][] = [fencedCap("code")];
   if (body.length > 0) {
-    lines.push(...highlightCode(body.join("\n"), undefined, width).map(codeGutterPrefix));
+    lines.push(
+      ...highlightCode(body.join("\n"), undefined, width).map(codeGutterPrefix),
+    );
   }
   lines.push(fencedFoot());
   return { lines, consumed: i - start };
 }
 
-export type MemoizedParseMarkdown = ((text: string, width?: number) => StyledSegment[][]) & {
+export type MemoizedParseMarkdown = ((
+  text: string,
+  width?: number,
+) => StyledSegment[][]) & {
   clear: () => void;
 };
 
@@ -305,12 +357,16 @@ export function createMemoizedParseMarkdown(
 // `width` is the column budget the rendered output must fit within (the same
 // width the event log wraps to). Tables use it to decide their layout; default
 // Infinity lays them out at natural width.
-export function parseMarkdown(text: string, width = Infinity): StyledSegment[][] {
+export function parseMarkdown(
+  text: string,
+  width = Infinity,
+): StyledSegment[][] {
   const lines: StyledSegment[][] = [];
   const input = text.split("\n");
 
   for (let i = 0; i < input.length; i++) {
-    const line = input[i]!;
+    const line = input[i];
+    if (line == null) throw new Error("markdown line missing");
 
     // Fenced code block (``` or ~~~). The whole block is collected so its body
     // can be syntax-highlighted by the fence's language token; the delimiter
@@ -383,7 +439,11 @@ function renderedText(segments: StyledSegment[]): string {
 // Slice a styled cell's segments to the character range [start, end), preserving
 // each surviving segment's styling, so a cell that wraps across visual rows keeps
 // its inline markdown.
-function sliceCellSegments(segments: StyledSegment[], start: number, end: number): StyledSegment[] {
+function sliceCellSegments(
+  segments: StyledSegment[],
+  start: number,
+  end: number,
+): StyledSegment[] {
   const out: StyledSegment[] = [];
   let pos = 0;
   for (const seg of segments) {
@@ -392,7 +452,11 @@ function sliceCellSegments(segments: StyledSegment[], start: number, end: number
     pos = segEnd;
     const from = Math.max(start, segStart);
     const to = Math.min(end, segEnd);
-    if (to > from) out.push({ ...seg, text: seg.text.slice(from - segStart, to - segStart) });
+    if (to > from)
+      out.push({
+        ...seg,
+        text: seg.text.slice(from - segStart, to - segStart),
+      });
   }
   return out;
 }
@@ -402,7 +466,11 @@ function padCell(segments: StyledSegment[], width: number): StyledSegment[] {
   return gap > 0 ? [...segments, { text: " ".repeat(gap) }] : segments;
 }
 
-function parseTableBlock(lines: string[], startIndex: number, width: number): ParsedTable | null {
+function parseTableBlock(
+  lines: string[],
+  startIndex: number,
+  width: number,
+): ParsedTable | null {
   const header = lines[startIndex];
   if (header === undefined || !looksLikeTableRow(header)) return null;
 
@@ -414,7 +482,12 @@ function parseTableBlock(lines: string[], startIndex: number, width: number): Pa
 
   for (let i = startIndex + consumed; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined || !looksLikeTableRow(line) || isTableSeparator(line)) break;
+    if (
+      line === undefined ||
+      !looksLikeTableRow(line) ||
+      isTableSeparator(line)
+    )
+      break;
     rawRows.push(extractTableCells(line));
     consumed++;
   }
@@ -426,7 +499,11 @@ function parseTableBlock(lines: string[], startIndex: number, width: number): Pa
   // strict tables skip the shape guard.
   if (!hasSeparator) {
     const cols0 = rawRows[0]?.length ?? 0;
-    if (rawRows.length < 2 || cols0 < 2 || !rawRows.every((row) => row.length === cols0)) {
+    if (
+      rawRows.length < 2 ||
+      cols0 < 2 ||
+      !rawRows.every((row) => row.length === cols0)
+    ) {
       return null;
     }
   }
@@ -457,15 +534,27 @@ function parseTableBlock(lines: string[], startIndex: number, width: number): Pa
     return { lines: renderKeyValue(cells), consumed };
   }
 
-  return { lines: renderGrid(cells, fitColumnWidths(naturalWidths, targetContent)), consumed };
+  return {
+    lines: renderGrid(cells, fitColumnWidths(naturalWidths, targetContent)),
+    consumed,
+  };
 }
 
 // Shrink columns proportionally to their natural width so the row fits the
 // budget, never below MIN_COL_WIDTH and never wider than the content needs.
-function fitColumnWidths(naturalWidths: number[], targetContent: number): number[] {
+function fitColumnWidths(
+  naturalWidths: number[],
+  targetContent: number,
+): number[] {
   const sumNatural = naturalWidths.reduce((a, b) => a + b, 0) || 1;
   const widths = naturalWidths.map((natural) =>
-    Math.min(natural, Math.max(MIN_COL_WIDTH, Math.floor((natural / sumNatural) * targetContent))),
+    Math.min(
+      natural,
+      Math.max(
+        MIN_COL_WIDTH,
+        Math.floor((natural / sumNatural) * targetContent),
+      ),
+    ),
   );
 
   let overflow = widths.reduce((a, b) => a + b, 0) - targetContent;
@@ -480,7 +569,9 @@ function fitColumnWidths(naturalWidths: number[], targetContent: number): number
       }
     }
     if (widest < 0) break;
-    widths[widest]!--;
+    const width = widths[widest];
+    if (width == null) break;
+    widths[widest] = width - 1;
     overflow--;
   }
 
@@ -490,7 +581,10 @@ function fitColumnWidths(naturalWidths: number[], targetContent: number): number
 // Lay cells into an aligned grid, wrapping each cell to its column width and
 // stacking the wrapped lines so columns stay aligned across visual rows. The
 // first row is the header: it renders bold and is underlined by a dash rule.
-function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegment[][] {
+function renderGrid(
+  cells: StyledSegment[][][],
+  colWidths: number[],
+): StyledSegment[][] {
   const out: StyledSegment[][] = [];
 
   cells.forEach((row, rowIdx) => {
@@ -510,9 +604,14 @@ function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegm
         const colWidth = colWidths[col] ?? 0;
         const cellLine = wrapped[col]?.[r] ?? [{ text: " ".repeat(colWidth) }];
         // Slot = leading space, content padded to colWidth, trailing space.
-        const slot: StyledSegment[] = [{ text: " " }, ...cellLine, { text: " " }];
+        const slot: StyledSegment[] = [
+          { text: " " },
+          ...cellLine,
+          { text: " " },
+        ];
         line.push(...(isHeader ? applyFlag(slot, { bold: true }) : slot));
-        if (col < colWidths.length - 1) line.push({ text: COL_SEP, rule: true });
+        if (col < colWidths.length - 1)
+          line.push({ text: COL_SEP, rule: true });
       }
       out.push(line);
     }
@@ -524,7 +623,8 @@ function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegm
       for (let col = 0; col < colWidths.length; col++) {
         const colWidth = colWidths[col] ?? 0;
         rule.push({ text: HEADER_RULE.repeat(colWidth + 2), rule: true });
-        if (col < colWidths.length - 1) rule.push({ text: HEADER_CROSS, rule: true });
+        if (col < colWidths.length - 1)
+          rule.push({ text: HEADER_CROSS, rule: true });
       }
       out.push(rule);
     }
@@ -534,18 +634,28 @@ function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegm
 }
 
 const DESCRIPTOR_KEY_HEADERS = new Set(["id", "name", "agent", "tool", "key"]);
-const DESCRIPTOR_VALUE_HEADERS = new Set(["role", "description", "summary", "details", "value"]);
+const DESCRIPTOR_VALUE_HEADERS = new Set([
+  "role",
+  "description",
+  "summary",
+  "details",
+  "value",
+]);
 
 function isDescriptorTable(cells: StyledSegment[][][]): boolean {
   const headers = cells[0];
-  if (headers === undefined || headers.length !== 2 || cells.length < 2) return false;
+  if (headers === undefined || headers.length !== 2 || cells.length < 2)
+    return false;
   const keyHeader = renderedText(headers[0] ?? [])
     .trim()
     .toLowerCase();
   const valueHeader = renderedText(headers[1] ?? [])
     .trim()
     .toLowerCase();
-  return DESCRIPTOR_KEY_HEADERS.has(keyHeader) && DESCRIPTOR_VALUE_HEADERS.has(valueHeader);
+  return (
+    DESCRIPTOR_KEY_HEADERS.has(keyHeader) &&
+    DESCRIPTOR_VALUE_HEADERS.has(valueHeader)
+  );
 }
 
 function renderDescriptorList(cells: StyledSegment[][][]): StyledSegment[][] {
@@ -553,7 +663,11 @@ function renderDescriptorList(cells: StyledSegment[][][]): StyledSegment[][] {
   const out: StyledSegment[][] = [];
   dataRows.forEach((row, ri) => {
     if (ri > 0) out.push([]);
-    out.push([...applyFlag(row[0] ?? [], { bold: true }), { text: " - " }, ...(row[1] ?? [])]);
+    out.push([
+      ...applyFlag(row[0] ?? [], { bold: true }),
+      { text: " - " },
+      ...(row[1] ?? []),
+    ]);
   });
   return out;
 }
@@ -668,17 +782,29 @@ function fencedLineMask(lines: readonly string[]): boolean[] {
   const inside = new Array<boolean>(lines.length).fill(false);
   let opener: { char: string; length: number } | null = null;
   for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line == null) throw new Error("fence mask line missing");
     if (opener === null) {
-      const match = lines[i]!.match(COMMONMARK_FENCE_OPEN_RE);
+      const match = line.match(COMMONMARK_FENCE_OPEN_RE);
       if (match) {
         inside[i] = true;
-        opener = { char: match[1]![0]!, length: match[1]!.length };
+        const run = match[1];
+        const char = run?.[0];
+        if (run == null || char == null)
+          throw new Error("fence opener capture missing");
+        opener = { char, length: run.length };
       }
       continue;
     }
     inside[i] = true;
-    const close = lines[i]!.match(COMMONMARK_FENCE_CLOSE_RE);
-    if (close && close[1]![0] === opener.char && close[1]!.length >= opener.length) {
+    const close = line.match(COMMONMARK_FENCE_CLOSE_RE);
+    const closeRun = close?.[1];
+    const closeChar = closeRun?.[0];
+    if (
+      closeRun != null &&
+      closeChar === opener.char &&
+      closeRun.length >= opener.length
+    ) {
       opener = null;
     }
   }
@@ -712,7 +838,9 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
   const insideFence = fencedLineMask(lines);
   let boundary = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    if (!insideFence[i] && ATX_HEADING_LINE_RE.test(lines[i]!)) boundary = i;
+    const line = lines[i];
+    if (line == null) continue;
+    if (!insideFence[i] && ATX_HEADING_LINE_RE.test(line)) boundary = i;
   }
   // No heading, or the last one is still the open tail: nothing to freeze.
   if (boundary === -1 || boundary >= lines.length - 1) return null;

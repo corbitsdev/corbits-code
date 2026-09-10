@@ -25,12 +25,20 @@ import {
   setStatusFlash,
   truncateStreamRows,
 } from "./shell/chrome.js";
-import { clearShellBridgeHooks, setShellBridgeHooks, type AppShell } from "./shell/internals.js";
+import {
+  clearShellBridgeHooks,
+  setShellBridgeHooks,
+  type AppShell,
+} from "./shell/internals.js";
 import { applyShellInterrupt } from "./shell/prompt.js";
 import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { resolveRampPhase, resolveTurnLabel, sendFailureText } from "./session-chrome.js";
+import {
+  resolveRampPhase,
+  resolveTurnLabel,
+  sendFailureText,
+} from "./session-chrome.js";
 import { shouldAutoRetryQuota } from "./quota-retry.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import {
@@ -54,20 +62,34 @@ import {
   turnStateOnSubmit,
   type TurnState,
 } from "./turn-state.js";
-import { userRowText, type PendingImageAttachment } from "./image-attachments.js";
+import {
+  userRowText,
+  type PendingImageAttachment,
+} from "./image-attachments.js";
 import { toolCallRow } from "./diff.js";
 import { toolResultRow } from "./mcp-view.js";
-import { canCoalesceCall, coalesceCallRows, mergeToolRows } from "./tool-rows.js";
+import {
+  canCoalesceCall,
+  coalesceCallRows,
+  mergeToolRows,
+} from "./tool-rows.js";
 import * as rowUpdates from "./row-update-queue.js";
 import type { StreamRow } from "./stream.js";
-import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js";
+import {
+  advanceRevealChars,
+  flattenReasoningText,
+  type Thought,
+} from "./thinking.js";
 import {
   agentProgress,
   clockLabel,
   fleetProgress,
   type AgentProgressSession,
 } from "./agent-progress.js";
-import { pendingAskWakeText, type PendingAskWake } from "../subagent/fleet-report.js";
+import {
+  pendingAskWakeText,
+  type PendingAskWake,
+} from "../subagent/fleet-report.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -81,7 +103,9 @@ const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
 const MANAGE_TASKS_TOOL_NAME = "manage_tasks";
 
 /** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
-export type TaskProgressSession = AgentProgressSession & { readonly id: string };
+export type TaskProgressSession = AgentProgressSession & {
+  readonly id: string;
+};
 import {
   PRODUCTION_REACTOR_TYPES,
   createStreamMapContext,
@@ -108,7 +132,10 @@ export interface SessionPort {
     attachments?: readonly PendingImageAttachment[],
   ) => "agent" | "local" | "empty";
   /** Idle prompt submit — deliver now. */
-  sendImmediate: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
+  sendImmediate: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void;
   /** Mid-run queue or steer accepted by the shell. */
   enqueue: (text: string, kind: QueueKind) => void;
   /** Hard interrupt current run. */
@@ -212,7 +239,10 @@ export interface SessionBridge {
    * `inference.error` transcript lines can identify known-xAI short 429s
    * when the harness event omits `providerId`.
    */
-  setInferenceProviderId: (id: string | undefined, displayLabel?: string) => void;
+  setInferenceProviderId: (
+    id: string | undefined,
+    displayLabel?: string,
+  ) => void;
   /**
    * Mark the run busy for a system-originated continuation (fleet-dry open-task
    * drive). Pushes `text` onto pendingEchoes so the inbound `message.received`
@@ -236,10 +266,10 @@ export interface SessionBridge {
 }
 
 const NOOP_PORT: SessionPort = {
-  sendImmediate: () => {},
-  enqueue: () => {},
-  interrupt: () => {},
-  deliver: () => {},
+  sendImmediate: () => undefined,
+  enqueue: () => undefined,
+  interrupt: () => undefined,
+  deliver: () => undefined,
 };
 
 export type PortCall =
@@ -262,7 +292,9 @@ export function createRecordingPort(opts?: {
     clear: () => {
       calls.length = 0;
     },
-    ...(opts?.classifySubmit !== undefined ? { classifySubmit: opts.classifySubmit } : {}),
+    ...(opts?.classifySubmit !== undefined
+      ? { classifySubmit: opts.classifySubmit }
+      : {}),
     sendImmediate: (text) => {
       calls.push({ op: "sendImmediate", text });
     },
@@ -307,7 +339,11 @@ function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
     case "system":
       return { role: "system", text: event.text };
     case "error":
-      return { role: "system", text: sendFailureText(event.message), meta: "error" };
+      return {
+        role: "system",
+        text: sendFailureText(event.message),
+        meta: "error",
+      };
     default:
       return null;
   }
@@ -470,7 +506,9 @@ const bridges = new WeakMap<AppShell, BridgeBag>();
 
 function resolvePort(handlers?: SessionPortHandlers): SessionPort {
   return {
-    ...(handlers?.classifySubmit !== undefined ? { classifySubmit: handlers.classifySubmit } : {}),
+    ...(handlers?.classifySubmit !== undefined
+      ? { classifySubmit: handlers.classifySubmit }
+      : {}),
     sendImmediate: handlers?.sendImmediate ?? NOOP_PORT.sendImmediate,
     enqueue: handlers?.enqueue ?? NOOP_PORT.enqueue,
     interrupt: handlers?.interrupt ?? NOOP_PORT.interrupt,
@@ -495,11 +533,15 @@ function consumeEcho(bag: BridgeBag, text: string): boolean {
   return true;
 }
 
-function messageReceivedContent(event: { readonly data?: unknown }): string | undefined {
+function messageReceivedContent(event: {
+  readonly data?: unknown;
+}): string | undefined {
   const data = event.data;
-  if (data === null || typeof data !== "object" || Array.isArray(data)) return undefined;
+  if (data === null || typeof data !== "object" || Array.isArray(data))
+    return undefined;
   const message = (data as { readonly message?: unknown }).message;
-  if (message === null || typeof message !== "object" || Array.isArray(message)) return undefined;
+  if (message === null || typeof message !== "object" || Array.isArray(message))
+    return undefined;
   const content = (message as { readonly content?: unknown }).content;
   return typeof content === "string" ? content : undefined;
 }
@@ -537,7 +579,11 @@ function thoughtOf(bag: BridgeBag, open: OpenStreamRow): Thought {
 }
 
 /** Repaint a folded reasoning row: settled in shape, still growing in text. */
-function paintFoldedRow(shell: AppShell, bag: BridgeBag, open: OpenStreamRow): void {
+function paintFoldedRow(
+  shell: AppShell,
+  bag: BridgeBag,
+  open: OpenStreamRow,
+): void {
   replaceStreamRowAt(
     shell,
     open.index,
@@ -557,14 +603,23 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   if (thought !== undefined) {
     bag.turnThinking = { index: open.index, text: open.text, ms: thought.ms };
   }
-  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false, thought));
+  replaceStreamRowAt(
+    shell,
+    open.index,
+    openRowContent(open.kind, open.text, false, thought),
+  );
 }
 
 /**
  * Grow the open row of this kind, or start one. Deltas never append a row of
  * their own — the message is a single row whose body is repainted as it fills.
  */
-function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: string): void {
+function growOpenRow(
+  shell: AppShell,
+  bag: BridgeBag,
+  kind: OpenRowKind,
+  text: string,
+): void {
   const open = bag.openRow;
   if (open !== null && open.kind === kind) {
     open.text += text;
@@ -602,7 +657,13 @@ function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: s
   };
   appendStreamRow(
     shell,
-    openRowContent(kind, text, true, undefined, kind === "thinking" ? 0 : undefined),
+    openRowContent(
+      kind,
+      text,
+      true,
+      undefined,
+      kind === "thinking" ? 0 : undefined,
+    ),
   );
 }
 
@@ -622,7 +683,11 @@ function advanceOpenReveal(
   // line to advance.
   if (open.folded) return;
   const available = flattenReasoningText(open.text).length;
-  const revealed = advanceRevealChars(open.revealChars, available, nowMs - open.revealAt);
+  const revealed = advanceRevealChars(
+    open.revealChars,
+    available,
+    nowMs - open.revealAt,
+  );
   open.revealAt = nowMs;
   if (revealed === open.revealChars) return;
   open.revealChars = revealed;
@@ -655,7 +720,11 @@ function flushOpenRow(shell: AppShell, bag: BridgeBag): void {
     return;
   }
   bag.dirtyOpenRow = false;
-  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, true));
+  replaceStreamRowAt(
+    shell,
+    open.index,
+    openRowContent(open.kind, open.text, true),
+  );
 }
 
 /**
@@ -727,17 +796,20 @@ function applyToolResult(
   bag: BridgeBag,
   event: Extract<BridgeInboundEvent, { type: "tool_result" }>,
 ): void {
-  if (event.callId !== undefined && bag.panelOnlyCallIds.delete(event.callId)) return;
+  if (event.callId !== undefined && bag.panelOnlyCallIds.delete(event.callId))
+    return;
   const result = toolResultRow({
     name: event.name,
     content: event.detail ?? (event.isError ? "error" : "ok"),
     isError: event.isError === true,
   });
-  const tracked = event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined;
+  const tracked =
+    event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined;
   // The elapsed clock was scaffolding for the wait, not a fact about the
   // call — clear it before the merge so it never crowds out the answer's own
   // addendum (e.g. "3 lines") the way a diff's own +/- count is allowed to.
-  const clockOwned = event.callId !== undefined && bag.toolCallStartedAt.has(event.callId);
+  const clockOwned =
+    event.callId !== undefined && bag.toolCallStartedAt.has(event.callId);
   if (event.callId !== undefined) {
     bag.toolRows.delete(event.callId);
     bag.toolCallStartedAt.delete(event.callId);
@@ -752,8 +824,10 @@ function applyToolResult(
   if (bag.toolRows.size === 0) shell.inFlightTool = null;
   const index = tracked ?? bag.lastToolRow;
   // A close seam: apply any coalesced update first so the merge reads it.
-  const rawCall = rowUpdates.takePendingRowUpdate(bag, index) ?? streamRowAt(shell, index);
-  const call = clockOwned && rawCall !== undefined ? omitStat(rawCall) : rawCall;
+  const rawCall =
+    rowUpdates.takePendingRowUpdate(bag, index) ?? streamRowAt(shell, index);
+  const call =
+    clockOwned && rawCall !== undefined ? omitStat(rawCall) : rawCall;
   if (call === undefined || call.pending !== true) {
     appendStreamRow(shell, result);
     return;
@@ -795,7 +869,11 @@ function syncAgentProgress(
       continue;
     }
     const current = bag.pendingRowUpdates.get(index) ?? row;
-    if (current.stat === progress.stat && current.agentWorking === progress.working) continue;
+    if (
+      current.stat === progress.stat &&
+      current.agentWorking === progress.working
+    )
+      continue;
     rowUpdates.scheduleRowUpdate(bag, index, {
       ...current,
       stat: progress.stat,
@@ -856,9 +934,12 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   const boundary = bag.attemptRow;
   bag.attemptRow = null;
   if (boundary === null || boundary >= streamRowCount(shell)) return;
-  const localRows = Array.from({ length: streamRowCount(shell) - boundary }, (_, i) =>
-    streamRowAt(shell, boundary + i),
-  ).filter((row): row is StreamRow => row !== undefined && isLocallyQueuedUserRow(row));
+  const localRows = Array.from(
+    { length: streamRowCount(shell) - boundary },
+    (_, i) => streamRowAt(shell, boundary + i),
+  ).filter(
+    (row): row is StreamRow => row !== undefined && isLocallyQueuedUserRow(row),
+  );
   truncateStreamRows(shell, boundary);
   rowUpdates.dropPendingRowUpdatesFrom(bag, boundary);
   for (const row of localRows) appendStreamRow(shell, row);
@@ -972,7 +1053,11 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   bag.flushPendingAskWake?.();
 }
 
-function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent): void {
+function applyInbound(
+  shell: AppShell,
+  bag: BridgeBag,
+  event: BridgeInboundEvent,
+): void {
   if (bag.disposed) return;
 
   // Fleet liveness owns no transcript row state, so it is handled before the
@@ -1231,7 +1316,9 @@ export function attachSessionBridge(
     });
     // A frozen ramp (blocked on a gate, or a stall past its blink burst) still
     // needs the stall and quota clocks, just not animation frames.
-    applyCadence(rampAnimating(rampPhase, stalledFor) ? animationTickMs : frozenTickMs);
+    applyCadence(
+      rampAnimating(rampPhase, stalledFor) ? animationTickMs : frozenTickMs,
+    );
   };
 
   /**
@@ -1284,7 +1371,10 @@ export function attachSessionBridge(
         bag.turnThinking = null;
         return;
       }
-      for (const mapped of mapProductionEvent(event as ReactorLikeEvent, bag.mapCtx)) {
+      for (const mapped of mapProductionEvent(
+        event as ReactorLikeEvent,
+        bag.mapCtx,
+      )) {
         applyInbound(shell, bag, mapped);
       }
       // inference.done with tool calls still outstanding doesn't settle the
@@ -1368,7 +1458,8 @@ export function attachSessionBridge(
     // still live, so the run is only nominally busy. Plain Enter is a new
     // primary turn right now — not a queued steer waiting on a parent tool
     // that no longer exists.
-    const parentIdleWithFleet = kind === "steer" && bag.liveFleet > 0 && !bag.turn.isProcessing;
+    const parentIdleWithFleet =
+      kind === "steer" && bag.liveFleet > 0 && !bag.turn.isProcessing;
     if (
       kind === "immediate" ||
       kind === "reinject" ||
@@ -1415,16 +1506,23 @@ export function attachSessionBridge(
     paintChrome(shell);
     paintPhase();
     // Harness turns are not composer input: /feedback must never consume them.
-    bag.port.deliver({ id: crypto.randomUUID(), text, kind: "queue", enqueuedAt: now() });
+    bag.port.deliver({
+      id: crypto.randomUUID(),
+      text,
+      kind: "queue",
+      enqueuedAt: now(),
+    });
   };
   const flushPendingAskWake = (): void => {
-    if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0) return;
+    if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0)
+      return;
     const asks = [...bag.pendingAskWake.values()].filter(
       (ask) => bag.deliveredAskWake.get(ask.sessionId) !== ask.questionId,
     );
     if (asks.length === 0) return;
     // Outbound delivery can synchronously re-enter through store/stream events.
-    for (const ask of asks) bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
+    for (const ask of asks)
+      bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
     sendInternalText(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"));
   };
   bag.flushPendingAskWake = flushPendingAskWake;
@@ -1528,11 +1626,13 @@ export function attachSessionBridge(
     // guard would no longer mean "the turn is actually live" and could fire
     // on an already-settled turn — recheck this alongside any such change.
     if (bag.turn.status === "running" && bag.turn.repeating) {
-      const repeatedTokens = bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0);
+      const repeatedTokens =
+        bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0);
       applyStallRecovery(
         {
           abort: doInterrupt,
-          notify: (message) => setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
+          notify: (message) =>
+            setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
         },
         repetitionRecoveryMessage(repeatedTokens),
       );
@@ -1545,7 +1645,8 @@ export function attachSessionBridge(
       applyStallRecovery(
         {
           abort: doInterrupt,
-          notify: (message) => setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
+          notify: (message) =>
+            setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
         },
         STALL_RECOVERY_MESSAGE,
       );

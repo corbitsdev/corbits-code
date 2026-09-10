@@ -9,6 +9,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defined } from "../helpers/defined.js";
 
 import { createUseSkillTool } from "../../src/agent/use-skill.js";
 import type { Settings } from "../../src/config/settings.js";
@@ -29,7 +30,11 @@ import {
   classifyPermissionKind,
 } from "../../src/telemetry/classify.js";
 
-import { createTelemetry, NOOP_TELEMETRY, type Telemetry } from "../../src/telemetry/index.js";
+import {
+  createTelemetry,
+  NOOP_TELEMETRY,
+  type Telemetry,
+} from "../../src/telemetry/index.js";
 import {
   buildSubagentEndProperties,
   captureSlashCommand,
@@ -40,7 +45,10 @@ import {
   noteLastTurnTraceId,
   resetFeedbackStateForTests,
 } from "../../src/telemetry/feedback.js";
-import { captureAuthFailure, classifyAgentSendFailure } from "../../src/tui/session-chrome.js";
+import {
+  captureAuthFailure,
+  classifyAgentSendFailure,
+} from "../../src/tui/session-chrome.js";
 
 interface BatchBody {
   batch: { event: string; properties: Record<string, unknown> }[];
@@ -56,8 +64,16 @@ function harness(): {
     bodies.push(JSON.parse(init.body as string) as BatchBody);
     return Promise.resolve(new Response("1", { status: 200 }));
   }) as unknown as typeof fetch;
-  const settings: Settings = { providers: {}, telemetry: { installationId: "install-id" } };
-  const telemetry = createTelemetry({ settings, env: {}, fetchFn, apiKey: "test-key" });
+  const settings: Settings = {
+    providers: {},
+    telemetry: { installationId: "install-id" },
+  };
+  const telemetry = createTelemetry({
+    settings,
+    env: {},
+    fetchFn,
+    apiKey: "test-key",
+  });
   const wire = async (): Promise<string> => {
     await telemetry.flush();
     return JSON.stringify(bodies);
@@ -77,7 +93,10 @@ const tempDirs: string[] = [];
 afterEach(async () => {
   resetFeedbackStateForTests();
   while (tempDirs.length > 0) {
-    await rm(tempDirs.pop()!, { recursive: true, force: true });
+    await rm(defined(tempDirs.pop(), "temp dir"), {
+      recursive: true,
+      force: true,
+    });
   }
 });
 
@@ -127,7 +146,11 @@ test('permission_prompt buckets an unrecognised tool id to "custom"', async () =
     telemetry,
   });
 
-  await gate.evaluate({ id: "call-1", name: "acmecorp_payroll_export", arguments: {} });
+  await gate.evaluate({
+    id: "call-1",
+    name: "acmecorp_payroll_export",
+    arguments: {},
+  });
 
   const [event] = await events();
   expect(event?.properties.permission_kind).toBe("custom");
@@ -155,8 +178,12 @@ test("skill_used carries no skill name, so an employer-named skill cannot leak",
   );
 
   const tool = createUseSkillTool(cwd, [], telemetry);
-  if (tool.kind !== "string") throw new Error(`expected string tool, got ${tool.kind}`);
-  const result = await tool.handler({ name: "acme-internal-deploy" }, new AbortController().signal);
+  if (tool.kind !== "string")
+    throw new Error(`expected string tool, got ${tool.kind}`);
+  const result = await tool.handler(
+    { name: "acme-internal-deploy" },
+    new AbortController().signal,
+  );
 
   // Guard against the test passing because resolution failed: the event only
   // fires on a resolved skill, so a silent miss would trivially "not leak".
@@ -212,7 +239,9 @@ test("disabled plugin reporting does not consume the enabled dedupe identity", a
   reporter(telemetry, "project", "/plugin/acme");
   reporter(telemetry, "project", "/plugin/acme");
 
-  expect((await events()).filter((event) => event.event === "plugin_loaded")).toHaveLength(1);
+  expect(
+    (await events()).filter((event) => event.event === "plugin_loaded"),
+  ).toHaveLength(1);
 });
 
 test("plugin_loaded emits once per plugin identity in-process", async () => {
@@ -234,7 +263,12 @@ test("plugin_loaded emits once per plugin identity in-process", async () => {
   );
 
   const pluginLoadReporter = createPluginLoadReporter();
-  const options = { cwd: root, origin: "project" as const, telemetry, pluginLoadReporter };
+  const options = {
+    cwd: root,
+    origin: "project" as const,
+    telemetry,
+    pluginLoadReporter,
+  };
   const first = await loadPluginEntry(pluginDir, options);
   const second = await loadPluginEntry(pluginDir, options);
   expect(first).not.toBeNull();
@@ -264,9 +298,17 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     cwd,
     getWorkdirBase: () => cwd,
     permissionGate: gate,
-    provider: { providerName: "test-provider", baseURL: "http://localhost", model: "test-model" },
+    provider: {
+      providerName: "test-provider",
+      baseURL: "http://localhost",
+      model: "test-model",
+    },
     profiles: [
-      { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
+      {
+        id: "acmecorp-release-captain",
+        description: "release",
+        systemPromptRole: "release",
+      },
     ],
     sessions,
     fleetRecords,
@@ -290,19 +332,29 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     },
     telemetry,
   });
-  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  if (tool.kind !== "full")
+    throw new Error(`expected full tool, got ${tool.kind}`);
   const wait = createWaitAgentsTool({ sessions, fleetRecords });
-  if (wait.kind !== "full") throw new Error(`expected full tool, got ${wait.kind}`);
+  if (wait.kind !== "full")
+    throw new Error(`expected full tool, got ${wait.kind}`);
   await tool.handler(
     {
       id: "call-1",
       name: "spawn_agent",
-      arguments: { description: "Ship", prompt: "Ship it", agent: "acmecorp-release-captain" },
+      arguments: {
+        description: "Ship",
+        prompt: "Ship it",
+        agent: "acmecorp-release-captain",
+      },
     },
     new AbortController().signal,
   );
   await wait.handler(
-    { id: "wait-1", name: "wait_agents", arguments: { mode: "all", timeout_ms: 5000 } },
+    {
+      id: "wait-1",
+      name: "wait_agents",
+      arguments: { mode: "all", timeout_ms: 5000 },
+    },
     new AbortController().signal,
   );
 
@@ -347,9 +399,17 @@ test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last 
     cwd,
     getWorkdirBase: () => cwd,
     permissionGate: gate,
-    provider: { providerName: "test-provider", baseURL: "http://localhost", model: "test-model" },
+    provider: {
+      providerName: "test-provider",
+      baseURL: "http://localhost",
+      model: "test-model",
+    },
     profiles: [
-      { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
+      {
+        id: "acmecorp-release-captain",
+        description: "release",
+        systemPromptRole: "release",
+      },
     ],
     sessions,
     fleetRecords,
@@ -357,19 +417,29 @@ test("subagent_end parent_trace_id is the in-flight turn at spawn, not the last 
     run: async () => ({ report: "done" }),
     telemetry,
   });
-  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  if (tool.kind !== "full")
+    throw new Error(`expected full tool, got ${tool.kind}`);
   const wait = createWaitAgentsTool({ sessions, fleetRecords });
-  if (wait.kind !== "full") throw new Error(`expected full tool, got ${wait.kind}`);
+  if (wait.kind !== "full")
+    throw new Error(`expected full tool, got ${wait.kind}`);
   await tool.handler(
     {
       id: "call-1",
       name: "spawn_agent",
-      arguments: { description: "Ship", prompt: "Ship it", agent: "acmecorp-release-captain" },
+      arguments: {
+        description: "Ship",
+        prompt: "Ship it",
+        agent: "acmecorp-release-captain",
+      },
     },
     new AbortController().signal,
   );
   await wait.handler(
-    { id: "wait-1", name: "wait_agents", arguments: { mode: "all", timeout_ms: 5000 } },
+    {
+      id: "wait-1",
+      name: "wait_agents",
+      arguments: { mode: "all", timeout_ms: 5000 },
+    },
     new AbortController().signal,
   );
 
@@ -509,18 +579,27 @@ test("crash reports language error types by name and buckets everything else", a
 
 test("auth_failure names the provider and never ships the rejection message", async () => {
   const { telemetry, wire, events } = harness();
-  const isCodexAuth = (e: unknown) => e instanceof Error && /codex profile/i.test(e.message);
-  const isXaiAuth = (e: unknown) => e instanceof Error && /xai profile/i.test(e.message);
+  const isCodexAuth = (e: unknown) =>
+    e instanceof Error && /codex profile/i.test(e.message);
+  const isXaiAuth = (e: unknown) =>
+    e instanceof Error && /xai profile/i.test(e.message);
 
-  const codexRejection = new Error('Codex profile "acmecorp-eng" is not authorized.');
+  const codexRejection = new Error(
+    'Codex profile "acmecorp-eng" is not authorized.',
+  );
   const rejections = [
     codexRejection,
     new Error('xai profile "acmecorp-eng" is not authorized.'),
-    new Error("anthropic authentication_error: invalid x-api-key for acmecorp-eng"),
+    new Error(
+      "anthropic authentication_error: invalid x-api-key for acmecorp-eng",
+    ),
     new Error("connection reset by /Users/someone/acmecorp"),
   ];
   for (const err of rejections) {
-    captureAuthFailure(telemetry, classifyAgentSendFailure(err, false, isCodexAuth, isXaiAuth));
+    captureAuthFailure(
+      telemetry,
+      classifyAgentSendFailure(err, false, isCodexAuth, isXaiAuth),
+    );
   }
   // An aborted send outranks the auth match, so it must emit nothing.
   captureAuthFailure(
@@ -529,8 +608,16 @@ test("auth_failure names the provider and never ships the rejection message", as
   );
 
   const captured = await events();
-  expect(captured.map((e) => e.event)).toEqual(["auth_failure", "auth_failure", "auth_failure"]);
-  expect(captured.map((e) => e.properties.auth_provider)).toEqual(["codex", "xai", "anthropic"]);
+  expect(captured.map((e) => e.event)).toEqual([
+    "auth_failure",
+    "auth_failure",
+    "auth_failure",
+  ]);
+  expect(captured.map((e) => e.properties.auth_provider)).toEqual([
+    "codex",
+    "xai",
+    "anthropic",
+  ]);
   const body = await wire();
   expect(body).not.toContain("acmecorp");
   expect(body).not.toContain("error_class");
@@ -549,7 +636,11 @@ test("compaction fires only when turns were actually folded away", async () => {
   });
 
   const shortHistory = [
-    { role: "user" as const, content: [{ type: "text" as const, text: "hi" }], timestamp: 1 },
+    {
+      role: "user" as const,
+      content: [{ type: "text" as const, text: "hi" }],
+      timestamp: 1,
+    },
   ];
   await compactor.apply(shortHistory, {} as never);
   expect(await events()).toEqual([]);

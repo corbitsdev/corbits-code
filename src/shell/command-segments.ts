@@ -208,7 +208,8 @@ function unwrapGroup(segment: string): string | null {
     if (ch === "(") depth++;
     if (ch === ")") {
       depth--;
-      if (depth === 0) return i === segment.length - 1 ? segment.slice(1, -1) : null;
+      if (depth === 0)
+        return i === segment.length - 1 ? segment.slice(1, -1) : null;
     }
   }
   return null;

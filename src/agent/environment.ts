@@ -25,7 +25,10 @@ const GIT_TIMEOUT_MS = 3000;
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
     const stdout = await new Promise<string>((resolve, reject) => {
-      const child = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"] });
+      const child = spawn("git", args, {
+        cwd,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
       if (child.stdout === null) {
         reject(new Error("git stdout is not available"));
         return;
@@ -59,7 +62,10 @@ export type GitRunner = (cwd: string, args: string[]) => Promise<string | null>;
 
 // Detached HEAD (or a repo with zero commits) makes rev-parse print "HEAD"
 // itself rather than a branch name; treat that as "no branch".
-export async function getGitBranch(cwd: string, runGit: GitRunner = git): Promise<string | null> {
+export async function getGitBranch(
+  cwd: string,
+  runGit: GitRunner = git,
+): Promise<string | null> {
   const branch = await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === null || branch.length === 0 || branch === "HEAD") return null;
   return branch;
@@ -101,10 +107,18 @@ async function gatherTopLevel(cwd: string): Promise<string | undefined> {
   }
 }
 
-export async function gatherEnvironment(cwd: string, date = new Date()): Promise<EnvironmentInfo> {
-  const [gitInfo, topLevel] = await Promise.all([gatherGit(cwd), gatherTopLevel(cwd)]);
+export async function gatherEnvironment(
+  cwd: string,
+  date = new Date(),
+): Promise<EnvironmentInfo> {
+  const [gitInfo, topLevel] = await Promise.all([
+    gatherGit(cwd),
+    gatherTopLevel(cwd),
+  ]);
   const runtime =
-    typeof Bun !== "undefined" ? `Bun ${Bun.version}` : `Node ${process.versions.node}`;
+    typeof Bun !== "undefined"
+      ? `Bun ${Bun.version}`
+      : `Node ${process.versions.node}`;
   return {
     cwd,
     platform: `${osType()} ${release()}`,

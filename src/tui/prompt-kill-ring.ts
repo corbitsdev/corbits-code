@@ -59,14 +59,18 @@ export function recordKill(
 ): KillRing {
   if (text.length === 0) return breakKillSequence(ring);
   const accumulating =
-    (ring.lastAction === "kill-forward" || ring.lastAction === "kill-backward") &&
+    (ring.lastAction === "kill-forward" ||
+      ring.lastAction === "kill-backward") &&
     ring.entries.length > 0;
-  const entries = accumulating
-    ? [
-        direction === "forward" ? ring.entries[0]! + text : text + ring.entries[0]!,
-        ...ring.entries.slice(1),
-      ]
-    : [text, ...ring.entries].slice(0, KILL_RING_MAX);
+  const head = ring.entries[0];
+  if (accumulating && head == null) throw new Error("kill ring entry missing");
+  const entries =
+    accumulating && head != null
+      ? [
+          direction === "forward" ? head + text : text + head,
+          ...ring.entries.slice(1),
+        ]
+      : [text, ...ring.entries].slice(0, KILL_RING_MAX);
   return {
     entries,
     yankIndex: 0,
@@ -76,7 +80,10 @@ export function recordKill(
 }
 
 /** Ctrl+Y: text to insert at the cursor, or null when nothing has been killed. */
-export function beginYank(ring: KillRing, cursor: number): { ring: KillRing; text: string } | null {
+export function beginYank(
+  ring: KillRing,
+  cursor: number,
+): { ring: KillRing; text: string } | null {
   const index = ring.yankIndex < ring.entries.length ? ring.yankIndex : 0;
   const text = ring.entries[index];
   if (text === undefined) return null;
@@ -101,7 +108,8 @@ export function rotateYank(
   if (ring.lastAction !== "yank" || ring.lastYankSpan === null) return null;
   if (ring.entries.length === 0) return null;
   const nextIndex = (ring.yankIndex + 1) % ring.entries.length;
-  const text = ring.entries[nextIndex]!;
+  const text = ring.entries[nextIndex];
+  if (text == null) return null;
   const span = ring.lastYankSpan;
   return {
     text,

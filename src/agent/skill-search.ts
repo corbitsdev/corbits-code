@@ -46,7 +46,11 @@ function visibleSkills(
   return skills.filter((skill) => allowed.has(skill.name));
 }
 
-function scoreSkill(skill: SkillSummary, queryTokens: string[], rawQuery: string): number {
+function scoreSkill(
+  skill: SkillSummary,
+  queryTokens: string[],
+  rawQuery: string,
+): number {
   const nameTokens = tokenize(skill.name);
   const descTokens = new Set(tokenize(skill.description));
   let total = 0;
@@ -64,7 +68,9 @@ const SkillSearchArgs = type({ query: "string" });
 
 const DEFAULT_LIMIT = 8;
 
-export function createSkillSearchTool(args: CreateSkillSearchToolArgs): AgentTool {
+export function createSkillSearchTool(
+  args: CreateSkillSearchToolArgs,
+): AgentTool {
   const catalog = visibleSkills(args.skills, args.allowedNames);
   return stringTool({
     definition: skillSearchDefinition,
@@ -74,14 +80,18 @@ export function createSkillSearchTool(args: CreateSkillSearchToolArgs): AgentToo
         return "Error: skill_search requires query (string).";
       }
       const query = parsed.query.trim();
-      if (query.length === 0) return "Error: skill_search requires a non-empty query.";
+      if (query.length === 0)
+        return "Error: skill_search requires a non-empty query.";
       const rawQuery = query.toLowerCase();
       const queryTokens = tokenize(query);
       if (queryTokens.length === 0) {
         return `No skills matched "${query}". Try different keywords describing the capability.`;
       }
       const matches = catalog
-        .map((skill) => ({ skill, score: scoreSkill(skill, queryTokens, rawQuery) }))
+        .map((skill) => ({
+          skill,
+          score: scoreSkill(skill, queryTokens, rawQuery),
+        }))
         .filter((entry) => entry.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, DEFAULT_LIMIT)
@@ -89,7 +99,9 @@ export function createSkillSearchTool(args: CreateSkillSearchToolArgs): AgentToo
       if (matches.length === 0) {
         return `No skills matched "${query}". Try different keywords describing the capability.`;
       }
-      return matches.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n");
+      return matches
+        .map((skill) => `- ${skill.name}: ${skill.description}`)
+        .join("\n");
     },
   });
 }

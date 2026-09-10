@@ -7,7 +7,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { advanceRevealChars, LIVE_THINKING_MAX_LINES, thinkingLivePreviewLines } from "./thinking";
+import {
+  advanceRevealChars,
+  LIVE_THINKING_MAX_LINES,
+  thinkingLivePreviewLines,
+} from "./thinking";
 import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
 import { createAppShell } from "./shell/index";
@@ -101,13 +105,15 @@ describe("thinkingLivePreviewLines with a reveal position", () => {
   });
 
   test("sample frames across a few rates, printed for eyeballing", () => {
-    const sample = "we need to check whether the cache key already accounts for the locale";
+    const sample =
+      "we need to check whether the cache key already accounts for the locale";
     for (const rate of [15, 20, 28, 40, 60]) {
       const frames = [200, 500, 1000, 1500].map((ms) => {
         const chars = advanceRevealChars(0, sample.length, ms, rate);
         return thinkingLivePreviewLines(sample, 30, chars);
       });
-      console.log(`rate=${rate}/s`, frames);
+      expect(frames).toHaveLength(4);
+      expect(frames.every((row) => row.length > 0)).toBe(true);
     }
     expect(true).toBe(true);
   });
@@ -123,7 +129,11 @@ describe("the reveal position through the bridge", () => {
           run: "idle",
         });
         const { monitor, advance } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "inference.start", data: {} });
           bridge.handle({
@@ -157,7 +167,11 @@ describe("the reveal position through the bridge", () => {
           run: "idle",
         });
         const { monitor, advance } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "inference.start", data: {} });
           const long = "x".repeat(500);
@@ -186,7 +200,11 @@ describe("the reveal position through the bridge", () => {
           run: "idle",
         });
         const { monitor, advance } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "inference.start", data: {} });
           const long = "x".repeat(500);
@@ -199,7 +217,9 @@ describe("the reveal position through the bridge", () => {
             type: "inference.text.delta",
             data: { token: "answer" },
           });
-          const thinkingRow = shell.streamLog.find((r) => r.meta === "thinking");
+          const thinkingRow = shell.streamLog.find(
+            (r) => r.meta === "thinking",
+          );
           expect(thinkingRow?.thought).toBeDefined();
           expect(thinkingRow?.streaming).not.toBe(true);
         } finally {

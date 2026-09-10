@@ -9,12 +9,23 @@
  */
 
 import type { Agent } from "@intx/agent";
-import type { ContextStore, InboundMessage, InferenceSource } from "@intx/types/runtime";
+import type {
+  ContextStore,
+  InboundMessage,
+  InferenceSource,
+} from "@intx/types/runtime";
 import type { Config } from "../../config/index.js";
 import { codexProfileFromProviderName } from "../../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../../config/xai-providers.js";
-import type { MCPServerConfig, MCPServerSettingsEntry, Settings } from "../../config/settings.js";
-import { globalSettingsPath, resolveLocalSettingsPath } from "../../config/settings.js";
+import type {
+  MCPServerConfig,
+  MCPServerSettingsEntry,
+  Settings,
+} from "../../config/settings.js";
+import {
+  globalSettingsPath,
+  resolveLocalSettingsPath,
+} from "../../config/settings.js";
 import { resolveLiveSessionSources } from "../../session/assemble-runtime.js";
 import type { prepareTUISession } from "../session-start.js";
 import type { PersistMCPServerListResult } from "../../mcp/add-server.js";
@@ -26,7 +37,9 @@ import type { SubmitOutcome } from "./submit.js";
 import type { mountRunnerHost } from "./host.js";
 import { EventEmitter } from "node:events";
 
-export type TUIStart = NonNullable<Awaited<ReturnType<typeof prepareTUISession>>>;
+export type TUIStart = NonNullable<
+  Awaited<ReturnType<typeof prepareTUISession>>
+>;
 
 export type RunnerHost = Awaited<ReturnType<typeof mountRunnerHost>>;
 
@@ -68,60 +81,88 @@ export interface RunnerServices {
     typeof import("../../mcp/add-server.js").createLocalSettingsWriter
   >;
   hookManager: Awaited<
-    ReturnType<typeof import("../../session/assemble-runtime.js").assembleSessionLifecycle>
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").assembleSessionLifecycle
+    >
   >["hookManager"];
   runSink: Awaited<
-    ReturnType<typeof import("../../session/assemble-runtime.js").assembleSessionLifecycle>
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").assembleSessionLifecycle
+    >
   >["runSink"];
   cycleRecorder: Awaited<
-    ReturnType<typeof import("../../session/assemble-runtime.js").assembleSessionLifecycle>
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").assembleSessionLifecycle
+    >
   >["cycleRecorder"];
   crashGuard: TUIStart["crashGuard"];
   activeRunHandle: TUIStart["activeRunHandle"];
   inferenceDeps: TUIStart["inferenceDeps"];
   permissionGate: Awaited<
-    ReturnType<typeof import("../../session/assemble-runtime.js").assembleSessionGate>
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").assembleSessionGate
+    >
   >["gate"];
   approvalResume: ReturnType<
     typeof import("../../session/approval-resume.js").createApprovalResume
   >;
-  permissionsAdmin: ReturnType<typeof import("../../permission/admin.js").createPermissionsAdmin>;
+  permissionsAdmin: ReturnType<
+    typeof import("../../permission/admin.js").createPermissionsAdmin
+  >;
   liveSubAgent: ReturnType<
     typeof import("../../session/runtime-assembly.js").createLiveSubAgentSources
   >;
-  subAgentSessions: ReturnType<typeof import("../../subagent/index.js").createSubAgentSessionStore>;
-  pluginState: ReturnType<typeof import("../plugins-admin-backend.js").createPluginsAdminState>;
+  subAgentSessions: ReturnType<
+    typeof import("../../subagent/index.js").createSubAgentSessionStore
+  >;
+  pluginState: ReturnType<
+    typeof import("../plugins-admin-backend.js").createPluginsAdminState
+  >;
   executablePlugins: () => ReturnType<
     typeof import("../plugins-admin-backend.js").createPluginsAdminState
   >["modules"];
-  pluginsAdmin: ReturnType<typeof import("../plugins-admin-backend.js").createPluginsAdmin>;
+  pluginsAdmin: ReturnType<
+    typeof import("../plugins-admin-backend.js").createPluginsAdmin
+  >;
   skillDirs: ReturnType<
     typeof import("../../session/runtime-assembly.js").skillDirsFromEnabledPlugins
   >;
   liveToolWatchdog: import("../tool-execution-watchdog.js").ToolWatchdogConfig;
   liveSessionMode: import("../../config/session-mode.js").SessionMode;
   toolAvailability: import("../../agent/tool-search.js").ToolAvailability;
-  toolset: Awaited<ReturnType<typeof import("../../agent/tools.js").createAgentToolset>>;
+  toolset: Awaited<
+    ReturnType<typeof import("../../agent/tools.js").createAgentToolset>
+  >;
   systemPrompt: string;
   directorHolder: {
-    instance?: ReturnType<typeof import("../../agent/director.js").createChatDirector>;
+    instance?: ReturnType<
+      typeof import("../../agent/director.js").createChatDirector
+    >;
   };
   hostHolder: { instance?: RunnerHost };
   workflowHost: import("../../workflows/host.js").WorkflowHost;
   activatedToolNames: Awaited<
-    ReturnType<typeof import("../../session/assemble-runtime.js").createAdvertisedToolset>
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").createAdvertisedToolset
+    >
   >["activated"];
   computeAdvertised: Awaited<
-    ReturnType<typeof import("../../session/assemble-runtime.js").createAdvertisedToolset>
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").createAdvertisedToolset
+    >
   >["computeAdvertised"];
   buildAgent: ReturnType<
     typeof import("../../session/assemble-runtime.js").assembleChatAgent
   >["buildAgent"];
-  sessionCost: ReturnType<typeof import("../../cost/session-cost.js").createSessionCostAccumulator>;
+  sessionCost: ReturnType<
+    typeof import("../../cost/session-cost.js").createSessionCostAccumulator
+  >;
   sessionOps: ReturnType<
     typeof import("../session-operation-queue.js").createSessionOperationQueue
   >;
-  deliveryGeneration: ReturnType<typeof import("../queued-delivery.js").createDeliveryGeneration>;
+  deliveryGeneration: ReturnType<
+    typeof import("../queued-delivery.js").createDeliveryGeneration
+  >;
   correlationAcceptance: ReturnType<
     typeof import("../correlation-acceptance.js").createCorrelationAcceptance
   >;
@@ -225,14 +266,22 @@ export interface RunnerState {
     providerFailure: ProviderFailureAttempt,
   ) => void;
   sendWithAttemptIdentity?: (message: InboundMessage) => Promise<boolean>;
-  sendUserPrompt?: (text: string, pending: readonly PendingImageAttachment[]) => Promise<void>;
+  sendUserPrompt?: (
+    text: string,
+    pending: readonly PendingImageAttachment[],
+  ) => Promise<void>;
   dispatchCommand?: (name: string, args: string) => void;
   newSession?: () => void;
   interrupt?: () => void;
   agentProxy?: Agent;
-  send?: (text: string, attachments?: readonly PendingImageAttachment[]) => SubmitOutcome;
+  send?: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => SubmitOutcome;
   connectLateMCPServer?: (server: MCPServerConfig) => void;
-  applyMcpCatalog?: (result: Extract<PersistMCPServerListResult, { ok: true }>) => void;
+  applyMcpCatalog?: (
+    result: Extract<PersistMCPServerListResult, { ok: true }>,
+  ) => void;
   persistRunSnapshot?: (
     status: SnapshotStatus,
     extra?: SnapshotExtra,
@@ -295,7 +344,10 @@ export function createRunnerState(start: TUIStart): RunnerState {
     runTaskTitle: start.runTaskTitle,
     workdir: start.workdir,
     resumeSkipInitialTask: start.resumeSkipInitialTask,
-    localSettingsFile: resolveLocalSettingsPath(config.cwd, config.globalSettingsPath),
+    localSettingsFile: resolveLocalSettingsPath(
+      config.cwd,
+      config.globalSettingsPath,
+    ),
     trueGlobalSettingsPath: globalSettingsPath(),
     telemetryFirstRun: false,
     runError: undefined,

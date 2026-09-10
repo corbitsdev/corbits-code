@@ -1,13 +1,27 @@
-import { type ViewNode, type Tone, VIEW_MAX_NODES, VIEW_MAX_DEPTH } from "./spec.js";
+import {
+  type ViewNode,
+  type Tone,
+  VIEW_MAX_NODES,
+  VIEW_MAX_DEPTH,
+} from "./spec.js";
 
 // Boundary validation for an untrusted view spec (from the model or a converter).
 // Hand-rolled rather than schema-derived so failures carry a node-path message the
 // model can act on ("root.children[2].grid.rows: expected an array"). Once a node
 // validates here the renderer trusts it.
 
-export type ViewValidation = { ok: true; node: ViewNode } | { ok: false; error: string };
+export type ViewValidation =
+  | { ok: true; node: ViewNode }
+  | { ok: false; error: string };
 
-const TONES = new Set<Tone>(["default", "muted", "success", "warning", "danger", "accent"]);
+const TONES = new Set<Tone>([
+  "default",
+  "muted",
+  "success",
+  "warning",
+  "danger",
+  "accent",
+]);
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -17,11 +31,17 @@ function fail(path: string, msg: string): { ok: false; error: string } {
   return { ok: false, error: `${path}: ${msg}` };
 }
 
-function checkString(v: unknown, path: string): string | { ok: false; error: string } {
+function checkString(
+  v: unknown,
+  path: string,
+): string | { ok: false; error: string } {
   return typeof v === "string" ? v : fail(path, "expected a string");
 }
 
-function checkTone(v: unknown, path: string): true | { ok: false; error: string } {
+function checkTone(
+  v: unknown,
+  path: string,
+): true | { ok: false; error: string } {
   if (v === undefined) return true;
   if (typeof v === "string" && TONES.has(v as Tone)) return true;
   return fail(path, `invalid tone "${String(v)}"`);
@@ -68,10 +88,16 @@ function validateNode(
 
     case "stack":
     case "row": {
-      if (!Array.isArray(value.children)) return fail(`${path}.children`, "expected an array");
+      if (!Array.isArray(value.children))
+        return fail(`${path}.children`, "expected an array");
       const children: ViewNode[] = [];
       for (let i = 0; i < value.children.length; i++) {
-        const child = validateNode(value.children[i], `${path}.children[${i}]`, depth + 1, counter);
+        const child = validateNode(
+          value.children[i],
+          `${path}.children[${i}]`,
+          depth + 1,
+          counter,
+        );
         if (!child.ok) return child;
         children.push(child.node);
       }
@@ -79,15 +105,25 @@ function validateNode(
       const gap = g === 0 || g === 1 ? (g as 0 | 1) : undefined;
       return {
         ok: true,
-        node: { type: type as "stack" | "row", children, ...(gap !== undefined ? { gap } : {}) },
+        node: {
+          type: type as "stack" | "row",
+          children,
+          ...(gap !== undefined ? { gap } : {}),
+        },
       };
     }
 
     case "box": {
-      if (!Array.isArray(value.children)) return fail(`${path}.children`, "expected an array");
+      if (!Array.isArray(value.children))
+        return fail(`${path}.children`, "expected an array");
       const children: ViewNode[] = [];
       for (let i = 0; i < value.children.length; i++) {
-        const child = validateNode(value.children[i], `${path}.children[${i}]`, depth + 1, counter);
+        const child = validateNode(
+          value.children[i],
+          `${path}.children[${i}]`,
+          depth + 1,
+          counter,
+        );
         if (!child.ok) return child;
         children.push(child.node);
       }
@@ -106,7 +142,8 @@ function validateNode(
     }
 
     case "grid": {
-      if (!Array.isArray(value.rows)) return fail(`${path}.rows`, "expected an array");
+      if (!Array.isArray(value.rows))
+        return fail(`${path}.rows`, "expected an array");
       const rows: ViewNode[][] = [];
       for (let i = 0; i < value.rows.length; i++) {
         const r = value.rows[i];
@@ -122,20 +159,29 @@ function validateNode(
       }
       let columns: { align?: "left" | "right" | "center" }[] | undefined;
       if (value.columns !== undefined) {
-        if (!Array.isArray(value.columns)) return fail(`${path}.columns`, "expected an array");
+        if (!Array.isArray(value.columns))
+          return fail(`${path}.columns`, "expected an array");
         columns = [];
         for (let i = 0; i < value.columns.length; i++) {
           const c = value.columns[i];
           const at = `${path}.columns[${i}]`;
           if (!isObject(c)) return fail(at, "expected an object");
           const align = c.align;
-          if (align !== undefined && align !== "left" && align !== "right" && align !== "center") {
+          if (
+            align !== undefined &&
+            align !== "left" &&
+            align !== "right" &&
+            align !== "center"
+          ) {
             return fail(`${at}.align`, 'expected "left", "right", or "center"');
           }
           columns.push(align !== undefined ? { align } : {});
         }
       }
-      return { ok: true, node: { type, rows, ...(columns ? { columns } : {}) } };
+      return {
+        ok: true,
+        node: { type, rows, ...(columns ? { columns } : {}) },
+      };
     }
 
     default:

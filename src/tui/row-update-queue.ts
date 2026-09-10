@@ -15,19 +15,29 @@ import type { BridgeBag } from "./runtime-bridge.js";
 /** Accumulated repaints by absolute row index; the latest snapshot wins. */
 export type PendingRowUpdates = Map<number, StreamRow>;
 
-export function scheduleRowUpdate(bag: BridgeBag, index: number, row: StreamRow): void {
+export function scheduleRowUpdate(
+  bag: BridgeBag,
+  index: number,
+  row: StreamRow,
+): void {
   bag.pendingRowUpdates.set(index, row);
 }
 
 /** The freshest row an immediate seam should read for `index`, if any. */
-export function takePendingRowUpdate(bag: BridgeBag, index: number): StreamRow | undefined {
+export function takePendingRowUpdate(
+  bag: BridgeBag,
+  index: number,
+): StreamRow | undefined {
   const row = bag.pendingRowUpdates.get(index);
   bag.pendingRowUpdates.delete(index);
   return row;
 }
 
 /** Drop updates a rollback truncated out of the log. */
-export function dropPendingRowUpdatesFrom(bag: BridgeBag, boundary: number): void {
+export function dropPendingRowUpdatesFrom(
+  bag: BridgeBag,
+  boundary: number,
+): void {
   for (const index of bag.pendingRowUpdates.keys()) {
     if (index >= boundary) bag.pendingRowUpdates.delete(index);
   }

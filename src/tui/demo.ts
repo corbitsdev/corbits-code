@@ -20,13 +20,26 @@ import {
   createRecordingPort,
 } from "./runtime-bridge.js";
 import type { ObserveSession } from "./residuals.js";
-import { openModelPickerOverlay, openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
+import {
+  openModelPickerOverlay,
+  openOperatorOverlay,
+  openPermissionsOverlay,
+} from "./overlays.js";
 import { formatChromeZones } from "./chrome-state.js";
-import { appendStreamRow, paintChrome, setChromeZones, setShellRunState } from "./shell/chrome.js";
+import {
+  appendStreamRow,
+  paintChrome,
+  setChromeZones,
+  setShellRunState,
+} from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import { enterSubagentObserve } from "./shell/observe.js";
 import { openListOverlay } from "./shell/overlay-host.js";
-import { openHelpOverlay, openMentionsOverlay, openSettingsOverlay } from "./shell/palette.js";
+import {
+  openHelpOverlay,
+  openMentionsOverlay,
+  openSettingsOverlay,
+} from "./shell/palette.js";
 
 /** Demo-only rows: never shipped, just something to look at in `s`/`l`/`e`/`n`. */
 const DEMO_SETTINGS_ITEMS: readonly string[] = [
@@ -71,7 +84,11 @@ const DEMO_RESUME_ITEMS: readonly string[] = [
   "Close resume",
 ];
 
-const DEMO_MENTION_ITEMS: readonly string[] = ["@src/tui/shell.ts", "@AGENTS.md", "Close mentions"];
+const DEMO_MENTION_ITEMS: readonly string[] = [
+  "@src/tui/shell.ts",
+  "@AGENTS.md",
+  "Close mentions",
+];
 
 function demoObserveSession(): ObserveSession {
   return {
@@ -82,7 +99,11 @@ function demoObserveSession(): ObserveSession {
       { role: "system", text: "— child session explore —" },
       { role: "user", text: "find every openListOverlay caller" },
       { role: "assistant", text: "Searching src/tui…" },
-      { role: "tool", text: "grep openListOverlay → 6 hits", meta: "tool.done" },
+      {
+        role: "tool",
+        text: "grep openListOverlay → 6 hits",
+        meta: "tool.done",
+      },
       { role: "assistant", text: "Report ready for parent." },
     ],
   };
@@ -205,7 +226,12 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return;
   }
 
-  if (key.name === "f" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "f" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     appendStreamRow(shell, {
       role: "system",
       text: "— replaying FIXTURE_BUSY_SESSION —",
@@ -214,7 +240,12 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return;
   }
 
-  if (key.name === "r" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "r" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     setShellRunState(shell, "busy");
     appendStreamRow(shell, {
       role: "system",
@@ -223,32 +254,65 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return;
   }
 
-  if (key.name === "p" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "p" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openPermissionsOverlay(shell, { items: DEMO_PERMISSION_ITEMS });
     return;
   }
 
-  if (key.name === "o" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
-    openOperatorOverlay(shell, { body: DEMO_OPERATOR_BODY, choices: DEMO_OPERATOR_CHOICES });
+  if (
+    key.name === "o" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openOperatorOverlay(shell, {
+      body: DEMO_OPERATOR_BODY,
+      choices: DEMO_OPERATOR_CHOICES,
+    });
     return;
   }
 
-  if (key.name === "m" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "m" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openModelPickerOverlay(shell, { items: DEMO_MODEL_ITEMS });
     return;
   }
 
-  if (key.name === "s" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "s" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openSettingsOverlay(shell, { items: DEMO_SETTINGS_ITEMS });
     return;
   }
 
-  if (key.name === "h" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "h" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openHelpOverlay(shell);
     return;
   }
 
-  if (key.name === "l" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "l" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openListOverlay(shell, {
       kind: "plugins",
       title: "plugins",
@@ -258,7 +322,12 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return;
   }
 
-  if (key.name === "e" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "e" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openListOverlay(shell, {
       kind: "resume",
       title: "resume session",
@@ -268,17 +337,32 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return;
   }
 
-  if (key.name === "n" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "n" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     openMentionsOverlay(shell, { items: DEMO_MENTION_ITEMS });
     return;
   }
 
-  if (key.name === "v" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "v" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     enterSubagentObserve(shell, demoObserveSession());
     return;
   }
 
-  if (key.name === "t" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "t" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     const on = shell.layout.heights.task > 0;
     setChromeZones(shell, {
       task: on
@@ -290,7 +374,12 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return;
   }
 
-  if (key.name === "a" && !key.ctrl && !key.meta && shell.prompt.value.length === 0) {
+  if (
+    key.name === "a" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
     const on = shell.layout.heights.agents > 0;
     setChromeZones(shell, {
       agents: on ? null : formatChromeZones({ agents: DEMO_FLEET }).agents,

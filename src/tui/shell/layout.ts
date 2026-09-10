@@ -9,7 +9,11 @@ import {
 } from "../geometry/index.js";
 import { splitLandingRows, versionBadgeVisible } from "../landing.js";
 
-import { type AppShell, shellInternals, type ShellRenderer } from "./internals.js";
+import {
+  type AppShell,
+  shellInternals,
+  type ShellRenderer,
+} from "./internals.js";
 
 export function terminalOf(
   renderer: ShellRenderer,
@@ -111,9 +115,13 @@ export interface RelayoutOpts {
  * keeps enough to stay a live tail — the orchestrator reporting back and asking
  * questions is still the main way the operator learns anything.
  */
-export function fleetTranscriptFloor(shell: AppShell): { transcriptFloor?: number } {
+export function fleetTranscriptFloor(shell: AppShell): {
+  transcriptFloor?: number;
+} {
   const bag = shellInternals(shell);
   if (!bag) return {};
   const lanes = bag.chrome.agents.filter((row) => row.kind === "lane").length;
-  return lanes >= FLEET_FLOOR_MIN_LANES ? { transcriptFloor: FLEET_TRANSCRIPT_FLOOR } : {};
+  return lanes >= FLEET_FLOOR_MIN_LANES
+    ? { transcriptFloor: FLEET_TRANSCRIPT_FLOOR }
+    : {};
 }

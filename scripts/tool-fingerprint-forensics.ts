@@ -25,7 +25,9 @@ function stableJson(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
 }
 
-function fingerprintToolCalls(content: readonly Record<string, unknown>[]): string | null {
+function fingerprintToolCalls(
+  content: readonly Record<string, unknown>[],
+): string | null {
   const parts: string[] = [];
   for (const block of content) {
     if (block.type !== "tool_call") continue;
@@ -112,9 +114,12 @@ for (const file of files) {
     const content = turn.content as readonly Record<string, unknown>[];
     const hasToolCalls = content.some((b) => b.type === "tool_call");
     const hasText = content.some(
-      (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
+      (b) =>
+        b.type === "text" && typeof b.text === "string" && b.text.length > 0,
     );
-    fingerprints.push(hasToolCalls && !hasText ? fingerprintToolCalls(content) : null);
+    fingerprints.push(
+      hasToolCalls && !hasText ? fingerprintToolCalls(content) : null,
+    );
   }
 
   const runs: string[][] = [];
@@ -146,7 +151,10 @@ for (const file of files) {
 runLengths.sort((a, b) => a - b);
 function percentile(p: number): number {
   if (runLengths.length === 0) return 0;
-  const idx = Math.min(runLengths.length - 1, Math.floor((p / 100) * runLengths.length));
+  const idx = Math.min(
+    runLengths.length - 1,
+    Math.floor((p / 100) * runLengths.length),
+  );
   return runLengths[idx] as number;
 }
 

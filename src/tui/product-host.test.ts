@@ -9,7 +9,10 @@ import type { PermissionRequest } from "../permission/types.js";
 import { AGENTS_PANEL_LINGER_MS } from "./chrome-state.js";
 import { createHarness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
-import { moveOverlaySelection, runOverlayAction } from "./shell/overlay-list.js";
+import {
+  moveOverlaySelection,
+  runOverlayAction,
+} from "./shell/overlay-list.js";
 import { handleListFilterKey } from "./shell/palette.js";
 import {
   mountProductHost,
@@ -47,7 +50,9 @@ function makeFakeSessionPort(): {
   };
 }
 
-async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promise<{
+async function mountHeadless(
+  overrides: Partial<ProductHostConfig> = {},
+): Promise<{
   host: Awaited<ReturnType<typeof mountProductHost>>;
   emitter: EventEmitter;
   destroyHarness: () => void;
@@ -157,7 +162,9 @@ describe("mountProductHost", () => {
 
       // Subsequent turns land on the empty transcript.
       emitter.emit("event", { type: "user", text: "fresh prompt" });
-      expect(host.shell.streamLog).toEqual([{ role: "user", text: "fresh prompt" }]);
+      expect(host.shell.streamLog).toEqual([
+        { role: "user", text: "fresh prompt" },
+      ]);
     } finally {
       host.dispose();
     }
@@ -216,7 +223,7 @@ describe("mountProductHost", () => {
         id: "ask-1",
         question: "Proceed?",
         options: ["Cancel", "Continue"],
-        resolve: (_result: unknown) => {},
+        resolve: (_result: unknown) => undefined,
       });
       expect(host.shell.overlayKind).toBe("operator");
       expect(host.shell.overlayItems).toEqual(["Cancel", "Continue"]);
@@ -253,7 +260,9 @@ describe("mountProductHost", () => {
     expect(() => host.dispose()).not.toThrow();
 
     // Listeners were removed by dispose; emitting is a no-op, not a throw.
-    expect(() => emitter.emit("event", { type: "user", text: "late" })).not.toThrow();
+    expect(() =>
+      emitter.emit("event", { type: "user", text: "late" }),
+    ).not.toThrow();
     expect(host.shell.streamLog).toEqual([]);
   });
 
@@ -290,21 +299,22 @@ describe("mountProductHost", () => {
 
   test("sticky ticks clear the agents zone after linger without setChrome", async () => {
     const now = Date.now();
-    const { host, renderOnce, captureCharFrame, destroyHarness } = await mountHeadless({
-      chrome: {
-        agents: [
-          {
-            agentId: "explorer",
-            currentToolStartedAt: null,
-            description: "map callers",
-            status: "done",
-            startedAt: now - 10_000,
-            lastActivityAt: now,
-            finishedAt: now,
-          },
-        ],
-      },
-    });
+    const { host, renderOnce, captureCharFrame, destroyHarness } =
+      await mountHeadless({
+        chrome: {
+          agents: [
+            {
+              agentId: "explorer",
+              currentToolStartedAt: null,
+              description: "map callers",
+              status: "done",
+              startedAt: now - 10_000,
+              lastActivityAt: now,
+              finishedAt: now,
+            },
+          ],
+        },
+      });
     try {
       await renderOnce();
       expect(host.shell.layout.heights.agents).toBeGreaterThan(0);
@@ -370,10 +380,16 @@ describe("flat type-to-filter model picker", () => {
       // data, not the scrolled viewport — short harness heights clip later rows).
       expect(items.some((label) => label.includes("gpt-5.5"))).toBe(true);
       expect(items.some((label) => label.includes("grok-4.5"))).toBe(true);
-      expect(items.some((label) => label.includes("codex/abk-labs"))).toBe(true);
-      expect(items.some((label) => label.includes("xai/thegreataxios"))).toBe(true);
+      expect(items.some((label) => label.includes("codex/abk-labs"))).toBe(
+        true,
+      );
+      expect(items.some((label) => label.includes("xai/thegreataxios"))).toBe(
+        true,
+      );
       // No provider-group-only rows (those were `providerGroup:` ids with no model).
-      expect(items.every((label) => label.includes(" * [") || label.startsWith("("))).toBe(true);
+      expect(
+        items.every((label) => label.includes(" * [") || label.startsWith("(")),
+      ).toBe(true);
       // Filter row is present so the list can narrow without another pane.
       expect(frame).toContain(">");
     } finally {
@@ -396,7 +412,11 @@ describe("flat type-to-filter model picker", () => {
 
       const items = host.shell.overlayItems;
       expect(items.some((label) => label.includes("grok-4.5"))).toBe(true);
-      expect(items.every((label) => label.includes("grok") || label === "(no matches)")).toBe(true);
+      expect(
+        items.every(
+          (label) => label.includes("grok") || label === "(no matches)",
+        ),
+      ).toBe(true);
 
       const grokIndex = items.findIndex((label) => label.includes("grok-4.5"));
       expect(grokIndex).toBeGreaterThanOrEqual(0);
@@ -442,7 +462,7 @@ describe("flat type-to-filter model picker", () => {
       createRenderer: async () => harness.renderer,
       models: catalog,
       activeModelId: () => modelOptionId("xai/thegreataxios", "grok-4.5"),
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
     });
     try {
       host.openModels?.();
@@ -475,7 +495,7 @@ describe("flat type-to-filter model picker", () => {
       createRenderer: async () => harness.renderer,
       models: catalog,
       activeModelId: () => modelOptionId("codex/abk-labs", "gpt-5.5"),
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
     });
     try {
       host.openModels?.();
@@ -502,7 +522,7 @@ describe("flat type-to-filter model picker", () => {
         deliver: port.deliver,
         createRenderer: async () => harness.renderer,
         models: catalog,
-        onModelSelect: () => {},
+        onModelSelect: () => undefined,
       });
       try {
         host.openModels?.();
@@ -511,7 +531,9 @@ describe("flat type-to-filter model picker", () => {
         // Five provider rows do not all fit a 10-row terminal alongside the
         // overlay chrome; the picker renders without throwing and the frame
         // stays within the terminal's own line count.
-        expect(frame.replace(/\n$/, "").split("\n").length).toBeLessThanOrEqual(10);
+        expect(frame.replace(/\n$/, "").split("\n").length).toBeLessThanOrEqual(
+          10,
+        );
         expect(host.shell.overlayList).not.toBeNull();
       } finally {
         host.dispose();
@@ -584,7 +606,12 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  const altD = { name: "d", ctrl: false, meta: false, option: true } as KeyEvent;
+  const altD = {
+    name: "d",
+    ctrl: false,
+    meta: false,
+    option: true,
+  } as KeyEvent;
 
   test("Alt+D on a focused row calls onSetDefault and leaves the picker open", async () => {
     const defaults: string[] = [];
@@ -627,7 +654,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("the model picker footer advertises Alt+D when onSetDefault is wired", async () => {
     const { harness, host } = await mountPicker({
-      onSetDefault: () => {},
+      onSetDefault: () => undefined,
     });
     try {
       host.openModels?.();
@@ -651,14 +678,21 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  const altA = { name: "a", ctrl: false, meta: false, option: true } as KeyEvent;
+  const altA = {
+    name: "a",
+    ctrl: false,
+    meta: false,
+    option: true,
+  } as KeyEvent;
 
   test("the model picker footer advertises Alt+A and /connect", async () => {
     const { harness, host } = await mountPicker({
       // The hint requires the full wiring — choices AND the connect handler —
       // because that is exactly when the key actually works.
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -674,11 +708,21 @@ describe("flat type-to-filter model picker", () => {
 
   test("Alt+A opens the add-provider selector listing every provider kind and its account count", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "ChatGPT subscription", accountCount: 2 },
+        {
+          id: "codex",
+          label: "Codex",
+          hint: "ChatGPT subscription",
+          accountCount: 2,
+        },
         { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
-        { id: "custom", label: "Custom", hint: "any OpenAI-compatible endpoint", accountCount: 0 },
+        {
+          id: "custom",
+          label: "Custom",
+          hint: "any OpenAI-compatible endpoint",
+          accountCount: 0,
+        },
       ],
     });
     try {
@@ -701,8 +745,10 @@ describe("flat type-to-filter model picker", () => {
   test("composed Option+A (å) opens add-provider and is not claimed by type-to-filter", async () => {
     // Terminals may deliver Option+A as å/Å without meta/option.
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -725,8 +771,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("composed Option+A (Å) opens add-provider and is not claimed by type-to-filter", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -749,8 +797,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("composed å through the key path opens add-provider", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -766,8 +816,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("closed-prompt å stays in the prompt and does not open add-provider", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       expect(host.shell.overlayKind).toBeNull();
@@ -783,8 +835,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("other composed glyphs still type-to-filter in the model picker", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -810,8 +864,10 @@ describe("flat type-to-filter model picker", () => {
     // Terminals can report Option+A as sequence å while name stays ASCII a
     // and option/meta stay false (#482).
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -854,8 +910,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("bare ASCII a still type-to-filters when add-provider is wired", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -877,8 +935,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("ordinary letters still type-to-filter when add-provider is wired", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -924,8 +984,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("Esc from the add-provider selector returns to the model list", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
+      ],
     });
     try {
       host.openModels?.();
@@ -947,8 +1009,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("Esc after openAddProvider from a closed prompt does not reopen the model list", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
+      ],
     });
     try {
       expect(host.shell.overlayKind).toBeNull();
@@ -969,8 +1033,10 @@ describe("flat type-to-filter model picker", () => {
   test("typed /connect then Enter opens add-provider and Esc leaves overlay null", async () => {
     const queued: { open?: () => void } = {};
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
+      ],
       commands: [
         {
           id: "connect",
@@ -1005,7 +1071,9 @@ describe("flat type-to-filter model picker", () => {
     const connected: string[] = [];
     const { harness, host } = await mountPicker({
       onConnectProvider: (name) => connected.push(name),
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -1049,8 +1117,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("openAddProvider opens the add-provider selector when choices are wired", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openAddProvider?.();
@@ -1078,7 +1148,9 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.("codex/abk-labs:gpt-5.6-sol");
       await harness.renderOnce();
-      const idx = host.shell.overlayItems.findIndex((label) => label.includes("gpt-5.6-sol"));
+      const idx = host.shell.overlayItems.findIndex((label) =>
+        label.includes("gpt-5.6-sol"),
+      );
       expect(idx).toBeGreaterThanOrEqual(0);
       expect(host.shell.overlayList?.activeIndex).toBe(idx);
     } finally {
@@ -1092,7 +1164,9 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(false);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("live-1")),
+      ).toBe(false);
 
       host.setModels?.([
         { id: "codex/abk-labs:gpt-5.5", label: "gpt-5.5 * [codex/abk-labs]" },
@@ -1101,7 +1175,9 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
 
       expect(host.shell.overlayKind).toBe("model_picker");
-      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(true);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("live-1")),
+      ).toBe(true);
     } finally {
       host.dispose();
       harness.destroy();
@@ -1113,19 +1189,26 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      const grokIndex = host.shell.overlayItems.findIndex((label) => label.includes("grok-4.5"));
+      const grokIndex = host.shell.overlayItems.findIndex((label) =>
+        label.includes("grok-4.5"),
+      );
       expect(grokIndex).toBeGreaterThanOrEqual(0);
       moveOverlaySelection(host.shell, grokIndex);
       expect(host.shell.overlayList?.activeIndex).toBe(grokIndex);
 
       host.setModels?.([
         { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
-        { id: "xai/thegreataxios:grok-4.5", label: "grok-4.5 * [xai/thegreataxios]" },
+        {
+          id: "xai/thegreataxios:grok-4.5",
+          label: "grok-4.5 * [xai/thegreataxios]",
+        },
         { id: "opencode-go:live-2", label: "live-2 * [opencode-go]" },
       ]);
       await harness.renderOnce();
 
-      const next = host.shell.overlayItems.findIndex((label) => label.includes("grok-4.5"));
+      const next = host.shell.overlayItems.findIndex((label) =>
+        label.includes("grok-4.5"),
+      );
       expect(next).toBeGreaterThanOrEqual(0);
       expect(next).not.toBe(grokIndex);
       expect(host.shell.overlayList?.activeIndex).toBe(next);
@@ -1137,8 +1220,10 @@ describe("flat type-to-filter model picker", () => {
 
   test("setModels does not steal an open add-provider overlay", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
-      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+      onConnectProvider: () => undefined,
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+      ],
     });
     try {
       host.openModels?.();
@@ -1147,7 +1232,9 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("add_provider");
 
-      host.setModels?.([{ id: "opencode-go:live-1", label: "live-1 * [opencode-go]" }]);
+      host.setModels?.([
+        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+      ]);
       await harness.renderOnce();
 
       expect(host.shell.overlayKind).toBe("add_provider");
@@ -1167,26 +1254,41 @@ describe("flat type-to-filter model picker", () => {
         harness.pressKey(ch);
       }
       await harness.renderOnce();
-      expect(host.shell.overlayItems.every((label) => label.includes("grok"))).toBe(true);
+      expect(
+        host.shell.overlayItems.every((label) => label.includes("grok")),
+      ).toBe(true);
 
       host.setModels?.([
-        { id: "xai/thegreataxios:grok-4.5", label: "grok-4.5 * [xai/thegreataxios]" },
+        {
+          id: "xai/thegreataxios:grok-4.5",
+          label: "grok-4.5 * [xai/thegreataxios]",
+        },
         { id: "opencode-go:grok-live", label: "grok-live * [opencode-go]" },
         { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
       ]);
       await harness.renderOnce();
 
       expect(host.shell.overlayKind).toBe("model_picker");
-      expect(host.shell.overlayItems.some((label) => label.includes("grok-4.5"))).toBe(true);
-      expect(host.shell.overlayItems.some((label) => label.includes("grok-live"))).toBe(true);
-      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(false);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("grok-4.5")),
+      ).toBe(true);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("grok-live")),
+      ).toBe(true);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("live-1")),
+      ).toBe(false);
 
       for (let i = 0; i < 4; i++) {
         harness.pressKey("Backspace");
       }
       await harness.renderOnce();
-      expect(host.shell.overlayItems.some((label) => label.includes("live-1"))).toBe(true);
-      expect(host.shell.overlayItems.some((label) => label.includes("glm"))).toBe(false);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("live-1")),
+      ).toBe(true);
+      expect(
+        host.shell.overlayItems.some((label) => label.includes("glm")),
+      ).toBe(false);
 
       for (const ch of "glm") {
         harness.pressKey(ch);

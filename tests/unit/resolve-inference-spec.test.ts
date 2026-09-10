@@ -28,7 +28,11 @@ describe("resolveInferenceSpec", () => {
     const spec: InferenceSpec = {
       mode: "prefer",
       order: [
-        { provider: "anthropic", model: "claude-sonnet-4", reasoningEffort: "medium" },
+        {
+          provider: "anthropic",
+          model: "claude-sonnet-4",
+          reasoningEffort: "medium",
+        },
         { provider: "xai", model: "grok-4" },
       ],
     };
@@ -110,8 +114,12 @@ describe("resolveInferenceWithPolicy", () => {
   };
 
   test("undefined spec → fallback (regardless of mode/setting)", () => {
-    expect(resolveInferenceWithPolicy(undefined, baseSettings).kind).toBe("fallback");
-    expect(resolveInferenceWithPolicy(undefined, noFallback).kind).toBe("fallback");
+    expect(resolveInferenceWithPolicy(undefined, baseSettings).kind).toBe(
+      "fallback",
+    );
+    expect(resolveInferenceWithPolicy(undefined, noFallback).kind).toBe(
+      "fallback",
+    );
   });
 
   test("viable leg → resolved, regardless of mode or fallback setting", () => {
@@ -120,11 +128,15 @@ describe("resolveInferenceWithPolicy", () => {
       kind: "resolved",
       value: { provider: "anthropic", model: "claude-sonnet-4" },
     });
-    expect(resolveInferenceWithPolicy(pinSpec, noFallback).kind).toBe("resolved");
+    expect(resolveInferenceWithPolicy(pinSpec, noFallback).kind).toBe(
+      "resolved",
+    );
   });
 
   test("no viable leg, mode=prefer, fallback=active → fallback", () => {
-    expect(resolveInferenceWithPolicy(unviableSpec, baseSettings).kind).toBe("fallback");
+    expect(resolveInferenceWithPolicy(unviableSpec, baseSettings).kind).toBe(
+      "fallback",
+    );
   });
 
   test("no viable leg, mode=prefer, fallback=none → unavailable (OR side B)", () => {
@@ -137,7 +149,9 @@ describe("resolveInferenceWithPolicy", () => {
 
   test("no viable leg, mode=pin, fallback=active → unavailable (OR side A)", () => {
     const pinSpec: InferenceSpec = { ...unviableSpec, mode: "pin" };
-    expect(resolveInferenceWithPolicy(pinSpec, baseSettings).kind).toBe("unavailable");
+    expect(resolveInferenceWithPolicy(pinSpec, baseSettings).kind).toBe(
+      "unavailable",
+    );
   });
 
   test("no viable leg, mode=pin, fallback=none → unavailable, lists every leg", () => {

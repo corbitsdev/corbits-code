@@ -12,7 +12,11 @@
  * it back on the next observation. No painting, no store access.
  */
 
-import { agentProgress, clockLabel, DEFAULT_STALL_MS } from "../tui/agent-progress.js";
+import {
+  agentProgress,
+  clockLabel,
+  DEFAULT_STALL_MS,
+} from "../tui/agent-progress.js";
 import type { SubAgentSessionStatus } from "./session-store.js";
 
 /** The lane fields a report is written from. `SubAgentSession` satisfies it. */
@@ -136,11 +140,14 @@ export interface PendingAskWake {
 /** Nested orchestrators own their children's questions; only root workers wake the TUI. */
 export function pendingAskSnapshot(
   lanes: readonly FleetLane[],
-  peekAsk: (sessionId: string) => { question: string; questionId: string } | undefined,
+  peekAsk: (
+    sessionId: string,
+  ) => { question: string; questionId: string } | undefined,
 ): readonly PendingAskWake[] {
   const asks: PendingAskWake[] = [];
   for (const lane of lanes) {
-    if (lane.parentSessionId !== undefined || lane.status !== "running") continue;
+    if (lane.parentSessionId !== undefined || lane.status !== "running")
+      continue;
     const ask = peekAsk(lane.id);
     if (ask === undefined) continue;
     asks.push({
@@ -206,7 +213,10 @@ export function observeFleet(
 
     if (before === undefined) {
       if (lane.status === "running") {
-        changes.push({ kind: "dispatched", line: `dispatched ${lane.description}` });
+        changes.push({
+          kind: "dispatched",
+          line: `dispatched ${lane.description}`,
+        });
       }
       continue;
     }
@@ -252,19 +262,24 @@ export function observeFleet(
   if (wentDry) {
     return {
       watch,
-      updates: [clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS)],
+      updates: [
+        clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS),
+      ],
     };
   }
 
   const attention = changes.filter(
-    (c) => c.kind === "failed" || c.kind === "cancelled" || c.kind === "stalled",
+    (c) =>
+      c.kind === "failed" || c.kind === "cancelled" || c.kind === "stalled",
   );
   if (attention.length === 0) {
     return { watch, updates: [] };
   }
 
   const lines: string[] =
-    attention.length > COALESCE_ABOVE ? [tally(attention)] : attention.map((c) => c.line);
+    attention.length > COALESCE_ABOVE
+      ? [tally(attention)]
+      : attention.map((c) => c.line);
 
   return {
     watch,
@@ -273,11 +288,16 @@ export function observeFleet(
 }
 
 function tally(changes: readonly Change[]): string {
-  const count = (kind: Change["kind"]): number => changes.filter((c) => c.kind === kind).length;
+  const count = (kind: Change["kind"]): number =>
+    changes.filter((c) => c.kind === kind).length;
   // stalled changes are not operator-facing; tally outcomes only
   void count("stalled");
   return formatOutcomeParts(
-    { done: count("done"), failed: count("failed"), cancelled: count("cancelled") },
+    {
+      done: count("done"),
+      failed: count("failed"),
+      cancelled: count("cancelled"),
+    },
     { includeZeroDone: false },
   ).join(", ");
 }
@@ -310,16 +330,22 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
   return { done, failed, cancelled };
 }
 
-function formatOutcomeParts(counts: OutcomeCounts, opts: { includeZeroDone: boolean }): string[] {
+function formatOutcomeParts(
+  counts: OutcomeCounts,
+  opts: { includeZeroDone: boolean },
+): string[] {
   const parts: string[] = [];
-  if (opts.includeZeroDone || counts.done > 0) parts.push(`${counts.done} done`);
+  if (opts.includeZeroDone || counts.done > 0)
+    parts.push(`${counts.done} done`);
   if (counts.failed > 0) parts.push(`${counts.failed} failed`);
   if (counts.cancelled > 0) parts.push(`${counts.cancelled} cancelled`);
   return parts;
 }
 
 function idleSummary(lanes: readonly FleetLane[]): string {
-  return formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: true }).join(", ");
+  return formatOutcomeParts(outcomeCounts(lanes), {
+    includeZeroDone: true,
+  }).join(", ");
 }
 
 /**
@@ -346,8 +372,12 @@ export function fleetDigest(
       })
       .join(", ");
     const extra = running.length - Math.min(running.length, DIGEST_NAMED_LANES);
-    parts.push(`${running.length} running (${named}${extra > 0 ? `, +${extra} more` : ""})`);
+    parts.push(
+      `${running.length} running (${named}${extra > 0 ? `, +${extra} more` : ""})`,
+    );
   }
-  parts.push(...formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: false }));
+  parts.push(
+    ...formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: false }),
+  );
   return parts.join(" · ");
 }

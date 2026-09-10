@@ -7,9 +7,18 @@
 
 import { createOverlayList } from "../shell/overlay-list.js";
 import type { CliRenderer } from "@opentui/core";
-import { modelChoiceRows, providerListHeight, TYPE_MODEL_ID } from "./choices.js";
+import {
+  modelChoiceRows,
+  providerListHeight,
+  TYPE_MODEL_ID,
+} from "./choices.js";
 import { RAMP_TICK_MS, stopRamp } from "./surface.js";
-import type { DiscoveryFlows, SetupSelectors, SetupState, Surface } from "./types.js";
+import type {
+  DiscoveryFlows,
+  SetupSelectors,
+  SetupState,
+  Surface,
+} from "./types.js";
 
 export function createDiscoveryFlows(
   state: SetupState,
@@ -59,7 +68,9 @@ export function createDiscoveryFlows(
             models: [...result.models],
             defaultModel: state.values.model,
           };
-          state.listRows = modelChoiceRows(state.choice).filter((row) => row.id !== TYPE_MODEL_ID);
+          state.listRows = modelChoiceRows(state.choice).filter(
+            (row) => row.id !== TYPE_MODEL_ID,
+          );
           state.list = createOverlayList(state.renderer as CliRenderer, {
             count: state.listRows.length,
             items: providerListHeight(state.renderer),
@@ -103,13 +114,17 @@ export function createDiscoveryFlows(
           return;
         }
         const listed = state.choice.models;
-        const same = ids.length === listed.length && ids.every((id, i) => id === listed[i]);
+        const same =
+          ids.length === listed.length &&
+          ids.every((id, i) => id === listed[i]);
         if (same) return;
         const focusedId = state.listRows[state.list.activeIndex]?.id;
         state.choice = { ...state.choice, models: [...ids] };
         state.listRows = modelChoiceRows(state.choice);
         const found =
-          focusedId === undefined ? -1 : state.listRows.findIndex((row) => row.id === focusedId);
+          focusedId === undefined
+            ? -1
+            : state.listRows.findIndex((row) => row.id === focusedId);
         state.list = createOverlayList(state.renderer as CliRenderer, {
           count: state.listRows.length,
           items: providerListHeight(state.renderer),
@@ -122,5 +137,10 @@ export function createDiscoveryFlows(
       });
   };
 
-  return { beginOllamaDiscovery, abandonOllamaDiscovery, beginGoPrefetch, abandonGoPrefetch };
+  return {
+    beginOllamaDiscovery,
+    abandonOllamaDiscovery,
+    beginGoPrefetch,
+    abandonGoPrefetch,
+  };
 }

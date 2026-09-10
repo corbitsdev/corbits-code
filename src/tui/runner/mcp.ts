@@ -21,7 +21,10 @@ import {
   validateMCPServerName,
   type PersistMCPServerListResult,
 } from "../../mcp/add-server.js";
-import { createExaMCPServerConfig, EXA_MCP_SERVER_NAME } from "../../mcp/exa.js";
+import {
+  createExaMCPServerConfig,
+  EXA_MCP_SERVER_NAME,
+} from "../../mcp/exa.js";
 import { openInBrowser } from "../../auth/oauth/browser.js";
 import { mergeMcpSurfaceEntries, isBuiltinRow } from "../mcp-list.js";
 import { nextMcpCatalog } from "../mcp-catalog.js";
@@ -37,7 +40,10 @@ export interface McpWiring {
   surface: ReturnType<typeof createMcpSurface>;
 }
 
-export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring {
+export function wireMcp(
+  state: RunnerState,
+  services: RunnerServices,
+): McpWiring {
   const mcpConnectCallbacks: MCPConnectCallbacks = {
     interactiveAuth: true,
     onStatus: (status) => {
@@ -45,7 +51,9 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
       services.emitter.emit("mcp.status", status);
       if (status.state === "connected") {
         state.connectedMcpServers = [
-          ...state.connectedMcpServers.filter((server) => server.name !== status.name),
+          ...state.connectedMcpServers.filter(
+            (server) => server.name !== status.name,
+          ),
           { name: status.name, toolCount: status.tools.length },
         ];
         void state.persistRunSnapshot?.("running");
@@ -60,7 +68,11 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
 
   const connectLateMCPServer = (server: MCPServerConfig): void => {
     void services.toolset
-      .connectMCPServer(server, mcpConnectCallbacks, services.mcpConnectController.signal)
+      .connectMCPServer(
+        server,
+        mcpConnectCallbacks,
+        services.mcpConnectController.signal,
+      )
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") return;
         tuiLogger.error("Late MCP connect failed: {error}", {
@@ -71,7 +83,9 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
   state.connectLateMCPServer = connectLateMCPServer;
 
   const persistedMCPServer = (name: string): MCPServerConfig | undefined => {
-    const fromConnect = (state.config.mcpServers ?? []).find((server) => server.name === name);
+    const fromConnect = (state.config.mcpServers ?? []).find(
+      (server) => server.name === name,
+    );
     if (fromConnect !== undefined) return fromConnect;
     const entry = state.configuredMcpEntries.find(
       (server) => server.name === name && !isExaMCPPreset(server),
@@ -81,7 +95,9 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
     return connect;
   };
 
-  const applyMcpCatalog = (result: Extract<PersistMCPServerListResult, { ok: true }>): void => {
+  const applyMcpCatalog = (
+    result: Extract<PersistMCPServerListResult, { ok: true }>,
+  ): void => {
     const next = nextMcpCatalog({
       source: state.config.mcpServersSource ?? "none",
       result,
@@ -98,7 +114,10 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
     services.toolset.setMcpServersSource(next.mcpServersSource);
   };
 
-  const applyAddedMcpCatalog = (entries: MCPServerSettingsEntry[], settings: Settings): void => {
+  const applyAddedMcpCatalog = (
+    entries: MCPServerSettingsEntry[],
+    settings: Settings,
+  ): void => {
     state.configuredMcpEntries = entries;
     const source = state.config.mcpServersSource ?? "none";
     const nextSource = source === "none" ? "global" : source;
@@ -113,7 +132,9 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
   };
 
   const mcpTransportForEnable = (name: string): MCPServerConfig | undefined => {
-    const entry = state.configuredMcpEntries.find((server) => server.name === name);
+    const entry = state.configuredMcpEntries.find(
+      (server) => server.name === name,
+    );
     if (entry !== undefined) {
       if (isExaMCPPreset(entry)) return createExaMCPServerConfig();
       if (entry.enabled === false) return undefined;
@@ -125,7 +146,9 @@ export function wireMcp(state: RunnerState, services: RunnerServices): McpWiring
   };
 
   const dropConnectedMcpServer = (name: string): void => {
-    state.connectedMcpServers = state.connectedMcpServers.filter((server) => server.name !== name);
+    state.connectedMcpServers = state.connectedMcpServers.filter(
+      (server) => server.name !== name,
+    );
     void state.persistRunSnapshot?.("running");
   };
 
@@ -151,8 +174,13 @@ function createMcpSurface(
   services: RunnerServices,
   mcpConnectCallbacks: MCPConnectCallbacks,
   persistedMCPServer: (name: string) => MCPServerConfig | undefined,
-  applyMcpCatalog: (result: Extract<PersistMCPServerListResult, { ok: true }>) => void,
-  applyAddedMcpCatalog: (entries: MCPServerSettingsEntry[], settings: Settings) => void,
+  applyMcpCatalog: (
+    result: Extract<PersistMCPServerListResult, { ok: true }>,
+  ) => void,
+  applyAddedMcpCatalog: (
+    entries: MCPServerSettingsEntry[],
+    settings: Settings,
+  ) => void,
   mcpTransportForEnable: (name: string) => MCPServerConfig | undefined,
   dropConnectedMcpServer: (name: string) => void,
   connectLateMCPServer: (server: MCPServerConfig) => void,
@@ -190,13 +218,17 @@ function createMcpSurface(
               : result.reason === "skipped"
                 ? "Could not read global settings, so no MCP server was added."
                 : result.reason === "invalid-name"
-                  ? (validateMCPServerName(name.trim()) ?? "Enter a valid server name first.")
+                  ? (validateMCPServerName(name.trim()) ??
+                    "Enter a valid server name first.")
                   : "Enter an absolute HTTP(S) URL first.";
         return { ok: false, message };
       }
       applyAddedMcpCatalog(result.settings.mcpServers ?? [], result.settings);
       connectLateMCPServer(result.server);
-      return { ok: true, message: `Added ${result.server.name}; connecting now.` };
+      return {
+        ok: true,
+        message: `Added ${result.server.name}; connecting now.`,
+      };
     },
     retryServer: async (name: string) => {
       const server = persistedMCPServer(name);
@@ -213,8 +245,16 @@ function createMcpSurface(
       const source = state.config.mcpServersSource ?? "none";
       const result =
         source === "local"
-          ? await persistLocalMCPServerEnabled(services.localSettingsWriter, name, enabled)
-          : await persistMCPServerEnabled(services.globalSettingsWriter, name, enabled);
+          ? await persistLocalMCPServerEnabled(
+              services.localSettingsWriter,
+              name,
+              enabled,
+            )
+          : await persistMCPServerEnabled(
+              services.globalSettingsWriter,
+              name,
+              enabled,
+            );
       if (!result.ok) {
         const verb = enabled ? "enable" : "disable";
         const message =
@@ -246,7 +286,10 @@ function createMcpSurface(
       const source = state.config.mcpServersSource ?? "none";
       const result =
         source === "local"
-          ? await persistLocalMCPServerRemoved(services.localSettingsWriter, name)
+          ? await persistLocalMCPServerRemoved(
+              services.localSettingsWriter,
+              name,
+            )
           : await persistMCPServerRemoved(services.globalSettingsWriter, name);
       if (!result.ok) {
         const message =

@@ -1,12 +1,19 @@
 import { test, expect } from "bun:test";
-import { WorkflowRuntime, type WorkflowEvent } from "../../src/workflows/runtime.js";
+import {
+  WorkflowRuntime,
+  type WorkflowEvent,
+} from "../../src/workflows/runtime.js";
 import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
 import type { CapabilityMap } from "../../src/workflows/capabilities.js";
 import type { ToolDefinition } from "@intx/types/runtime";
 import type { Workflow } from "../../src/workflows/types.js";
 
 function tool(name: string): ToolDefinition {
-  return { name, description: name, inputSchema: { type: "object", properties: {} } };
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
 }
 
 const ticketTracker: CapabilityMap = new Map([
@@ -28,7 +35,12 @@ const withGatedStep: Workflow = {
   description: "middle step needs a capability",
   steps: [
     { id: "a", label: "A", prompt: "do a" },
-    { id: "needs-ticket", label: "Ticket", capability: "ticket-tracker", prompt: "update" },
+    {
+      id: "needs-ticket",
+      label: "Ticket",
+      capability: "ticket-tracker",
+      prompt: "update",
+    },
     { id: "c", label: "C", prompt: "do c" },
   ],
 };
@@ -71,7 +83,11 @@ test("advance moves to the next step and emits start/complete events", () => {
   rt.start(simple);
   rt.advance();
   expect(rt.currentStep()?.id).toBe("b");
-  expect(events.map((e) => e.type)).toEqual(["step-start", "step-complete", "step-start"]);
+  expect(events.map((e) => e.type)).toEqual([
+    "step-start",
+    "step-complete",
+    "step-start",
+  ]);
   rt.advance();
   expect(rt.currentStep()).toBeNull();
   expect(events.some((e) => e.type === "workflow-complete")).toBe(true);
@@ -85,7 +101,9 @@ test("steps whose capability is unsatisfied are skipped, not injected", () => {
   rt.advance();
   // The ticket step is skipped because ticket-tracker is absent.
   expect(rt.currentStep()?.id).toBe("c");
-  expect(events.some((e) => e.type === "step-skip" && e.step.id === "needs-ticket")).toBe(true);
+  expect(
+    events.some((e) => e.type === "step-skip" && e.step.id === "needs-ticket"),
+  ).toBe(true);
 });
 
 test("a satisfied capability keeps the gated step in the sequence", () => {
@@ -129,7 +147,9 @@ test("nesting beyond the depth limit throws", () => {
     description: "calls itself",
     steps: [{ id: "loop", label: "Loop", workflow: "cyclic" }],
   };
-  const rt = new WorkflowRuntime(empty, (n) => (n === "cyclic" ? cyclic : undefined));
+  const rt = new WorkflowRuntime(empty, (n) =>
+    n === "cyclic" ? cyclic : undefined,
+  );
   expect(() => rt.start(cyclic)).toThrow(/nesting/);
 });
 
@@ -163,7 +183,9 @@ test("coordinator advances on submit_output tagged with the current step", () =>
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
   const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(true);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(
+    true,
+  );
   expect(rt.currentStep()?.id).toBe("b");
 });
 
@@ -171,7 +193,9 @@ test("coordinator requires a step identifier to complete", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
   const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("submit_output", { summary: "done" }, false)).toBe(false);
+  expect(
+    coord.handleToolDone("submit_output", { summary: "done" }, false),
+  ).toBe(false);
   expect(coord.handleToolDone("submit_output", {}, false)).toBe(false);
   expect(rt.currentStep()?.id).toBe("a");
 });
@@ -188,7 +212,9 @@ test("coordinator ignores submit_output tagged with a different step", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
   const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("submit_output", { step: "zzz" }, false)).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "zzz" }, false)).toBe(
+    false,
+  );
   expect(rt.currentStep()?.id).toBe("a");
 });
 
@@ -198,7 +224,9 @@ test("coordinator treats completed steps as past and future ids as not past", ()
   const coord = new WorkflowCoordinator(rt);
   expect(coord.isPastStep("a")).toBe(false);
   expect(coord.isPastStep("b")).toBe(false);
-  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(true);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(
+    true,
+  );
   expect(coord.isPastStep("a")).toBe(true);
   expect(coord.isPastStep("b")).toBe(false);
   expect(coord.isPastStep("zzz")).toBe(false);
@@ -208,19 +236,29 @@ test("duplicate and stale submit_output completions do not advance", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
   const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(true);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(
+    true,
+  );
   expect(rt.currentStep()?.id).toBe("b");
-  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, false)).toBe(
+    false,
+  );
   expect(rt.currentStep()?.id).toBe("b");
-  expect(coord.handleToolDone("submit_output", { step: "b" }, false)).toBe(true);
+  expect(coord.handleToolDone("submit_output", { step: "b" }, false)).toBe(
+    true,
+  );
   expect(rt.isComplete()).toBe(true);
-  expect(coord.handleToolDone("submit_output", { step: "b" }, false)).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "b" }, false)).toBe(
+    false,
+  );
 });
 
 test("coordinator ignores errored tool calls", () => {
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(simple);
   const coord = new WorkflowCoordinator(rt);
-  expect(coord.handleToolDone("submit_output", { step: "a" }, true)).toBe(false);
+  expect(coord.handleToolDone("submit_output", { step: "a" }, true)).toBe(
+    false,
+  );
   expect(rt.currentStep()?.id).toBe("a");
 });

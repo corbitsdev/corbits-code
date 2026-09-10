@@ -12,7 +12,11 @@
 import { spawnSync } from "node:child_process";
 
 // Terminal capability probes: a developer terminal sets these, a runner does not.
-const AMBIENT_TERMINAL_VARS = ["COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION"];
+const AMBIENT_TERMINAL_VARS = [
+  "COLORTERM",
+  "TERM_PROGRAM",
+  "TERM_PROGRAM_VERSION",
+];
 
 // Eval harness plumbing that leaks between files when a test forgets to restore it.
 const AMBIENT_HARNESS_VARS = ["EVAL_HTTP_URL"];

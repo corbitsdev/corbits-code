@@ -79,19 +79,29 @@ describe("counselPackage", () => {
   });
 
   test("optionalSkills order", () => {
-    expect(counselPackage.optionalSkills).toEqual(["style", "philosophy", "native-integration"]);
+    expect(counselPackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+    ]);
   });
 
   test("does not advertise interview skill workers cannot use", () => {
     expect(counselPackage.optionalSkills).not.toContain("interview");
-    expect(counselPackage.systemPrompt).not.toMatch(/interview-skill awareness/i);
+    expect(counselPackage.systemPrompt).not.toMatch(
+      /interview-skill awareness/i,
+    );
   });
 
   test("primaryIntent and outOfLane match counsel / plan lane", () => {
-    expect(counselPackage.primaryIntent).toBe("Author ordered eng change plans; do not implement");
+    expect(counselPackage.primaryIntent).toBe(
+      "Author ordered eng change plans; do not implement",
+    );
     expect(counselPackage.description).toMatch(/Counsel/i);
     expect(counselPackage.outOfLane).toContain("shipping code");
-    expect(counselPackage.outOfLane).toContain("architecture gate sign-off as Greybeard");
+    expect(counselPackage.outOfLane).toContain(
+      "architecture gate sign-off as Greybeard",
+    );
     expect(counselPackage.outOfLane).toContain("running the fleet");
     expect(counselPackage.outOfLane).toContain("pure code review");
     expect(counselPackage.outOfLane).toContain("becoming Builder or Critic");

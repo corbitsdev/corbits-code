@@ -4,7 +4,11 @@
  * OAuth accounts and API-key instances.
  */
 
-import { instanceSlugsForKind, OAUTH_SURFACES, resolveApiKeyInstanceName } from "./choices.js";
+import {
+  instanceSlugsForKind,
+  OAUTH_SURFACES,
+  resolveApiKeyInstanceName,
+} from "./choices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
 import { RAMP_TICK_MS, stopRamp } from "./surface.js";
 import type {
@@ -31,7 +35,8 @@ const OAUTH_PROFILE_CHARS = /^[a-z0-9._-]+$/;
 const OAUTH_PROFILE_EDGE_SEPARATOR = /^[._-]|[._-]$/;
 
 export type OAuthProfileValidation =
-  { readonly ok: true; readonly slug: string } | { readonly ok: false; readonly error: string };
+  | { readonly ok: true; readonly slug: string }
+  | { readonly ok: false; readonly error: string };
 
 /**
  * Validate and lowercase-normalize an operator-entered account slug. This is
@@ -49,7 +54,10 @@ export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
     };
   }
   if (!OAUTH_PROFILE_CHARS.test(slug)) {
-    return { ok: false, error: "use only lowercase letters, numbers, and . _ -" };
+    return {
+      ok: false,
+      error: "use only lowercase letters, numbers, and . _ -",
+    };
   }
   if (OAUTH_PROFILE_EDGE_SEPARATOR.test(slug)) {
     return { ok: false, error: "name cannot start or end with . _ or -" };
@@ -74,7 +82,9 @@ export function suggestOAuthProfileSlug(existing: readonly string[]): string {
  * Real lister, imported lazily per kind so mounting the surface never touches
  * the auth-store files in a test that injects its own lister.
  */
-export const defaultProfileLister = async (kind: OAuthKind): Promise<readonly string[]> => {
+export const defaultProfileLister = async (
+  kind: OAuthKind,
+): Promise<readonly string[]> => {
   if (kind === "codex") {
     const { listCodexProfiles } = await import("../../auth/codex/store.js");
     return (await listCodexProfiles()).map((p) => p.name);
@@ -212,28 +222,37 @@ export function createLoginFlow(
     state.rampTimer = setInterval(() => surface.paintStatus(), RAMP_TICK_MS);
     surface.paint();
 
-    state.startLogin({ kind, profile: state.values.oauthProfile, signal: abort.signal }).then(
-      (handle) => {
-        if (attempt !== state.loginAttempt) {
-          handle.cancel();
-          return;
-        }
-        state.loginHandle = handle;
-        state.loginURL = handle.authorizeUrl;
-        surface.paint();
-        handle.completed.then(
-          (result) => {
-            finishLogin(attempt, kind, result);
-          },
-          (err: unknown) => {
-            failLogin(attempt, err instanceof Error ? err.message : String(err));
-          },
-        );
-      },
-      (err: unknown) => {
-        failLogin(attempt, err instanceof Error ? err.message : String(err));
-      },
-    );
+    state
+      .startLogin({
+        kind,
+        profile: state.values.oauthProfile,
+        signal: abort.signal,
+      })
+      .then(
+        (handle) => {
+          if (attempt !== state.loginAttempt) {
+            handle.cancel();
+            return;
+          }
+          state.loginHandle = handle;
+          state.loginURL = handle.authorizeUrl;
+          surface.paint();
+          handle.completed.then(
+            (result) => {
+              finishLogin(attempt, kind, result);
+            },
+            (err: unknown) => {
+              failLogin(
+                attempt,
+                err instanceof Error ? err.message : String(err),
+              );
+            },
+          );
+        },
+        (err: unknown) => {
+          failLogin(attempt, err instanceof Error ? err.message : String(err));
+        },
+      );
   };
 
   /** Abandon an outstanding sign-in and return to the provider list. */
@@ -293,7 +312,9 @@ export function createAccountNameFlow(
         .then(applySuggestion);
       return;
     }
-    applySuggestion(instanceSlugsForKind(state.choice.id, state.existingProviderNames));
+    applySuggestion(
+      instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+    );
   };
 
   const settleAccountNameSlug = (slug: string): void => {
@@ -301,7 +322,11 @@ export function createAccountNameFlow(
     state.oauthProfileError = null;
     state.oauthProfileConfirmPending = false;
     state.confirmedSlug = null;
-    if (state.choice !== null && state.choice.oauth === null && !state.choice.custom) {
+    if (
+      state.choice !== null &&
+      state.choice.oauth === null &&
+      !state.choice.custom
+    ) {
       // API-key multi-instance: catalog key is kind/slug (or legacy bare kind
       // when reconnecting the original single-instance "default").
       state.values.name = resolveApiKeyInstanceName(
@@ -357,7 +382,9 @@ export function createAccountNameFlow(
         .then(handleNames);
       return;
     }
-    handleNames(instanceSlugsForKind(state.choice.id, state.existingProviderNames));
+    handleNames(
+      instanceSlugsForKind(state.choice.id, state.existingProviderNames),
+    );
   };
 
   return { enter, advance };

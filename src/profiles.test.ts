@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadProfile, projectProfilePath, profilesDir, resolveProfile } from "./config/profiles.js";
+import {
+  loadProfile,
+  projectProfilePath,
+  profilesDir,
+  resolveProfile,
+} from "./config/profiles.js";
 
 function makeTmp(): string {
   return join(
@@ -39,9 +44,14 @@ test("loadProfile parses systemPromptExtensions", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeFile(path, JSON.stringify({ systemPromptExtensions: ["no-destructive-migrations"] }));
+  await writeFile(
+    path,
+    JSON.stringify({ systemPromptExtensions: ["no-destructive-migrations"] }),
+  );
   const result = await loadProfile(path);
-  expect(result).toEqual({ systemPromptExtensions: ["no-destructive-migrations"] });
+  expect(result).toEqual({
+    systemPromptExtensions: ["no-destructive-migrations"],
+  });
 });
 
 test("loadProfile rejects unknown keys", async () => {
@@ -81,7 +91,10 @@ test("resolveProfile applies project profile fields", async () => {
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "profile.json"),
-    JSON.stringify({ model: "claude-sonnet", systemPromptExtensions: ["ext1"] }),
+    JSON.stringify({
+      model: "claude-sonnet",
+      systemPromptExtensions: ["ext1"],
+    }),
   );
   const result = await resolveProfile(cwd);
   expect(result.model).toBe("claude-sonnet");
@@ -92,7 +105,10 @@ test("resolveProfile surfaces profile name when set", async () => {
   const cwd = makeTmp();
   const dir = join(cwd, ".corbits");
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "profile.json"), JSON.stringify({ profile: "work" }));
+  await writeFile(
+    join(dir, "profile.json"),
+    JSON.stringify({ profile: "work" }),
+  );
   const result = await resolveProfile(cwd);
   expect(result.profile).toBe("work");
 });

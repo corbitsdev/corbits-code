@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { KeyEvent } from "@opentui/core";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import { createAppShell } from "./shell/index";
@@ -16,7 +17,11 @@ import { handlePaletteFilterKey, openPalette } from "./shell/palette";
 
 const CATALOG: readonly PaletteCommand[] = [
   { id: "help", label: "/help", keywords: ["help", "show keymap help"] },
-  { id: "model", label: "/model", keywords: ["model", "switch model / provider"] },
+  {
+    id: "model",
+    label: "/model",
+    keywords: ["model", "switch model / provider"],
+  },
   { id: "mcp", label: "/mcp", keywords: ["mcp", "manage MCP servers"] },
 ];
 
@@ -33,7 +38,12 @@ async function paletteFrame(width: number): Promise<readonly string[]> {
       return h
         .captureCharFrame()
         .split("\n")
-        .map((line) => line.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd());
+        .map((line) =>
+          line
+            .replace(/^\s*│/, "")
+            .replace(/│\s*$/, "")
+            .trimEnd(),
+        );
     },
     { width, height: 32 },
   );
@@ -60,7 +70,12 @@ describe("command list rows", () => {
         return h
           .captureCharFrame()
           .split("\n")
-          .map((line) => line.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd());
+          .map((line) =>
+            line
+              .replace(/^\s*│/, "")
+              .replace(/│\s*$/, "")
+              .trimEnd(),
+          );
       },
       { width: 100, height: 32 },
     );
@@ -69,7 +84,10 @@ describe("command list rows", () => {
 });
 
 describe("palette filters as you type", () => {
-  function withPalette(fn: (shell: AppShell) => void, width = 100): Promise<void> {
+  function withPalette(
+    fn: (shell: AppShell) => void,
+    width = 100,
+  ): Promise<void> {
     return withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -198,7 +216,12 @@ const HELP_DESC = "Show the keyboard shortcut and command overlay";
 const MODEL_DESC = "Switch the active model or provider";
 
 function stripFrameLines(frame: string): string[] {
-  return frame.split("\n").map((line) => line.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd());
+  return frame.split("\n").map((line) =>
+    line
+      .replace(/^\s*│/, "")
+      .replace(/│\s*$/, "")
+      .trimEnd(),
+  );
 }
 
 /** Interior zone rows under the list rule, before the overlay's bottom border. */
@@ -212,18 +235,22 @@ function zoneAfterList(
   }
   if (last < 0) return undefined;
   const below = lines.slice(last + 1);
-  const ruleAt = below.findIndex((r) => r.includes("─") && !/[┌┐└┘╭╮╰╯]/.test(r));
+  const ruleAt = below.findIndex(
+    (r) => r.includes("─") && !/[┌┐└┘╭╮╰╯]/.test(r),
+  );
   if (ruleAt < 0) return undefined;
   const afterRule = below.slice(ruleAt + 1);
   const boxBottom = afterRule.findIndex((r) => /[└┘]/.test(r));
   return boxBottom >= 0 ? afterRule.slice(0, boxBottom) : afterRule;
 }
 
-function expectNameOnlyRows(lines: readonly string[], labels: readonly string[]): void {
+function expectNameOnlyRows(
+  lines: readonly string[],
+  labels: readonly string[],
+): void {
   for (const label of labels) {
     const row = lines.find((r) => r.includes(label));
-    expect(row).toBeDefined();
-    expect(row!.trim()).toBe(label);
+    expect(defined(row, "row").trim()).toBe(label);
   }
 }
 
@@ -238,8 +265,7 @@ function expectDescriptionUnderListRule(
     expect(row).not.toContain(description);
   }
   const zone = zoneAfterList(lines, labels);
-  expect(zone).toBeDefined();
-  expect(zone!.some((r) => r.includes(description))).toBe(true);
+  expect(defined(zone, "zone").some((r) => r.includes(description))).toBe(true);
 }
 
 describe("command list description zone", () => {
@@ -313,8 +339,7 @@ describe("command list description zone", () => {
         const blank = stripFrameLines(h.captureCharFrame());
         expectNameOnlyRows(blank, labels);
         const zone = zoneAfterList(blank, labels);
-        expect(zone).toBeDefined();
-        expect(zone!.every((r) => r.trim() === "")).toBe(true);
+        expect(defined(zone, "zone").every((r) => r.trim() === "")).toBe(true);
         expect(blank.join("\n")).not.toContain(HELP_DESC);
         expect(shell.layout.heights.overlay_host).toBe(reserved);
       },
@@ -367,15 +392,21 @@ describe("command list selection colour", () => {
         const groundLine = frame.lines.find((line) =>
           line.spans.some((s) => s.text.includes("/model")),
         );
-        expect(activeLine).toBeDefined();
-        expect(groundLine).toBeDefined();
-        const activeBg = activeLine!.spans[0]!.bg;
-        const groundBg = groundLine!.spans[0]!.bg;
+        const active = defined(activeLine, "activeLine");
+        const ground = defined(groundLine, "groundLine");
+        const activeBg = defined(active.spans[0], "activeLine.spans[0]").bg;
+        const groundBg = defined(ground.spans[0], "groundLine.spans[0]").bg;
         // Same background either way — selection reads through text colour
         // (fg), not a filled band behind the row.
         expect(activeBg).toEqual(groundBg);
-        const activeFg = activeLine!.spans.find((s) => s.text.includes("/help"))!.fg;
-        const groundFg = groundLine!.spans.find((s) => s.text.includes("/model"))!.fg;
+        const activeFg = defined(
+          active.spans.find((s) => s.text.includes("/help")),
+          "help span",
+        ).fg;
+        const groundFg = defined(
+          ground.spans.find((s) => s.text.includes("/model")),
+          "model span",
+        ).fg;
         expect(activeFg).not.toEqual(groundFg);
       },
       { width: 100, height: 32 },
@@ -384,10 +415,13 @@ describe("command list selection colour", () => {
 });
 
 describe("command list height cap", () => {
-  const BIG_CATALOG: readonly PaletteCommand[] = Array.from({ length: 50 }, (_, i) => ({
-    id: `cmd_${String(i)}`,
-    label: `Fake command number ${String(i)} with a longish label`,
-  }));
+  const BIG_CATALOG: readonly PaletteCommand[] = Array.from(
+    { length: 50 },
+    (_, i) => ({
+      id: `cmd_${String(i)}`,
+      label: `Fake command number ${String(i)} with a longish label`,
+    }),
+  );
 
   // Every plugin-inflated catalog and every terminal size gets a bounded
   // frame: the border-to-border row count above the prompt box never grows

@@ -45,7 +45,9 @@ export async function persistConnectedSelection(
  * callers that already own it — never re-derived here so tests and the
  * mid-session connect path can pass an explicit file).
  */
-export type PersistProviderSettings = (apply: (base: Settings) => Settings) => Promise<Settings>;
+export type PersistProviderSettings = (
+  apply: (base: Settings) => Settings,
+) => Promise<Settings>;
 
 export function buildProviderSubmitHandler(
   settingsPath: string,
@@ -64,8 +66,11 @@ export function buildProviderSubmitHandler(
     const trimmedKey = apiKey.trim();
     const selectedModel = model.trim();
     const isOllama = preset !== undefined && isOllamaProviderId(preset.id);
-    const effectiveApiKey = isOllama || trimmedKey.length === 0 ? undefined : trimmedKey;
-    const persistedBaseURL = isOllama ? normalizeOllamaRootURL(trimmedBaseURL) : trimmedBaseURL;
+    const effectiveApiKey =
+      isOllama || trimmedKey.length === 0 ? undefined : trimmedKey;
+    const persistedBaseURL = isOllama
+      ? normalizeOllamaRootURL(trimmedBaseURL)
+      : trimmedBaseURL;
 
     // OAuth credentials stay staged until setup validation authorizes durable
     // persistence. Definitive API-scope or credential failures block the save;
@@ -74,7 +79,10 @@ export function buildProviderSubmitHandler(
     // non-secret provider/model metadata is persisted globally.
     if (oauth !== undefined) {
       if (!skipValidation) {
-        const scopeCheck = await checkOAuthProviderScope(oauth.kind, oauth.tokens);
+        const scopeCheck = await checkOAuthProviderScope(
+          oauth.kind,
+          oauth.tokens,
+        );
         if (isBlockingOAuthScopeCheckResult(scopeCheck)) {
           throw new OAuthProviderScopeError(scopeCheck.message);
         }
@@ -93,7 +101,11 @@ export function buildProviderSubmitHandler(
           },
         },
       }));
-      await persistConnectedSelection(localSettingsFile, oauth.providerName, selectedModel);
+      await persistConnectedSelection(
+        localSettingsFile,
+        oauth.providerName,
+        selectedModel,
+      );
       return;
     }
 
@@ -114,7 +126,9 @@ export function buildProviderSubmitHandler(
     // /models with a bearer token, which that surface always rejects.
     if (!skipValidation && preset?.anthropic !== true) {
       const check = await validateProviderConnection({
-        baseURL: isOllama ? ollamaOpenAIBaseURL(persistedBaseURL) : persistedBaseURL,
+        baseURL: isOllama
+          ? ollamaOpenAIBaseURL(persistedBaseURL)
+          : persistedBaseURL,
         apiKey: effectiveApiKey,
       });
       if (!check.ok) {
@@ -134,7 +148,9 @@ export function buildProviderSubmitHandler(
       baseURL: persistedBaseURL,
       models,
       defaultModel: selectedModel,
-      ...(effectiveApiKey !== undefined ? { apiKey: effectiveApiKey } : { keyless: true }),
+      ...(effectiveApiKey !== undefined
+        ? { apiKey: effectiveApiKey }
+        : { keyless: true }),
       ...(preset?.anthropic === true ? { anthropic: true } : {}),
       ...(preset?.opencodeGo === true ? { opencodeGo: true } : {}),
       // "Save anyway" (Ctrl+S) persists a credential the connection test
@@ -146,10 +162,16 @@ export function buildProviderSubmitHandler(
     // stays open (phase label) until saveGlobalSettings resolves, so the user
     // sees confirmation before the screen is cleared. Full-spread merge so
     // plugins/pluginPaths/sessionMode/shell/tools survive re-onboarding.
-    await persistSettings((base) => mergeProviderIntoSettings(base, providerName, newProvider));
+    await persistSettings((base) =>
+      mergeProviderIntoSettings(base, providerName, newProvider),
+    );
     // Same project-local selection contract as OAuth: credentials stay in
     // global storage; the local file is selection only so a restart in this
     // repo resolves to the provider just connected.
-    await persistConnectedSelection(localSettingsFile, providerName, selectedModel);
+    await persistConnectedSelection(
+      localSettingsFile,
+      providerName,
+      selectedModel,
+    );
   };
 }

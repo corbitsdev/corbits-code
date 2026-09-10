@@ -36,7 +36,7 @@ export async function loadSkillCommands(
   pluginDir: string,
   opts: { onWarning?: (msg: string) => void } = {},
 ): Promise<CommandDefinition[] | null> {
-  const warn = opts.onWarning ?? (() => {});
+  const warn = opts.onWarning ?? (() => undefined);
   const skillsDir = join(pluginDir, "skills");
   let entries: import("node:fs").Dirent[];
   try {
@@ -73,7 +73,8 @@ export async function loadSkillCommands(
       continue;
     }
     const description =
-      typeof frontmatter.description === "string" && frontmatter.description.trim().length > 0
+      typeof frontmatter.description === "string" &&
+      frontmatter.description.trim().length > 0
         ? frontmatter.description.trim()
         : name;
 

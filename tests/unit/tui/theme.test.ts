@@ -1,5 +1,10 @@
 import { test, expect, afterEach, beforeEach } from "bun:test";
-import { color, color256, palette, supportsTrueColor } from "../../../src/tui/semantic-theme.js";
+import {
+  color,
+  color256,
+  palette,
+  supportsTrueColor,
+} from "../../../src/tui/semantic-theme.js";
 
 const originalColorterm = process.env.COLORTERM;
 
@@ -51,9 +56,15 @@ test("diff backgrounds are distinct dark tints", () => {
   // fallback for both hexes is the same neutral gray, which would erase the
   // added/removed distinction on non-truecolor terminals.
   expect(palette.diffAddedBg.ansi256).not.toBe(palette.diffRemovedBg.ansi256);
-  for (const role of ["diffAddedBg", "diffRemovedBg", "userMessageBg"] as const) {
+  for (const role of [
+    "diffAddedBg",
+    "diffRemovedBg",
+    "userMessageBg",
+  ] as const) {
     // Backgrounds must stay dark enough that every foreground reads on top.
-    const channels = [1, 3, 5].map((i) => parseInt(color(role).slice(i, i + 2), 16));
+    const channels = [1, 3, 5].map((i) =>
+      parseInt(color(role).slice(i, i + 2), 16),
+    );
     for (const channel of channels) expect(channel).toBeLessThan(0x60);
   }
 });

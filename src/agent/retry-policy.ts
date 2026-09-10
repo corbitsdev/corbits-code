@@ -1,10 +1,17 @@
 import { createDefaultRetryPolicy } from "@intx/inference";
-import type { RetryDecision, RetryPolicy, RetrySituation } from "@intx/types/runtime";
+import type {
+  RetryDecision,
+  RetryPolicy,
+  RetrySituation,
+} from "@intx/types/runtime";
 import {
   normalizeInferenceErrorForRetry,
   type InferenceErrorWithGoContext,
 } from "../inference-gateway-error.js";
-import { getProcessAdmissionQueue, type AdmissionQueue } from "../subagent/admission.js";
+import {
+  getProcessAdmissionQueue,
+  type AdmissionQueue,
+} from "../subagent/admission.js";
 
 // Providers that enforce long-window quotas (e.g. monthly limits) set
 // Retry-After to days or weeks. The default policy trusts that value and
@@ -33,11 +40,15 @@ export interface CorbitsRetryPolicyOptions {
  * short 429 → retryable, Go, Codex) can gate on context the harness does not
  * attach to InferenceError today.
  */
-export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): RetryPolicy {
+export function createCorbitsRetryPolicy(
+  options?: CorbitsRetryPolicyOptions,
+): RetryPolicy {
   const defaultPolicy = createDefaultRetryPolicy();
   const admission = options?.admission ?? getProcessAdmissionQueue();
   const now = options?.now ?? Date.now;
-  return (situation: RetrySituation): RetryDecision | Promise<RetryDecision> => {
+  return (
+    situation: RetrySituation,
+  ): RetryDecision | Promise<RetryDecision> => {
     const raw = options?.providerId;
     const stampedProviderId = typeof raw === "function" ? raw() : raw;
     const incoming = situation.error as InferenceErrorWithGoContext;
@@ -47,8 +58,12 @@ export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): R
         : incoming;
     const error = normalizeInferenceErrorForRetry(withProvider);
     if (error.category === "retryable" && error.statusCode === 429) {
-      const pauseMs = Math.min(error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS, MAX_BLIND_WAIT_MS);
-      const provider = withProvider.providerId ?? stampedProviderId ?? "unknown";
+      const pauseMs = Math.min(
+        error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS,
+        MAX_BLIND_WAIT_MS,
+      );
+      const provider =
+        withProvider.providerId ?? stampedProviderId ?? "unknown";
       admission.notePressure(provider, now() + pauseMs);
       // The vendored default retries `retryable` on a fixed 500/1000ms
       // schedule and ignores Retry-After. A 429 carries the server's pacing
@@ -61,7 +76,9 @@ export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): R
         if (error.retryAfterMs >= RATE_LIMIT_HANG_MS) return { kind: "abort" };
         const retryAfterMs = error.retryAfterMs;
         const honorRetryAfter = (decision: RetryDecision): RetryDecision =>
-          decision.kind === "retry" ? { kind: "retry", delayMs: retryAfterMs } : decision;
+          decision.kind === "retry"
+            ? { kind: "retry", delayMs: retryAfterMs }
+            : decision;
         const decision = defaultPolicy({ ...situation, error });
         if (decision instanceof Promise) return decision.then(honorRetryAfter);
         return honorRetryAfter(decision);

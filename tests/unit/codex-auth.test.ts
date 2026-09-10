@@ -17,10 +17,17 @@ import {
   updateCodexTokens,
   type CodexProfile,
 } from "../../src/auth/codex/store.js";
-import { CODEX_CLIENT_ID, CODEX_REDIRECT_URI } from "../../src/auth/codex/constants.js";
+import {
+  CODEX_CLIENT_ID,
+  CODEX_REDIRECT_URI,
+} from "../../src/auth/codex/constants.js";
 
 function base64url(buf: Buffer): string {
-  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 describe("PKCE generation", () => {
@@ -33,7 +40,9 @@ describe("PKCE generation", () => {
 
   test("challenge is the S256 digest of the verifier", () => {
     const pkce = generatePkce();
-    const expected = base64url(createHash("sha256").update(pkce.verifier).digest());
+    const expected = base64url(
+      createHash("sha256").update(pkce.verifier).digest(),
+    );
     expect(pkce.challenge).toBe(expected);
   });
 
@@ -48,14 +57,18 @@ describe("buildAuthorizeUrl", () => {
     const pkce = generatePkce();
     const state = generateState();
     const url = new URL(buildAuthorizeUrl(pkce, state));
-    expect(url.origin + url.pathname).toBe("https://auth.openai.com/oauth/authorize");
+    expect(url.origin + url.pathname).toBe(
+      "https://auth.openai.com/oauth/authorize",
+    );
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
     expect(url.searchParams.get("redirect_uri")).toBe(CODEX_REDIRECT_URI);
     expect(url.searchParams.get("code_challenge")).toBe(pkce.challenge);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe(state);
-    expect(url.searchParams.get("scope")).toBe("openid profile email offline_access");
+    expect(url.searchParams.get("scope")).toBe(
+      "openid profile email offline_access",
+    );
     expect(url.searchParams.get("codex_cli_simplified_flow")).toBe("true");
     expect(url.searchParams.get("originator")).toBe("codex_cli_rs");
   });
@@ -74,27 +87,42 @@ describe("tokensFromResponse", () => {
   });
 
   test("carries previous refresh token forward when response omits one", () => {
-    const tokens = tokensFromResponse({ access_token: "a", expires_in: 60 }, 0, "old-refresh");
+    const tokens = tokensFromResponse(
+      { access_token: "a", expires_in: 60 },
+      0,
+      "old-refresh",
+    );
     expect(tokens.refresh).toBe("old-refresh");
   });
 
   test("throws when no refresh token is available anywhere", () => {
-    expect(() => tokensFromResponse({ access_token: "a" }, 0)).toThrow(/refresh_token/);
+    expect(() => tokensFromResponse({ access_token: "a" }, 0)).toThrow(
+      /refresh_token/,
+    );
   });
 
   test("falls back to a default lifetime when expires_in is absent", () => {
-    const tokens = tokensFromResponse({ access_token: "a", refresh_token: "r" }, 0);
+    const tokens = tokensFromResponse(
+      { access_token: "a", refresh_token: "r" },
+      0,
+    );
     expect(tokens.expiresAt).toBeGreaterThan(0);
   });
 
   test("extracts accountId from a JWT id_token", () => {
     const jwt = makeIdToken({ chatgpt_account_id: "acct-123" });
-    const tokens = tokensFromResponse({ access_token: "a", refresh_token: "r", id_token: jwt }, 0);
+    const tokens = tokensFromResponse(
+      { access_token: "a", refresh_token: "r", id_token: jwt },
+      0,
+    );
     expect(tokens.accountId).toBe("acct-123");
   });
 
   test("omits accountId when the id_token is absent", () => {
-    const tokens = tokensFromResponse({ access_token: "a", refresh_token: "r" }, 0);
+    const tokens = tokensFromResponse(
+      { access_token: "a", refresh_token: "r" },
+      0,
+    );
     expect(tokens.accountId).toBeUndefined();
   });
 });
@@ -107,11 +135,15 @@ function makeIdToken(claims: Record<string, unknown>): string {
 
 describe("accountIdFromIdToken", () => {
   test("reads the top-level chatgpt_account_id claim", () => {
-    expect(accountIdFromIdToken(makeIdToken({ chatgpt_account_id: "top" }))).toBe("top");
+    expect(
+      accountIdFromIdToken(makeIdToken({ chatgpt_account_id: "top" })),
+    ).toBe("top");
   });
 
   test("falls back to the nested OpenAI auth claim", () => {
-    const jwt = makeIdToken({ "https://api.openai.com/auth": { chatgpt_account_id: "nested" } });
+    const jwt = makeIdToken({
+      "https://api.openai.com/auth": { chatgpt_account_id: "nested" },
+    });
     expect(accountIdFromIdToken(jwt)).toBe("nested");
   });
 
@@ -136,7 +168,11 @@ describe("Codex profile store", () => {
     return {
       name,
       createdAt: 123,
-      tokens: { access: `access-${name}`, refresh: `refresh-${name}`, expiresAt: 999 },
+      tokens: {
+        access: `access-${name}`,
+        refresh: `refresh-${name}`,
+        expiresAt: 999,
+      },
     };
   }
 
@@ -164,7 +200,11 @@ describe("Codex profile store", () => {
     await withHome(async (home) => {
       await saveCodexProfile(profile("personal"), home);
       await saveCodexProfile(profile("work"), home);
-      await updateCodexTokens("work", { access: "new", refresh: "new-r", expiresAt: 5000 }, home);
+      await updateCodexTokens(
+        "work",
+        { access: "new", refresh: "new-r", expiresAt: 5000 },
+        home,
+      );
       const work = await loadCodexProfile("work", home);
       expect(work?.tokens.access).toBe("new");
       expect(work?.createdAt).toBe(123);
@@ -175,7 +215,11 @@ describe("Codex profile store", () => {
 
   test("updateCodexTokens is a no-op for an unknown profile", async () => {
     await withHome(async (home) => {
-      await updateCodexTokens("ghost", { access: "x", refresh: "y", expiresAt: 1 }, home);
+      await updateCodexTokens(
+        "ghost",
+        { access: "x", refresh: "y", expiresAt: 1 },
+        home,
+      );
       expect(await loadCodexProfile("ghost", home)).toBeUndefined();
     });
   });
@@ -185,7 +229,9 @@ describe("Codex profile store", () => {
       await saveCodexProfile(profile("personal"), home);
       await saveCodexProfile(profile("work"), home);
       expect(await removeCodexProfile("work", home)).toEqual(["work"]);
-      expect((await listCodexProfiles(home)).map((p) => p.name)).toEqual(["personal"]);
+      expect((await listCodexProfiles(home)).map((p) => p.name)).toEqual([
+        "personal",
+      ]);
     });
   });
 

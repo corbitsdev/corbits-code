@@ -14,7 +14,11 @@
  */
 
 import { toolCallRow, type ToolCallRowInput } from "./diff.js";
-import { resultBodyLines, toolResultRow, type ToolResultRowInput } from "./mcp-view.js";
+import {
+  resultBodyLines,
+  toolResultRow,
+  type ToolResultRowInput,
+} from "./mcp-view.js";
 import { extractMcpRecords } from "./mcp-result-format.js";
 import type { StreamRow, StyledBodyLine } from "./stream.js";
 import { UI } from "./theme.js";
@@ -26,7 +30,10 @@ function runLine(text: string, fg: string = UI.text): StyledBodyLine {
   return [{ text, fg }];
 }
 
-function appendRunLine(lines: readonly StyledBodyLine[], text: string): readonly StyledBodyLine[] {
+function appendRunLine(
+  lines: readonly StyledBodyLine[],
+  text: string,
+): readonly StyledBodyLine[] {
   if (lines.length > MAX_RUN_LINES) return lines;
   if (lines.length === MAX_RUN_LINES) {
     return [...lines, runLine("… more answers", UI.textDim)];
@@ -70,7 +77,12 @@ function countNoun(count: number, noun: string): string {
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true;
-  const { pending: _pending, agentWorking: _agentWorking, stat: _stat, ...answered } = call;
+  const {
+    pending: _pending,
+    agentWorking: _agentWorking,
+    stat: _stat,
+    ...answered
+  } = call;
   const addendum = failed ? undefined : resultAddendum(result);
   // A live sub-agent's elapsed-time trailer is scaffolding for the wait, not a
   // fact about the call the way a diff's own +/- count is — the answer's stat
@@ -82,7 +94,9 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
     summary: call.summary ?? "",
     ...(failed || call.failed === true ? { failed: true } : {}),
     // A diff already states its own +/- counts; nothing the answer says beats it.
-    ...(callStat === undefined && addendum !== undefined ? { stat: addendum } : {}),
+    ...(callStat === undefined && addendum !== undefined
+      ? { stat: addendum }
+      : {}),
     ...(callStat !== undefined ? { stat: callStat } : {}),
   };
 
@@ -99,7 +113,10 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
       ...(call.stat !== undefined ? { stat: call.stat } : {}),
       outstanding: remaining,
       ...(remaining > 0 ? { pending: true } : {}),
-      detail: appendRunLine(call.detail ?? [], failed ? "call failed" : (addendum ?? "answered")),
+      detail: appendRunLine(
+        call.detail ?? [],
+        failed ? "call failed" : (addendum ?? "answered"),
+      ),
     };
   }
 
@@ -107,7 +124,9 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const showsPayload = payload.length > 0 && payload !== base.stat;
   return {
     ...base,
-    ...(result.structured !== undefined ? { structured: result.structured } : {}),
+    ...(result.structured !== undefined
+      ? { structured: result.structured }
+      : {}),
     ...(showsPayload
       ? { detail: result.detail ?? resultBodyLines(result.text) }
       : call.detail !== undefined
@@ -117,7 +136,10 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
 }
 
 /** Whether `next` is a repeat of the call the row before it already painted. */
-export function canCoalesceCall(tail: StreamRow | undefined, next: StreamRow): boolean {
+export function canCoalesceCall(
+  tail: StreamRow | undefined,
+  next: StreamRow,
+): boolean {
   if (tail === undefined || tail.role !== "tool" || next.role !== "tool") {
     return false;
   }
@@ -138,7 +160,12 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
         : appendRunLine([], tail.stat ?? "answered");
   // A run's body is the answers it collected; the argument view, table and diff
   // belong to a single call, which this row no longer stands alone for.
-  const { detail: _detail, structured: _structured, diff: _diff, ...call } = next;
+  const {
+    detail: _detail,
+    structured: _structured,
+    diff: _diff,
+    ...call
+  } = next;
   const inFlight = tail.outstanding ?? (tail.pending === true ? 1 : 0);
   return {
     ...call,
@@ -200,7 +227,10 @@ export function pushToolCall(rows: StreamRow[], input: ToolCallRowInput): void {
 }
 
 /** Fold a tool result into its call row, or append it when it answers none. */
-export function pushToolResult(rows: StreamRow[], input: ToolResultRowInput): void {
+export function pushToolResult(
+  rows: StreamRow[],
+  input: ToolResultRowInput,
+): void {
   const result = toolResultRow(input);
   const index = pendingCallIndex(rows, input.name, input.callId);
   const call = index === -1 ? undefined : rows[index];

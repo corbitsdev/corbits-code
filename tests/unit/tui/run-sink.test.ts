@@ -1,11 +1,15 @@
 import { test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createRunSink, getTUIRunSummaryStatus } from "../../../src/session/run-sink.js";
+import {
+  createRunSink,
+  getTUIRunSummaryStatus,
+} from "../../../src/session/run-sink.js";
+import { defined } from "../../helpers/defined.js";
 
 function makeArgs() {
   const emitter = new EventEmitter();
   const hookManager = {
-    dispatchPostTurn: (_ctx: unknown) => {},
+    dispatchPostTurn: (_ctx: unknown) => undefined,
     getStatuses: () => [
       {
         id: "h1",
@@ -43,7 +47,10 @@ test("reactor.done event → getStatus returns done", () => {
 test("reactor.error event → getStatus returns failed with error", () => {
   const args = makeArgs();
   const runSink = createRunSink(args);
-  runSink.sink({ type: "reactor.error", data: { error: "reactor blew up" } } as never);
+  runSink.sink({
+    type: "reactor.error",
+    data: { error: "reactor blew up" },
+  } as never);
   expect(runSink.getStatus()).toBe("failed");
   expect(runSink.getRunError()).toBe("reactor blew up");
 });
@@ -74,7 +81,7 @@ test("getTurnCollector is available and has expected shape", () => {
   const args = makeArgs();
   const runSink = createRunSink(args);
   // hooks are configured in makeArgs(), so the collector is non-null here
-  const collector = runSink.getTurnCollector()!;
+  const collector = defined(runSink.getTurnCollector(), "turn collector");
   expect(typeof collector.observe).toBe("function");
   expect(typeof collector.getTurns).toBe("function");
   expect(typeof collector.getTokenUsage).toBe("function");
@@ -102,7 +109,7 @@ test("reset clears status, error, and turn collector between sessions", () => {
 
   // The turn collector returned after reset is fresh.
   // hooks are configured in makeArgs(), so the collector is non-null here
-  const collector = runSink.getTurnCollector()!;
+  const collector = defined(runSink.getTurnCollector(), "turn collector");
   expect(collector.getTurns()).toHaveLength(0);
   expect(collector.getToolCallCount()).toBe(0);
 

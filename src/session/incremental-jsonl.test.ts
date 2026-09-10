@@ -22,7 +22,9 @@ function tempDir(): string {
 
 async function combined(dir: string): Promise<string> {
   const names = await listSegmentFiles(dir, BASE);
-  return names.map((name) => fs.readFileSync(path.join(dir, name), "utf8")).join("");
+  return names
+    .map((name) => fs.readFileSync(path.join(dir, name), "utf8"))
+    .join("");
 }
 
 describe("createSegmentedJSONLWriter", () => {
@@ -47,11 +49,16 @@ describe("createSegmentedJSONLWriter", () => {
       turns.push({ id: i, filler: "x".repeat(40) });
       await write(turns);
     }
-    expect(await pathExists(path.join(dir, segmentFileName(BASE, 1)))).toBe(true);
+    expect(await pathExists(path.join(dir, segmentFileName(BASE, 1)))).toBe(
+      true,
+    );
 
     const seg0 = path.join(dir, BASE);
     const before = fs.statSync(seg0).mtimeMs;
-    const { modifiedPaths } = await write([...turns, { id: 99, filler: "y".repeat(40) }]);
+    const { modifiedPaths } = await write([
+      ...turns,
+      { id: 99, filler: "y".repeat(40) },
+    ]);
     expect(fs.statSync(seg0).mtimeMs).toBe(before);
     expect(modifiedPaths).not.toContain(BASE);
   });
@@ -127,7 +134,8 @@ describe("createSegmentedJSONLWriter", () => {
     // Compact to something still larger than one segment under the same limit.
     const write2 = createSegmentedJSONLWriter(dir, BASE, 64);
     const compacted: unknown[] = [];
-    for (let i = 0; i < 4; i++) compacted.push({ id: `kept-${i}`, filler: "q".repeat(40) });
+    for (let i = 0; i < 4; i++)
+      compacted.push({ id: `kept-${i}`, filler: "q".repeat(40) });
     const { modifiedPaths } = await write2(compacted);
 
     const after = await listSegmentFiles(dir, BASE);
@@ -252,7 +260,9 @@ describe("createSegmentedJSONLWriter stale keepBytes", () => {
     // file is shorter than the writer's remembered keepBytes for a shared prefix.
     const keptOnDisk = fullSnapshot([a]);
     fs.writeFileSync(full, keptOnDisk);
-    expect(fs.statSync(full).size).toBeLessThan(Buffer.byteLength(fullSnapshot([a, b, c])));
+    expect(fs.statSync(full).size).toBeLessThan(
+      Buffer.byteLength(fullSnapshot([a, b, c])),
+    );
 
     // Shared prefix [a, b] would compute keepBytes past the shrunken file size.
     // Writer must rebuild rather than truncate-extend with null padding.
@@ -287,7 +297,10 @@ describe("segment readers", () => {
 
   test("a legacy monolithic file reads back as segment zero only", async () => {
     const dir = tempDir();
-    fs.writeFileSync(path.join(dir, BASE), fullSnapshot([{ id: 1 }, { id: 2 }]));
+    fs.writeFileSync(
+      path.join(dir, BASE),
+      fullSnapshot([{ id: 1 }, { id: 2 }]),
+    );
     expect(await listSegmentFiles(dir, BASE)).toEqual([BASE]);
     expect(await readExtraSegmentTexts(dir, BASE)).toEqual([]);
   });

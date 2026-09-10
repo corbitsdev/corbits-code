@@ -13,7 +13,10 @@ import {
   secondsFromMs,
   turnTraceId,
 } from "./ai-observability.js";
-import { getCurrentTurnTraceId, resetFeedbackStateForTests } from "./feedback.js";
+import {
+  getCurrentTurnTraceId,
+  resetFeedbackStateForTests,
+} from "./feedback.js";
 
 const SUBAGENT_TOOL_NAME = "spawn_agent";
 const SESSION_ID = "0199-parent-session";
@@ -34,8 +37,8 @@ function fakeTelemetry(): {
       captured.push({ event, properties });
     },
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   };
   return { telemetry, captured };
 }
@@ -106,11 +109,15 @@ describe("classifySpanKind", () => {
 
 describe("classifyErrorKind", () => {
   test("reduces provider messages to fixed reasons", () => {
-    expect(classifyErrorKind("HTTP 429 rate limit exceeded")).toBe("rate_limit");
+    expect(classifyErrorKind("HTTP 429 rate limit exceeded")).toBe(
+      "rate_limit",
+    );
     expect(classifyErrorKind("401 Unauthorized")).toBe("auth");
     expect(classifyErrorKind("request timed out after 60s")).toBe("timeout");
     expect(classifyErrorKind("The operation was aborted")).toBe("cancelled");
-    expect(classifyErrorKind("upstream returned garbage")).toBe("inference_failed");
+    expect(classifyErrorKind("upstream returned garbage")).toBe(
+      "inference_failed",
+    );
   });
 
   // The message the runtime itself produces when the user stops a turn.
@@ -121,19 +128,25 @@ describe("classifyErrorKind", () => {
   });
 
   test("reads a status code only where one was written, not any matching digits", () => {
-    expect(classifyErrorKind("the model used 1401 tokens and stopped")).toBe("inference_failed");
+    expect(classifyErrorKind("the model used 1401 tokens and stopped")).toBe(
+      "inference_failed",
+    );
     expect(classifyErrorKind("retry after 4290 ms")).toBe("inference_failed");
     expect(classifyErrorKind("HTTP 403 forbidden")).toBe("auth");
   });
 
   test("reports an abort that followed a timeout as cancelled, not timeout", () => {
-    expect(classifyErrorKind("request aborted after timeout")).toBe("cancelled");
+    expect(classifyErrorKind("request aborted after timeout")).toBe(
+      "cancelled",
+    );
   });
 
   test("still reports a timeout that was never aborted as timeout", () => {
-    expect(classifyErrorKind("inference call exceeded inactivity timeout (60000 ms)")).toBe(
-      "timeout",
-    );
+    expect(
+      classifyErrorKind(
+        "inference call exceeded inactivity timeout (60000 ms)",
+      ),
+    ).toBe("timeout");
   });
 });
 
@@ -150,7 +163,8 @@ describe("representative fleet event volume", () => {
       const captured: string[] = [];
       for (let turn = 0; turn < 10; turn++) captured.push("$ai_generation");
       if (includeToolSpans) {
-        for (let toolCall = 0; toolCall < 80; toolCall++) captured.push("$ai_span");
+        for (let toolCall = 0; toolCall < 80; toolCall++)
+          captured.push("$ai_span");
       }
       for (let worker = 0; worker < 4; worker++) {
         captured.push("subagent_start", "subagent_end");
@@ -194,9 +208,13 @@ describe("createTurnObserver", () => {
       getSource: () => ({ provider: "openai-compatible", model: "model-x" }),
     });
 
-    observer.onTurnComplete(fakeTurnContext({ turnIndex: 0, toolCalls: [], toolResults: [] }));
+    observer.onTurnComplete(
+      fakeTurnContext({ turnIndex: 0, toolCalls: [], toolResults: [] }),
+    );
     sessionId = "session-two";
-    observer.onTurnComplete(fakeTurnContext({ turnIndex: 0, toolCalls: [], toolResults: [] }));
+    observer.onTurnComplete(
+      fakeTurnContext({ turnIndex: 0, toolCalls: [], toolResults: [] }),
+    );
 
     const traceIds = captured.map((c) => c.properties.$ai_trace_id);
     expect(traceIds).toEqual(["session-one:turn:0", "session-two:turn:0"]);
@@ -250,7 +268,9 @@ describe("createTurnObserver", () => {
 
     observer.onTurnStarted({ turnIndex: 2, model: "model-x" });
     expect(getCurrentTurnTraceId()).toBe(`${SESSION_ID}:turn:2`);
-    observer.onTurnComplete(fakeTurnContext({ turnIndex: 2, toolCalls: [], toolResults: [] }));
+    observer.onTurnComplete(
+      fakeTurnContext({ turnIndex: 2, toolCalls: [], toolResults: [] }),
+    );
     expect(getCurrentTurnTraceId()).toBeUndefined();
   });
 });
@@ -286,7 +306,11 @@ describe("emitAiObservability", () => {
   test("reports latency in seconds, not milliseconds", () => {
     const { telemetry, captured } = fakeTelemetry();
 
-    emitAiObservability(telemetry, fakeTurnContext({ durationMs: 361 }), emitOptions);
+    emitAiObservability(
+      telemetry,
+      fakeTurnContext({ durationMs: 361 }),
+      emitOptions,
+    );
 
     const generation = captured.find((c) => c.event === "$ai_generation");
     expect(generation?.properties.$ai_latency).toBe(0.361);
@@ -423,10 +447,16 @@ describe("emitAiObservability", () => {
   });
 
   test("empty CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE is treated as unset (1.0)", () => {
-    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "" })).toBe(1);
-    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "  " })).toBe(1);
+    expect(
+      generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "" }),
+    ).toBe(1);
+    expect(
+      generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "  " }),
+    ).toBe(1);
     expect(generationSampleRate({})).toBe(1);
-    expect(generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0" })).toBe(0);
+    expect(
+      generationSampleRate({ CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0" }),
+    ).toBe(0);
   });
 });
 
@@ -443,7 +473,9 @@ describe("emitAiTurnFailure", () => {
 
     expect(captured.length).toBe(1);
     expect(captured[0]?.event).toBe("$ai_generation");
-    expect(captured[0]?.properties.$ai_trace_id).toBe(turnTraceId(SESSION_ID, 7));
+    expect(captured[0]?.properties.$ai_trace_id).toBe(
+      turnTraceId(SESSION_ID, 7),
+    );
     expect(captured[0]?.properties.$ai_is_error).toBe(true);
     expect(captured[0]?.properties.$ai_error).toBe("rate_limit");
   });

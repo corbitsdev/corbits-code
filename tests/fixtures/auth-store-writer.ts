@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 
-import { createAuthStore, type BaseTokens } from "../../src/auth/oauth/store.js";
+import {
+  createAuthStore,
+  type BaseTokens,
+} from "../../src/auth/oauth/store.js";
 
 type TestTokens = BaseTokens & { accountId?: string };
 
@@ -34,7 +37,12 @@ async function waitForBarrier(path: string): Promise<void> {
 }
 
 const [home, barrier, operation, value] = Bun.argv.slice(2);
-if (home === undefined || barrier === undefined || operation === undefined || value === undefined) {
+if (
+  home === undefined ||
+  barrier === undefined ||
+  operation === undefined ||
+  value === undefined
+) {
   throw new Error("Expected home, barrier, operation, and value arguments");
 }
 
@@ -48,7 +56,11 @@ if (operation === "save") {
   await store.saveProfile(
     {
       name: value,
-      tokens: { access: `access-${value}`, refresh: `refresh-${value}`, expiresAt: 1 },
+      tokens: {
+        access: `access-${value}`,
+        refresh: `refresh-${value}`,
+        expiresAt: 1,
+      },
       createdAt: 1,
     },
     home,

@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
-import { createExaMCPServerConfig, type ResolvedMCPServerConfig } from "../mcp/exa.js";
+import {
+  createExaMCPServerConfig,
+  type ResolvedMCPServerConfig,
+} from "../mcp/exa.js";
 import type { MCPConnectOptions, MCPTool } from "../mcp/client.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { MCPServerState } from "./tools.js";
@@ -17,7 +20,9 @@ let releaseDeferredConnect: (() => void) | undefined;
 let connectMode: "success" | "deferred" = "success";
 // Reconnect tests repoint this to simulate a server whose tool set drifted
 // between generations; the default matches the original static payload.
-let connectedTools: MCPTool[] = [{ name: "list", description: "List", inputSchema: {} }];
+let connectedTools: MCPTool[] = [
+  { name: "list", description: "List", inputSchema: {} },
+];
 
 function tempCwd(): string {
   const dir = mkdtempSync(join(tmpdir(), "corbits-mcp-disconnect-"));
@@ -29,7 +34,10 @@ await withMockedModule(
   import.meta.resolve("../mcp/client.js"),
   (real: typeof import("../mcp/client.js")) => ({
     ...real,
-    connectMCPServer: async (config: ResolvedMCPServerConfig, options: MCPConnectOptions = {}) => {
+    connectMCPServer: async (
+      config: ResolvedMCPServerConfig,
+      options: MCPConnectOptions = {},
+    ) => {
       connectOptions.push(options);
       const generation = ++connectGeneration;
       if (connectMode === "deferred") {
@@ -37,10 +45,15 @@ await withMockedModule(
           releaseDeferredConnect = resolve;
           const onAbort = (): void => resolve();
           if (options.signal?.aborted === true) onAbort();
-          else options.signal?.addEventListener("abort", onAbort, { once: true });
+          else
+            options.signal?.addEventListener("abort", onAbort, { once: true });
         });
         if (options.signal?.aborted === true) {
-          return { ok: false as const, serverName: config.name, error: "aborted" };
+          return {
+            ok: false as const,
+            serverName: config.name,
+            error: "aborted",
+          };
         }
       }
       return {
@@ -80,10 +93,26 @@ async function makeToolset() {
   });
 }
 
-const acme = { name: "acme", type: "http" as const, url: "https://mcp.acme.test/mcp" };
-const lin = { name: "lin", type: "http" as const, url: "https://mcp.lin.test/mcp" };
-const linear = { name: "linear", type: "http" as const, url: "https://mcp.linear.test/mcp" };
-const customExa = { name: "exa", type: "http" as const, url: "https://custom.exa.test/mcp" };
+const acme = {
+  name: "acme",
+  type: "http" as const,
+  url: "https://mcp.acme.test/mcp",
+};
+const lin = {
+  name: "lin",
+  type: "http" as const,
+  url: "https://mcp.lin.test/mcp",
+};
+const linear = {
+  name: "linear",
+  type: "http" as const,
+  url: "https://mcp.linear.test/mcp",
+};
+const customExa = {
+  name: "exa",
+  type: "http" as const,
+  url: "https://custom.exa.test/mcp",
+};
 
 function callbacks(states: MCPServerState[], toolsChanged: number[] = []) {
   return {
@@ -134,21 +163,29 @@ describe("disconnectMCPServer", () => {
       cwd: tempCwd(),
       permissionGate: gate,
       onOperatorGate: async () => ({ kind: "cancel" }),
-      mcpServers: resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+      mcpServers: resolveMcpServers(
+        [{ name: "exa", enabled: false }],
+        undefined,
+      ),
     });
     const states: MCPServerState[] = [];
     const toolsChanged: number[] = [];
     try {
       await toolset.connectMCPServer(acme, callbacks(states, toolsChanged));
-      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
-        "mcp__acme__list",
-      );
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__acme__list");
       expect(toolset.hasMCPServer("acme")).toBe(true);
 
-      await toolset.disconnectMCPServer("acme", callbacks(states, toolsChanged));
+      await toolset.disconnectMCPServer(
+        "acme",
+        callbacks(states, toolsChanged),
+      );
 
       expect(
-        toolset.dynamicRunner.currentDefinitions().some((d) => d.name.startsWith("mcp__acme__")),
+        toolset.dynamicRunner
+          .currentDefinitions()
+          .some((d) => d.name.startsWith("mcp__acme__")),
       ).toBe(false);
       expect(unregistrations).toBeGreaterThan(0);
       expect(closedClients).toEqual(["acme"]);
@@ -169,9 +206,9 @@ describe("disconnectMCPServer", () => {
       await toolset.disconnectMCPServer("acme", callbacks(states));
       await toolset.connectMCPServer(acme, callbacks(states));
 
-      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
-        "mcp__acme__list",
-      );
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__acme__list");
       expect(toolset.hasMCPServer("acme")).toBe(true);
       expect(states.some((s) => s.state === "failed")).toBe(false);
     } finally {
@@ -182,17 +219,29 @@ describe("disconnectMCPServer", () => {
   test("reconnect after the server's tools drift swaps the mounted set", async () => {
     const toolset = await makeToolset();
     const states: MCPServerState[] = [];
-    const announced: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>[] = [];
+    const announced: ReturnType<
+      typeof toolset.dynamicRunner.currentDefinitions
+    >[] = [];
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
-      const acmeNames = (defs: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>) =>
-        defs.map((d) => d.name).filter((name) => name.startsWith("mcp__acme__"));
-      expect(acmeNames(toolset.dynamicRunner.currentDefinitions())).toEqual(["mcp__acme__list"]);
+      const acmeNames = (
+        defs: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>,
+      ) =>
+        defs
+          .map((d) => d.name)
+          .filter((name) => name.startsWith("mcp__acme__"));
+      expect(acmeNames(toolset.dynamicRunner.currentDefinitions())).toEqual([
+        "mcp__acme__list",
+      ]);
 
       // The server redeployed mid-session: same tool name, new schema, plus a
       // new tool. Reconnect must mount exactly the drifted set.
       connectedTools = [
-        { name: "list", description: "List v2", inputSchema: { type: "object", required: ["q"] } },
+        {
+          name: "list",
+          description: "List v2",
+          inputSchema: { type: "object", required: ["q"] },
+        },
         { name: "search", description: "Search", inputSchema: {} },
       ];
       await toolset.disconnectMCPServer("acme", callbacks(states));
@@ -212,7 +261,10 @@ describe("disconnectMCPServer", () => {
 
       // The stale generation's client was closed and the drift was announced.
       expect(closedGenerations).toContain(1);
-      expect(acmeNames(announced.at(-1) ?? [])).toEqual(["mcp__acme__list", "mcp__acme__search"]);
+      expect(acmeNames(announced.at(-1) ?? [])).toEqual([
+        "mcp__acme__list",
+        "mcp__acme__search",
+      ]);
     } finally {
       await toolset.dispose();
     }
@@ -224,13 +276,17 @@ describe("disconnectMCPServer", () => {
     try {
       await toolset.connectMCPServer(lin, callbacks(states));
       await toolset.connectMCPServer(linear, callbacks(states));
-      const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+      const names = toolset.dynamicRunner
+        .currentDefinitions()
+        .map((d) => d.name);
       expect(names).toContain("mcp__lin__list");
       expect(names).toContain("mcp__linear__list");
 
       await toolset.disconnectMCPServer("lin", callbacks(states));
 
-      const after = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+      const after = toolset.dynamicRunner
+        .currentDefinitions()
+        .map((d) => d.name);
       expect(after).not.toContain("mcp__lin__list");
       expect(after).toContain("mcp__linear__list");
       expect(toolset.hasMCPServer("linear")).toBe(true);
@@ -245,20 +301,25 @@ describe("disconnectMCPServer", () => {
     const states: MCPServerState[] = [];
     try {
       await toolset.connectMCPServer(customExa, callbacks(states));
-      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
-        "mcp__exa__list",
-      );
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__exa__list");
 
       await toolset.disconnectMCPServer("exa", callbacks(states));
       expect(
-        toolset.dynamicRunner.currentDefinitions().some((d) => d.name.startsWith("mcp__exa__")),
+        toolset.dynamicRunner
+          .currentDefinitions()
+          .some((d) => d.name.startsWith("mcp__exa__")),
       ).toBe(false);
 
-      await toolset.connectMCPServer(createExaMCPServerConfig(), callbacks(states));
-      expect(toolset.hasMCPServer("exa")).toBe(true);
-      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
-        "mcp__exa__list",
+      await toolset.connectMCPServer(
+        createExaMCPServerConfig(),
+        callbacks(states),
       );
+      expect(toolset.hasMCPServer("exa")).toBe(true);
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__exa__list");
     } finally {
       await toolset.dispose();
     }
@@ -273,14 +334,19 @@ describe("disconnectMCPServer", () => {
       await waitForConnectStart();
       expect(toolset.hasMCPServer("acme")).toBe(true);
 
-      const disconnecting = toolset.disconnectMCPServer("acme", callbacks(states));
+      const disconnecting = toolset.disconnectMCPServer(
+        "acme",
+        callbacks(states),
+      );
       expect(toolset.hasMCPServer("acme")).toBe(true);
       await Promise.all([connecting, disconnecting]);
 
       expect(states.some((s) => s.state === "failed")).toBe(false);
       expect(states.map((s) => s.state)).toContain("disconnected");
       expect(
-        toolset.dynamicRunner.currentDefinitions().some((d) => d.name.startsWith("mcp__acme__")),
+        toolset.dynamicRunner
+          .currentDefinitions()
+          .some((d) => d.name.startsWith("mcp__acme__")),
       ).toBe(false);
       expect(toolset.hasMCPServer("acme")).toBe(false);
     } finally {
@@ -295,7 +361,10 @@ describe("disconnectMCPServer", () => {
     const toolsChanged: number[] = [];
     try {
       expect(toolset.hasMCPServer("ghost")).toBe(false);
-      await toolset.disconnectMCPServer("ghost", callbacks(states, toolsChanged));
+      await toolset.disconnectMCPServer(
+        "ghost",
+        callbacks(states, toolsChanged),
+      );
       expect(toolset.hasMCPServer("ghost")).toBe(false);
       expect(states).toEqual([{ name: "ghost", state: "disconnected" }]);
       expect(toolsChanged).toHaveLength(1);
@@ -311,14 +380,17 @@ describe("disconnectMCPServer", () => {
       await toolset.connectMCPServer(acme, callbacks(states));
       expect(connectOptions).toHaveLength(1);
 
-      const disconnecting = toolset.disconnectMCPServer("acme", callbacks(states));
+      const disconnecting = toolset.disconnectMCPServer(
+        "acme",
+        callbacks(states),
+      );
       const connecting = toolset.connectMCPServer(acme, callbacks(states));
       await Promise.all([disconnecting, connecting]);
 
       expect(toolset.hasMCPServer("acme")).toBe(true);
-      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
-        "mcp__acme__list",
-      );
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__acme__list");
       expect(states.some((s) => s.state === "failed")).toBe(false);
       expect(closedGenerations).toContain(1);
       expect(connectOptions).toHaveLength(2);
@@ -334,7 +406,10 @@ describe("setMcpServersSource", () => {
       cwd: tempCwd(),
       permissionGate: permissionGate(),
       onOperatorGate: async () => ({ kind: "cancel" }),
-      mcpServers: resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+      mcpServers: resolveMcpServers(
+        [{ name: "exa", enabled: false }],
+        undefined,
+      ),
       mcpServersSource: "local",
     });
     const untrusted: MCPServerState[] = [];
@@ -346,7 +421,9 @@ describe("setMcpServersSource", () => {
       );
       expect(toolset.hasMCPServer("acme")).toBe(false);
       expect(
-        toolset.dynamicRunner.currentDefinitions().some((d) => d.name.startsWith("mcp__acme__")),
+        toolset.dynamicRunner
+          .currentDefinitions()
+          .some((d) => d.name.startsWith("mcp__acme__")),
       ).toBe(false);
 
       toolset.setMcpServersSource("global");
@@ -354,9 +431,9 @@ describe("setMcpServersSource", () => {
       await toolset.connectMCPServer(acme, callbacks(trusted));
 
       expect(toolset.hasMCPServer("acme")).toBe(true);
-      expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain(
-        "mcp__acme__list",
-      );
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__acme__list");
       expect(trusted.some((s) => s.state === "connected")).toBe(true);
       expect(trusted.some((s) => s.state === "failed")).toBe(false);
     } finally {

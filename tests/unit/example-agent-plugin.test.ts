@@ -3,16 +3,19 @@ import { join } from "node:path";
 
 import { loadPluginEntry } from "../../src/plugins/loader.js";
 import { resolveAgentPluginProfiles } from "../../src/plugins/agent-plugins.js";
+import { defined } from "../helpers/defined.js";
 
-const pluginRoot = join(import.meta.dirname, "../fixtures/plugins/example-agent");
+const pluginRoot = join(
+  import.meta.dirname,
+  "../fixtures/plugins/example-agent",
+);
 
 test("example-agent plugin loads scout profile when enabled", async () => {
-  const mod = await loadPluginEntry(pluginRoot);
-  expect(mod).not.toBeNull();
-  expect(mod!.manifest?.id).toBe("example-agent");
-  expect(mod!.manifest?.kind).toBe("agent");
+  const mod = defined(await loadPluginEntry(pluginRoot), "plugin module");
+  expect(mod.manifest?.id).toBe("example-agent");
+  expect(mod.manifest?.kind).toBe("agent");
 
-  const profiles = await resolveAgentPluginProfiles([mod!], {
+  const profiles = await resolveAgentPluginProfiles([mod], {
     "example-agent": { enabled: true },
   });
   expect(profiles.map((p) => p.id)).toEqual(["scout"]);

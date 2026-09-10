@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
-import { APPROVAL_LOG_FILE, createApprovalLog } from "../permission/approval-log.js";
+import {
+  APPROVAL_LOG_FILE,
+  createApprovalLog,
+} from "../permission/approval-log.js";
 import { BLOCKED_BY_POLICY_PREFIX } from "../permission/decline-markers.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { gateToolCall, permissionPlugin } from "./permission-plugin.js";
@@ -19,7 +22,10 @@ function shellCall(command: string): ToolCall {
 
 function trackingNext() {
   let called = false;
-  const next = async (call: ToolCall, _signal: AbortSignal): Promise<ToolResult> => {
+  const next = async (
+    call: ToolCall,
+    _signal: AbortSignal,
+  ): Promise<ToolResult> => {
     called = true;
     return { callId: call.id, content: "ok" };
   };
@@ -114,7 +120,9 @@ describe("gateToolCall", () => {
       skipPermissions: false,
       reactorGated: true,
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const { next, wasCalled } = trackingNext();
@@ -158,7 +166,9 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const call: ToolCall = {
@@ -169,7 +179,12 @@ describe("gateToolCall", () => {
     const first = await gate.authorizeCall(call);
     expect(first.effect).toBe("allow");
     const { next, wasCalled } = trackingNext();
-    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    const result = await gateToolCall(
+      gate,
+      call,
+      new AbortController().signal,
+      next,
+    );
     expect(result.isError).not.toBe(true);
     expect(wasCalled()).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
@@ -190,14 +205,21 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const call = shellCall("echo x | tee src/a.ts");
     const first = await gate.authorizeCall(call);
     expect(first.effect).toBe("deny");
     const { next, wasCalled } = trackingNext();
-    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    const result = await gateToolCall(
+      gate,
+      call,
+      new AbortController().signal,
+      next,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
@@ -222,7 +244,12 @@ describe("gateToolCall", () => {
     const first = await gate.authorizeCall(call);
     expect(first.effect).toBe("deny");
     const { next, wasCalled } = trackingNext();
-    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    const result = await gateToolCall(
+      gate,
+      call,
+      new AbortController().signal,
+      next,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
@@ -244,7 +271,9 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const first: ToolCall = {
@@ -258,12 +287,14 @@ describe("gateToolCall", () => {
       arguments: { path: "src/b.ts", content: "y" },
     };
     const { next, wasCalled } = trackingNext();
-    expect((await gateToolCall(gate, first, new AbortController().signal, next)).isError).not.toBe(
-      true,
-    );
-    expect((await gateToolCall(gate, second, new AbortController().signal, next)).isError).not.toBe(
-      true,
-    );
+    expect(
+      (await gateToolCall(gate, first, new AbortController().signal, next))
+        .isError,
+    ).not.toBe(true);
+    expect(
+      (await gateToolCall(gate, second, new AbortController().signal, next))
+        .isError,
+    ).not.toBe(true);
     expect(wasCalled()).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
     const records = readApprovalRecords(dir);
@@ -284,7 +315,9 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const first: ToolCall = {
@@ -298,8 +331,18 @@ describe("gateToolCall", () => {
       arguments: { command: "echo y | tee src/b.ts" },
     };
     const run = trackingNext();
-    const firstResult = await gateToolCall(gate, first, new AbortController().signal, run.next);
-    const secondResult = await gateToolCall(gate, second, new AbortController().signal, run.next);
+    const firstResult = await gateToolCall(
+      gate,
+      first,
+      new AbortController().signal,
+      run.next,
+    );
+    const secondResult = await gateToolCall(
+      gate,
+      second,
+      new AbortController().signal,
+      run.next,
+    );
     expect(firstResult.isError).toBe(true);
     expect(secondResult.isError).toBe(true);
     expect(firstResult.content).toContain(BLOCKED_BY_POLICY_PREFIX);
@@ -324,7 +367,9 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const outer: ToolCall = {
@@ -339,7 +384,12 @@ describe("gateToolCall", () => {
     };
     expect((await gate.authorizeCall(outer)).effect).toBe("allow");
     const { next, wasCalled } = trackingNext();
-    const result = await gateToolCall(gate, inner, new AbortController().signal, next);
+    const result = await gateToolCall(
+      gate,
+      inner,
+      new AbortController().signal,
+      next,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
@@ -361,7 +411,9 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const granted: ToolCall = {
@@ -376,7 +428,12 @@ describe("gateToolCall", () => {
     };
     expect((await gate.authorizeCall(granted)).effect).toBe("allow");
     const { next, wasCalled } = trackingNext();
-    const result = await gateToolCall(gate, inner, new AbortController().signal, next);
+    const result = await gateToolCall(
+      gate,
+      inner,
+      new AbortController().signal,
+      next,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
@@ -398,13 +455,17 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const outer: ToolCall = {
       id: "apply-1",
       name: "apply_patch",
-      arguments: { input: "*** Begin Patch\n*** Add File: src/a.ts\n+x\n*** End Patch\n" },
+      arguments: {
+        input: "*** Begin Patch\n*** Add File: src/a.ts\n+x\n*** End Patch\n",
+      },
     };
     const first: ToolCall = {
       id: "codex-proxy",
@@ -418,17 +479,23 @@ describe("gateToolCall", () => {
     };
     expect((await gate.authorizeCall(outer)).effect).toBe("allow");
     const { next, wasCalled } = trackingNext();
-    expect((await gateToolCall(gate, first, new AbortController().signal, next)).isError).not.toBe(
-      true,
-    );
-    expect((await gateToolCall(gate, second, new AbortController().signal, next)).isError).not.toBe(
-      true,
-    );
+    expect(
+      (await gateToolCall(gate, first, new AbortController().signal, next))
+        .isError,
+    ).not.toBe(true);
+    expect(
+      (await gateToolCall(gate, second, new AbortController().signal, next))
+        .isError,
+    ).not.toBe(true);
     expect(wasCalled()).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(3);
-    expect(records.map((r) => r.outcome)).toEqual(["auto-allow", "auto-allow", "auto-allow"]);
+    expect(records.map((r) => r.outcome)).toEqual([
+      "auto-allow",
+      "auto-allow",
+      "auto-allow",
+    ]);
   });
 
   test("leftover authorizeCall is cleared by reset so a later gateToolCall records", async () => {
@@ -443,7 +510,9 @@ describe("gateToolCall", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
       requestApproval: async () => {
-        throw new Error("requestApproval must not be invoked under reactor gating");
+        throw new Error(
+          "requestApproval must not be invoked under reactor gating",
+        );
       },
     });
     const call: ToolCall = {
@@ -454,7 +523,12 @@ describe("gateToolCall", () => {
     expect((await gate.authorizeCall(call)).effect).toBe("allow");
     gate.reset();
     const { next, wasCalled } = trackingNext();
-    const result = await gateToolCall(gate, call, new AbortController().signal, next);
+    const result = await gateToolCall(
+      gate,
+      call,
+      new AbortController().signal,
+      next,
+    );
     expect(result.isError).not.toBe(true);
     expect(wasCalled()).toBe(true);
     await new Promise((r) => setTimeout(r, 10));
@@ -495,7 +569,10 @@ describe("permissionPlugin", () => {
     const { next, wasCalled } = trackingNext();
     const plugin = permissionPlugin(gate);
     const handler = plugin.middleware ? plugin.middleware(next) : next;
-    const result = await handler(shellCall("rm -rf /"), new AbortController().signal);
+    const result = await handler(
+      shellCall("rm -rf /"),
+      new AbortController().signal,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);

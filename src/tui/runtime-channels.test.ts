@@ -11,11 +11,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { createHarness } from "./harness.js";
 import { mountProductHost, type ProductHostConfig } from "./product-host.js";
 import { isLanding } from "./shell/internals.js";
 
-async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promise<{
+async function mountHeadless(
+  overrides: Partial<ProductHostConfig> = {},
+): Promise<{
   host: Awaited<ReturnType<typeof mountProductHost>>;
   emitter: EventEmitter;
   frame: () => Promise<string>;
@@ -26,9 +29,9 @@ async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promis
   const host = await mountProductHost({
     title: "test-session",
     eventEmitter: emitter,
-    send: () => {},
-    interrupt: () => {},
-    deliver: () => {},
+    send: () => undefined,
+    interrupt: () => undefined,
+    deliver: () => undefined,
     createRenderer: async () => harness.renderer,
     ...overrides,
   });
@@ -121,9 +124,17 @@ describe("mcp.status channel", () => {
   test("connected clears the standing auth mark from state and the painted frame", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
-      emitter.emit("mcp.status", { name: "linear", state: "needs-auth", url: "https://x/a" });
+      emitter.emit("mcp.status", {
+        name: "linear",
+        state: "needs-auth",
+        url: "https://x/a",
+      });
       expect(await frame()).toContain("mcp !");
-      emitter.emit("mcp.status", { name: "linear", state: "connected", tools: ["a"] });
+      emitter.emit("mcp.status", {
+        name: "linear",
+        state: "connected",
+        tools: ["a"],
+      });
       const painted = await frame();
       expect(host.shell.mcpNeedsAuth).toEqual([]);
       expect(painted).not.toContain("mcp !");
@@ -141,7 +152,9 @@ describe("mcp.status channel", () => {
     try {
       expect(isLanding(host.shell)).toBe(true);
       const before = await frame();
-      const markBefore = before.split("\n").filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row)).length;
+      const markBefore = before
+        .split("\n")
+        .filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row)).length;
       expect(markBefore).toBeGreaterThan(0);
 
       emitter.emit("mcp.status", {
@@ -156,7 +169,9 @@ describe("mcp.status channel", () => {
       expect(isLanding(host.shell)).toBe(true);
       expect(host.shell.streamLog).toEqual([]);
       expect(host.shell.statusFlash).toContain("mcp linear did not connect");
-      const markAfter = painted.split("\n").filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row)).length;
+      const markAfter = painted
+        .split("\n")
+        .filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row)).length;
       expect(markAfter).toBe(markBefore);
     } finally {
       cleanup();
@@ -167,7 +182,11 @@ describe("mcp.status channel", () => {
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
       emitter.emit("mcp.status", { name: "linear", state: "connecting" });
-      emitter.emit("mcp.status", { name: "linear", state: "connected", tools: ["a"] });
+      emitter.emit("mcp.status", {
+        name: "linear",
+        state: "connected",
+        tools: ["a"],
+      });
       expect(await frame()).toContain("mcp linear connected · 1 tool");
       expect(host.shell.streamLog).toEqual([]);
     } finally {
@@ -289,7 +308,13 @@ describe("workflow channel", () => {
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
       emitter.emit("workflow", {
-        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        current: {
+          active: true,
+          name: "ship",
+          stepIndex: 0,
+          total: 2,
+          label: "build",
+        },
         history: [],
       });
       expect(await frame()).toContain("workflow ship · step 1/2: build");
@@ -303,7 +328,13 @@ describe("workflow channel", () => {
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
       emitter.emit("workflow", {
-        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        current: {
+          active: true,
+          name: "ship",
+          stepIndex: 0,
+          total: 2,
+          label: "build",
+        },
         history: [],
       });
       expect(await frame()).toContain("workflow ship · step 1/2: build");
@@ -356,29 +387,48 @@ describe("every emitted runtime channel has a subscriber", () => {
   // CL-6791 phase 4 split src/tui/runner.ts into src/tui/runner/*; the
   // emitted-channel set now spans every module in that directory.
   const runnerDir = fileURLToPath(new URL("./runner/", import.meta.url));
-  const runnerSources = Array.from(new Bun.Glob("*.ts").scanSync({ cwd: runnerDir }))
+  const runnerSources = Array.from(
+    new Bun.Glob("*.ts").scanSync({ cwd: runnerDir }),
+  )
     .filter((f) => !f.endsWith(".test.ts"))
     .map((f) => readFileSync(`${runnerDir}${f}`, "utf8"))
     .join("\n");
 
   const emitted = new Set(
-    [...runnerSources.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) => m[1]!),
+    [...runnerSources.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) =>
+      defined(m[1], "emit channel"),
+    ),
   );
   // Progress pings are store-mirrored chrome, not a host paint path.
   emitted.delete("subagent.progress");
 
   test("the runner still emits the channels this suite knows about", () => {
-    for (const channel of ["hook", "mcp.status", "permission.grant", "compaction", "workflow"]) {
+    for (const channel of [
+      "hook",
+      "mcp.status",
+      "permission.grant",
+      "compaction",
+      "workflow",
+    ]) {
       expect([...emitted]).toContain(channel);
     }
   });
 
-  test.each([...emitted])("%s is subscribed somewhere in src", async (channel) => {
-    const grep = Bun.spawnSync(["grep", "-rl", `.on("${channel}"`, srcDir, "--include=*.ts"]);
-    const files = new TextDecoder()
-      .decode(grep.stdout)
-      .split("\n")
-      .filter((f) => f.length > 0 && !f.endsWith(".test.ts"));
-    expect(files).not.toEqual([]);
-  });
+  test.each([...emitted])(
+    "%s is subscribed somewhere in src",
+    async (channel) => {
+      const grep = Bun.spawnSync([
+        "grep",
+        "-rl",
+        `.on("${channel}"`,
+        srcDir,
+        "--include=*.ts",
+      ]);
+      const files = new TextDecoder()
+        .decode(grep.stdout)
+        .split("\n")
+        .filter((f) => f.length > 0 && !f.endsWith(".test.ts"));
+      expect(files).not.toEqual([]);
+    },
+  );
 });

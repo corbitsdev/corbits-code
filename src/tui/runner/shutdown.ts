@@ -15,7 +15,9 @@ function rethrowShutdownFailures(failures: unknown[]): void {
 }
 
 /** Start every process-owned teardown path once, even when exit races a signal. */
-export function createRuntimeShutdown(deps: RuntimeShutdownDeps): () => Promise<void> {
+export function createRuntimeShutdown(
+  deps: RuntimeShutdownDeps,
+): () => Promise<void> {
   let completion: Promise<void> | undefined;
 
   return (): Promise<void> => {

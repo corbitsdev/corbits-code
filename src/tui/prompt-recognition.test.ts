@@ -15,43 +15,55 @@ describe("buildPromptRecognitionMatcher", () => {
 
   test("a leading registered slash command paints /name only", () => {
     const matcher = buildPromptRecognitionMatcher(["implement", "review"]);
-    expect(resolvePromptHighlightSpans("/implement now", matcher)).toEqual([{ start: 0, end: 10 }]);
-  });
-
-  test("does not paint arguments after the command name", () => {
-    const matcher = buildPromptRecognitionMatcher(["implement"]);
-    expect(resolvePromptHighlightSpans("/implement the thing", matcher)).toEqual([
+    expect(resolvePromptHighlightSpans("/implement now", matcher)).toEqual([
       { start: 0, end: 10 },
     ]);
   });
 
+  test("does not paint arguments after the command name", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement"]);
+    expect(
+      resolvePromptHighlightSpans("/implement the thing", matcher),
+    ).toEqual([{ start: 0, end: 10 }]);
+  });
+
   test("bare words stay unstyled even when they match a registered name", () => {
     const matcher = buildPromptRecognitionMatcher([...COMMANDS]);
-    for (const text of ["emil", "implement", "brand review", "improve", "linear-create"]) {
+    for (const text of [
+      "emil",
+      "implement",
+      "brand review",
+      "improve",
+      "linear-create",
+    ]) {
       expect(resolvePromptHighlightSpans(text, matcher)).toEqual([]);
     }
   });
 
   test("a mid-prose slash command stays unstyled", () => {
     const matcher = buildPromptRecognitionMatcher(["review", "implement"]);
-    expect(resolvePromptHighlightSpans("please /review this", matcher)).toEqual([]);
+    expect(resolvePromptHighlightSpans("please /review this", matcher)).toEqual(
+      [],
+    );
   });
 
   test("an @mention paints anywhere", () => {
     const matcher = buildPromptRecognitionMatcher(["implement"]);
-    expect(resolvePromptHighlightSpans("ask @emil to review", matcher)).toEqual([
-      { start: 4, end: 9 },
-    ]);
+    expect(resolvePromptHighlightSpans("ask @emil to review", matcher)).toEqual(
+      [{ start: 4, end: 9 }],
+    );
   });
 
   test("mentions paint even when no commands are registered", () => {
-    expect(resolvePromptHighlightSpans("@emil", null)).toEqual([{ start: 0, end: 5 }]);
+    expect(resolvePromptHighlightSpans("@emil", null)).toEqual([
+      { start: 0, end: 5 },
+    ]);
   });
 
   test("a quoted @mention paints the quoted token", () => {
-    expect(resolvePromptHighlightSpans('see @"brand review" please', null)).toEqual([
-      { start: 4, end: 19 },
-    ]);
+    expect(
+      resolvePromptHighlightSpans('see @"brand review" please', null),
+    ).toEqual([{ start: 4, end: 19 }]);
   });
 
   test("a leading command and a mention both paint", () => {
@@ -76,7 +88,9 @@ describe("buildPromptRecognitionMatcher", () => {
 
   test("slash matching is case-insensitive", () => {
     const matcher = buildPromptRecognitionMatcher(["implement"]);
-    expect(resolvePromptHighlightSpans("/IMPLEMENT", matcher)).toEqual([{ start: 0, end: 10 }]);
+    expect(resolvePromptHighlightSpans("/IMPLEMENT", matcher)).toEqual([
+      { start: 0, end: 10 },
+    ]);
   });
 });
 
@@ -99,7 +113,9 @@ describe("resolvePromptRecognitionMatcher", () => {
     names = ["implement", "review"];
     const second = resolvePromptRecognitionMatcher(source);
     expect(second).not.toBe(first);
-    expect(resolvePromptHighlightSpans("/review", second)).toEqual([{ start: 0, end: 7 }]);
+    expect(resolvePromptHighlightSpans("/review", second)).toEqual([
+      { start: 0, end: 7 },
+    ]);
     expect(resolvePromptHighlightSpans("review", second)).toEqual([]);
   });
 });

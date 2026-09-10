@@ -9,21 +9,42 @@ test("createFaremeter starts at zero", () => {
 
 test("addUsage accumulates tokens and cost", () => {
   const faremeter = createFaremeter();
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   expect(faremeter.getTotalTokens()).toBe(1500);
 });
 
 test("getInputTokens returns last turn context size (input + cacheRead + cacheWrite)", () => {
   const faremeter = createFaremeter();
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 50, thinking: 80 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 200,
+    cacheWrite: 50,
+    thinking: 80,
+  });
   expect(faremeter.getInputTokens()).toBe(1250);
   expect(faremeter.getOutputTokens()).toBe(580);
   expect(faremeter.getTotalTokens()).toBe(1830);
 });
 
 test("addUsage computes cost from input and output tokens", () => {
-  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+  const faremeter = createFaremeter({
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+  });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   expect(faremeter.getTotalCost()).toBe(0.02);
 });
 
@@ -42,7 +63,13 @@ test("createFaremeter uses fetched model rates", () => {
     },
   });
 
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 0, thinking: 0 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 200,
+    cacheWrite: 0,
+    thinking: 0,
+  });
 
   expect(faremeter.getTotalCost()).toBe(0.021);
 });
@@ -54,7 +81,13 @@ test("resolvePricing prices each turn at the live model rate", () => {
     cacheReadPricePerToken: 0,
   };
   const faremeter = createFaremeter({ resolvePricing: () => pricing });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   expect(faremeter.getTotalCost()).toBe(0.02);
 
   // A mid-session switch to a cheaper model reprices subsequent turns.
@@ -63,13 +96,25 @@ test("resolvePricing prices each turn at the live model rate", () => {
     outputPricePerToken: 0.000002,
     cacheReadPricePerToken: 0,
   };
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   expect(faremeter.getTotalCost()).toBeCloseTo(0.022, 10);
 });
 
 test("resolvePricing returning null falls back to the default rate", () => {
   const faremeter = createFaremeter({ resolvePricing: () => null });
-  faremeter.addUsage({ input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   expect(faremeter.getTotalCost()).toBe(1000 * 0.000002);
 });
 
@@ -80,9 +125,24 @@ test("formatCost formats to 4 decimal places with dollar sign", () => {
 });
 
 test("multiple addUsage calls: cost accumulates, input reflects last turn context", () => {
-  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
-  faremeter.addUsage({ input: 2000, output: 1000, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+  const faremeter = createFaremeter({
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+  });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
+  faremeter.addUsage({
+    input: 2000,
+    output: 1000,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   // inputTokens = last turn context (2000), outputTokens = cumulative (1500)
   expect(faremeter.getInputTokens()).toBe(2000);
   expect(faremeter.getOutputTokens()).toBe(1500);
@@ -91,22 +151,49 @@ test("multiple addUsage calls: cost accumulates, input reflects last turn contex
 });
 
 test("cacheWrite tokens increase total tokens but not cost", () => {
-  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 300, thinking: 0 });
+  const faremeter = createFaremeter({
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+  });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 300,
+    thinking: 0,
+  });
   expect(faremeter.getTotalTokens()).toBe(1800);
   expect(faremeter.getTotalCost()).toBe(0.02);
 });
 
 test("thinking tokens increase total tokens but not cost", () => {
-  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 250 });
+  const faremeter = createFaremeter({
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+  });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    thinking: 250,
+  });
   expect(faremeter.getTotalTokens()).toBe(1750);
   expect(faremeter.getTotalCost()).toBe(0.02);
 });
 
 test("cacheWrite and thinking tokens combined increase tokens but not cost", () => {
-  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 300, thinking: 250 });
+  const faremeter = createFaremeter({
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+  });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 0,
+    cacheWrite: 300,
+    thinking: 250,
+  });
   expect(faremeter.getTotalTokens()).toBe(2050);
   expect(faremeter.getTotalCost()).toBe(0.02);
 });
@@ -117,7 +204,13 @@ test("cacheRead tokens increase both total tokens and cost", () => {
     outputPricePerToken: 0.00002,
     cacheReadPricePerToken: 0.000005,
   });
-  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 0, thinking: 0 });
+  faremeter.addUsage({
+    input: 1000,
+    output: 500,
+    cacheRead: 200,
+    cacheWrite: 0,
+    thinking: 0,
+  });
   expect(faremeter.getTotalTokens()).toBe(1700);
   expect(faremeter.getTotalCost()).toBe(0.021);
 });

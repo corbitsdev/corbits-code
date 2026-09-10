@@ -1,5 +1,9 @@
 import type { Tier } from "../permission/classify.js";
-import { isReadOnlyMcpTool, mcpToolName, parseMcpToolName } from "./tool-name.js";
+import {
+  isReadOnlyMcpTool,
+  mcpToolName,
+  parseMcpToolName,
+} from "./tool-name.js";
 
 // Subset of MCP ToolAnnotations used for permission tiering (hints from tools/list).
 export interface McpToolAnnotations {
@@ -36,7 +40,9 @@ export function createMcpToolPermissionRegistry(): McpToolPermissionRegistry {
   };
 }
 
-function hasAnnotationHints(annotations: McpToolAnnotations | undefined): boolean {
+function hasAnnotationHints(
+  annotations: McpToolAnnotations | undefined,
+): boolean {
   if (annotations === undefined) return false;
   return (
     annotations.readOnlyHint !== undefined ||
@@ -52,8 +58,8 @@ export function tierFromMcpTool(
   serverName: string,
   toolName: string,
 ): Tier {
-  if (hasAnnotationHints(annotations)) {
-    return annotations!.readOnlyHint === true ? "allow" : "ask";
+  if (annotations !== undefined && hasAnnotationHints(annotations)) {
+    return annotations.readOnlyHint === true ? "allow" : "ask";
   }
   return isReadOnlyMcpTool(mcpToolName(serverName, toolName)) ? "allow" : "ask";
 }

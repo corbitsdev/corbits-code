@@ -96,8 +96,13 @@ describe("overlay wrapWords (the permission approval body)", () => {
 
 describe("the decision body", () => {
   test("every row of a wide-character approval fits the frame", () => {
-    const body = composeDecisionBody(`run_shell ${CJK}\ngrep — ${CJK} → ${CJK}\n… more`, 36, 8);
-    for (const row of body) expect(stringWidth(row.text)).toBeLessThanOrEqual(36);
+    const body = composeDecisionBody(
+      `run_shell ${CJK}\ngrep — ${CJK} → ${CJK}\n… more`,
+      36,
+      8,
+    );
+    for (const row of body)
+      expect(stringWidth(row.text)).toBeLessThanOrEqual(36);
   });
 });
 
@@ -139,7 +144,9 @@ describe("landing wrap", () => {
   });
 
   test("an ambiguous-glyph line keeps its single row", () => {
-    expect(wrapLanding(`usage — data → sent`, 20)).toEqual(["usage — data → sent"]);
+    expect(wrapLanding(`usage — data → sent`, 20)).toEqual([
+      "usage — data → sent",
+    ]);
   });
 });
 

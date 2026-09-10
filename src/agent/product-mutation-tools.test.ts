@@ -32,11 +32,16 @@ describe("PRODUCT_MUTATION_TOOLS", () => {
 +new
 *** End Patch
 `;
-    expect(productMutationPaths("apply_patch", { input })).toEqual(["hello.txt", "src/app.py"]);
+    expect(productMutationPaths("apply_patch", { input })).toEqual([
+      "hello.txt",
+      "src/app.py",
+    ]);
   });
 
   test("productMutationPaths returns [] for malformed apply_patch input", () => {
-    expect(productMutationPaths("apply_patch", { input: "not a patch" })).toEqual([]);
+    expect(
+      productMutationPaths("apply_patch", { input: "not a patch" }),
+    ).toEqual([]);
     expect(productMutationPaths("apply_patch", {})).toEqual([]);
   });
 
@@ -46,7 +51,11 @@ describe("PRODUCT_MUTATION_TOOLS", () => {
 +x
 *** End Patch
 `;
-    const reqs = buildRequests({ id: "c", name: "apply_patch", arguments: { input } });
+    const reqs = buildRequests({
+      id: "c",
+      name: "apply_patch",
+      arguments: { input },
+    });
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.tool).toBe("apply_patch");
     expect(reqs[0]?.subject).toBe("src/a.ts");

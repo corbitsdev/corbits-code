@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import createWebProvider from "./index.js";
+import { defined } from "../../../../helpers/defined.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -45,10 +46,11 @@ describe("search", () => {
     const results = await provider.search("test", new AbortController().signal);
 
     expect(results.length).toBe(1);
-    expect(results[0]!.title).toBe("Result One");
-    expect(results[0]!.url).toBe("https://example.com/1");
-    expect(results[0]!.snippet).toBe("Snippet one");
-    expect(results[0]!.extra).toEqual({
+    const first = defined(results[0], "search result");
+    expect(first.title).toBe("Result One");
+    expect(first.url).toBe("https://example.com/1");
+    expect(first.snippet).toBe("Snippet one");
+    expect(first.extra).toEqual({
       publishedDate: "2024-01-01",
       author: "Author A",
       score: 0.9,
@@ -58,14 +60,17 @@ describe("search", () => {
   test("skips malformed result items", async () => {
     const fetchImpl = (async () =>
       jsonResponse({
-        results: [{ title: "Good", url: "https://example.com" }, { nope: true }],
+        results: [
+          { title: "Good", url: "https://example.com" },
+          { nope: true },
+        ],
       })) as unknown as typeof fetch;
 
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
     const results = await provider.search("test", new AbortController().signal);
 
     expect(results.length).toBe(1);
-    expect(results[0]!.snippet).toBe("");
+    expect(defined(results[0], "search result").snippet).toBe("");
   });
 
   test("throws on non-ok response", async () => {
@@ -73,16 +78,19 @@ describe("search", () => {
       new Response("nope", { status: 401 })) as unknown as typeof fetch;
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
 
-    await expect(provider.search("test", new AbortController().signal)).rejects.toThrow(/401/);
+    await expect(
+      provider.search("test", new AbortController().signal),
+    ).rejects.toThrow(/401/);
   });
 
   test("throws on unrecognizable response shape", async () => {
-    const fetchImpl = (async () => jsonResponse({ unexpected: true })) as unknown as typeof fetch;
+    const fetchImpl = (async () =>
+      jsonResponse({ unexpected: true })) as unknown as typeof fetch;
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
 
-    await expect(provider.search("test", new AbortController().signal)).rejects.toThrow(
-      /unrecognizable/,
-    );
+    await expect(
+      provider.search("test", new AbortController().signal),
+    ).rejects.toThrow(/unrecognizable/);
   });
 });
 
@@ -95,12 +103,16 @@ describe("fetch", () => {
       })) as unknown as typeof fetch;
 
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
-    const content = await provider.fetch("https://example.com", new AbortController().signal);
+    const content = await provider.fetch(
+      "https://example.com",
+      new AbortController().signal,
+    );
     expect(content).toBe("# Hello");
   });
 
   test("throws on non-ok response", async () => {
-    const fetchImpl = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    const fetchImpl = (async () =>
+      new Response("", { status: 500 })) as unknown as typeof fetch;
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
 
     await expect(

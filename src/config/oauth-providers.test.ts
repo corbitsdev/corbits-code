@@ -16,7 +16,12 @@ import { xaiProfilesToCatalogEntries } from "./xai-providers.js";
 
 const codexProfile: CodexProfile = {
   name: "work",
-  tokens: { access: "codex-access", refresh: "r", expiresAt: 1, accountId: "acct-1" },
+  tokens: {
+    access: "codex-access",
+    refresh: "r",
+    expiresAt: 1,
+    accountId: "acct-1",
+  },
   createdAt: 0,
 };
 const codexNoAccount: CodexProfile = {
@@ -56,7 +61,10 @@ describe("settings projection", () => {
 
 describe("catalog projection", () => {
   test("codex entries carry the profile marker and accountId only when stored", () => {
-    const entries = codexProfilesToCatalogEntries([codexProfile, codexNoAccount]);
+    const entries = codexProfilesToCatalogEntries([
+      codexProfile,
+      codexNoAccount,
+    ]);
     expect(entries[0]?.codexProfile).toBe("work");
     expect(entries[0]?.codexAccountId).toBe("acct-1");
     expect(entries[1]?.codexProfile).toBe("personal");

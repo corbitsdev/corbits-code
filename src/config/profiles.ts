@@ -71,7 +71,10 @@ export async function loadProfile(path: string): Promise<ProfileConfig | null> {
 //   project profile.json's "profile" key (named profile to inherit)
 //   project profile.json itself
 // Project profile field values override named profile field values.
-export async function resolveProfile(cwd: string, profileName?: string): Promise<ProfileConfig> {
+export async function resolveProfile(
+  cwd: string,
+  profileName?: string,
+): Promise<ProfileConfig> {
   const projectProfile = await loadProfile(projectProfilePath(cwd));
 
   const namedProfileName = profileName ?? projectProfile?.profile;

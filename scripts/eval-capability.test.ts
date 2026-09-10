@@ -94,19 +94,30 @@ describe("parseArgs", () => {
   });
 
   test("incomplete matrix cell throws", () => {
-    expect(() => parseArgs(["--matrix", "xai:"])).toThrow(/both provider and model/);
-    expect(() => parseArgs(["--matrix", ":grok-4.5"])).toThrow(/both provider and model/);
+    expect(() => parseArgs(["--matrix", "xai:"])).toThrow(
+      /both provider and model/,
+    );
+    expect(() => parseArgs(["--matrix", ":grok-4.5"])).toThrow(
+      /both provider and model/,
+    );
   });
 
   test("--effort accepts a canonical literal", () => {
-    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--effort", "high"]);
+    const opts = parseArgs([
+      "--provider",
+      "foo",
+      "--model",
+      "bar",
+      "--effort",
+      "high",
+    ]);
     expect(opts.effort).toBe("high");
   });
 
   test("--effort rejects an unknown literal", () => {
-    expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--effort", "bogus"])).toThrow(
-      /--effort must be one of/,
-    );
+    expect(() =>
+      parseArgs(["--provider", "foo", "--model", "bar", "--effort", "bogus"]),
+    ).toThrow(/--effort must be one of/);
   });
 
   test("--matrix cell can carry its own effort as a third segment", () => {
@@ -133,16 +144,31 @@ describe("parseArgs", () => {
 
   test("--concurrency 4 is accepted", () => {
     delete process.env.CORBITS_EVAL_CONCURRENCY;
-    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--concurrency", "4"]);
+    const opts = parseArgs([
+      "--provider",
+      "foo",
+      "--model",
+      "bar",
+      "--concurrency",
+      "4",
+    ]);
     expect(opts.concurrency).toBe(4);
   });
 
   test("invalid --concurrency values throw", () => {
     const pair = ["--provider", "foo", "--model", "bar"] as const;
-    expect(() => parseArgs([...pair, "--concurrency", "0"])).toThrow(/positive integer/);
-    expect(() => parseArgs([...pair, "--concurrency", "-1"])).toThrow(/positive integer/);
-    expect(() => parseArgs([...pair, "--concurrency", "1.5"])).toThrow(/positive integer/);
-    expect(() => parseArgs([...pair, "--concurrency", "foo"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "0"])).toThrow(
+      /positive integer/,
+    );
+    expect(() => parseArgs([...pair, "--concurrency", "-1"])).toThrow(
+      /positive integer/,
+    );
+    expect(() => parseArgs([...pair, "--concurrency", "1.5"])).toThrow(
+      /positive integer/,
+    );
+    expect(() => parseArgs([...pair, "--concurrency", "foo"])).toThrow(
+      /positive integer/,
+    );
   });
 
   test("CORBITS_EVAL_CONCURRENCY sets the default", () => {
@@ -153,7 +179,14 @@ describe("parseArgs", () => {
 
   test("--concurrency overrides CORBITS_EVAL_CONCURRENCY", () => {
     process.env.CORBITS_EVAL_CONCURRENCY = "8";
-    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--concurrency", "2"]);
+    const opts = parseArgs([
+      "--provider",
+      "foo",
+      "--model",
+      "bar",
+      "--concurrency",
+      "2",
+    ]);
     expect(opts.concurrency).toBe(2);
   });
 
@@ -165,7 +198,14 @@ describe("parseArgs", () => {
   });
 
   test("--director builder is parsed", () => {
-    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "builder"]);
+    const opts = parseArgs([
+      "--provider",
+      "foo",
+      "--model",
+      "bar",
+      "--director",
+      "builder",
+    ]);
     expect(opts.director).toBe("builder");
   });
 
@@ -175,9 +215,9 @@ describe("parseArgs", () => {
   });
 
   test("--director without a value throws", () => {
-    expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--director"])).toThrow(
-      "--director requires a value",
-    );
+    expect(() =>
+      parseArgs(["--provider", "foo", "--model", "bar", "--director"]),
+    ).toThrow("--director requires a value");
   });
 });
 
@@ -188,7 +228,10 @@ describe("validateVariantEfforts", () => {
   // accepted levels, rather than silently falling back to the provider default
   // and poisoning the matrix.
   test("rejects an unsupported model/effort matrix cell before any inference runs", async () => {
-    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-composer-2.5-fast:xhigh"]);
+    const opts = parseArgs([
+      "--matrix",
+      "xai/thegreataxios:grok-composer-2.5-fast:xhigh",
+    ]);
     const variants = parseMatrix(opts.matrix, {
       ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),
@@ -206,7 +249,9 @@ describe("validateVariantEfforts", () => {
       ...(opts.model !== undefined ? { model: opts.model } : {}),
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     });
-    await expect(validateVariantEfforts(variants, opts)).resolves.toBeUndefined();
+    await expect(
+      validateVariantEfforts(variants, opts),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -238,7 +283,9 @@ describe("mapPool", () => {
   });
 
   test("rejects non-positive concurrency", async () => {
-    await expect(mapPool([1], 0, async (item) => item)).rejects.toThrow(/positive integer/);
+    await expect(mapPool([1], 0, async (item) => item)).rejects.toThrow(
+      /positive integer/,
+    );
   });
 });
 
@@ -262,19 +309,35 @@ describe("initEvalGitRepo", () => {
     try {
       await writeFile(join(dir, "README"), "fixture\n", "utf8");
       await initEvalGitRepo(dir);
-      const { stdout } = await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], {
-        cwd: dir,
-      });
+      const { stdout } = await execFileAsync(
+        "git",
+        ["rev-parse", "--is-inside-work-tree"],
+        {
+          cwd: dir,
+        },
+      );
       expect(stdout.trim()).toBe("true");
-      const { stdout: head } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: dir });
+      const { stdout: head } = await execFileAsync(
+        "git",
+        ["rev-parse", "HEAD"],
+        { cwd: dir },
+      );
       expect(head.trim().length).toBeGreaterThan(0);
-      const { stdout: count } = await execFileAsync("git", ["rev-list", "--count", "HEAD"], {
-        cwd: dir,
-      });
+      const { stdout: count } = await execFileAsync(
+        "git",
+        ["rev-list", "--count", "HEAD"],
+        {
+          cwd: dir,
+        },
+      );
       expect(Number(count.trim())).toBeGreaterThanOrEqual(1);
-      const { stdout: log } = await execFileAsync("git", ["log", "-1", "--pretty=%s"], {
-        cwd: dir,
-      });
+      const { stdout: log } = await execFileAsync(
+        "git",
+        ["log", "-1", "--pretty=%s"],
+        {
+          cwd: dir,
+        },
+      );
       expect(log.trim()).toBe("eval fixture");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -295,9 +358,17 @@ describe("initEvalGitRepo", () => {
       process.env.GIT_CONFIG_GLOBAL = configPath;
       await writeFile(join(work, "README"), "fixture\n", "utf8");
       await initEvalGitRepo(work);
-      const { stdout: head } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: work });
+      const { stdout: head } = await execFileAsync(
+        "git",
+        ["rev-parse", "HEAD"],
+        { cwd: work },
+      );
       expect(head.trim().length).toBeGreaterThan(0);
-      const { stdout: cat } = await execFileAsync("git", ["cat-file", "-p", "HEAD"], { cwd: work });
+      const { stdout: cat } = await execFileAsync(
+        "git",
+        ["cat-file", "-p", "HEAD"],
+        { cwd: work },
+      );
       expect(cat).not.toContain("gpgsig");
     } finally {
       restoreGitConfigGlobal();
@@ -308,7 +379,9 @@ describe("initEvalGitRepo", () => {
 
 describe("buildEvalDiagnostics", () => {
   test("non-Codex provider gets the default orchestrator tool list", async () => {
-    const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "openai" }));
+    const diagnostics = await buildEvalDiagnostics(
+      sampleConfig({ providerName: "openai" }),
+    );
     expect(diagnostics.advertisedTools).toContain("read_file");
     expect(diagnostics.advertisedTools).toContain("run_shell");
     expect(diagnostics.reasoningEffort).toBeNull();
@@ -317,19 +390,25 @@ describe("buildEvalDiagnostics", () => {
   test.each(["openai", "codex/default"])(
     "%s diagnostics omit the removed instructions hash",
     async (providerName) => {
-      const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName }));
+      const diagnostics = await buildEvalDiagnostics(
+        sampleConfig({ providerName }),
+      );
       expect(diagnostics).not.toHaveProperty("codexInstructionsHash");
       expect(diagnostics.advertisedTools).toContain("read_file");
     },
   );
 
   test("echoes back the configured reasoning effort", async () => {
-    const diagnostics = await buildEvalDiagnostics(sampleConfig({ reasoningEffort: "high" }));
+    const diagnostics = await buildEvalDiagnostics(
+      sampleConfig({ reasoningEffort: "high" }),
+    );
     expect(diagnostics.reasoningEffort).toBe("high");
   });
 
   test("--director builder reports the director's own advertised allowlist", async () => {
-    const diagnostics = await buildEvalDiagnostics(sampleConfig({ director: "builder" }));
+    const diagnostics = await buildEvalDiagnostics(
+      sampleConfig({ director: "builder" }),
+    );
     expect(diagnostics.advertisedTools).not.toEqual(
       (await buildEvalDiagnostics(sampleConfig({}))).advertisedTools,
     );

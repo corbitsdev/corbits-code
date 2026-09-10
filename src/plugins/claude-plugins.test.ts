@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -8,7 +9,10 @@ import { resolveAgentPluginProfiles } from "./agent-plugins.js";
 
 async function writeAgentPlugin(dir: string, id: string): Promise<void> {
   await mkdir(join(dir, "agents"), { recursive: true });
-  await writeFile(join(dir, "manifest.json"), JSON.stringify({ id, name: id, kind: "agent" }));
+  await writeFile(
+    join(dir, "manifest.json"),
+    JSON.stringify({ id, name: id, kind: "agent" }),
+  );
   await writeFile(
     join(dir, "agents", "scout.md"),
     [
@@ -32,7 +36,14 @@ describe("discoverClaudeInstalledPlugins", () => {
 
   test("loads installPath entries and stamps source claude", async () => {
     const home = await mkdtemp(join(tmpdir(), "claude-home-"));
-    const installPath = join(home, ".claude", "plugins", "cache", "demo", "1.0.0");
+    const installPath = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "demo",
+      "1.0.0",
+    );
     await writeAgentPlugin(installPath, "demo-agent");
     await mkdir(join(home, ".claude", "plugins"), { recursive: true });
     await writeFile(
@@ -53,10 +64,10 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
-    expect(modules[0]!.source).toBe("claude");
-    expect(modules[0]!.origin).toBe("user");
-    expect(modules[0]!.manifest?.id).toBe("demo-agent");
-    expect(modules[0]!.agentPlugin?.agents.length).toBeGreaterThan(0);
+    expect(defined(modules[0]).source).toBe("claude");
+    expect(defined(modules[0]).origin).toBe("user");
+    expect(defined(modules[0]).manifest?.id).toBe("demo-agent");
+    expect(defined(modules[0]).agentPlugin?.agents.length).toBeGreaterThan(0);
 
     // Enable-gate still applies: disabled config yields no profiles.
     expect(await resolveAgentPluginProfiles(modules, {})).toEqual([]);
@@ -90,7 +101,14 @@ describe("discoverClaudeInstalledPlugins", () => {
 
   test("dedupes the same installPath listed twice", async () => {
     const home = await mkdtemp(join(tmpdir(), "claude-home-dedupe-"));
-    const installPath = join(home, ".claude", "plugins", "cache", "once", "1.0.0");
+    const installPath = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "once",
+      "1.0.0",
+    );
     await writeAgentPlugin(installPath, "once-agent");
     await mkdir(join(home, ".claude", "plugins"), { recursive: true });
     await writeFile(
@@ -110,16 +128,35 @@ describe("discoverClaudeInstalledPlugins", () => {
 
   test("reads .claude-plugin/manifest.json when plugin.json is absent", async () => {
     const home = await mkdtemp(join(tmpdir(), "claude-home-manifest-json-"));
-    const installPath = join(home, ".claude", "plugins", "cache", "mkt", "cmo", "1.0.0");
+    const installPath = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "mkt",
+      "cmo",
+      "1.0.0",
+    );
     await mkdir(join(installPath, ".claude-plugin"), { recursive: true });
     await mkdir(join(installPath, "agents"), { recursive: true });
     await writeFile(
       join(installPath, ".claude-plugin", "manifest.json"),
-      JSON.stringify({ name: "cmo", description: "Marketing ops", version: "1.0.0" }),
+      JSON.stringify({
+        name: "cmo",
+        description: "Marketing ops",
+        version: "1.0.0",
+      }),
     );
     await writeFile(
       join(installPath, "agents", "angle.md"),
-      ["---", "description: Angle specialist", "---", "", "You generate angles.", ""].join("\n"),
+      [
+        "---",
+        "description: Angle specialist",
+        "---",
+        "",
+        "You generate angles.",
+        "",
+      ].join("\n"),
     );
     await mkdir(join(home, ".claude", "plugins"), { recursive: true });
     await writeFile(
@@ -132,14 +169,22 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
-    expect(modules[0]!.manifest?.id).toBe("cmo");
-    expect(modules[0]!.source).toBe("claude");
+    expect(defined(modules[0]).manifest?.id).toBe("cmo");
+    expect(defined(modules[0]).source).toBe("claude");
   });
 
   test("rewrites version-dir basename ids using the registry key", async () => {
     const home = await mkdtemp(join(tmpdir(), "claude-home-version-id-"));
     // No manifest at all — data-only falls back to basename(installPath) = "1.0.0".
-    const installPath = join(home, ".claude", "plugins", "cache", "mkt", "orphan", "1.0.0");
+    const installPath = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "mkt",
+      "orphan",
+      "1.0.0",
+    );
     await mkdir(join(installPath, "agents"), { recursive: true });
     await writeFile(
       join(installPath, "agents", "scout.md"),
@@ -156,7 +201,7 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
-    expect(modules[0]!.manifest?.id).toBe("orphan");
+    expect(defined(modules[0]).manifest?.id).toBe("orphan");
   });
 
   test("rejects installPath outside ~/.claude/plugins and relative paths", async () => {
@@ -184,7 +229,9 @@ describe("discoverClaudeInstalledPlugins", () => {
     // Lexical path is under ~/.claude/plugins; realpath lands outside — same
     // both-sides realpath check as marketplace expand.
     const home = await mkdtemp(join(tmpdir(), "claude-home-install-symlink-"));
-    const outsideBase = await mkdtemp(join(tmpdir(), "claude-home-install-out-"));
+    const outsideBase = await mkdtemp(
+      join(tmpdir(), "claude-home-install-out-"),
+    );
     try {
       const pluginsRoot = join(home, ".claude", "plugins");
       const outside = join(outsideBase, "evil-plugin");
@@ -210,7 +257,14 @@ describe("discoverClaudeInstalledPlugins", () => {
 
   test("does not import JS entry points at discovery (data-only only)", async () => {
     const home = await mkdtemp(join(tmpdir(), "claude-home-no-import-"));
-    const installPath = join(home, ".claude", "plugins", "cache", "jsy", "1.0.0");
+    const installPath = join(
+      home,
+      ".claude",
+      "plugins",
+      "cache",
+      "jsy",
+      "1.0.0",
+    );
     await mkdir(installPath, { recursive: true });
     // A JS entry that would throw if imported.
     await writeFile(
@@ -257,14 +311,16 @@ describe("discoverClaudeInstalledPlugins", () => {
       join(pluginsRoot, "installed_plugins.json"),
       JSON.stringify({
         version: 2,
-        plugins: { "bundle@mkt": [{ installPath: marketplaceRoot, version: "1.0.0" }] },
+        plugins: {
+          "bundle@mkt": [{ installPath: marketplaceRoot, version: "1.0.0" }],
+        },
       }),
     );
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.map((m) => m.manifest?.id)).toEqual(["scout-agent"]);
-    expect(modules[0]!.source).toBe("claude");
-    expect(modules[0]!.pluginPath).toBe(agentDir);
+    expect(defined(modules[0]).source).toBe("claude");
+    expect(defined(modules[0]).pluginPath).toBe(agentDir);
   });
 
   test("rejects absolute marketplace sources and escapes outside ~/.claude/plugins", async () => {
@@ -293,14 +349,17 @@ describe("discoverClaudeInstalledPlugins", () => {
       join(pluginsRoot, "installed_plugins.json"),
       JSON.stringify({
         version: 2,
-        plugins: { "bundle@mkt": [{ installPath: marketplaceRoot, version: "1.0.0" }] },
+        plugins: {
+          "bundle@mkt": [{ installPath: marketplaceRoot, version: "1.0.0" }],
+        },
       }),
     );
 
     const skips: { source: string; reason: string }[] = [];
     const modules = await discoverClaudeInstalledPlugins("/repo", {
       home,
-      onExpandSkip: (skip) => skips.push({ source: skip.source, reason: skip.reason }),
+      onExpandSkip: (skip) =>
+        skips.push({ source: skip.source, reason: skip.reason }),
     });
     expect(modules.map((m) => m.manifest?.id)).toEqual(["good-agent"]);
     expect(skips.some((s) => s.reason === "absolute")).toBe(true);

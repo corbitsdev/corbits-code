@@ -39,7 +39,11 @@ import {
   shellInternals,
   slashPopups,
 } from "./internals.js";
-import { createOverlayList, dispatchOverlayAccept, relayoutOverlayHost } from "./overlay-list.js";
+import {
+  createOverlayList,
+  dispatchOverlayAccept,
+  relayoutOverlayHost,
+} from "./overlay-list.js";
 import {
   appendStreamRow,
   applyFocus,
@@ -86,7 +90,8 @@ export function applyOverlayBodyText(
   // after would re-shape the approval's body from the palette's stale empty
   // string instead of its own, blanking it. The palette itself never reads
   // this cache (not a decision overlay), so it never needs to be cached.
-  if (bag && isDecisionOverlay(shell.overlayKind)) bag.overlayRawBodyText = text;
+  if (bag && isDecisionOverlay(shell.overlayKind))
+    bag.overlayRawBodyText = text;
   if (text.length === 0) {
     shell.overlayBodyLines = [];
     shell.overlayBodyFgs = [];
@@ -123,7 +128,10 @@ export function applyOverlayBodyText(
  * with a system line. Callers that replace a non-gate list close it first.
  * Palette may stack over a prior primary.
  */
-export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): void {
+export function openListOverlay(
+  shell: AppShell,
+  opts?: OpenListOverlayOpts,
+): void {
   const kind = opts?.kind ?? "demo";
   const isPalette = kind === "palette";
 
@@ -255,7 +263,10 @@ export function openListOverlay(shell: AppShell, opts?: OpenListOverlayOpts): vo
 }
 
 /** Open inset permission/palette stub; focus stack owns keys; Esc closes. */
-export function openInsetOverlay(shell: AppShell, items?: readonly string[]): void {
+export function openInsetOverlay(
+  shell: AppShell,
+  items?: readonly string[],
+): void {
   openListOverlay(shell, {
     kind: "demo",
     title: "permission",
@@ -269,7 +280,8 @@ export function repaintListFilter(shell: AppShell): void {
   const state = bag?.listFilter;
   if (!state) return;
   const q = state.query.trim().toLowerCase();
-  const matched: { label: string; id: string; value: string | undefined }[] = [];
+  const matched: { label: string; id: string; value: string | undefined }[] =
+    [];
   for (let i = 0; i < state.allItems.length; i++) {
     const label = state.allItems[i] ?? "";
     const id = state.allItemIds[i] ?? label;
@@ -283,7 +295,8 @@ export function repaintListFilter(shell: AppShell): void {
       value: state.allItemValues[i],
     });
   }
-  const labels = matched.length > 0 ? matched.map((m) => m.label) : ["(no matches)"];
+  const labels =
+    matched.length > 0 ? matched.map((m) => m.label) : ["(no matches)"];
   const ids = matched.length > 0 ? matched.map((m) => m.id) : [""];
   const values =
     state.allItemValues.length > 0
@@ -299,7 +312,10 @@ export function repaintListFilter(shell: AppShell): void {
  * Move the open overlay's free-text field in or out of taking keystrokes.
  * Returns false when the overlay offers no such field.
  */
-export function setOverlayAnswerActive(shell: AppShell, active: boolean): boolean {
+export function setOverlayAnswerActive(
+  shell: AppShell,
+  active: boolean,
+): boolean {
   const answer = overlayAnswerState(shell);
   if (answer === null || shell.overlayList === null) return false;
   if (answer.active === active) return false;
@@ -325,11 +341,21 @@ export function exitOverlayAnswerMode(shell: AppShell): boolean {
  * characters and backspace edit the answer; Enter submits it and closes the
  * overlay through the per-open `onTextAnswer` callback.
  */
-export function handleOverlayAnswerKey(shell: AppShell, key: KeyEvent): boolean {
+export function handleOverlayAnswerKey(
+  shell: AppShell,
+  key: KeyEvent,
+): boolean {
   const answer = overlayAnswerState(shell);
   if (answer === null || shell.overlayList === null) return false;
 
-  if (key.name === "tab" && !key.shift && !key.ctrl && !key.meta && !key.option && !answer.active) {
+  if (
+    key.name === "tab" &&
+    !key.shift &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option &&
+    !answer.active
+  ) {
     return setOverlayAnswerActive(shell, true);
   }
   if (!answer.active) return false;
@@ -406,7 +432,10 @@ export function closeInsetOverlay(shell: AppShell): void {
   }
 
   // Pop exactly one frame (palette or overlay).
-  if (focusOwner(shell.focus) === "overlay" || focusOwner(shell.focus) === "palette") {
+  if (
+    focusOwner(shell.focus) === "overlay" ||
+    focusOwner(shell.focus) === "palette"
+  ) {
     shell.focus = popFocus(shell.focus);
   }
 
@@ -441,7 +470,8 @@ export function closeInsetOverlay(shell: AppShell): void {
   let guard = 4;
   while (
     guard-- > 0 &&
-    (focusOwner(shell.focus) === "overlay" || focusOwner(shell.focus) === "palette")
+    (focusOwner(shell.focus) === "overlay" ||
+      focusOwner(shell.focus) === "palette")
   ) {
     shell.focus = popFocus(shell.focus);
   }
@@ -478,7 +508,10 @@ export function closeReplaceableOverlay(shell: AppShell): void {
  * deferred command surface, and no host reservations. Callers that must not
  * lose an open (gate wiring) queue on this instead of racing a busy host.
  */
-export function onOverlayClosed(shell: AppShell, listener: () => void): () => void {
+export function onOverlayClosed(
+  shell: AppShell,
+  listener: () => void,
+): () => void {
   const bag = shellInternals(shell);
   if (!bag) return () => undefined;
   bag.overlayClosedListeners.add(listener);
@@ -527,7 +560,8 @@ export function reserveOverlayHost(shell: AppShell): () => void {
     released = true;
     const current = shellInternals(shell);
     if (!current || current.overlayReservationEpoch !== epoch) return;
-    if (current.overlayHostReservations > 0) current.overlayHostReservations -= 1;
+    if (current.overlayHostReservations > 0)
+      current.overlayHostReservations -= 1;
     scheduleDeferredCommandFlush(shell);
     notifyOverlayClosed(shell);
   };
@@ -544,10 +578,14 @@ export function abortOverlayHostReservations(shell: AppShell): void {
 }
 
 /** One deferred command-surface slot while the host is busy. */
-function deferBusyCommandOpen(shell: AppShell, opts: OpenListOverlayOpts): void {
+function deferBusyCommandOpen(
+  shell: AppShell,
+  opts: OpenListOverlayOpts,
+): void {
   const bag = shellInternals(shell);
   if (!bag) return;
-  bag.deferredCommandOverlay = opts.kind === undefined ? { ...opts, kind: "demo" } : opts;
+  bag.deferredCommandOverlay =
+    opts.kind === undefined ? { ...opts, kind: "demo" } : opts;
   const kind = overlayKindWord(opts.kind ?? "demo");
   appendStreamRow(shell, {
     role: "system",
@@ -558,7 +596,8 @@ function deferBusyCommandOpen(shell: AppShell, opts: OpenListOverlayOpts): void 
 
 function scheduleDeferredCommandFlush(shell: AppShell): void {
   const bag = shellInternals(shell);
-  if (!bag || bag.deferredCommandOverlay === null || bag.deferredFlushScheduled) return;
+  if (!bag || bag.deferredCommandOverlay === null || bag.deferredFlushScheduled)
+    return;
   bag.deferredFlushScheduled = true;
   queueMicrotask(() => {
     bag.deferredFlushScheduled = false;
@@ -597,7 +636,11 @@ export function dropDeferredCommandOverlay(shell: AppShell): void {
 }
 
 /** Replace the open overlay's body text in place (re-wrap + relayout). */
-export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): void {
+export function setOverlayBody(
+  shell: AppShell,
+  text: string,
+  maxLines = 8,
+): void {
   if (!shell.overlayList) return;
   applyOverlayBodyText(shell, text, maxLines);
   // Ask for the whole list again, not the height it currently has: a body that
@@ -611,7 +654,11 @@ export function setOverlayBody(shell: AppShell, text: string, maxLines = 8): voi
     overlayAnswerState(shell) !== null,
   );
   const hostRows = chrome + Math.max(1, shell.overlayItems.length) * perItem;
-  const minHostRows = overlayMinHostRows(chrome, perItem, shell.overlayItems.length > 0);
+  const minHostRows = overlayMinHostRows(
+    chrome,
+    perItem,
+    shell.overlayItems.length > 0,
+  );
   relayout(shell, {
     overlayMode: "inset",
     overlayBodyRows: hostRows,
@@ -625,7 +672,9 @@ export interface OverlayContinuationToken {
 }
 
 /** Capture overlay generation for an async continuation. Stale after a newer open, a full close, or Esc abort. */
-export function captureOverlayContinuation(shell: AppShell): OverlayContinuationToken {
+export function captureOverlayContinuation(
+  shell: AppShell,
+): OverlayContinuationToken {
   return { generation: shellInternals(shell)?.overlayGeneration ?? -1 };
 }
 
@@ -642,7 +691,10 @@ export function isOverlayGenerationCurrent(
   shell: AppShell,
   token: OverlayContinuationToken,
 ): boolean {
-  return !shell.disposed && shellInternals(shell)?.overlayGeneration === token.generation;
+  return (
+    !shell.disposed &&
+    shellInternals(shell)?.overlayGeneration === token.generation
+  );
 }
 
 /**
@@ -674,7 +726,10 @@ export function setOwnedOverlayItems(
       setOverlayItems(shell, items, itemIds);
     }
     const displayedCount = shell.overlayItems.length;
-    const activeIndex = activeId === undefined ? -1 : bag.primaryBindings.itemIds.indexOf(activeId);
+    const activeIndex =
+      activeId === undefined
+        ? -1
+        : bag.primaryBindings.itemIds.indexOf(activeId);
     if (activeIndex >= 0 && shell.overlayList.activeIndex !== activeIndex) {
       shell.overlayList.jump(activeIndex);
       paintOverlayList(shell);
@@ -749,7 +804,11 @@ export function acceptOverlaySelection(shell: AppShell): void {
   // id so the helper can mark unavailable instead of hanging or impersonating
   // Esc/Reject through onCancel.
   if (shell.overlayItems.length === 0) {
-    if (bag?.primaryBindings.isGate !== true || overlayAnswerState(shell) !== null) return;
+    if (
+      bag?.primaryBindings.isGate !== true ||
+      overlayAnswerState(shell) !== null
+    )
+      return;
     const perOpen = bag.primaryBindings.onAccept ?? null;
     bag.primaryBindings.onCancel = null;
     const release = reserveOverlayHost(shell);
@@ -770,7 +829,8 @@ export function acceptOverlaySelection(shell: AppShell): void {
     if (!cmd) {
       // Type-to-filter plants a "(no matches)" row with no command. Stay open.
       // Slash popup (`typeToFilter: false`) still closes — intentional dismiss.
-      if (bag?.paletteFilter?.typeToFilter === true && !isSlashPopupOpen(shell)) return;
+      if (bag?.paletteFilter?.typeToFilter === true && !isSlashPopupOpen(shell))
+        return;
       closeInsetOverlay(shell);
       return;
     }
@@ -784,7 +844,11 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return;
   }
 
-  if (kind === "mentions" && mentionPopups.has(shell) && liveMentionAccept(shell) === null) {
+  if (
+    kind === "mentions" &&
+    mentionPopups.has(shell) &&
+    liveMentionAccept(shell) === null
+  ) {
     // Stale generation or cursor off the @token: operator dismiss, not accept.
     closeInsetOverlay(shell);
     return;
@@ -850,7 +914,10 @@ export function acceptOverlaySelection(shell: AppShell): void {
  * Dispatch a selected `/` command list item after the popup has closed.
  * Every entry is registry-backed — the host's `onCommand(name)` runs it.
  */
-export function dispatchPaletteSelection(shell: AppShell, cmd: PaletteCommand): void {
+export function dispatchPaletteSelection(
+  shell: AppShell,
+  cmd: PaletteCommand,
+): void {
   const onCommand = getPaletteOnCommand(shell);
   if (onCommand) {
     onCommand(cmd.id);
@@ -870,7 +937,10 @@ export function confirmCopySelection(shell: AppShell): boolean {
     closeInsetOverlay(shell);
     return false;
   }
-  const idx = Math.max(0, Math.min(targets.length - 1, shell.overlayList.activeIndex));
+  const idx = Math.max(
+    0,
+    Math.min(targets.length - 1, shell.overlayList.activeIndex),
+  );
   const target = targets[idx];
   if (!target) {
     setStatusFlash(shell, "nothing to copy", { ttlMs: RUNTIME_FLASH_MS });
@@ -878,12 +948,18 @@ export function confirmCopySelection(shell: AppShell): boolean {
     return false;
   }
   const preview =
-    target.text.length > 48 ? `${target.text.slice(0, 45).replace(/\s+/g, " ")}…` : target.text;
+    target.text.length > 48
+      ? `${target.text.slice(0, 45).replace(/\s+/g, " ")}…`
+      : target.text;
   writeClipboard(shell.clipboard, target.text, {
     onSuccess: () => {
-      setStatusFlash(shell, `Copied ${target.label} (${target.text.length} chars): ${preview}`, {
-        ttlMs: RUNTIME_FLASH_MS,
-      });
+      setStatusFlash(
+        shell,
+        `Copied ${target.label} (${target.text.length} chars): ${preview}`,
+        {
+          ttlMs: RUNTIME_FLASH_MS,
+        },
+      );
     },
     onFailure: () => {
       setStatusFlash(shell, "Copy failed", { ttlMs: RUNTIME_FLASH_MS });
@@ -904,9 +980,13 @@ export function copyAllTargets(shell: AppShell): boolean {
   const text = streamLogMarkdown(targets);
   writeClipboard(shell.clipboard, text, {
     onSuccess: () => {
-      setStatusFlash(shell, `Copied all (${targets.length} items, ${text.length} chars)`, {
-        ttlMs: RUNTIME_FLASH_MS,
-      });
+      setStatusFlash(
+        shell,
+        `Copied all (${targets.length} items, ${text.length} chars)`,
+        {
+          ttlMs: RUNTIME_FLASH_MS,
+        },
+      );
     },
     onFailure: () => {
       setStatusFlash(shell, "Copy failed", { ttlMs: RUNTIME_FLASH_MS });

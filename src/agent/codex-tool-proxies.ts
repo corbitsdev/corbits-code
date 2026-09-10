@@ -29,7 +29,9 @@ export type CodexRunTool = (
  * output for model display, so it cannot supply the raw text
  * `applyUpdateHunks` needs to match a patch's context lines against (CL-6966).
  */
-export type CodexReadRawFile = (path: string) => Promise<{ content: string; isError?: boolean }>;
+export type CodexReadRawFile = (
+  path: string,
+) => Promise<{ content: string; isError?: boolean }>;
 
 /**
  * Dispatches update_plan's translated call onto the real manage_tasks
@@ -162,7 +164,9 @@ export const applyPatchDefinition: ToolDefinition = {
  * read_file); `shell` forwards onto `run_shell`; `update_plan` forwards onto
  * `manage_tasks`.
  */
-export function createCodexToolProxies(opts: CreateCodexToolProxiesOpts): AgentTool[] {
+export function createCodexToolProxies(
+  opts: CreateCodexToolProxiesOpts,
+): AgentTool[] {
   if (!opts.isCodex) return [];
   const allowDelete = opts.allowDelete !== false;
   const allowShell = opts.allowShell !== false;
@@ -179,7 +183,9 @@ export function createCodexToolProxies(opts: CreateCodexToolProxiesOpts): AgentT
  * unconstrained / exclude-without-delete keep delete enabled.
  */
 export function allowDeleteFromCapabilities(
-  capabilities: { mode: "allow" | "exclude"; tools: readonly string[] } | undefined,
+  capabilities:
+    | { mode: "allow" | "exclude"; tools: readonly string[] }
+    | undefined,
 ): boolean {
   if (capabilities === undefined) return true;
   if (capabilities.mode === "allow") {
@@ -194,7 +200,9 @@ export function allowDeleteFromCapabilities(
  * instead of `delete_file` — docs leaves (DOCS_TOOLS omits run_shell) refuse.
  */
 export function allowShellFromCapabilities(
-  capabilities: { mode: "allow" | "exclude"; tools: readonly string[] } | undefined,
+  capabilities:
+    | { mode: "allow" | "exclude"; tools: readonly string[] }
+    | undefined,
 ): boolean {
   if (capabilities === undefined) return true;
   if (capabilities.mode === "allow") {
@@ -214,7 +222,9 @@ function createApplyPatchProxy(
       const parsed = ApplyPatchArgs(rawArgs);
       if (parsed instanceof type.errors) {
         // stringTool surfaces thrown errors as ToolResult.isError via createToolRunner.
-        throw new Error("Error: apply_patch requires a non-empty input (string).");
+        throw new Error(
+          "Error: apply_patch requires a non-empty input (string).",
+        );
       }
 
       let patch;
@@ -230,7 +240,8 @@ function createApplyPatchProxy(
         const result = await applyOp(op, runTool, readRawFile, allowDelete);
         lines.push(result);
       }
-      if (lines.length === 0) return "apply_patch: no file operations in envelope.";
+      if (lines.length === 0)
+        return "apply_patch: no file operations in envelope.";
       return lines.join("\n");
     },
   });
@@ -255,7 +266,10 @@ async function applyOp(
         `apply_patch: Delete File is not allowed for this agent (delete_file capability missing): ${op.path}`,
       );
     }
-    return requireOk(await runTool("delete_file", { path: op.path }), `delete ${op.path}`);
+    return requireOk(
+      await runTool("delete_file", { path: op.path }),
+      `delete ${op.path}`,
+    );
   }
 
   // update (+ optional move): read → applyUpdateHunks → write (to moveTo or path)
@@ -298,7 +312,10 @@ async function applyOp(
   return writeMsg;
 }
 
-function requireOk(result: { content: string; isError?: boolean }, label: string): string {
+function requireOk(
+  result: { content: string; isError?: boolean },
+  label: string,
+): string {
   if (result.isError === true) {
     throw new Error(`${label} failed: ${result.content}`);
   }
@@ -325,7 +342,10 @@ export const shellDefinition: ToolDefinition = {
         description:
           'The command to run, as a shell string or an argv array (e.g. ["bash","-lc","ls"]).',
       },
-      workdir: { type: "string", description: "Working directory for the command." },
+      workdir: {
+        type: "string",
+        description: "Working directory for the command.",
+      },
       timeout_ms: { type: "number", description: "Timeout in milliseconds." },
     },
     required: ["command"],
@@ -349,28 +369,42 @@ function shellQuote(arg: string): string {
  */
 function normalizeShellCommand(command: string | string[]): string {
   if (typeof command === "string") return command;
+  const wrapper = command[0];
+  const flag = command[1];
+  const script = command[2];
   if (
     command.length === 3 &&
-    SHELL_WRAPPERS.has(command[0]!.replace(/^.*\//, "")) &&
-    (command[1] === "-lc" || command[1] === "-c")
+    wrapper !== undefined &&
+    script !== undefined &&
+    SHELL_WRAPPERS.has(wrapper.replace(/^.*\//, "")) &&
+    (flag === "-lc" || flag === "-c")
   ) {
-    return command[2]!;
+    return script;
   }
   return command.map(shellQuote).join(" ");
 }
 
-function createShellProxy(runTool: CodexRunTool, allowShell: boolean): AgentTool {
+function createShellProxy(
+  runTool: CodexRunTool,
+  allowShell: boolean,
+): AgentTool {
   return stringTool({
     definition: shellDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = ShellArgs(rawArgs);
       if (parsed instanceof type.errors) {
-        throw new Error("Error: shell requires a command (string or string[]).");
+        throw new Error(
+          "Error: shell requires a command (string or string[]).",
+        );
       }
       if (!allowShell) {
-        throw new Error("shell: not allowed for this agent (run_shell capability missing).");
+        throw new Error(
+          "shell: not allowed for this agent (run_shell capability missing).",
+        );
       }
-      const args: Record<string, unknown> = { command: normalizeShellCommand(parsed.command) };
+      const args: Record<string, unknown> = {
+        command: normalizeShellCommand(parsed.command),
+      };
       if (parsed.workdir !== undefined) args.cwd = parsed.workdir;
       if (parsed.timeout_ms !== undefined) args.timeout = parsed.timeout_ms;
       return requireOk(await runTool("run_shell", args), "shell");
@@ -417,7 +451,9 @@ export const updatePlanDefinition: ToolDefinition = {
   },
 };
 
-function codexPlanStatusToTaskStatus(status: typeof CodexPlanStatus.infer): TaskStatus {
+function codexPlanStatusToTaskStatus(
+  status: typeof CodexPlanStatus.infer,
+): TaskStatus {
   if (status === "pending") return "todo";
   if (status === "in_progress") return "doing";
   return "done";
@@ -429,7 +465,9 @@ function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = UpdatePlanArgs(rawArgs);
       if (parsed instanceof type.errors) {
-        throw new Error("Error: update_plan requires a plan array of { step, status }.");
+        throw new Error(
+          "Error: update_plan requires a plan array of { step, status }.",
+        );
       }
       // manage_tasks has no "cancelled" equivalent in Codex's plan shape
       // (pending/in_progress/completed) — this proxy never produces it, so a
@@ -441,7 +479,10 @@ function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
         title: item.step,
         status: codexPlanStatusToTaskStatus(item.status),
       }));
-      return requireOk(await runManageTasks({ action: "create", tasks }), "update_plan");
+      return requireOk(
+        await runManageTasks({ action: "create", tasks }),
+        "update_plan",
+      );
     },
   });
 }

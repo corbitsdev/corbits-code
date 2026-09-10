@@ -104,7 +104,9 @@ function diagnoseNotFound(fileText: string, oldString: string): string {
 
   const closest = closestLines(fileText, oldString);
   if (closest.length > 0) {
-    parts.push("No unique whitespace near-miss. Closest lines by token overlap (heuristic):");
+    parts.push(
+      "No unique whitespace near-miss. Closest lines by token overlap (heuristic):",
+    );
     for (const line of closest) {
       parts.push(`line ${line.lineNumber}: ${preview(line.text)}`);
     }
@@ -157,8 +159,14 @@ export interface NearMiss {
  * Leading/trailing empty lines on the needle are ignored for matching (models
  * often paste a trailing newline) but do not expand the reported span.
  */
-export function findWhitespaceNearMiss(fileText: string, oldString: string): NearMiss | null {
-  const needleLines = oldString.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+export function findWhitespaceNearMiss(
+  fileText: string,
+  oldString: string,
+): NearMiss | null {
+  const needleLines = oldString
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n");
   // Drop only edge blank lines so "foo\n" still matches a mid-file "foo".
   // Mid-needle blanks stay so intentional empty lines still constrain the match.
   const coreNorm = trimEdgeEmptyLines(needleLines.map(normalizeLine));
@@ -191,7 +199,8 @@ export function findWhitespaceNearMiss(fileText: string, oldString: string): Nea
     return null;
   }
 
-  const hit = hits[0]!;
+  const hit = hits[0];
+  if (hit === undefined) return null;
   // Reconstruct original span with "\n" join — matches how edit_file treats content.
   const text = fileLines.slice(hit.start, hit.end + 1).join("\n");
 
@@ -221,7 +230,10 @@ export interface Occurrence {
   preview: string;
 }
 
-export function findOccurrences(fileText: string, oldString: string): Occurrence[] {
+export function findOccurrences(
+  fileText: string,
+  oldString: string,
+): Occurrence[] {
   if (oldString.length === 0) return [];
   const out: Occurrence[] = [];
   let from = 0;
@@ -256,7 +268,10 @@ export interface ClosestLine {
   text: string;
 }
 
-export function closestLines(fileText: string, oldString: string): ClosestLine[] {
+export function closestLines(
+  fileText: string,
+  oldString: string,
+): ClosestLine[] {
   const needleTokens = tokenize(oldString);
   if (needleTokens.size === 0) return [];
 
@@ -275,7 +290,9 @@ export function closestLines(fileText: string, oldString: string): ClosestLine[]
   }
 
   scored.sort((a, b) => b.score - a.score || a.lineNumber - b.lineNumber);
-  return scored.slice(0, CLOSEST_LINE_COUNT).map(({ lineNumber, text }) => ({ lineNumber, text }));
+  return scored
+    .slice(0, CLOSEST_LINE_COUNT)
+    .map(({ lineNumber, text }) => ({ lineNumber, text }));
 }
 
 function tokenize(text: string): Set<string> {
@@ -288,7 +305,10 @@ function tokenize(text: string): Set<string> {
  * the stripped body. Otherwise null.
  */
 export function stripLineNumberPrefixes(oldString: string): string | null {
-  const lines = oldString.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const lines = oldString
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n");
   if (lines.length === 0) return null;
   let nonEmpty = 0;
   const stripped: string[] = [];

@@ -22,21 +22,27 @@ afterAll(() => {
 });
 
 /** Capture scheduled flash expiries so tests can lapse without wall time. */
-function capturingSchedule(lapse: (() => void)[], expectedMs = RUNTIME_FLASH_MS): FlashSchedule {
+function capturingSchedule(
+  lapse: (() => void)[],
+  expectedMs = RUNTIME_FLASH_MS,
+): FlashSchedule {
   return (fn, ms) => {
     expect(ms).toBe(expectedMs);
     lapse.push(fn);
-    return () => {};
+    return () => undefined;
   };
 }
 
 /** Do not arm a real timer: bun test runs files in one process. */
-const ignoreExpiry: FlashSchedule = () => () => {};
+const ignoreExpiry: FlashSchedule = () => () => undefined;
 
 describe("Alt+C reaches the injected clipboard", () => {
   test("confirming a copy target writes its text", () => {
     const clipboard = createRecordingClipboard();
-    const shell = createAppShell(harness.renderer, { clipboard, flashSchedule: ignoreExpiry });
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: ignoreExpiry,
+    });
     appendStreamRow(shell, { role: "assistant", text: "copy me" });
     expect(enterCopyMode(shell)).toBe(true);
     expect(confirmCopySelection(shell)).toBe(true);
@@ -46,7 +52,10 @@ describe("Alt+C reaches the injected clipboard", () => {
 
   test("copy all writes every non-system row", () => {
     const clipboard = createRecordingClipboard();
-    const shell = createAppShell(harness.renderer, { clipboard, flashSchedule: ignoreExpiry });
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: ignoreExpiry,
+    });
     appendStreamRow(shell, { role: "user", text: "one" });
     appendStreamRow(shell, { role: "assistant", text: "two" });
     enterCopyMode(shell);
@@ -91,7 +100,10 @@ describe("Alt+C reaches the injected clipboard", () => {
 describe("drag-select auto-copy", () => {
   test("SELECTION event writes finished text and flashes", () => {
     const clipboard = createRecordingClipboard();
-    const shell = createAppShell(harness.renderer, { clipboard, flashSchedule: ignoreExpiry });
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: ignoreExpiry,
+    });
     harness.renderer.emit(CliRenderEvents.SELECTION, {
       isDragging: false,
       getSelectedText: () => "dragged snippet",
@@ -122,7 +134,10 @@ describe("drag-select auto-copy", () => {
 
   test("SELECTION while dragging is a no-op", () => {
     const clipboard = createRecordingClipboard();
-    const shell = createAppShell(harness.renderer, { clipboard, flashSchedule: ignoreExpiry });
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: ignoreExpiry,
+    });
     harness.renderer.emit(CliRenderEvents.SELECTION, {
       isDragging: true,
       getSelectedText: () => "partial",
@@ -134,7 +149,10 @@ describe("drag-select auto-copy", () => {
 
   test("empty SELECTION is a no-op", () => {
     const clipboard = createRecordingClipboard();
-    const shell = createAppShell(harness.renderer, { clipboard, flashSchedule: ignoreExpiry });
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: ignoreExpiry,
+    });
     harness.renderer.emit(CliRenderEvents.SELECTION, {
       isDragging: false,
       getSelectedText: () => "",
@@ -185,7 +203,9 @@ describe("Alt+M mouse capture", () => {
   });
 
   test("reports unavailable when the host exposes no control", () => {
-    const shell = createAppShell(harness.renderer, { flashSchedule: ignoreExpiry });
+    const shell = createAppShell(harness.renderer, {
+      flashSchedule: ignoreExpiry,
+    });
     expect(toggleMouseCapture(shell)).toBeNull();
     expect(shell.statusFlash).toContain("not controllable");
     shell.dispose();

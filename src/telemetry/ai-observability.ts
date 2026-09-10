@@ -60,7 +60,8 @@ const AUTH_STATUS = /\b(?:401|403)\b/;
 // local file path.
 export function classifyErrorKind(message: string): AiErrorKind {
   const text = message.toLowerCase();
-  if (text.includes("rate limit") || RATE_LIMIT_STATUS.test(text)) return "rate_limit";
+  if (text.includes("rate limit") || RATE_LIMIT_STATUS.test(text))
+    return "rate_limit";
   if (text.includes("unauthorized") || AUTH_STATUS.test(text)) return "auth";
   // Ahead of the timeout check: the runtime aborts the in-flight call when a
   // total timeout fires, so its message names both, and what the user did —
@@ -88,7 +89,9 @@ export interface ToolCallAggregates {
 export function aggregateToolCalls(
   ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
 ): ToolCallAggregates {
-  const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
+  const resultsByCallId = new Map(
+    ctx.toolResults.map((result) => [result.callId, result]),
+  );
   let tool_call_count = 0;
   let tool_error_count = 0;
   let subagent_call_count = 0;
@@ -106,7 +109,10 @@ export function aggregateToolCalls(
   return { tool_call_count, tool_error_count, subagent_call_count };
 }
 
-function shouldSampleSuccessfulGeneration(env: NodeJS.ProcessEnv, random: () => number): boolean {
+function shouldSampleSuccessfulGeneration(
+  env: NodeJS.ProcessEnv,
+  random: () => number,
+): boolean {
   const rate = generationSampleRate(env);
   if (rate >= 1) return true;
   if (rate <= 0) return false;
@@ -160,7 +166,9 @@ export function emitAiObservability(
 
   if (!aiSpansEnabled(env)) return;
 
-  const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));
+  const resultsByCallId = new Map(
+    ctx.toolResults.map((result) => [result.callId, result]),
+  );
 
   for (const call of ctx.toolCalls) {
     const result = resultsByCallId.get(call.id);
@@ -200,7 +208,10 @@ export interface EmitAiTurnFailureOptions {
 // silent. Emits the $ai_generation the turn never got to emit, marked as an
 // error, with no token counts or latency because the turn produced none.
 // Errored generations always ship (no sampling).
-export function emitAiTurnFailure(telemetry: Telemetry, options: EmitAiTurnFailureOptions): void {
+export function emitAiTurnFailure(
+  telemetry: Telemetry,
+  options: EmitAiTurnFailureOptions,
+): void {
   telemetry.capture("$ai_generation", {
     $ai_trace_id: turnTraceId(options.sessionId, options.turnIndex),
     $ai_provider: options.source.provider,
@@ -241,7 +252,10 @@ function failedAttemptSource(
 // do not capture it" rule in one place instead of at each call site.
 export function createTurnObserver(options: CreateTurnObserverOptions): {
   onTurnStarted: (info: { turnIndex: number; model: string }) => void;
-  onTurnSourceObserved: (info: { turnIndex: number; source: TurnSource }) => void;
+  onTurnSourceObserved: (info: {
+    turnIndex: number;
+    source: TurnSource;
+  }) => void;
   onTurnComplete: (ctx: TurnContext) => void;
   onTurnFailed: (info: { turnIndex: number; error: string }) => void;
 } {
@@ -257,7 +271,9 @@ export function createTurnObserver(options: CreateTurnObserverOptions): {
     onTurnStarted: (info) => {
       latestAttemptModel = info.model;
       latestAttemptSource = undefined;
-      noteCurrentTurnTraceId(turnTraceId(options.getSessionId(), info.turnIndex));
+      noteCurrentTurnTraceId(
+        turnTraceId(options.getSessionId(), info.turnIndex),
+      );
     },
     onTurnSourceObserved: (info) => {
       latestAttemptSource = { ...info.source };

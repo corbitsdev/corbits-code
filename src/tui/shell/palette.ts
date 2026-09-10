@@ -6,9 +6,16 @@ import { listPathSuggestions } from "../components/at-mention/list.js";
 import { parseAtState } from "../components/at-mention/parse.js";
 import { sentHistoryOnEdit } from "../sent-message-history.js";
 import { spliceMentionCompletion } from "../prompt-attachments.js";
-import { filterPaletteCommands, paletteLabels, type PaletteCommand } from "../command-catalog.js";
+import {
+  filterPaletteCommands,
+  paletteLabels,
+  type PaletteCommand,
+} from "../command-catalog.js";
 import { helpItems } from "../keybindings.js";
-import { filterMentionSuggestions, splitMentionToken } from "../mention-filter.js";
+import {
+  filterMentionSuggestions,
+  splitMentionToken,
+} from "../mention-filter.js";
 
 import {
   type AppShell,
@@ -40,7 +47,9 @@ import {
 import { paintOverlayList } from "./chrome.js";
 
 /** Resolve the shell's registry-backed command catalog (host-injected). */
-export function resolvePaletteCatalog(shell: AppShell): readonly PaletteCommand[] {
+export function resolvePaletteCatalog(
+  shell: AppShell,
+): readonly PaletteCommand[] {
   const bag = shellInternals(shell);
   const raw = bag?.paletteCatalog;
   if (raw === null || raw === undefined) return [];
@@ -95,7 +104,8 @@ function repaintPalette(shell: AppShell): void {
   if (!state) return;
   const catalog = state.catalog ?? resolvePaletteCatalog(shell);
   const commands = filterPaletteCommands(state.query, catalog);
-  const labels = commands.length > 0 ? paletteLabels(commands) : ["(no matches)"];
+  const labels =
+    commands.length > 0 ? paletteLabels(commands) : ["(no matches)"];
   shell.paletteCommands = commands;
   openListOverlay(shell, {
     kind: "palette",
@@ -129,10 +139,14 @@ function repaintPalette(shell: AppShell): void {
  * page keys are never claimed here, so they keep working in every overlay
  * including type-to-filter ones.
  */
-export function handlePaletteFilterKey(shell: AppShell, key: KeyEvent): boolean {
+export function handlePaletteFilterKey(
+  shell: AppShell,
+  key: KeyEvent,
+): boolean {
   const state = shellInternals(shell)?.paletteFilter;
   if (!state?.typeToFilter) return false;
-  if (shell.overlayKind !== "palette" || shell.overlayList === null) return false;
+  if (shell.overlayKind !== "palette" || shell.overlayList === null)
+    return false;
   if (key.ctrl || key.meta || key.option) return false;
 
   if (key.name === "backspace") {
@@ -164,7 +178,8 @@ export function isAddProviderShortcutKey(key: KeyEvent): boolean {
   const name = typeof key.name === "string" ? key.name : "";
   const seq = typeof key.sequence === "string" ? key.sequence : "";
   if ((key.meta || key.option) && name.toLowerCase() === "a") return true;
-  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq)) return true;
+  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq))
+    return true;
   return false;
 }
 
@@ -227,7 +242,10 @@ export interface OpenResidualListOpts {
   readonly describe?: (itemId: string) => ItemDescription | null;
 }
 
-export function openSettingsOverlay(shell: AppShell, opts: OpenResidualListOpts): void {
+export function openSettingsOverlay(
+  shell: AppShell,
+  opts: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "settings",
     title: "settings",
@@ -260,7 +278,10 @@ export function openHelpOverlay(shell: AppShell): void {
   }
 }
 
-export function openMentionsOverlay(shell: AppShell, opts: OpenResidualListOpts): void {
+export function openMentionsOverlay(
+  shell: AppShell,
+  opts: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "mentions",
     title: "mentions",
@@ -299,7 +320,9 @@ const defaultMentionSource: MentionSuggestionSource = (prefix) =>
  * Accept requires a current generation and a live `@` token under the cursor.
  * A lookup that finishes after the cursor has left this token does not open.
  */
-export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean> {
+export async function openAtMentionSuggestions(
+  shell: AppShell,
+): Promise<boolean> {
   const at = parseAtState(shell.prompt.value, shell.prompt.cursorOffset);
   if (at === null) {
     closeMentionPopup(shell);
@@ -313,7 +336,10 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
 
   const source = shellMentionSource.get(shell) ?? defaultMentionSource;
   const token = splitMentionToken(at.prefix);
-  let suggestions = filterMentionSuggestions(await source(token.dir), token.fragment);
+  let suggestions = filterMentionSuggestions(
+    await source(token.dir),
+    token.fragment,
+  );
   // Quitting mid-lookup tears down the renderer/TextBuffer this function
   // writes into below; a resolved-but-stale lookup must not touch them.
   if (shell.disposed) return false;
@@ -426,7 +452,11 @@ export function handleMentionPopupKey(shell: AppShell, key: KeyEvent): boolean {
       closeMentionPopup(shell);
       return true;
     }
-    editPromptAt(shell, value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
+    editPromptAt(
+      shell,
+      value.slice(0, cursor - 1) + value.slice(cursor),
+      cursor - 1,
+    );
     // Deleting the `@` itself ends the mention; there is nothing left to filter.
     if (value[cursor - 1] === "@") closeMentionPopup(shell);
     else void openAtMentionSuggestions(shell);
@@ -436,7 +466,11 @@ export function handleMentionPopupKey(shell: AppShell, key: KeyEvent): boolean {
   const seq = typeof key.sequence === "string" ? key.sequence : "";
   if (seq.length !== 1 || seq < " ") return false;
 
-  editPromptAt(shell, value.slice(0, cursor) + seq + value.slice(cursor), cursor + 1);
+  editPromptAt(
+    shell,
+    value.slice(0, cursor) + seq + value.slice(cursor),
+    cursor + 1,
+  );
   // Whitespace terminates the @token, so the popup has nothing left to narrow.
   if (/\s/.test(seq)) closeMentionPopup(shell);
   else void openAtMentionSuggestions(shell);
@@ -463,7 +497,9 @@ export function openSlashCommands(shell: AppShell): boolean {
   // Name-prefix, not the palette's fuzzy label match: at the prompt the
   // operator is typing the command they already mean.
   const q = query.toLowerCase();
-  const matches = resolvePaletteCatalog(shell).filter((cmd) => cmd.id.toLowerCase().startsWith(q));
+  const matches = resolvePaletteCatalog(shell).filter((cmd) =>
+    cmd.id.toLowerCase().startsWith(q),
+  );
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening released the overlay host between the two calls (closeSlashPopup
@@ -497,7 +533,10 @@ export function openSlashCommands(shell: AppShell): boolean {
 }
 
 /** Refresh the already-open `/` popup's rows in place for the given matches. */
-function refreshSlashPopupInPlace(shell: AppShell, matches: readonly PaletteCommand[]): void {
+function refreshSlashPopupInPlace(
+  shell: AppShell,
+  matches: readonly PaletteCommand[],
+): void {
   const labels = matches.length > 0 ? paletteLabels(matches) : ["(no matches)"];
   shell.paletteCommands = matches;
   const bag = shellInternals(shell);
@@ -550,13 +589,24 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
 
   const active = shell.paletteCommands[shell.overlayList.activeIndex];
 
-  if (key.name === "tab" && !key.shift && !key.ctrl && !key.meta && !key.option) {
+  if (
+    key.name === "tab" &&
+    !key.shift &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option
+  ) {
     if (active) setPromptText(shell, `/${active.id} `);
     closeSlashPopup(shell);
     return true;
   }
 
-  if ((key.name === "return" || key.name === "enter") && !key.ctrl && !key.meta && !key.option) {
+  if (
+    (key.name === "return" || key.name === "enter") &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option
+  ) {
     // Genuine dismiss (zero matches) still notifies immediately so a queued
     // gate can drain. Accept-with-match keeps the host until dispatch settles.
     if (!active) {
@@ -577,7 +627,12 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
 
   const seq = typeof key.sequence === "string" ? key.sequence : "";
   const printable =
-    seq.length === 1 && seq >= " " && seq !== "" && !key.ctrl && !key.meta && !key.option;
+    seq.length === 1 &&
+    seq >= " " &&
+    seq !== "" &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option;
   if (!printable) return false;
 
   setPromptText(shell, shell.prompt.value + seq);

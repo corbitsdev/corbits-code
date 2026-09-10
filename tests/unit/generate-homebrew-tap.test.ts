@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,7 +16,8 @@ const pkg = {
   repo: "corbitsdev/corbits-code",
   binary: "corbits",
   formula: "corbits-code",
-  description: "Single-process coding agent CLI built on the Interchange runtime",
+  description:
+    "Single-process coding agent CLI built on the Interchange runtime",
 };
 
 const release = {
@@ -36,7 +44,10 @@ describe("generateHomebrewTap", () => {
   test("replaces the legacy formula with corbits-code and installs corbits", async () => {
     const formulaDir = join(tapDir, "Formula");
     await mkdir(formulaDir);
-    await writeFile(join(formulaDir, "corbits.rb"), "class Corbits < Formula\nend\n");
+    await writeFile(
+      join(formulaDir, "corbits.rb"),
+      "class Corbits < Formula\nend\n",
+    );
 
     await generateHomebrewTap(tapDir, pkg, release);
 
@@ -65,8 +76,12 @@ describe("generateHomebrewTap", () => {
         "Invalid formula rename metadata",
       );
 
-      expect(await readFile(join(formulaDir, "corbits.rb"), "utf8")).toBe(legacyFormula);
-      expect(await readFile(join(formulaDir, "corbits-code.rb"), "utf8")).toBe(currentFormula);
+      expect(await readFile(join(formulaDir, "corbits.rb"), "utf8")).toBe(
+        legacyFormula,
+      );
+      expect(await readFile(join(formulaDir, "corbits-code.rb"), "utf8")).toBe(
+        currentFormula,
+      );
     }
   });
 
@@ -85,6 +100,8 @@ describe("generateHomebrewTap", () => {
     });
 
     await generateHomebrewTap(tapDir, pkg, release);
-    expect(await readFile(join(tapDir, "formula_renames.json"), "utf8")).toBe(first);
+    expect(await readFile(join(tapDir, "formula_renames.json"), "utf8")).toBe(
+      first,
+    );
   });
 });

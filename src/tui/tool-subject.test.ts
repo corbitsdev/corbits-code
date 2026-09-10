@@ -27,11 +27,16 @@ describe("a summarised call's subject", () => {
     expect(view("web_fetch", { url: "https://www.apple.com" })?.summary).toBe(
       "https://www.apple.com",
     );
-    expect(view("grep", { pattern: "TODO", path: "src" })?.summary).toBe("TODO");
+    expect(view("grep", { pattern: "TODO", path: "src" })?.summary).toBe(
+      "TODO",
+    );
   });
 
   test("keeps the dropped arguments behind the expand arrow", () => {
-    const detail = view("web_search", { query: "apple", numResults: 5 })?.detail;
+    const detail = view("web_search", {
+      query: "apple",
+      numResults: 5,
+    })?.detail;
     const plain = (detail ?? [])
       .map((line) => line.map((segment) => segment.text).join(""))
       .join("\n");
@@ -40,12 +45,16 @@ describe("a summarised call's subject", () => {
   });
 
   test("earns no arrow when the one argument is the whole call", () => {
-    expect(view("web_fetch", { url: "https://www.apple.com" })?.detail).toBeUndefined();
+    expect(
+      view("web_fetch", { url: "https://www.apple.com" })?.detail,
+    ).toBeUndefined();
   });
 
   test("leaves a tool that already names itself alone", () => {
     // The formatter shortens a path and abbreviates a task description; those
     // are better subjects than any raw argument value.
-    expect(view("read_file", { path: "src/index.ts" })?.summary).toBe("src/index.ts");
+    expect(view("read_file", { path: "src/index.ts" })?.summary).toBe(
+      "src/index.ts",
+    );
   });
 });

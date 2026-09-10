@@ -48,10 +48,16 @@ export async function exchangeCode(
   verifier: string,
   now: number,
 ): Promise<XaiTokens> {
-  return tokensFromResponse(await exchangeSharedCode(xaiOAuthConfig, code, verifier), now);
+  return tokensFromResponse(
+    await exchangeSharedCode(xaiOAuthConfig, code, verifier),
+    now,
+  );
 }
 
-export async function refreshTokens(refreshToken: string, now: number): Promise<XaiTokens> {
+export async function refreshTokens(
+  refreshToken: string,
+  now: number,
+): Promise<XaiTokens> {
   return tokensFromResponse(
     await refreshTokenRequest(xaiOAuthConfig, refreshToken),
     now,

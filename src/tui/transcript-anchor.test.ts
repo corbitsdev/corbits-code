@@ -79,7 +79,10 @@ describe("transcript bottom-anchoring", () => {
       expect(lastInk).toBe(promptTop - 1);
       expect(frame.split("\n")[lastInk]).toContain("line 29");
 
-      const max = Math.max(0, shell.transcript.scrollHeight - shell.transcript.height);
+      const max = Math.max(
+        0,
+        shell.transcript.scrollHeight - shell.transcript.height,
+      );
       expect(shell.transcript.scrollTop).toBeGreaterThanOrEqual(max - 1);
     });
   });

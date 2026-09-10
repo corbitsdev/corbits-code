@@ -68,11 +68,14 @@ function formatOp(name: string): string {
   return name;
 }
 
-function tokenUsageFromEvent(data: Record<string, unknown> | undefined): TokenUsage | null {
+function tokenUsageFromEvent(
+  data: Record<string, unknown> | undefined,
+): TokenUsage | null {
   const usage = data?.usage;
   if (usage === null || typeof usage !== "object") return null;
   const fields = usage as Record<string, unknown>;
-  if (typeof fields.input !== "number" || typeof fields.output !== "number") return null;
+  if (typeof fields.input !== "number" || typeof fields.output !== "number")
+    return null;
   return {
     input: fields.input,
     output: fields.output,
@@ -152,7 +155,11 @@ export function createRenderer(
     );
   }
 
-  function writeShellBlock(command: string, output: string, isError: boolean): void {
+  function writeShellBlock(
+    command: string,
+    output: string,
+    isError: boolean,
+  ): void {
     const status = isError ? `${RED}✗${RESET}` : `${GREEN}✓${RESET}`;
     if (isError) {
       process.stdout.write(
@@ -174,14 +181,21 @@ export function createRenderer(
   }
 
   function render(event: ReactorEmittedEvent): void {
-    const e = event as { type: string; seq?: number; data?: Record<string, unknown> };
+    const e = event as {
+      type: string;
+      seq?: number;
+      data?: Record<string, unknown>;
+    };
 
     switch (e.type) {
       case "inference.tool_call.start": {
         const name = String(e.data?.name ?? "");
         currentOp = formatOp(name);
         currentArg =
-          name === "read_file" || name === "list_dir" || name === "search_files" || name === "grep"
+          name === "read_file" ||
+          name === "list_dir" ||
+          name === "search_files" ||
+          name === "grep"
             ? String((e.data as Record<string, unknown>).callId ?? "")
             : "";
         break;
@@ -206,13 +220,18 @@ export function createRenderer(
         currentArg = "";
         const usage = tokenUsageFromEvent(e.data);
         if (usage !== null) {
-          sessionCost.addTurn(usage, billingIdentityFromEvent(e.data, modelId ?? ""));
+          sessionCost.addTurn(
+            usage,
+            billingIdentityFromEvent(e.data, modelId ?? ""),
+          );
         }
         break;
       }
 
       case "tool.start": {
-        const callName = String((e.data?.call as Record<string, unknown>)?.name ?? "");
+        const callName = String(
+          (e.data?.call as Record<string, unknown>)?.name ?? "",
+        );
         currentOp = formatOp(callName);
         currentArg = "";
         break;
@@ -260,15 +279,21 @@ export function createRenderer(
 
       case "inference.error": {
         const err = e.data?.error as Record<string, unknown> | undefined;
-        const rawMessage = String(err?.message ?? e.data?.error ?? "inference error");
+        const rawMessage = String(
+          err?.message ?? e.data?.error ?? "inference error",
+        );
         const classifiedError =
           typeof err?.category === "string"
             ? {
                 category: err.category,
                 message: rawMessage,
-                ...(typeof err.statusCode === "number" ? { statusCode: err.statusCode } : {}),
+                ...(typeof err.statusCode === "number"
+                  ? { statusCode: err.statusCode }
+                  : {}),
                 ...(err.raw !== undefined ? { raw: err.raw } : {}),
-                ...(typeof err.providerId === "string" ? { providerId: err.providerId } : {}),
+                ...(typeof err.providerId === "string"
+                  ? { providerId: err.providerId }
+                  : {}),
               }
             : undefined;
         const message =

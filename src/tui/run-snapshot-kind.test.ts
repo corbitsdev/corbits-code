@@ -4,8 +4,17 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { clearActiveRun, getActiveRun, setActiveRun } from "../session/active-run.js";
-import { finalizeRunState, loadState, saveState, type RunState } from "../session/state.js";
+import {
+  clearActiveRun,
+  getActiveRun,
+  setActiveRun,
+} from "../session/active-run.js";
+import {
+  finalizeRunState,
+  loadState,
+  saveState,
+  type RunState,
+} from "../session/state.js";
 import { clearsActiveRun } from "./runner/exit.js";
 import type { SnapshotKind } from "./runner/state.js";
 
@@ -28,7 +37,11 @@ describe("a snapshot write dispatched by kind", () => {
 
   // Mirrors writeRunSnapshot's dispatch in runner.ts so the rule above is
   // exercised against the real state writers, not just asserted in isolation.
-  const write = async (sessionId: string, state: RunState, kind: SnapshotKind): Promise<void> => {
+  const write = async (
+    sessionId: string,
+    state: RunState,
+    kind: SnapshotKind,
+  ): Promise<void> => {
     if (clearsActiveRun(kind)) {
       await finalizeRunState(cwd, sessionId, state, home);
       return;
@@ -58,7 +71,11 @@ describe("a snapshot write dispatched by kind", () => {
   test("a rotation still records the outgoing session but leaves the run crash-coverable", async () => {
     setActiveRun({ sessionId: "old", cwd, task: "task", startedAt: 1 });
 
-    await write("old", runState({ status: "done", finishedAt: 10 }), "session-rotation");
+    await write(
+      "old",
+      runState({ status: "done", finishedAt: 10 }),
+      "session-rotation",
+    );
 
     expect(await loadState(cwd, "old", home)).toMatchObject({
       kind: "ok",
@@ -72,7 +89,11 @@ describe("a snapshot write dispatched by kind", () => {
   test("the run-ending write records the session and disarms the handle", async () => {
     setActiveRun({ sessionId: "last", cwd, task: "task", startedAt: 1 });
 
-    await write("last", runState({ status: "done", finishedAt: 20 }), "run-end");
+    await write(
+      "last",
+      runState({ status: "done", finishedAt: 20 }),
+      "run-end",
+    );
 
     expect(await loadState(cwd, "last", home)).toMatchObject({
       kind: "ok",

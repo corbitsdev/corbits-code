@@ -1,4 +1,14 @@
-import { mkdir, readdir, readlink, rename, rm, symlink, stat, cp, unlink } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  stat,
+  cp,
+  unlink,
+} from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 
 import { join, dirname } from "node:path";
@@ -36,10 +46,15 @@ export function generateSessionId(): string {
   bytes[5] = ts & 0xff;
 
   // Set version to 7 (byte 6, high nibble)
-  bytes[6] = (bytes[6]! & 0x0f) | 0x70;
+  const versionByte = bytes[6];
+  const variantByte = bytes[8];
+  if (versionByte === undefined || variantByte === undefined) {
+    throw new Error("uuid v7 bytes missing");
+  }
+  bytes[6] = (versionByte & 0x0f) | 0x70;
 
   // Set variant to 10xx (byte 8, high nibble)
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  bytes[8] = (variantByte & 0x3f) | 0x80;
 
   // Format as hex string with dashes
   const hex = Array.from(bytes)
@@ -58,7 +73,11 @@ export function generateSessionId(): string {
 export const LEGACY_SESSION_BASE = ".agent-state";
 
 /** Full path to a session's root directory (canonical global location). */
-export function sessionDir(cwd: string, sessionId: string, home: string = homedir()): string {
+export function sessionDir(
+  cwd: string,
+  sessionId: string,
+  home: string = homedir(),
+): string {
   return join(projectSessionsRoot(cwd, home), sessionId);
 }
 
@@ -207,7 +226,8 @@ export interface SessionSummary {
   status: RunState["status"];
 }
 
-const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SESSION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** True when `value` is a UUID v7 session id Corbits would write on disk. */
 export function isSessionId(value: string): boolean {
@@ -232,7 +252,10 @@ async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   return [...ids];
 }
 
-async function sessionUpdatedAt(dir: string, fallbackMs: number): Promise<number> {
+async function sessionUpdatedAt(
+  dir: string,
+  fallbackMs: number,
+): Promise<number> {
   try {
     return (await stat(join(dir, "run.json"))).mtimeMs;
   } catch {
@@ -276,7 +299,8 @@ export async function listSessions(
     try {
       const dirStat = await stat(dir);
       await stat(sessionContextDir(cwd, entry, home));
-      const startedAt = dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
+      const startedAt =
+        dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
       summaries.push({
         sessionId: entry,
         task: "(conversation)",
@@ -318,7 +342,8 @@ export async function renameSession(
     let startedAt = Date.now();
     try {
       const dirStat = await stat(sessionDir(cwd, sessionId, home));
-      startedAt = dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
+      startedAt =
+        dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
     } catch {
       // Session dir missing; fall back to now.
     }
@@ -338,4 +363,9 @@ export async function renameSession(
   await saveState(cwd, sessionId, { ...existing.state, task: trimmed }, home);
 }
 
-export { projectKeyFor, projectSessionsRoot, projectsRoot, projectRootFor } from "./project-key.js";
+export {
+  projectKeyFor,
+  projectSessionsRoot,
+  projectsRoot,
+  projectRootFor,
+} from "./project-key.js";

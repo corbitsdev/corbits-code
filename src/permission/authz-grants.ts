@@ -11,7 +11,10 @@ function isPackageCompatiblePattern(pattern: string): boolean {
   return !pattern.includes("\\");
 }
 
-export function approvalToGrantRule(approval: Approval, index: number): GrantRule {
+export function approvalToGrantRule(
+  approval: Approval,
+  index: number,
+): GrantRule {
   return {
     id: `corbits-approval-${index}`,
     principalId: null,
@@ -79,7 +82,8 @@ export function grantScopeMatches(
 ): boolean {
   return (
     approval.tool === tool &&
-    (approval.providerModel === undefined || approval.providerModel === activeProviderModel) &&
+    (approval.providerModel === undefined ||
+      approval.providerModel === activeProviderModel) &&
     cwdMatchesGrant(approval.cwd, requestCwd, workspace)
   );
 }
@@ -98,15 +102,27 @@ export interface EvaluateApprovalsInput {
 // allow among package-compatible grants. Exact-escaped grants are checked with
 // matchesPattern (equality after unescape) first so a stored exact command is
 // never lost.
-export async function evaluateApprovals(input: EvaluateApprovalsInput): Promise<boolean> {
-  const { tool, subject, approvals, activeProviderModel, requestCwd, workspace } = input;
+export async function evaluateApprovals(
+  input: EvaluateApprovalsInput,
+): Promise<boolean> {
+  const {
+    tool,
+    subject,
+    approvals,
+    activeProviderModel,
+    requestCwd,
+    workspace,
+  } = input;
   const scoped = approvals.filter((a) =>
     grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
   );
   if (scoped.length === 0) return false;
 
   for (const a of scoped) {
-    if (!isPackageCompatiblePattern(a.pattern) && matchesPattern(subject, a.pattern)) {
+    if (
+      !isPackageCompatiblePattern(a.pattern) &&
+      matchesPattern(subject, a.pattern)
+    ) {
       return true;
     }
   }

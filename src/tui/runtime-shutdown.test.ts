@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { createRuntimeShutdown } from "./runner/shutdown.js";
 
 describe("runtime shutdown", () => {
@@ -107,7 +108,7 @@ describe("runtime shutdown", () => {
 
   test("awaits an async toolset dispose before resolving", async () => {
     const calls: string[] = [];
-    let resolveToolset!: () => void;
+    let resolveToolset: (() => void) | undefined;
     const toolsetGate = new Promise<void>((resolve) => {
       resolveToolset = resolve;
     });
@@ -128,14 +129,14 @@ describe("runtime shutdown", () => {
     const pending = shutdown();
     await Promise.resolve();
     expect(calls).toEqual(["host"]);
-    resolveToolset();
+    defined(resolveToolset, "resolveToolset")();
     await pending;
     expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
 
   test("reaps the toolset before waiting on a hung agent close", async () => {
     const calls: string[] = [];
-    let releaseClose!: () => void;
+    let releaseClose: (() => void) | undefined;
     const closeGate = new Promise<void>((resolve) => {
       releaseClose = resolve;
     });
@@ -156,7 +157,7 @@ describe("runtime shutdown", () => {
     const pending = shutdown();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls).toEqual(["host", "toolset", "workers"]);
-    releaseClose();
+    defined(releaseClose, "releaseClose")();
     await pending;
     expect(calls).toEqual(["host", "toolset", "workers", "agent"]);
   });
@@ -168,7 +169,7 @@ describe("runtime shutdown", () => {
       cancelWorkers: () => undefined,
       closeAgent: () => {
         closeStarted = true;
-        return new Promise<void>(() => {});
+        return new Promise<void>(() => undefined);
       },
       disposeToolset: async () => {
         throw new Error("1 shell child process still live after 2000ms reap");
@@ -187,6 +188,8 @@ describe("runtime shutdown", () => {
     expect(result.kind).toBe("rejected");
     if (result.kind !== "rejected") throw new Error("expected leftover reject");
     expect(result.err).toBeInstanceOf(Error);
-    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+    expect((result.err as Error).message).toMatch(
+      /still live after 2000ms reap/,
+    );
   });
 });

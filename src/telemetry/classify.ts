@@ -66,7 +66,10 @@ const BUILT_IN_COMMAND_NAMES: ReadonlySet<string> = new Set([
 // First-party director ids from the closed fleet package, plus the legacy
 // "worker" label the runtime still supplies as a fallback. Project/plugin
 // profile ids are never reported by name.
-const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([...DIRECTOR_IDS, "worker"]);
+const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([
+  ...DIRECTOR_IDS,
+  "worker",
+]);
 
 // Error constructors defined by the language. A subclass name is application
 // or plugin code and can be as identifying as any other author-chosen string.
@@ -99,5 +102,7 @@ export function classifyAgentName(agentName: string): string {
 
 export function classifyErrorClass(error: unknown): string {
   if (!(error instanceof Error)) return "non_error";
-  return STANDARD_ERROR_NAMES.has(error.constructor.name) ? error.constructor.name : CUSTOM;
+  return STANDARD_ERROR_NAMES.has(error.constructor.name)
+    ? error.constructor.name
+    : CUSTOM;
 }

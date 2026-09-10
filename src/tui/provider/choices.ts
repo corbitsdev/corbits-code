@@ -9,7 +9,10 @@ import {
   firstClassPathAsProvider,
   type FirstClassProviderDef,
 } from "../../../packages/first-class-providers/src/index.js";
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../../auth/codex/constants.js";
+import {
+  CODEX_BASE_URL,
+  CODEX_DEFAULT_MODELS,
+} from "../../auth/codex/constants.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../../auth/xai/constants.js";
 import { codexProviderName } from "../../config/codex-providers.js";
 import { xaiProviderName } from "../../config/xai-providers.js";
@@ -18,7 +21,12 @@ import { buildModelsFirstCatalog } from "../model-catalog.js";
 import type { ResidualCatalogEntry } from "../residuals.js";
 import type { CliRenderer } from "@opentui/core";
 import { createOverlayList } from "../shell/overlay-list.js";
-import type { DiscoveryFlows, OAuthKind, ProviderChoice, SetupState } from "./types.js";
+import type {
+  DiscoveryFlows,
+  OAuthKind,
+  ProviderChoice,
+  SetupState,
+} from "./types.js";
 
 /** Hard cap on pick-list rows: the first-class catalog plus Custom fits a standard terminal. */
 export const PROVIDER_LIST_ROWS_MAX = 10;
@@ -38,7 +46,10 @@ export const PROVIDER_LIST_ROWS_MIN = 3;
  */
 export function providerListHeight(renderer: CliRenderer): number {
   const rows = renderer.height || 24;
-  return Math.max(PROVIDER_LIST_ROWS_MIN, Math.min(PROVIDER_LIST_ROWS_MAX, rows - 14));
+  return Math.max(
+    PROVIDER_LIST_ROWS_MIN,
+    Math.min(PROVIDER_LIST_ROWS_MAX, rows - 14),
+  );
 }
 
 /** Catalog id for the manual path. Never written to settings as a name. */
@@ -75,7 +86,11 @@ export const OAUTH_SURFACES: Record<
   },
 };
 
-function oauthChoice(id: string, label: string, kind: OAuthKind): ProviderChoice | null {
+function oauthChoice(
+  id: string,
+  label: string,
+  kind: OAuthKind,
+): ProviderChoice | null {
   const surface = OAUTH_SURFACES[kind];
   const defaultModel = surface.models[0];
   if (defaultModel === undefined) return null;
@@ -184,7 +199,9 @@ export function connectedAccountCount(
 ): number {
   if (choice.custom) return 0;
   const prefix = `${choice.id}/`;
-  return providers.filter((p) => p.name === choice.id || p.name.startsWith(prefix)).length;
+  return providers.filter(
+    (p) => p.name === choice.id || p.name.startsWith(prefix),
+  ).length;
 }
 
 /**
@@ -263,7 +280,9 @@ export function providerChoiceRows(
  * billing warnings). A trailing row escapes to free text for a model id the
  * seeded list does not carry yet.
  */
-export function modelChoiceRows(choice: ProviderChoice): readonly ResidualCatalogEntry[] {
+export function modelChoiceRows(
+  choice: ProviderChoice,
+): readonly ResidualCatalogEntry[] {
   const catalog = buildModelsFirstCatalog({
     providers: [
       {
@@ -294,7 +313,11 @@ export function modelFromRowId(providerId: string, rowId: string): string {
  * Accept a picked provider row: reset per-step state, prefill the preset
  * fields (Custom clears them instead), and move to the first form step.
  */
-export function chooseProviderRow(state: SetupState, id: string, discovery: DiscoveryFlows): void {
+export function chooseProviderRow(
+  state: SetupState,
+  id: string,
+  discovery: DiscoveryFlows,
+): void {
   const picked = providerChoiceById(id);
   if (picked === undefined) return;
   discovery.abandonOllamaDiscovery();
@@ -332,7 +355,8 @@ export function enterModelListRows(
   const active = Math.max(
     0,
     state.listRows.findIndex(
-      (row) => modelFromRowId(state.choice?.id ?? "", row.id) === state.values.model,
+      (row) =>
+        modelFromRowId(state.choice?.id ?? "", row.id) === state.values.model,
     ),
   );
   state.list = createOverlayList(renderer, {
@@ -344,7 +368,10 @@ export function enterModelListRows(
 }
 
 /** Rebuild the pick-list rows for the provider step, keeping the prior pick focused. */
-export function enterProviderRows(state: SetupState, renderer: CliRenderer): void {
+export function enterProviderRows(
+  state: SetupState,
+  renderer: CliRenderer,
+): void {
   state.listRows = providerChoiceRows(state.choices);
   const active = Math.max(
     0,

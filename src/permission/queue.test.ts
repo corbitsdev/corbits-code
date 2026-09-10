@@ -1,12 +1,17 @@
 import { describe, test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createPermissionRequestQueue, wirePermissionGrantReconciliation } from "./queue.js";
+import {
+  createPermissionRequestQueue,
+  wirePermissionGrantReconciliation,
+} from "./queue.js";
 import { isRequestCoveredByGrant } from "./gate.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
 import type { Approval, ApprovalOutcome, PermissionRequest } from "./types.js";
 
-function request(overrides: Partial<PermissionRequest> = {}): PermissionRequest {
+function request(
+  overrides: Partial<PermissionRequest> = {},
+): PermissionRequest {
   return {
     tool: "run_shell",
     action: "Run",
@@ -28,7 +33,14 @@ function coversFor(
   const rootsProvider = createWorktreeRootsProvider(cwd);
   const isRestricted = createPathRestriction(cwd, rootsProvider).isRestricted;
   const workspace = { resolvedCwd: cwd, roots: rootsProvider() };
-  return (r) => isRequestCoveredByGrant(r, approval, activeProviderModel, isRestricted, workspace);
+  return (r) =>
+    isRequestCoveredByGrant(
+      r,
+      approval,
+      activeProviderModel,
+      isRestricted,
+      workspace,
+    );
 }
 
 describe("createPermissionRequestQueue", () => {
@@ -57,7 +69,9 @@ describe("createPermissionRequestQueue", () => {
     const queue = createPermissionRequestQueue();
     const outcomes: ApprovalOutcome[] = [];
     for (let i = 0; i < 3; i++) {
-      queue.enqueue(request({ subject: "bun install" }), (o) => outcomes.push(o));
+      queue.enqueue(request({ subject: "bun install" }), (o) =>
+        outcomes.push(o),
+      );
     }
     // An unrelated request stays queued — the grant does not cover it.
     queue.enqueue(request({ subject: "bun test" }), (o) => outcomes.push(o));
@@ -66,7 +80,11 @@ describe("createPermissionRequestQueue", () => {
     const settledIds = queue.reconcile(covers);
 
     expect(settledIds).toHaveLength(3);
-    expect(outcomes).toEqual([{ allow: true }, { allow: true }, { allow: true }]);
+    expect(outcomes).toEqual([
+      { allow: true },
+      { allow: true },
+      { allow: true },
+    ]);
     expect(queue.size()).toBe(1);
     expect(queue.list().map((e) => e.tool)).toEqual(["run_shell"]);
   });
@@ -75,11 +93,16 @@ describe("createPermissionRequestQueue", () => {
     const queue = createPermissionRequestQueue();
     const outcomes: ApprovalOutcome[] = [];
     const cwd = process.cwd();
-    queue.enqueue(request({ subject: "bun install", cwd: `${cwd}/other-repo` }), (o) =>
-      outcomes.push(o),
+    queue.enqueue(
+      request({ subject: "bun install", cwd: `${cwd}/other-repo` }),
+      (o) => outcomes.push(o),
     );
 
-    const covers = coversFor({ tool: "run_shell", pattern: "bun install", cwd });
+    const covers = coversFor({
+      tool: "run_shell",
+      pattern: "bun install",
+      cwd,
+    });
     queue.reconcile(covers);
 
     expect(outcomes).toHaveLength(0);
@@ -140,7 +163,9 @@ describe("wirePermissionGrantReconciliation", () => {
       throw new Error("must not settle on a malformed payload");
     });
 
-    expect(() => emitter.emit("permission.grant", { nope: true })).not.toThrow();
+    expect(() =>
+      emitter.emit("permission.grant", { nope: true }),
+    ).not.toThrow();
     expect(queue.size()).toBe(1);
 
     dispose();

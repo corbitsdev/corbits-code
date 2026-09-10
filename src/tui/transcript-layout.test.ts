@@ -49,14 +49,18 @@ async function paintRows(
 
 describe("transcript turn layout", () => {
   test("the operator's turn paints flush to the left gutter, bar first", async () => {
-    await paintRows([{ role: "user", text: "find the legacy token" }], 80, (frame) => {
-      const [row] = rowsContaining(frame, "find the legacy token");
-      expect(row).toBeDefined();
-      const painted = row as string;
-      const gutter = resolveSideMargin(80);
-      // Left-aligned: the bar sits right at the shared gutter, like an answer.
-      expect(painted.indexOf("▍")).toBe(gutter);
-    });
+    await paintRows(
+      [{ role: "user", text: "find the legacy token" }],
+      80,
+      (frame) => {
+        const [row] = rowsContaining(frame, "find the legacy token");
+        expect(row).toBeDefined();
+        const painted = row as string;
+        const gutter = resolveSideMargin(80);
+        // Left-aligned: the bar sits right at the shared gutter, like an answer.
+        expect(painted.indexOf("▍")).toBe(gutter);
+      },
+    );
   });
 
   test("one agent answers unlabelled, from the left gutter", async () => {
@@ -94,8 +98,12 @@ describe("transcript turn layout", () => {
         // One label per block, and both labels share the transcript's left edge.
         expect((corbitsLabel as string).indexOf("●")).toBe(gutter);
         expect((criticLabel as string).indexOf("●")).toBe(gutter);
-        expect(rowsContaining(frame, "on it").some((row) => row.includes("●"))).toBe(false);
-        expect(rowsContaining(frame, "reviewing").some((row) => row.includes("●"))).toBe(false);
+        expect(
+          rowsContaining(frame, "on it").some((row) => row.includes("●")),
+        ).toBe(false);
+        expect(
+          rowsContaining(frame, "reviewing").some((row) => row.includes("●")),
+        ).toBe(false);
         // The operator keeps the left gutter regardless.
         const [mine] = rowsContaining(frame, "hi");
         expect((mine as string).indexOf("▍")).toBe(gutter);
@@ -115,13 +123,19 @@ describe("transcript turn layout", () => {
       80,
       (frame) => {
         const gutter = resolveSideMargin(80);
-        const labels = inkRows(frame).filter((row) => row.trim() === "● auth-core");
+        const labels = inkRows(frame).filter(
+          (row) => row.trim() === "● auth-core",
+        );
         // The message block and the tool block are two distinct blocks (a
         // role change opens a new one), so the label repeats once per block —
         // never once per row.
         expect(labels.length).toBe(2);
         for (const label of labels) expect(label.indexOf("●")).toBe(gutter);
-        expect(rowsContaining(frame, "patching now").some((row) => row.includes("●"))).toBe(false);
+        expect(
+          rowsContaining(frame, "patching now").some((row) =>
+            row.includes("●"),
+          ),
+        ).toBe(false);
       },
     );
   });
@@ -149,7 +163,11 @@ describe("transcript turn layout", () => {
     await paintRows(
       [
         { role: "user", text: "hi" },
-        { role: "system", meta: "thinking", text: "scanning the repo\nthen the call sites" },
+        {
+          role: "system",
+          meta: "thinking",
+          text: "scanning the repo\nthen the call sites",
+        },
         { role: "assistant", text: "found it" },
       ],
       80,

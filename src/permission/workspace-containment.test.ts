@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import type { ToolCall } from "@intx/types/runtime";
 
 import { isAutoAllowedShellCall } from "./classify.js";
-import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
+import {
+  createPathRestriction,
+  resolveWorkspacePath,
+} from "./path-restriction.js";
 
 let cwd = "";
 let worktree = "";
@@ -47,7 +50,11 @@ test("a path in a registered sibling worktree gets the same verdict from auto-al
   const rootsProvider = () => [realpathSync(worktree)];
   const target = join(worktree, "sub", "file.txt");
 
-  const autoAllowed = isAutoAllowedShellCall(shellCall(`cat ${target}`), cwd, rootsProvider);
+  const autoAllowed = isAutoAllowedShellCall(
+    shellCall(`cat ${target}`),
+    cwd,
+    rootsProvider,
+  );
   const restriction = createPathRestriction(cwd, rootsProvider, home);
   const restricted = restriction.isRestricted(target, false);
 
@@ -61,7 +68,11 @@ test("a path genuinely outside the workspace and its worktrees is refused by bot
   const rootsProvider = () => [realpathSync(worktree)];
   const target = join(outside, "secret.txt");
 
-  const autoAllowed = isAutoAllowedShellCall(shellCall(`cat ${target}`), cwd, rootsProvider);
+  const autoAllowed = isAutoAllowedShellCall(
+    shellCall(`cat ${target}`),
+    cwd,
+    rootsProvider,
+  );
   const restriction = createPathRestriction(cwd, rootsProvider, home);
   const restricted = restriction.isRestricted(target, false);
 
@@ -73,7 +84,11 @@ test("a prefix-spoofing sibling directory is refused by both", () => {
   const rootsProvider = () => [realpathSync(worktree)];
   const target = join(evilWorktree, "file.txt");
 
-  const autoAllowed = isAutoAllowedShellCall(shellCall(`cat ${target}`), cwd, rootsProvider);
+  const autoAllowed = isAutoAllowedShellCall(
+    shellCall(`cat ${target}`),
+    cwd,
+    rootsProvider,
+  );
   const restriction = createPathRestriction(cwd, rootsProvider, home);
   const restricted = restriction.isRestricted(target, false);
 
@@ -88,7 +103,11 @@ test("a symlink pointing outside the workspace is refused, even for a not-yet-ex
   await writeFile(join(outside, "secret.txt"), "s");
   const target = join(link, "secret.txt");
 
-  const autoAllowed = isAutoAllowedShellCall(shellCall(`cat ${target}`), cwd, rootsProvider);
+  const autoAllowed = isAutoAllowedShellCall(
+    shellCall(`cat ${target}`),
+    cwd,
+    rootsProvider,
+  );
   const restriction = createPathRestriction(cwd, rootsProvider, home);
   const restricted = restriction.isRestricted(target, false);
 
@@ -107,7 +126,11 @@ test("a dangling symlink under cwd pointing outside denies a child path, and sta
   const target = join(link, "child.txt");
 
   expect(
-    resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider),
+    resolveWorkspacePath(
+      cwd,
+      join("dangling-link", "child.txt"),
+      rootsProvider,
+    ),
   ).toBeUndefined();
 
   const restriction = createPathRestriction(cwd, rootsProvider, home);
@@ -120,7 +143,11 @@ test("a dangling symlink under cwd pointing outside denies a child path, and sta
   await mkdir(outsideTarget, { recursive: true });
   await writeFile(join(outsideTarget, "child.txt"), "s");
   expect(
-    resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider),
+    resolveWorkspacePath(
+      cwd,
+      join("dangling-link", "child.txt"),
+      rootsProvider,
+    ),
   ).toBeUndefined();
 });
 
@@ -131,7 +158,9 @@ test("a symlink loop under cwd is denied by resolveWorkspacePath (CL-6715)", asy
   await symlink(linkB, linkA);
   await symlink(linkA, linkB);
 
-  expect(resolveWorkspacePath(cwd, join("loop-a", "child.txt"), rootsProvider)).toBeUndefined();
+  expect(
+    resolveWorkspacePath(cwd, join("loop-a", "child.txt"), rootsProvider),
+  ).toBeUndefined();
   expect(resolveWorkspacePath(cwd, "loop-a", rootsProvider)).toBeUndefined();
 });
 
@@ -147,7 +176,11 @@ test("resolveWorkspacePath returns the canonical target so a later symlink retar
   const link = join(cwd, "link");
   await symlink(realTarget, link);
 
-  const resolved = resolveWorkspacePath(cwd, join("link", "note.txt"), rootsProvider);
+  const resolved = resolveWorkspacePath(
+    cwd,
+    join("link", "note.txt"),
+    rootsProvider,
+  );
   expect(resolved).toBe(join(realpathSync(realTarget), "note.txt"));
 
   // Retarget the symlink to point outside the workspace, as an attacker

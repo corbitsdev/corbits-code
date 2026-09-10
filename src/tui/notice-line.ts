@@ -68,7 +68,9 @@ export function composeNoticeLine(state: NoticeState): string {
   // "interrupt" is not a standing notice. Mid-run stop feedback is a system
   // row (wording without "interrupt"); empty-prompt Ctrl+C arms exit via flash.
   if (state.attachments > 0) {
-    segments.push(`${state.attachments} image${state.attachments === 1 ? "" : "s"}`);
+    segments.push(
+      `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,
+    );
   }
   const flash = state.flash?.trim() ?? "";
   if (flash.length > 0) segments.push(flash);

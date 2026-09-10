@@ -37,7 +37,10 @@ describe("callbackPageHtml", () => {
   });
 
   test("failure names the server and the humanized reason", () => {
-    const html = callbackPageHtml({ subject: "granola", error: "access_denied" });
+    const html = callbackPageHtml({
+      subject: "granola",
+      error: "access_denied",
+    });
     expect(html).toContain("Granola failed to connect");
     expect(html).toContain("Access denied.");
     expect(html).not.toContain("access_denied");
@@ -45,11 +48,15 @@ describe("callbackPageHtml", () => {
 
   test("an unnamed authorization still renders both outcomes", () => {
     expect(callbackPageHtml()).toContain("Authorization complete");
-    expect(callbackPageHtml({ error: "server_error" })).toContain("Authorization did not complete");
+    expect(callbackPageHtml({ error: "server_error" })).toContain(
+      "Authorization did not complete",
+    );
   });
 
   test("the subject is escaped rather than pasted into markup", () => {
-    expect(callbackPageHtml({ subject: "<script>x</script>" })).not.toContain("<script>x");
+    expect(callbackPageHtml({ subject: "<script>x</script>" })).not.toContain(
+      "<script>x",
+    );
   });
 
   test("the footer links to the product site and the GitHub org", () => {
@@ -77,8 +84,12 @@ describe("callbackPageHtml", () => {
   const offMachineOrigins = (html: string): readonly string[] => {
     // Scheme-qualified and protocol-relative alike, since either would load.
     const found =
-      html.match(/(?:[a-z][a-z0-9+.-]*:)?\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+[^"'`)\s<>]*/gi) ?? [];
-    return found.filter((ref) => ![...allowedOrigins].some((origin) => ref.startsWith(origin)));
+      html.match(
+        /(?:[a-z][a-z0-9+.-]*:)?\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+[^"'`)\s<>]*/gi,
+      ) ?? [];
+    return found.filter(
+      (ref) => ![...allowedOrigins].some((origin) => ref.startsWith(origin)),
+    );
   };
 
   for (const [outcome, page] of [

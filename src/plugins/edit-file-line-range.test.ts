@@ -224,10 +224,14 @@ describe("editFileLineRangePlugin", () => {
     await rm(cwd, { recursive: true, force: true });
   });
 
-  function handler(next: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>) {
-    const mws = [pathEscapePlugin(cwd), editFileLineRangePlugin(), verifyPlugin()].flatMap((p) =>
-      p.middleware ? [p.middleware] : [],
-    );
+  function handler(
+    next: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>,
+  ) {
+    const mws = [
+      pathEscapePlugin(cwd),
+      editFileLineRangePlugin(),
+      verifyPlugin(),
+    ].flatMap((p) => (p.middleware ? [p.middleware] : []));
     return composeMiddleware(mws, next);
   }
 
@@ -245,7 +249,12 @@ describe("editFileLineRangePlugin", () => {
       {
         id: "c1",
         name: "edit_file",
-        arguments: { path: "f.ts", start_line: 2, end_line: 2, new_string: "L2" },
+        arguments: {
+          path: "f.ts",
+          start_line: 2,
+          end_line: 2,
+          new_string: "L2",
+        },
       },
       new AbortController().signal,
     );
@@ -314,7 +323,13 @@ describe("editFileLineRangePlugin", () => {
     const path = join(cwd, "g.ts");
     await writeFile(path, "alpha\nbeta\ngamma\n");
     const msg = await runEditFileLineRange(
-      { kind: "line_range", path, start_line: 2, end_line: 3, new_string: "B\nG" },
+      {
+        kind: "line_range",
+        path,
+        start_line: 2,
+        end_line: 3,
+        new_string: "B\nG",
+      },
       new AbortController().signal,
     );
     expect(msg).toContain("replaced lines 2-3");

@@ -107,8 +107,8 @@ describe("attachment passthrough", () => {
     const seen: (readonly PendingImageAttachment[] | undefined)[] = [];
     const port = createLiveSessionPort({
       send: (_text, attachments) => seen.push(attachments),
-      interrupt: () => {},
-      deliver: () => {},
+      interrupt: () => undefined,
+      deliver: () => undefined,
     });
     port.sendImmediate("look", [image]);
     expect(seen).toEqual([[image]]);
@@ -117,8 +117,8 @@ describe("attachment passthrough", () => {
   test("a queued item delivers its attachments at the boundary", () => {
     const seen: (readonly PendingImageAttachment[] | undefined)[] = [];
     const port = createLiveSessionPort({
-      send: () => {},
-      interrupt: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
       deliver: (_text, _kind, attachments) => seen.push(attachments),
     });
     port.deliver({ ...item("later", "queue"), attachments: [image] });

@@ -11,12 +11,22 @@
 import { isAbsoluteHTTPURL, validateMCPServerName } from "../mcp/add-server.js";
 import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
 import type { PluginOrigin } from "../plugins/admin.js";
-import { classifyPluginRemove, isOwnedDiskInstall } from "../plugins/uninstall.js";
+import {
+  classifyPluginRemove,
+  isOwnedDiskInstall,
+} from "../plugins/uninstall.js";
 import { maskEcho, maskSecret } from "./provider/form.js";
 import { writeClipboard } from "./copy-path.js";
-import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
+import {
+  residualIdFromSelection,
+  type ResidualCatalogEntry,
+} from "./residuals.js";
 import { setStatusFlash } from "./shell/chrome.js";
-import type { AppShell, ItemDescription, OverlaySelection } from "./shell/internals.js";
+import type {
+  AppShell,
+  ItemDescription,
+  OverlaySelection,
+} from "./shell/internals.js";
 import {
   captureOverlayContinuation,
   closeInsetOverlay,
@@ -57,7 +67,10 @@ export interface PluginEntry {
   readonly canRevokeTrust?: boolean;
   readonly credentials: readonly PluginCredentialFieldEntry[];
   readonly credentialValues: Readonly<Record<string, string>>;
-  readonly agentProfiles?: readonly { readonly id: string; readonly description?: string }[];
+  readonly agentProfiles?: readonly {
+    readonly id: string;
+    readonly description?: string;
+  }[];
   /** Absolute path an untrusted path-origin plugin was discovered at. */
   readonly originPath?: string;
   /**
@@ -104,10 +117,19 @@ export interface PluginsSurfaceDeps {
   readonly list: () => readonly PluginEntry[];
   // A trust-grant load can surface skill-miss and similar warnings; the
   // optional message is shown via `deps.notify` at the call site.
-  readonly setEnabled: (id: string, enabled: boolean) => Promise<{ message?: string } | undefined>;
+  readonly setEnabled: (
+    id: string,
+    enabled: boolean,
+  ) => Promise<{ message?: string } | undefined>;
   /** Persists credential values for the plugin (does not enable/verify it). */
-  readonly saveCredentials: (id: string, credentials: Record<string, string>) => Promise<void>;
-  readonly verify: (id: string, credentials: Record<string, string>) => Promise<PluginActionResult>;
+  readonly saveCredentials: (
+    id: string,
+    credentials: Record<string, string>,
+  ) => Promise<void>;
+  readonly verify: (
+    id: string,
+    credentials: Record<string, string>,
+  ) => Promise<PluginActionResult>;
   readonly addPath: (path: string) => Promise<PluginActionResult>;
   readonly remove: (id: string) => Promise<PluginActionResult>;
   readonly webProviders: () => readonly WebProviderChoice[];
@@ -147,7 +169,12 @@ export interface HooksSurfaceDeps {
 /** A configured MCP server and its live connection state. */
 export interface McpEntry {
   readonly name: string;
-  readonly state: "connecting" | "connected" | "needs-auth" | "failed" | "disabled";
+  readonly state:
+    | "connecting"
+    | "connected"
+    | "needs-auth"
+    | "failed"
+    | "disabled";
   /** Tool count once connected. */
   readonly toolCount?: number;
   /** Authorization URL while `needs-auth`. */
@@ -163,10 +190,16 @@ export interface McpSurfaceDeps {
   /** Open the server's authorization URL in the operator's browser. */
   readonly openAuthURL: (url: string) => void;
   readonly subscribe?: (listener: () => void) => () => void;
-  readonly addServer?: (name: string, url: string) => Promise<PluginActionResult>;
+  readonly addServer?: (
+    name: string,
+    url: string,
+  ) => Promise<PluginActionResult>;
   /** Reconnect a failed persisted server without writing a second settings row. */
   readonly retryServer?: (name: string) => Promise<PluginActionResult>;
-  readonly setEnabled?: (name: string, enabled: boolean) => Promise<PluginActionResult>;
+  readonly setEnabled?: (
+    name: string,
+    enabled: boolean,
+  ) => Promise<PluginActionResult>;
   readonly removeServer?: (name: string) => Promise<PluginActionResult>;
   readonly mcpServersSource?: "local" | "global" | "none";
 }
@@ -205,7 +238,14 @@ export interface CommandSurfaceDeps {
 
 /** Surface a command result can ask for. */
 export type CommandSurfaceKind =
-  "help" | "settings" | "permissions" | "plugins" | "hooks" | "mcp" | "models" | "add-provider";
+  | "help"
+  | "settings"
+  | "permissions"
+  | "plugins"
+  | "hooks"
+  | "mcp"
+  | "models"
+  | "add-provider";
 
 const CLOSE_ID = "__close__";
 const ADD_MCP_ID = "__add_mcp__";
@@ -217,12 +257,15 @@ const REMOVE_CONFIRM_ID = "__remove_confirm__";
 const REMOVE_CANCEL_ID = "__remove_cancel__";
 
 export function grantRowLabel(entry: GrantEntry): string {
-  const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : "";
+  const suffix =
+    entry.providerModel !== undefined ? ` (${entry.providerModel})` : "";
   return `${entry.scopeLabel} · ${entry.tool} ${entry.pattern}${suffix}`;
 }
 
 function pluginMissingCredential(entry: PluginEntry): boolean {
-  return entry.credentials.some((f) => (entry.credentialValues[f.key] ?? "").length === 0);
+  return entry.credentials.some(
+    (f) => (entry.credentialValues[f.key] ?? "").length === 0,
+  );
 }
 
 function pluginHasWarnings(entry: PluginEntry): boolean {
@@ -230,23 +273,37 @@ function pluginHasWarnings(entry: PluginEntry): boolean {
 }
 
 export function pluginRowLabel(entry: PluginEntry): string {
-  const state = entry.needsTrust === true ? "untrusted" : entry.enabled ? "enabled" : "disabled";
+  const state =
+    entry.needsTrust === true
+      ? "untrusted"
+      : entry.enabled
+        ? "enabled"
+        : "disabled";
   const blocker =
-    entry.needsTrust !== true && !entry.enabled && pluginMissingCredential(entry)
+    entry.needsTrust !== true &&
+    !entry.enabled &&
+    pluginMissingCredential(entry)
       ? "needs api key"
       : pluginHasWarnings(entry)
         ? "has warnings"
         : entry.kind;
-  return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`;
+  return blocker
+    ? `${entry.name} — ${state} — ${blocker}`
+    : `${entry.name} — ${state}`;
 }
 
-function pluginNeedsDiskConfirm(entry: PluginEntry, plugins: PluginsSurfaceDeps): boolean {
+function pluginNeedsDiskConfirm(
+  entry: PluginEntry,
+  plugins: PluginsSurfaceDeps,
+): boolean {
   return (
     classifyPluginRemove({
       origin: entry.origin,
       owned: isOwnedDiskInstall({
         origin: entry.origin,
-        ...(entry.pluginPath !== undefined ? { pluginPath: entry.pluginPath } : {}),
+        ...(entry.pluginPath !== undefined
+          ? { pluginPath: entry.pluginPath }
+          : {}),
         home: plugins.home,
         cwd: plugins.cwd,
       }),
@@ -254,7 +311,10 @@ function pluginNeedsDiskConfirm(entry: PluginEntry, plugins: PluginsSurfaceDeps)
   );
 }
 
-function pluginRemoveHint(entry: PluginEntry, plugins: PluginsSurfaceDeps): string {
+function pluginRemoveHint(
+  entry: PluginEntry,
+  plugins: PluginsSurfaceDeps,
+): string {
   if (entry.origin === "repo") {
     return "Bundled with Corbits Code — Alt+X disables it; it cannot be uninstalled.";
   }
@@ -288,10 +348,14 @@ export function pluginDescription(
     };
   }
   if (!entry.enabled && pluginMissingCredential(entry)) {
-    return { what, impact: "Needs an API key before it can be enabled — press Alt+C." };
+    return {
+      what,
+      impact: "Needs an API key before it can be enabled — press Alt+C.",
+    };
   }
   if (pluginHasWarnings(entry) && entry.warnings !== undefined) {
-    const summary = formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ");
+    const summary =
+      formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ");
     return { what, impact: summary, tone: "consequence" };
   }
   return { what, impact: pluginRemoveHint(entry, plugins) };
@@ -301,7 +365,10 @@ function payload(entries: readonly ResidualCatalogEntry[]): {
   items: readonly string[];
   itemIds: readonly string[];
 } {
-  return { items: entries.map((e) => e.label), itemIds: entries.map((e) => e.id) };
+  return {
+    items: entries.map((e) => e.label),
+    itemIds: entries.map((e) => e.id),
+  };
 }
 
 /** Close a replaceable overlay then run `open` without advertising idle in the gap. */
@@ -332,12 +399,21 @@ interface CycleOption<T extends string> {
 }
 
 /** Render a cycled field's current state: `label  ‹ label ›  label`. */
-function cycleField<T extends string>(options: readonly CycleOption<T>[], activeId: T): string {
-  return options.map((o) => (o.id === activeId ? `‹ ${o.label} ›` : o.label)).join("  ");
+function cycleField<T extends string>(
+  options: readonly CycleOption<T>[],
+  activeId: T,
+): string {
+  return options
+    .map((o) => (o.id === activeId ? `‹ ${o.label} ›` : o.label))
+    .join("  ");
 }
 
 /** Step `current` to the next/previous option in `options`, wrapping. */
-function cycleValue<T>(options: readonly T[], current: T, direction: -1 | 1): T {
+function cycleValue<T>(
+  options: readonly T[],
+  current: T,
+  direction: -1 | 1,
+): T {
   const idx = options.indexOf(current);
   const base = idx < 0 ? 0 : idx;
   const next = options[(base + direction + options.length) % options.length];
@@ -381,10 +457,14 @@ function settingsCycleRows(
     {
       id: "compaction",
       value: `${"compaction".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(COMPACTION_OPTIONS, snapshot.compactionMode)}`,
-      chosenLabel: activeOptionLabel(COMPACTION_OPTIONS, snapshot.compactionMode),
+      chosenLabel: activeOptionLabel(
+        COMPACTION_OPTIONS,
+        snapshot.compactionMode,
+      ),
       describe: {
         what: "how the transcript is trimmed once the context fills.",
-        impact: "summarize (default) costs a call; drop is free but strips output too.",
+        impact:
+          "summarize (default) costs a call; drop is free but strips output too.",
         tone: "consequence",
       },
       cycle: (dir) =>
@@ -399,7 +479,10 @@ function settingsCycleRows(
     {
       id: "wait-for-approval",
       value: `${"approval wait".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off")}`,
-      chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off"),
+      chosenLabel: activeOptionLabel(
+        ON_OFF_OPTIONS,
+        snapshot.waitForApproval ? "on" : "off",
+      ),
       describe: {
         what: "whether a tool's time budget pauses while waiting on your approval.",
         impact:
@@ -411,7 +494,10 @@ function settingsCycleRows(
     {
       id: "telemetry",
       value: `${"telemetry".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off")}`,
-      chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off"),
+      chosenLabel: activeOptionLabel(
+        ON_OFF_OPTIONS,
+        snapshot.telemetryEnabled ? "on" : "off",
+      ),
       describe: {
         what: "anonymous ambient usage data (product events and AI traces). Free text only leaves via /feedback if you send it.",
         impact:
@@ -423,7 +509,10 @@ function settingsCycleRows(
     {
       id: "prompt-cost",
       value: `${"show cost".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.showPromptCost ? "on" : "off")}`,
-      chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.showPromptCost ? "on" : "off"),
+      chosenLabel: activeOptionLabel(
+        ON_OFF_OPTIONS,
+        snapshot.showPromptCost ? "on" : "off",
+      ),
       describe: {
         what: "shows the session's spend in the prompt border, next to the context percentage.",
         impact:
@@ -460,7 +549,8 @@ function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
       value: `${"plugins".padEnd(SETTINGS_NAME_WIDTH)}${enabled} enabled${suffix}`,
       describe: {
         what: "discovered plugins and whether each is enabled.",
-        impact: "disabling a plugin removes its tools and commands immediately.",
+        impact:
+          "disabling a plugin removes its tools and commands immediately.",
         tone: "consequence",
       },
     });
@@ -502,17 +592,25 @@ function renderSettingsMenu(
   // against the just-written value; closing first forces a real reopen (a
   // second open of the same primary kind while one is showing is a no-op)
   // while the captured index keeps the cursor where the operator left it.
-  const activeIndex = shell.overlayKind === "settings" ? (shell.overlayList?.activeIndex ?? 0) : 0;
+  const activeIndex =
+    shell.overlayKind === "settings"
+      ? (shell.overlayList?.activeIndex ?? 0)
+      : 0;
   replaceCommandSurface(shell, () => {
     const snapshot = settings.read();
     const cycleRows = settingsCycleRows(snapshot, settings);
-    const byId = new Map<string, SettingsCycleRow>(cycleRows.map((r) => [r.id, r]));
+    const byId = new Map<string, SettingsCycleRow>(
+      cycleRows.map((r) => [r.id, r]),
+    );
     const descById = new Map<string, ItemDescription>([
       ...cycleRows.map((r) => [r.id, r.describe] as const),
       ...navRows.map((r) => [r.id, r.describe] as const),
     ]);
     const ids = [...cycleRows.map((r) => r.id), ...navRows.map((r) => r.id)];
-    const items = [...cycleRows.map((r) => r.value), ...navRows.map((r) => r.value)];
+    const items = [
+      ...cycleRows.map((r) => r.value),
+      ...navRows.map((r) => r.value),
+    ];
     // Nav rows (permissions, plugins, hooks) open a sub-surface rather than
     // holding a value of their own, so they carry no echo value.
     const values: readonly (string | undefined)[] = [
@@ -546,7 +644,9 @@ function renderSettingsMenu(
               deps.settings.openHooks();
               return;
             }
-            deps.notify("Hooks administration is not available in this session.");
+            deps.notify(
+              "Hooks administration is not available in this session.",
+            );
             openSettingsSurface(shell, deps);
             return;
           default:
@@ -564,7 +664,10 @@ function renderSettingsMenu(
  * whole open resolves synchronously, so a caller that opens and immediately
  * inspects the shell (no permissions admin wired) sees it painted.
  */
-export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+export function openSettingsSurface(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+): void {
   const settings = deps.settings;
   if (settings === undefined) {
     deps.notify("Settings are not available in this session.");
@@ -600,7 +703,10 @@ export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): 
 }
 
 /** Remembered approvals; Enter revokes the highlighted grant. */
-export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+export function openPermissionsSurface(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+): void {
   const permissions = deps.permissions;
   if (permissions === undefined) {
     deps.notify("Permission administration is not available in this session.");
@@ -698,7 +804,12 @@ function openCredentialsPane(
     const fields = entry.credentials;
     const rows: ResidualCatalogEntry[] = fields.map((f, i) => ({
       id: f.key,
-      label: credentialRowLabel(f, state.values[f.key] ?? "", state.editing === i, state.buffer),
+      label: credentialRowLabel(
+        f,
+        state.values[f.key] ?? "",
+        state.editing === i,
+        state.buffer,
+      ),
     }));
     rows.push({ id: BACK_ID, label: "Back to plugin" });
     openListOverlay(shell, {
@@ -739,19 +850,26 @@ function openCredentialsPane(
         if (state.editing === null) {
           if (key.ctrl || key.meta || key.option) return false;
           if (key.name === "s") {
-            void Promise.resolve(plugins.saveCredentials(entry.id, state.values)).then(
+            void Promise.resolve(
+              plugins.saveCredentials(entry.id, state.values),
+            ).then(
               () => deps.notify(`Saved credentials for ${entry.name}.`),
               (err: unknown) => deps.notify(`Save failed: ${errorText(err)}`),
             );
             return true;
           }
           if (key.name === "v") {
-            void Promise.resolve(plugins.saveCredentials(entry.id, state.values))
+            void Promise.resolve(
+              plugins.saveCredentials(entry.id, state.values),
+            )
               .then(() => plugins.verify(entry.id, state.values))
               .then(
                 (result) =>
-                  deps.notify(`${entry.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`),
-                (err: unknown) => deps.notify(`Verify failed: ${errorText(err)}`),
+                  deps.notify(
+                    `${entry.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`,
+                  ),
+                (err: unknown) =>
+                  deps.notify(`Verify failed: ${errorText(err)}`),
               );
             return true;
           }
@@ -763,7 +881,13 @@ function openCredentialsPane(
           return true;
         }
         const seq = typeof key.sequence === "string" ? key.sequence : "";
-        if (seq.length === 1 && seq >= " " && !key.ctrl && !key.meta && !key.option) {
+        if (
+          seq.length === 1 &&
+          seq >= " " &&
+          !key.ctrl &&
+          !key.meta &&
+          !key.option
+        ) {
           state.buffer += seq;
           openCredentialsPane(shell, deps, plugins, entry, state);
           return true;
@@ -792,7 +916,10 @@ function openTextPromptPane(
       deferIfBusy: true,
       items: [buffer.value.length === 0 ? "▏" : `${buffer.value}▏`],
       itemIds: ["value"],
-      describe: () => ({ what: opts.what, impact: "Enter accepts. Esc cancels." }),
+      describe: () => ({
+        what: opts.what,
+        impact: "Enter accepts. Esc cancels.",
+      }),
       onAccept: () => opts.onSubmit(buffer.value.trim()),
       onPaste: (text) => {
         buffer.value += text;
@@ -877,7 +1004,8 @@ function openRemoveConfirmPane(
     frameId: "overlay-plugin-remove",
     ...payload(rows),
     describe: (id) => {
-      if (id === REMOVE_CANCEL_ID) return { what: "Return to the plugin list." };
+      if (id === REMOVE_CANCEL_ID)
+        return { what: "Return to the plugin list." };
       return {
         what: `Delete ${entry.name} from disk and disable it in settings.`,
         impact: "This cannot be undone.",
@@ -906,8 +1034,14 @@ function openWebProviderChooser(
     const current = plugins.currentWebProvider();
     const AUTO_ID = "__auto__";
     const rows: ResidualCatalogEntry[] = [
-      { id: AUTO_ID, label: current === undefined ? "‹ automatic ›" : "automatic" },
-      ...providers.map((p) => ({ id: p.id, label: p.id === current ? `‹ ${p.name} ›` : p.name })),
+      {
+        id: AUTO_ID,
+        label: current === undefined ? "‹ automatic ›" : "automatic",
+      },
+      ...providers.map((p) => ({
+        id: p.id,
+        label: p.id === current ? `‹ ${p.name} ›` : p.name,
+      })),
       { id: BACK_ID, label: "Back to plugins" },
     ];
     openListOverlay(shell, {
@@ -925,7 +1059,8 @@ function openWebProviderChooser(
         const chosen = id === AUTO_ID ? undefined : id;
         void Promise.resolve(plugins.setWebProvider(chosen)).then(
           () => openPluginsSurface(shell, deps),
-          (err: unknown) => deps.notify(`Set provider failed: ${errorText(err)}`),
+          (err: unknown) =>
+            deps.notify(`Set provider failed: ${errorText(err)}`),
         );
       },
     });
@@ -937,7 +1072,10 @@ function openWebProviderChooser(
  * opens credentials, Alt+V verifies, Alt+T trusts, Alt+A adds by path,
  * Alt+X removes, Alt+W picks the web provider.
  */
-export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+export function openPluginsSurface(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+): void {
   const plugins = deps.plugins;
   if (plugins === undefined) {
     deps.notify("Plugin administration is not available in this session.");
@@ -982,20 +1120,30 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       },
       onAccept: (selection) => {
         const id = selectedId(selection, rows);
-        if (id === undefined || id === CLOSE_ID || id === PLUGIN_LOAD_WARNINGS_ID) return;
+        if (
+          id === undefined ||
+          id === CLOSE_ID ||
+          id === PLUGIN_LOAD_WARNINGS_ID
+        )
+          return;
         const target = byId.get(id);
         if (target === undefined) return;
         if (target.needsTrust === true) {
-          deps.notify(`${target.name} is untrusted — press Alt+T to trust it before enabling.`);
+          deps.notify(
+            `${target.name} is untrusted — press Alt+T to trust it before enabling.`,
+          );
           openPluginsSurface(shell, deps);
           return;
         }
-        void Promise.resolve(plugins.setEnabled(target.id, !target.enabled)).then(
+        void Promise.resolve(
+          plugins.setEnabled(target.id, !target.enabled),
+        ).then(
           (result) => {
             if (result?.message !== undefined) deps.notify(result.message);
             openPluginsSurface(shell, deps);
           },
-          (err: unknown) => deps.notify(`Plugin update failed: ${errorText(err)}`),
+          (err: unknown) =>
+            deps.notify(`Plugin update failed: ${errorText(err)}`),
         );
       },
       onAction: (id, key) => {
@@ -1031,7 +1179,9 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
           case "v":
             void plugins.verify(target.id, { ...target.credentialValues }).then(
               (result) =>
-                deps.notify(`${target.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`),
+                deps.notify(
+                  `${target.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`,
+                ),
               (err: unknown) => deps.notify(`Verify failed: ${errorText(err)}`),
             );
             return true;
@@ -1065,7 +1215,10 @@ function hookRowLabel(entry: HookEntry): string {
 }
 
 /** Discovered lifecycle hooks; Enter toggles enablement. */
-export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+export function openHooksSurface(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+): void {
   const hooks = deps.hooks;
   if (hooks === undefined) {
     deps.notify("Hook administration is not available in this session.");
@@ -1073,7 +1226,10 @@ export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): voi
   }
   replaceCommandSurface(shell, () => {
     const entries = hooks.list();
-    const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.id, label: hookRowLabel(e) }));
+    const rows: ResidualCatalogEntry[] = entries.map((e) => ({
+      id: e.id,
+      label: hookRowLabel(e),
+    }));
     if (rows.length === 0) {
       rows.push({ id: CLOSE_ID, label: "No hooks discovered" });
     }
@@ -1090,7 +1246,9 @@ export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): voi
         if (target === undefined) return null;
         return {
           what: `${target.runsOn} — ${target.path}`,
-          impact: target.enabled ? "Enter turns this hook off." : "Enter turns this hook on.",
+          impact: target.enabled
+            ? "Enter turns this hook off."
+            : "Enter turns this hook on.",
         };
       },
       onAccept: (selection) => {
@@ -1100,7 +1258,8 @@ export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): voi
         if (target === undefined) return;
         void Promise.resolve(hooks.setEnabled(target.id, !target.enabled)).then(
           () => openHooksSurface(shell, deps),
-          (err: unknown) => deps.notify(`Hook update failed: ${errorText(err)}`),
+          (err: unknown) =>
+            deps.notify(`Hook update failed: ${errorText(err)}`),
         );
       },
     });
@@ -1159,7 +1318,10 @@ function mcpDescription(entry: McpEntry): ItemDescription {
     case "disabled":
       return {
         what: "Disabled — its tools are not advertised.",
-        impact: entry.builtin === true ? mcpHowToImpact(entry) : "Enter re-enables this server.",
+        impact:
+          entry.builtin === true
+            ? mcpHowToImpact(entry)
+            : "Enter re-enables this server.",
       };
   }
 }
@@ -1191,7 +1353,8 @@ function runMcpSurfaceAction(
       (result) => {
         if (!isOverlayContinuationCurrent(shell, continuation)) return;
         deps.notify(result.message);
-        if (isOverlayContinuationCurrent(shell, continuation)) reopen(focusOnSuccess);
+        if (isOverlayContinuationCurrent(shell, continuation))
+          reopen(focusOnSuccess);
       },
       (err: unknown) => {
         if (!isOverlayContinuationCurrent(shell, continuation)) return;
@@ -1204,12 +1367,16 @@ function runMcpSurfaceAction(
     });
 }
 
-function mcpSurfaceRows(entries: readonly McpEntry[], canAdd: boolean): ResidualCatalogEntry[] {
+function mcpSurfaceRows(
+  entries: readonly McpEntry[],
+  canAdd: boolean,
+): ResidualCatalogEntry[] {
   const rows: ResidualCatalogEntry[] = entries.map((e) => ({
     id: e.name,
     label: mcpRowLabel(e),
   }));
-  if (rows.length === 0) rows.push({ id: EMPTY_MCP_ID, label: "No MCP servers configured" });
+  if (rows.length === 0)
+    rows.push({ id: EMPTY_MCP_ID, label: "No MCP servers configured" });
   if (canAdd) rows.push({ id: ADD_MCP_ID, label: "Add MCP server — Alt+A" });
   rows.push({ id: CLOSE_ID, label: "Close mcp" });
   return rows;
@@ -1237,7 +1404,14 @@ function openMcpRemoveConfirm(
       if (id === "remove") {
         const removeServer = mcp.removeServer;
         if (removeServer === undefined) return;
-        runMcpSurfaceAction(shell, deps, removeServer(name), "Remove failed", name, "default");
+        runMcpSurfaceAction(
+          shell,
+          deps,
+          removeServer(name),
+          "Remove failed",
+          name,
+          "default",
+        );
         return;
       }
       openMcpSurface(shell, deps, name);
@@ -1269,7 +1443,13 @@ function openAddMcpURLPane(
           deps.notify("Adding MCP servers is not available in this session.");
           return;
         }
-        runMcpSurfaceAction(shell, deps, addServer(name, url), "Add failed", name);
+        runMcpSurfaceAction(
+          shell,
+          deps,
+          addServer(name, url),
+          "Add failed",
+          name,
+        );
       },
     },
     buffer,
@@ -1318,7 +1498,9 @@ export function openMcpSurface(
     const rows: ResidualCatalogEntry[] = mcpSurfaceRows(entries, canAdd);
     const byName = new Map(entries.map((e) => [e.name, e]));
     const activeIndex =
-      activeName === undefined ? -1 : rows.findIndex((row) => row.id === activeName);
+      activeName === undefined
+        ? -1
+        : rows.findIndex((row) => row.id === activeName);
     let unsubscribe: () => void = () => undefined;
     openListOverlay(shell, {
       kind: "mcp",
@@ -1382,7 +1564,13 @@ export function openMcpSurface(
         if (target.state === "failed") {
           const retryServer = mcp.retryServer;
           if (retryServer === undefined) return;
-          runMcpSurfaceAction(shell, deps, retryServer(target.name), "Retry failed", target.name);
+          runMcpSurfaceAction(
+            shell,
+            deps,
+            retryServer(target.name),
+            "Retry failed",
+            target.name,
+          );
           return;
         }
         const url = target.authURL;
@@ -1393,7 +1581,11 @@ export function openMcpSurface(
         // Flash long enough (6s) to notice the browser was asked to open.
         const flashTtl = { ttlMs: 6000 };
         const say = (suffix: string): void =>
-          setStatusFlash(shell, `opening ${target.name} authorization — ${suffix}`, flashTtl);
+          setStatusFlash(
+            shell,
+            `opening ${target.name} authorization — ${suffix}`,
+            flashTtl,
+          );
         writeClipboard(shell.clipboard, url, {
           onSuccess: () => say("link copied"),
           onFailure: () => say("copy failed"),
@@ -1414,7 +1606,13 @@ export function openMcpSurface(
           const setEnabled = mcp.setEnabled;
           if (setEnabled === undefined) return false;
           unsubscribe();
-          runMcpSurfaceAction(shell, deps, setEnabled(id, false), "Disable failed", id);
+          runMcpSurfaceAction(
+            shell,
+            deps,
+            setEnabled(id, false),
+            "Disable failed",
+            id,
+          );
           return true;
         }
         if (name === "r") {

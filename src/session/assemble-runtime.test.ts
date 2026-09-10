@@ -3,7 +3,12 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@intx/agent";
-import type { AuditStore, Compactor, ContextStore, ToolDefinition } from "@intx/types/runtime";
+import type {
+  AuditStore,
+  Compactor,
+  ContextStore,
+  ToolDefinition,
+} from "@intx/types/runtime";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import {
@@ -13,10 +18,16 @@ import {
 } from "./assemble-runtime.js";
 
 function def(name: string): ToolDefinition {
-  return { name, description: `${name} tool`, inputSchema: { type: "object", properties: {} } };
+  return {
+    name,
+    description: `${name} tool`,
+    inputSchema: { type: "object", properties: {} },
+  };
 }
 
-function wiring(overrides: Partial<Parameters<typeof createAdvertisedToolset>[0]> = {}) {
+function wiring(
+  overrides: Partial<Parameters<typeof createAdvertisedToolset>[0]> = {},
+) {
   return {
     sessionMode: "orchestrator" as const,
     toolAvailability: { languageServerAvailable: false },
@@ -28,7 +39,10 @@ function wiring(overrides: Partial<Parameters<typeof createAdvertisedToolset>[0]
 describe("createAdvertisedToolset", () => {
   test("drops names outside the built-in prefix", () => {
     const { computeAdvertised } = createAdvertisedToolset(wiring());
-    const names = computeAdvertised([def("write_file"), def("mystery_tool")]).map((d) => d.name);
+    const names = computeAdvertised([
+      def("write_file"),
+      def("mystery_tool"),
+    ]).map((d) => d.name);
     expect(names).toContain("write_file");
     expect(names).not.toContain("mystery_tool");
   });
@@ -36,16 +50,23 @@ describe("createAdvertisedToolset", () => {
   test("appends activated tools after the prefix, in activation order", () => {
     const { activated, computeAdvertised } = createAdvertisedToolset(wiring());
     expect(activated.activate(["mystery_tool"])).toBe(true);
-    const names = computeAdvertised([def("read_file"), def("mystery_tool")]).map((d) => d.name);
+    const names = computeAdvertised([
+      def("read_file"),
+      def("mystery_tool"),
+    ]).map((d) => d.name);
     expect(names[names.length - 1]).toBe("mystery_tool");
     expect(names.slice(0, -1)).not.toContain("mystery_tool");
   });
 
   test("honors an explicit built-in prefix", () => {
-    const { computeAdvertised } = createAdvertisedToolset(wiring({ builtInPrefix: ["read_file"] }));
-    expect(computeAdvertised([def("read_file"), def("write_file")]).map((d) => d.name)).toEqual([
-      "read_file",
-    ]);
+    const { computeAdvertised } = createAdvertisedToolset(
+      wiring({ builtInPrefix: ["read_file"] }),
+    );
+    expect(
+      computeAdvertised([def("read_file"), def("write_file")]).map(
+        (d) => d.name,
+      ),
+    ).toEqual(["read_file"]);
   });
 
   test("advertises nothing from an empty registry", () => {
@@ -119,7 +140,7 @@ describe("assembleChatAgent", () => {
     const fakeStorage = {
       readBlob: async () => new Uint8Array(),
     } as unknown as ContextStore & AuditStore;
-    const fakeAgent = { close: async () => {} } as unknown as Agent;
+    const fakeAgent = { close: async () => undefined } as unknown as Agent;
 
     await withMockedModuleDuring(
       import.meta.resolve("./optimized-context-store.js"),
@@ -146,7 +167,8 @@ describe("assembleChatAgent", () => {
               },
             ) => {
               agentWorkdirs.push(env.workdir);
-              if (env.sessionId !== undefined) agentSessionIds.push(env.sessionId);
+              if (env.sessionId !== undefined)
+                agentSessionIds.push(env.sessionId);
               agentStorages.push(env.storage);
               agentAudits.push(env.audit);
               agentCompactors.push(env.compactors["pruning-compactor"]);
@@ -166,15 +188,21 @@ describe("assembleChatAgent", () => {
               toolsId: "test/tools",
               agentId: "test/agent",
               systemPrompt: "prompt",
-              authorize: async () => ({ effect: "allow", matchingGrants: [], resolvedBy: null }),
+              authorize: async () => ({
+                effect: "allow",
+                matchingGrants: [],
+                resolvedBy: null,
+              }),
               getDynamicRunner: () => {
-                throw new Error("getDynamicRunner should not run at assemble or mocked build");
+                throw new Error(
+                  "getDynamicRunner should not run at assemble or mocked build",
+                );
               },
               computeAdvertised: () => [],
               activateTools: () => false,
               inactivityTimeoutMs: 1_000,
-              onTasksChange: () => {},
-              requestContinuation: () => {},
+              onTasksChange: () => undefined,
+              requestContinuation: () => undefined,
               getProvider: () => ({ providerName: "test", model: "m" }),
               getWorkdir: () => {
                 workdirCalls.push(liveDir);
@@ -199,7 +227,7 @@ describe("assembleChatAgent", () => {
                 compactorCalls.push(liveCompactor.name);
                 return liveCompactor;
               },
-              onBuilt: () => {},
+              onBuilt: () => undefined,
             });
 
             expect(workdirCalls).toEqual([]);

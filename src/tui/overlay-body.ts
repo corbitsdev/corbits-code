@@ -59,7 +59,10 @@ function splitLongToken(token: string, width: number): [string, string] {
     if (best >= 1) return [token.slice(0, best + 1), token.slice(best + 1)];
   }
   // A single glyph wider than the whole budget still has to make progress.
-  const cut = window > 0 ? window : String.fromCodePoint(token.codePointAt(0) ?? 32).length;
+  const cut =
+    window > 0
+      ? window
+      : String.fromCodePoint(token.codePointAt(0) ?? 32).length;
   return [token.slice(0, cut), token.slice(cut)];
 }
 
@@ -109,7 +112,11 @@ export function wrapWords(text: string, width: number): string[] {
 }
 
 /** Wrap a multi-line block, preserving blank lines, capped at `maxLines`. */
-export function wrapOverlayText(text: string, width: number, maxLines: number): string[] {
+export function wrapOverlayText(
+  text: string,
+  width: number,
+  maxLines: number,
+): string[] {
   const cap = Math.max(1, Math.floor(maxLines));
   const out: string[] = [];
   for (const raw of text.split("\n")) {
@@ -164,12 +171,18 @@ export function composeDecisionBody(
   const header = wrapWords(lines[headIndex] ?? "", headerWidth);
   header.forEach((line, i) => {
     rows.push({
-      text: i === 0 ? `${HEADER_PREFIX}${line}` : `${" ".repeat(prefixWidth)}${line}`,
+      text:
+        i === 0
+          ? `${HEADER_PREFIX}${line}`
+          : `${" ".repeat(prefixWidth)}${line}`,
       fg: UI.action,
     });
   });
 
-  const rest = budget > 0 ? lines.slice(headIndex + 1).filter((l) => l.trim().length > 0) : [];
+  const rest =
+    budget > 0
+      ? lines.slice(headIndex + 1).filter((l) => l.trim().length > 0)
+      : [];
   if (rest.length > 0) {
     rows.push({ text: "", fg: UI.textDim });
     // Continuation rows are indented so a wrapped chain segment can never be
@@ -238,7 +251,10 @@ export function describeZoneLines(
       lines.push(line);
       fgs.push(UI.textDim);
     }
-    if (desc.impact !== undefined && width >= DESCRIPTION_ZONE_IMPACT_MIN_WIDTH) {
+    if (
+      desc.impact !== undefined &&
+      width >= DESCRIPTION_ZONE_IMPACT_MIN_WIDTH
+    ) {
       const impactFg = desc.tone === "consequence" ? UI.warning : UI.textFaint;
 
       for (const line of wrapWords(desc.impact, width)) {
@@ -306,15 +322,23 @@ export function decisionContextBudget(input: {
   readonly promptBaseRows: number;
 }): number {
   const fixedChrome =
-    input.overlayHostBorderRows + input.overlayTitleRows + DECISION_HEADER_AND_TRAILER_ROWS;
+    input.overlayHostBorderRows +
+    input.overlayTitleRows +
+    DECISION_HEADER_AND_TRAILER_ROWS;
   // The resolver never lets the overlay host past the fraction cap even when
   // the transcript floor and every other zone have already given up their
   // rows, so that cap — not just the prompt floor — bounds how much context
   // this budget can safely ask for.
   const fracCap = Math.floor(input.terminalHeight * input.overlayMaxFraction);
-  const maxOverlayRows = Math.min(input.terminalHeight - input.promptBaseRows, fracCap);
+  const maxOverlayRows = Math.min(
+    input.terminalHeight - input.promptBaseRows,
+    fracCap,
+  );
   const baseline =
-    maxOverlayRows - input.overlayRowsPerItem - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
+    maxOverlayRows -
+    input.overlayRowsPerItem -
+    fixedChrome -
+    DECISION_CONTEXT_BLANK_ROWS;
   return Math.max(0, Math.min(DECISION_CONTEXT_ROWS, baseline));
 }
 

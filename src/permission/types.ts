@@ -75,4 +75,6 @@ export interface ApprovalOutcome {
   message?: string;
 }
 
-export type RequestApproval = (request: PermissionRequest) => Promise<ApprovalOutcome>;
+export type RequestApproval = (
+  request: PermissionRequest,
+) => Promise<ApprovalOutcome>;

@@ -1,4 +1,7 @@
-import { detectModelFamily, type ModelFamily } from "../subagent/provider-family.js";
+import {
+  detectModelFamily,
+  type ModelFamily,
+} from "../subagent/provider-family.js";
 
 /**
  * Per-model-family tuning for the shared directors (main chat director and
@@ -86,7 +89,10 @@ export function resolveModelFamilyPolicy(input: {
       // The finish-bias residual only makes sense on leaf workers, mirroring
       // shouldApplyGrokAntiThrash: orchestrators dispatch other agents rather
       // than doing the work directly.
-      return { ...policy, applyGrokFinishBias: policy.applyGrokFinishBias && !orchestrator };
+      return {
+        ...policy,
+        applyGrokFinishBias: policy.applyGrokFinishBias && !orchestrator,
+      };
     }
     case "kimi":
       return { family, ...KIMI_POLICY };

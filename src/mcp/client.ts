@@ -4,7 +4,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { OAuthError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { createOAuthProvider, type CorbitsOAuthProvider } from "./oauth-provider.js";
+import {
+  createOAuthProvider,
+  type CorbitsOAuthProvider,
+} from "./oauth-provider.js";
 import { startCallbackServer, type CallbackServer } from "./callback-server.js";
 import { normalizeMCPServerURL } from "./auth-store.js";
 import type { ResolvedMCPServerConfig } from "./exa.js";
@@ -21,11 +24,16 @@ export interface MCPTool {
 export interface MCPClient {
   serverName: string;
   tools: MCPTool[];
-  call(toolName: string, args: Record<string, unknown>, signal: AbortSignal): Promise<string>;
+  call(
+    toolName: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<string>;
   close(): Promise<void>;
 }
 export type MCPConnectResult =
-  { ok: true; client: MCPClient } | { ok: false; serverName: string; error: string };
+  | { ok: true; client: MCPClient }
+  | { ok: false; serverName: string; error: string };
 export interface MCPConnectOptions {
   stderr?: "inherit" | "ignore" | "pipe";
   onAuthURL?: (serverName: string, authorizationUrl: string) => void;
@@ -39,7 +47,10 @@ export interface MCPConnectOptions {
 }
 
 function isHttpServer(config: ResolvedMCPServerConfig): boolean {
-  return config.type === "http" || (config.type === undefined && config.url !== undefined);
+  return (
+    config.type === "http" ||
+    (config.type === undefined && config.url !== undefined)
+  );
 }
 
 export function unwrapToolContent(content: unknown): string {
@@ -87,12 +98,19 @@ interface HTTPAuthCoordinator {
   probe(): Promise<void>;
 }
 
-function isRecoverableAuthError(err: unknown): err is UnauthorizedError | OAuthError {
+function isRecoverableAuthError(
+  err: unknown,
+): err is UnauthorizedError | OAuthError {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
 function isAbortError(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "name" in err && err.name === "AbortError";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    err.name === "AbortError"
+  );
 }
 
 export const MAX_BROWSER_AUTH_ATTEMPTS = 1;
@@ -120,7 +138,9 @@ export function setBrowserAuthWaitMs(ms: number): void {
 function browserAuthCapError(serverName: string): Error {
   const minutes = Math.round(BROWSER_AUTH_COOLDOWN_MS / 60_000);
   const attempts =
-    MAX_BROWSER_AUTH_ATTEMPTS === 1 ? "1 attempt" : `${String(MAX_BROWSER_AUTH_ATTEMPTS)} attempts`;
+    MAX_BROWSER_AUTH_ATTEMPTS === 1
+      ? "1 attempt"
+      : `${String(MAX_BROWSER_AUTH_ATTEMPTS)} attempts`;
   return new Error(
     `MCP authorization for ${serverName} failed after ${attempts}; ` +
       `retrying paused for ${minutes} minutes. Retry later after the cooldown.`,
@@ -134,9 +154,14 @@ function browserAuthWaitError(serverName: string): Error {
   );
 }
 
-async function waitForBrowserAuthCode(context: HTTPAuthContext): Promise<string> {
+async function waitForBrowserAuthCode(
+  context: HTTPAuthContext,
+): Promise<string> {
   const lifecycle = context.coordinator.lifecycle.signal;
-  const deadline = AbortSignal.any([lifecycle, AbortSignal.timeout(browserAuthWaitMs)]);
+  const deadline = AbortSignal.any([
+    lifecycle,
+    AbortSignal.timeout(browserAuthWaitMs),
+  ]);
   try {
     return await context.callback.waitForCode(deadline);
   } catch (err) {
@@ -155,7 +180,8 @@ function beginBrowserAuth(context: HTTPAuthContext): { clear(): void } {
   const entry = browserAuthAttempts.get(key) ?? { count: 0 };
   const now = Date.now();
   if (entry.cooldownUntil !== undefined) {
-    if (now < entry.cooldownUntil) throw browserAuthCapError(context.serverName);
+    if (now < entry.cooldownUntil)
+      throw browserAuthCapError(context.serverName);
     entry.cooldownUntil = undefined;
     entry.count = 0;
   }
@@ -191,26 +217,34 @@ async function tryTokenRefresh(context: HTTPAuthContext): Promise<boolean> {
 
 function getOrStartRefresh(context: HTTPAuthContext): Promise<boolean> {
   const coordinator = context.coordinator;
-  if (coordinator.refreshInFlight !== undefined) return coordinator.refreshInFlight;
+  if (coordinator.refreshInFlight !== undefined)
+    return coordinator.refreshInFlight;
   const shared = Promise.resolve().then(() => tryTokenRefresh(context));
   coordinator.refreshInFlight = shared;
   const clear = () => {
-    if (coordinator.refreshInFlight === shared) delete coordinator.refreshInFlight;
+    if (coordinator.refreshInFlight === shared)
+      delete coordinator.refreshInFlight;
   };
   void shared.then(clear, clear);
   return shared;
 }
 
 function gateRedirectToAuthorization(context: HTTPAuthContext): void {
-  const inner = context.authProvider.redirectToAuthorization.bind(context.authProvider);
-  const innerSave = context.authProvider.saveCodeVerifier?.bind(context.authProvider);
+  const inner = context.authProvider.redirectToAuthorization.bind(
+    context.authProvider,
+  );
+  const innerSave = context.authProvider.saveCodeVerifier?.bind(
+    context.authProvider,
+  );
   if (innerSave !== undefined) {
     context.authProvider.saveCodeVerifier = (codeVerifier: string) => {
       const coordinator = context.coordinator;
       if (coordinator.pkceFrozen) {
         const pending = coordinator.pkceSavePromise;
         if (pending === undefined)
-          throw new Error("PKCE verifier save is frozen without a pending write");
+          throw new Error(
+            "PKCE verifier save is frozen without a pending write",
+          );
         return pending;
       }
       coordinator.pkceFrozen = true;
@@ -218,26 +252,35 @@ function gateRedirectToAuthorization(context: HTTPAuthContext): void {
       return coordinator.pkceSavePromise;
     };
   }
-  context.authProvider.redirectToAuthorization = async (authorizationUrl: URL) => {
+  context.authProvider.redirectToAuthorization = async (
+    authorizationUrl: URL,
+  ) => {
     const coordinator = context.coordinator;
     const browserFlowBeforeRefresh = coordinator.browserFlow;
-    if (browserFlowBeforeRefresh !== undefined) return browserFlowBeforeRefresh.promptEmitted;
+    if (browserFlowBeforeRefresh !== undefined)
+      return browserFlowBeforeRefresh.promptEmitted;
     const refresh = coordinator.refreshInFlight;
     if (refresh !== undefined && (await refresh)) {
       unfreezePkce(coordinator);
       return;
     }
-    const concurrentBrowserFlow = coordinator.browserFlow ?? browserFlowBeforeRefresh;
-    if (concurrentBrowserFlow !== undefined) return concurrentBrowserFlow.promptEmitted;
+    const concurrentBrowserFlow =
+      coordinator.browserFlow ?? browserFlowBeforeRefresh;
+    if (concurrentBrowserFlow !== undefined)
+      return concurrentBrowserFlow.promptEmitted;
     if (!context.interactive) {
       unfreezePkce(coordinator);
-      throw new Error("Authorization required but no interactive handler is available.");
+      throw new Error(
+        "Authorization required but no interactive handler is available.",
+      );
     }
 
     try {
       const attempt = beginBrowserAuth(context);
       const startPrompt = Promise.withResolvers<undefined>();
-      const promptEmitted = startPrompt.promise.then(() => inner(authorizationUrl));
+      const promptEmitted = startPrompt.promise.then(() =>
+        inner(authorizationUrl),
+      );
       coordinator.browserFlow = { attempt, promptEmitted };
       startPrompt.resolve(undefined);
       return promptEmitted;
@@ -255,7 +298,10 @@ function gateRedirectToAuthorization(context: HTTPAuthContext): void {
  */
 export function fetchWithConnectAbort(
   connectSignal: AbortSignal,
-  baseFetch: (url: string | URL, init?: RequestInit) => Promise<Response> = fetch,
+  baseFetch: (
+    url: string | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = fetch,
 ): (url: string | URL, init?: RequestInit) => Promise<Response> {
   return (url, init) => {
     const requestSignal = init?.signal ?? undefined;
@@ -301,10 +347,17 @@ export async function retryAfterInteractiveAuth<T>(
   }
 }
 
-async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPAuthContext) {
+async function driveRecovery(
+  err: UnauthorizedError | OAuthError,
+  context: HTTPAuthContext,
+) {
   const coordinator = context.coordinator;
-  if (err instanceof OAuthError) await context.authProvider.resetAuthorization();
-  if (err instanceof UnauthorizedError && coordinator.browserFlow === undefined) {
+  if (err instanceof OAuthError)
+    await context.authProvider.resetAuthorization();
+  if (
+    err instanceof UnauthorizedError &&
+    coordinator.browserFlow === undefined
+  ) {
     await getOrStartRefresh(context);
     // SDK redirects waiting on this refresh must reserve the browser flow before the probe.
     await Promise.resolve();
@@ -325,12 +378,18 @@ async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPA
   const code = await waitForBrowserAuthCode(context);
   await new StreamableHTTPClientTransport(
     context.url,
-    streamableHTTPTransportOptions(context.authProvider, coordinator.lifecycle.signal),
+    streamableHTTPTransportOptions(
+      context.authProvider,
+      coordinator.lifecycle.signal,
+    ),
   ).finishAuth(code);
   await coordinator.probe();
 }
 
-function completeVerifiedRecovery(context: HTTPAuthContext, generation: number): void {
+function completeVerifiedRecovery(
+  context: HTTPAuthContext,
+  generation: number,
+): void {
   const coordinator = context.coordinator;
   if (coordinator.recoveryGeneration !== generation) return;
   if (coordinator.notified) return;
@@ -371,10 +430,15 @@ function getOrStartRecovery(
 }
 
 function abortReason(signal: AbortSignal): unknown {
-  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+  return (
+    signal.reason ?? new DOMException("The operation was aborted", "AbortError")
+  );
 }
 
-function awaitRecovery(recovery: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+function awaitRecovery(
+  recovery: Promise<void>,
+  signal: AbortSignal | undefined,
+): Promise<void> {
   if (signal === undefined) return recovery;
   if (signal.aborted) return Promise.reject(abortReason(signal));
   return new Promise((resolve, reject) => {
@@ -431,14 +495,19 @@ async function finishClient(
   closeLifecycle?: () => void,
 ): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () =>
-    signal === undefined ? client.listTools() : client.listTools(undefined, { signal }),
+    signal === undefined
+      ? client.listTools()
+      : client.listTools(undefined, { signal }),
   );
   const tools: MCPTool[] = result.tools.map((t) => {
     const annotations = t.annotations as McpToolAnnotations | undefined;
     const tool: MCPTool = {
       name: t.name,
       description: t.description ?? "",
-      inputSchema: (t.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} },
+      inputSchema: (t.inputSchema as Record<string, unknown>) ?? {
+        type: "object",
+        properties: {},
+      },
     };
     if (annotations !== undefined) tool.annotations = annotations;
     return tool;
@@ -449,7 +518,10 @@ async function finishClient(
     async call(toolName, args, signal) {
       const result = await withHTTPAuthorizationRecovery(
         authContext,
-        () => client.callTool({ name: toolName, arguments: args }, undefined, { signal }),
+        () =>
+          client.callTool({ name: toolName, arguments: args }, undefined, {
+            signal,
+          }),
         signal,
       );
       return unwrapToolContent(result.content);
@@ -467,13 +539,20 @@ async function connectStdio(
   options: MCPConnectOptions,
 ): Promise<MCPConnectResult> {
   if (config.command === undefined)
-    return { ok: false, serverName: config.name, error: "stdio MCP server requires a command" };
+    return {
+      ok: false,
+      serverName: config.name,
+      error: "stdio MCP server requires a command",
+    };
   const transportOptions: {
     command: string;
     args?: string[];
     env?: Record<string, string>;
     stderr?: "inherit" | "ignore" | "pipe";
-  } = { command: config.command, env: buildStdioMcpProcessEnv(process.env, config.env) };
+  } = {
+    command: config.command,
+    env: buildStdioMcpProcessEnv(process.env, config.env),
+  };
   if (config.args !== undefined) transportOptions.args = config.args;
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
@@ -482,7 +561,15 @@ async function connectStdio(
       new StdioClientTransport(transportOptions),
       options.signal === undefined ? undefined : { signal: options.signal },
     );
-    return { ok: true, client: await finishClient(client, config.name, undefined, options.signal) };
+    return {
+      ok: true,
+      client: await finishClient(
+        client,
+        config.name,
+        undefined,
+        options.signal,
+      ),
+    };
   } catch (err) {
     await client.close().catch(() => undefined);
     return {
@@ -498,7 +585,11 @@ async function connectHttp(
   options: MCPConnectOptions,
 ): Promise<MCPConnectResult> {
   if (config.url === undefined)
-    return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
+    return {
+      ok: false,
+      serverName: config.name,
+      error: "http MCP server requires a url",
+    };
   let callback: CallbackServer | undefined;
   let client: Client | undefined;
   const lifecycle = new AbortController();
@@ -508,7 +599,8 @@ async function connectHttp(
     options.signal?.removeEventListener("abort", abortLifecycle);
   };
   if (options.signal?.aborted) abortLifecycle();
-  else options.signal?.addEventListener("abort", abortLifecycle, { once: true });
+  else
+    options.signal?.addEventListener("abort", abortLifecycle, { once: true });
   try {
     const normalizedURL = normalizeMCPServerURL(config.url);
     const url = new URL(normalizedURL);
@@ -538,9 +630,14 @@ async function connectHttp(
       const coordinator: HTTPAuthCoordinator = {
         lifecycle,
         probe: async () => {
-          const probeClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
+          const probeClient = new Client({
+            name: MCP_CLIENT_NAME,
+            version: "1.0.0",
+          });
           try {
-            await probeClient.connect(makeTransport(), { signal: lifecycle.signal });
+            await probeClient.connect(makeTransport(), {
+              signal: lifecycle.signal,
+            });
           } finally {
             await probeClient.close().catch(() => undefined);
           }
@@ -553,20 +650,28 @@ async function connectHttp(
         coordinator,
         interactive: options.onAuthURL !== undefined,
         serverName: config.name,
-        ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
+        ...(options.onAuthorized !== undefined
+          ? { onAuthorized: options.onAuthorized }
+          : {}),
       };
       gateRedirectToAuthorization(authContext);
     }
-    const connectedClient = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
+    const connectedClient = new Client({
+      name: MCP_CLIENT_NAME,
+      version: "1.0.0",
+    });
     client = connectedClient;
     await withHTTPAuthorizationRecovery(
       authContext,
-      () => connectedClient.connect(makeTransport(), { signal: lifecycle.signal }),
+      () =>
+        connectedClient.connect(makeTransport(), { signal: lifecycle.signal }),
       lifecycle.signal,
     );
     if (authContext !== undefined) {
       authContext.coordinator.probe = () =>
-        connectedClient.listTools(undefined, { signal: lifecycle.signal }).then(() => undefined);
+        connectedClient
+          .listTools(undefined, { signal: lifecycle.signal })
+          .then(() => undefined);
     }
     return {
       ok: true,
@@ -598,7 +703,9 @@ export async function connectMCPServer(
   config: ResolvedMCPServerConfig,
   options: MCPConnectOptions = {},
 ): Promise<MCPConnectResult> {
-  return isHttpServer(config) ? connectHttp(config, options) : connectStdio(config, options);
+  return isHttpServer(config)
+    ? connectHttp(config, options)
+    : connectStdio(config, options);
 }
 
 export async function connectMCPServers(
@@ -606,7 +713,9 @@ export async function connectMCPServers(
   onWarning: (message: string) => void,
   options: MCPConnectOptions = {},
 ): Promise<MCPClient[]> {
-  const results = await Promise.all(configs.map((c) => connectMCPServer(c, options)));
+  const results = await Promise.all(
+    configs.map((c) => connectMCPServer(c, options)),
+  );
   const clients: MCPClient[] = [];
   for (const result of results) {
     if (result.ok) clients.push(result.client);

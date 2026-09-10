@@ -3,7 +3,7 @@ import { declareTable, put, all } from "./store.ts";
 export const MAX_ATTEMPTS = 3;
 
 /** Delivery sink. Tests replace this to simulate failures. */
-export let deliver: (orderId: string) => Promise<void> = async () => {};
+export let deliver: (orderId: string) => Promise<void> = async () => undefined;
 export function setDeliver(fn: (orderId: string) => Promise<void>): void {
   deliver = fn;
 }
@@ -23,7 +23,10 @@ export function claimBatch(_workerId: string, limit: number): string[] {
 }
 
 /** Attempt delivery for every claimed notification. */
-export async function processClaimed(_workerId: string, ids: string[]): Promise<void> {
+export async function processClaimed(
+  _workerId: string,
+  ids: string[],
+): Promise<void> {
   for (const id of ids) {
     const row = all("notifications").find((r) => r.orderId === id);
     if (row === undefined) continue;
@@ -38,5 +41,7 @@ export async function processClaimed(_workerId: string, ids: string[]): Promise<
 }
 
 export function stateOf(orderId: string): string | undefined {
-  return all("notifications").find((r) => r.orderId === orderId)?.state as string | undefined;
+  return all("notifications").find((r) => r.orderId === orderId)?.state as
+    | string
+    | undefined;
 }

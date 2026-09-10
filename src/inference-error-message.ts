@@ -10,7 +10,10 @@ import {
   formatCodexUsageLimitMessage,
   parseCodexUsageLimitError,
 } from "./auth/codex/usage-limit-error.js";
-import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
+import {
+  codexProfileFromProviderName,
+  isCodexProviderName,
+} from "./config/codex-providers.js";
 import { stripTerminalControlSequences } from "./util/control-char-strip.js";
 import { scrubSecretShapedContent } from "./plugins/tool-result-secret-scrub.js";
 import {
@@ -23,7 +26,8 @@ import {
 } from "./inference-gateway-error.js";
 
 /** Committed auth death — do not claim a refresh is in flight. */
-export const CREDENTIAL_FAILURE_USER_MESSAGE = "Authentication failed — log in again.";
+export const CREDENTIAL_FAILURE_USER_MESSAGE =
+  "Authentication failed — log in again.";
 
 const FRIENDLY_BY_CATEGORY: Record<string, string> = {
   credential_failure: CREDENTIAL_FAILURE_USER_MESSAGE,
@@ -57,19 +61,29 @@ export function looksLikeContextOverflow(message: string): boolean {
 }
 
 /** Category the error should be treated as, trusting message text over a mislabel. */
-export function classifyInferenceErrorCategory(error: InferenceErrorLike): string {
-  return looksLikeContextOverflow(error.message ?? "") ? "context_overflow" : error.category;
+export function classifyInferenceErrorCategory(
+  error: InferenceErrorLike,
+): string {
+  return looksLikeContextOverflow(error.message ?? "")
+    ? "context_overflow"
+    : error.category;
 }
 
 function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
   // Match normalizeCodexUsageLimitError: never brand a known non-Codex source.
-  if (error.providerId !== undefined && !isCodexProviderName(error.providerId)) {
+  if (
+    error.providerId !== undefined &&
+    !isCodexProviderName(error.providerId)
+  ) {
     return undefined;
   }
 
   const candidates: unknown[] = [];
   if (error.raw !== undefined) candidates.push(error.raw);
-  if (typeof error.message === "string" && error.message.trim().startsWith("{")) {
+  if (
+    typeof error.message === "string" &&
+    error.message.trim().startsWith("{")
+  ) {
     candidates.push(error.message);
   }
   // Already-normalized path: message is our formatted line.
@@ -85,7 +99,9 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
     const parsed = parseCodexUsageLimitError(candidate);
     if (parsed === undefined) continue;
     const profile =
-      error.providerId !== undefined ? codexProfileFromProviderName(error.providerId) : undefined;
+      error.providerId !== undefined
+        ? codexProfileFromProviderName(error.providerId)
+        : undefined;
     return formatCodexUsageLimitMessage(parsed, {
       ...(profile !== undefined ? { profile } : {}),
     });
@@ -100,7 +116,9 @@ function safeDisplayText(text: string, maxChars: number): string {
   const oneLine = scrubSecretShapedContent(stripTerminalControlSequences(text))
     .replace(/\s+/g, " ")
     .trim();
-  return oneLine.length > maxChars ? `${oneLine.slice(0, maxChars - 1)}…` : oneLine;
+  return oneLine.length > maxChars
+    ? `${oneLine.slice(0, maxChars - 1)}…`
+    : oneLine;
 }
 
 function terminalProviderFailureCategory(error: InferenceErrorLike): string {
@@ -114,20 +132,30 @@ export function terminalProviderFailureMessage(
   displayLabel?: string,
 ): string {
   const preferred = displayLabel?.trim() || providerId;
-  const sanitizedLabel = safeDisplayText(preferred, TERMINAL_PROVIDER_LABEL_MAX_CHARS);
-  const label = (sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown").replace(
-    /\s+Provider$/i,
-    "",
+  const sanitizedLabel = safeDisplayText(
+    preferred,
+    TERMINAL_PROVIDER_LABEL_MAX_CHARS,
   );
+  const label = (
+    sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown"
+  ).replace(/\s+Provider$/i, "");
   const category = terminalProviderFailureCategory(error);
-  const message = safeDisplayText(error.message ?? "", TERMINAL_DIAGNOSTIC_MAX_CHARS);
+  const message = safeDisplayText(
+    error.message ?? "",
+    TERMINAL_DIAGNOSTIC_MAX_CHARS,
+  );
   const diagnostic = message.length > 0 ? message : "inference error";
-  const diagnosticSentence = /[.!?]$/.test(diagnostic) ? diagnostic : `${diagnostic}.`;
+  const diagnosticSentence = /[.!?]$/.test(diagnostic)
+    ? diagnostic
+    : `${diagnostic}.`;
   const guidance = terminalProviderFailureGuidance(error, category);
   return `${label} Provider failed (${category}): ${diagnosticSentence} ${guidance}`;
 }
 
-function terminalProviderFailureGuidance(error: InferenceErrorLike, category: string): string {
+function terminalProviderFailureGuidance(
+  error: InferenceErrorLike,
+  category: string,
+): string {
   if (category === "credential_failure") return CREDENTIAL_FAILURE_USER_MESSAGE;
   if (category === "context_overflow") return "Try /clear to start fresh.";
   // A 429 that survived the harness's paced retries is a wait-it-out rate
@@ -137,7 +165,9 @@ function terminalProviderFailureGuidance(error: InferenceErrorLike, category: st
   }
   if (
     category === "retryable" ||
-    (error.statusCode !== undefined && error.statusCode >= 500 && error.statusCode <= 599)
+    (error.statusCode !== undefined &&
+      error.statusCode >= 500 &&
+      error.statusCode <= 599)
   ) {
     return "Try again.";
   }
@@ -152,11 +182,13 @@ function terminalProviderFailureSummary(
   displayLabel?: string,
 ): string {
   const preferred = displayLabel?.trim() || providerId;
-  const sanitizedLabel = safeDisplayText(preferred, TERMINAL_PROVIDER_LABEL_MAX_CHARS);
-  const label = (sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown").replace(
-    /\s+Provider$/i,
-    "",
+  const sanitizedLabel = safeDisplayText(
+    preferred,
+    TERMINAL_PROVIDER_LABEL_MAX_CHARS,
   );
+  const label = (
+    sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown"
+  ).replace(/\s+Provider$/i, "");
   const category = terminalProviderFailureCategory(error);
   return `${label} Provider failed (${category}). ${terminalProviderFailureGuidance(error, category)}`;
 }
@@ -174,12 +206,16 @@ export function createResolvedProviderFailureError(
   displayLabel?: string,
 ): ResolvedProviderFailureError {
   return Object.assign(
-    new Error(terminalProviderFailureSummary(providerId, providerError, displayLabel)),
+    new Error(
+      terminalProviderFailureSummary(providerId, providerError, displayLabel),
+    ),
     {
       name: "ResolvedProviderFailureError" as const,
       providerId,
       category: terminalProviderFailureCategory(providerError),
-      ...(providerError.statusCode !== undefined ? { statusCode: providerError.statusCode } : {}),
+      ...(providerError.statusCode !== undefined
+        ? { statusCode: providerError.statusCode }
+        : {}),
     },
   );
 }
@@ -199,11 +235,15 @@ export function isResolvedProviderFailureError(
 
 /** One line describing the failure, falling back to the provider's own message. */
 export function inferenceErrorMessage(error: InferenceErrorLike): string {
-  if (isGatewayOverloadInferenceError(error)) return gatewayOverloadUserMessage(error);
+  if (isGatewayOverloadInferenceError(error))
+    return gatewayOverloadUserMessage(error);
   // Dual-path: harness may still emit intx's quota_exhausted for a known-xAI
   // or known-Codex short 429; FRIENDLY_BY_CATEGORY would otherwise say
   // "Quota exhausted".
-  if (isXaiShortRateLimitInferenceError(error) || isCodexShortRateLimitInferenceError(error))
+  if (
+    isXaiShortRateLimitInferenceError(error) ||
+    isCodexShortRateLimitInferenceError(error)
+  )
     return RATE_LIMIT_USER_MESSAGE;
 
   const category = classifyInferenceErrorCategory(error);
@@ -212,6 +252,12 @@ export function inferenceErrorMessage(error: InferenceErrorLike): string {
     if (codexLine !== undefined) return codexLine;
   }
 
-  const fallback = safeDisplayText(error.message ?? "", TERMINAL_DIAGNOSTIC_MAX_CHARS);
-  return FRIENDLY_BY_CATEGORY[category] ?? (fallback.length > 0 ? fallback : "inference error");
+  const fallback = safeDisplayText(
+    error.message ?? "",
+    TERMINAL_DIAGNOSTIC_MAX_CHARS,
+  );
+  return (
+    FRIENDLY_BY_CATEGORY[category] ??
+    (fallback.length > 0 ? fallback : "inference error")
+  );
 }

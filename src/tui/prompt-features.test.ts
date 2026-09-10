@@ -55,7 +55,10 @@ const CLIP_OTHER: PendingImageAttachment = {
 
 function withShell(
   fn: (shell: AppShell) => Promise<void>,
-  opts?: { readonly wireKeys?: boolean; readonly flashSchedule?: FlashSchedule },
+  opts?: {
+    readonly wireKeys?: boolean;
+    readonly flashSchedule?: FlashSchedule;
+  },
 ): Promise<void> {
   return withTestRenderer(
     async (h) => {
@@ -63,7 +66,9 @@ function withShell(
         terminal: { columns: 80, rows: 24 },
         wireKeys: opts?.wireKeys ?? true,
         run: "idle",
-        ...(opts?.flashSchedule !== undefined ? { flashSchedule: opts.flashSchedule } : {}),
+        ...(opts?.flashSchedule !== undefined
+          ? { flashSchedule: opts.flashSchedule }
+          : {}),
       });
       try {
         await fn(shell);
@@ -89,7 +94,10 @@ describe("image attachments", () => {
 
   test("reports the failure reason and attaches nothing", async () => {
     await withShell(async (shell) => {
-      setPromptImageSource(shell, async () => ({ ok: false, reason: "no PNG" }));
+      setPromptImageSource(shell, async () => ({
+        ok: false,
+        reason: "no PNG",
+      }));
       expect(await attachClipboardImage(shell)).toBe(false);
       expect(shell.pendingAttachments).toEqual([]);
       expect(shell.statusFlash).toContain("no PNG");
@@ -101,12 +109,15 @@ describe("image attachments", () => {
     const flashSchedule: FlashSchedule = (fn, ms) => {
       expect(ms).toBe(RUNTIME_FLASH_MS);
       lapse.push(fn);
-      return () => {};
+      return () => undefined;
     };
 
     await withShell(
       async (shell) => {
-        setPromptImageSource(shell, async () => ({ ok: false, reason: "no PNG" }));
+        setPromptImageSource(shell, async () => ({
+          ok: false,
+          reason: "no PNG",
+        }));
         expect(await attachClipboardImage(shell)).toBe(false);
         expect(shell.statusFlash).toContain("no PNG");
         expect(lapse).toHaveLength(1);
@@ -119,14 +130,20 @@ describe("image attachments", () => {
     lapse.length = 0;
     await withShell(
       async (shell) => {
-        setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
+        setPromptImageSource(shell, async () => ({
+          ok: true,
+          attachment: CLIP,
+        }));
         expect(await attachClipboardImage(shell)).toBe(true);
         expect(shell.statusFlash).toContain("attached clipboard.png");
         expect(lapse).toHaveLength(1);
         lapse[0]?.();
         expect(shell.statusFlash).toBeNull();
 
-        setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP_SAME_CONTENT }));
+        setPromptImageSource(shell, async () => ({
+          ok: true,
+          attachment: CLIP_SAME_CONTENT,
+        }));
         expect(await attachClipboardImage(shell)).toBe(false);
         expect(shell.statusFlash).toContain(`${CLIP.name} is already attached`);
         expect(lapse).toHaveLength(2);
@@ -145,7 +162,10 @@ describe("image attachments", () => {
           wireKeys: true,
           run: "idle",
         });
-        let resolveRead: (r: { ok: true; attachment: PendingImageAttachment }) => void = () => {};
+        let resolveRead: (r: {
+          ok: true;
+          attachment: PendingImageAttachment;
+        }) => void = () => undefined;
         setPromptImageSource(
           shell,
           () =>
@@ -183,7 +203,7 @@ describe("image attachments", () => {
             run: "idle",
           });
           try {
-            let resolveAttached: () => void = () => {};
+            let resolveAttached: () => void = () => undefined;
             const attached = new Promise<void>((r) => {
               resolveAttached = r;
             });
@@ -252,7 +272,7 @@ describe("image attachments", () => {
       const seen: (readonly PendingImageAttachment[] | undefined)[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (_text, _kind, attachments) => seen.push(attachments),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
@@ -270,7 +290,7 @@ describe("image attachments", () => {
       const texts: string[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (text) => texts.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
@@ -285,7 +305,7 @@ describe("image attachments", () => {
       const submitted: string[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (text) => submitted.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       shell.prompt.value = "   ";
@@ -302,7 +322,11 @@ describe("image attachments", () => {
  * these drive the raw ESC[200~ … ESC[201~ bytes to prove it.
  */
 describe("text paste", () => {
-  const pasteCase = (label: string, drive: (h: Harness) => Promise<void>, expected: string) => {
+  const pasteCase = (
+    label: string,
+    drive: (h: Harness) => Promise<void>,
+    expected: string,
+  ) => {
     test(label, async () => {
       await withTestRenderer(
         async (h) => {
@@ -315,10 +339,13 @@ describe("text paste", () => {
             const submitted: string[] = [];
             setShellBridgeHooks(shell, {
               onSubmit: (text) => submitted.push(text),
-              onInterrupt: () => {},
+              onInterrupt: () => undefined,
               exclusive: true,
             });
-            setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
+            setPromptImageSource(shell, async () => ({
+              ok: true,
+              attachment: CLIP,
+            }));
             shell.prompt.focus();
             await drive(h);
             await h.renderOnce();
@@ -342,7 +369,10 @@ describe("text paste", () => {
 
   pasteCase(
     "multi-line paste keeps its newlines and does not submit",
-    async (h) => await h.mockInput.pasteBracketedText("first line\nsecond line\nthird line"),
+    async (h) =>
+      await h.mockInput.pasteBracketedText(
+        "first line\nsecond line\nthird line",
+      ),
     "first line\nsecond line\nthird line",
   );
 
@@ -350,13 +380,15 @@ describe("text paste", () => {
   // bracketed paste must still be composed text, not a submit.
   pasteCase(
     "a CRLF paste does not submit on the carriage return",
-    async (h) => await h.mockInput.pasteBracketedText("first line\r\nsecond line"),
+    async (h) =>
+      await h.mockInput.pasteBracketedText("first line\r\nsecond line"),
     "first line\nsecond line",
   );
 
   pasteCase(
     "a paste larger than one stdin chunk arrives intact",
-    async (h) => await h.mockInput.pasteBracketedText(`${"x".repeat(4000)}\nend`),
+    async (h) =>
+      await h.mockInput.pasteBracketedText(`${"x".repeat(4000)}\nend`),
     `${"x".repeat(4000)}\nend`,
   );
 
@@ -367,7 +399,8 @@ describe("text paste", () => {
   // line instead of composing all three.
   pasteCase(
     "a CRLF paste arriving as raw keystrokes still composes instead of submitting",
-    async (h) => await h.mockInput.typeText("line one\r\nline two\r\nline three"),
+    async (h) =>
+      await h.mockInput.typeText("line one\r\nline two\r\nline three"),
     "line one\nline two\nline three",
   );
 });
@@ -385,7 +418,7 @@ describe("un-bracketed paste vs. deliberate Enter", () => {
           const submitted: string[] = [];
           setShellBridgeHooks(shell, {
             onSubmit: (text) => submitted.push(text),
-            onInterrupt: () => {},
+            onInterrupt: () => undefined,
             exclusive: true,
           });
           shell.prompt.focus();
@@ -426,7 +459,7 @@ describe("un-bracketed paste vs. deliberate Enter", () => {
           const submitted: string[] = [];
           setShellBridgeHooks(shell, {
             onSubmit: (text) => submitted.push(text),
-            onInterrupt: () => {},
+            onInterrupt: () => undefined,
             exclusive: true,
           });
           shell.prompt.focus();
@@ -488,8 +521,8 @@ describe("sent-message recall", () => {
   test("submitting records the message for later recall", async () => {
     await withShell(async (shell) => {
       setShellBridgeHooks(shell, {
-        onSubmit: () => {},
-        onInterrupt: () => {},
+        onSubmit: () => undefined,
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       shell.prompt.value = "remember me";
@@ -550,7 +583,7 @@ describe("@-mention suggestions", () => {
           run: "idle",
         });
         try {
-          let resolveOpened: () => void = () => {};
+          let resolveOpened: () => void = () => undefined;
           const opened = new Promise<void>((r) => {
             resolveOpened = r;
           });

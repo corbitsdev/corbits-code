@@ -1,4 +1,8 @@
-import { isValidWorkflowName, type Workflow, type WorkflowPlugin } from "./types.js";
+import {
+  isValidWorkflowName,
+  type Workflow,
+  type WorkflowPlugin,
+} from "./types.js";
 
 // Mutable registry populated by enabled workflow plugins at startup.
 export const WORKFLOWS: Workflow[] = [];

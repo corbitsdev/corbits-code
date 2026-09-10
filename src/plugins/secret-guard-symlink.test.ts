@@ -34,7 +34,10 @@ async function withFixture<T>(
   await mkdir(awsDir);
   const outsideEnv = join(outside, ".env");
   await writeFile(outsideEnv, "SECRET=outside-env\n");
-  await writeFile(join(awsDir, "credentials"), "aws_secret_access_key=LEAKED\n");
+  await writeFile(
+    join(awsDir, "credentials"),
+    "aws_secret_access_key=LEAKED\n",
+  );
   // Shape 1: file symlink with an innocuous name → outside .env
   const fileLink = join(cwd, "config.txt");
   await symlink(outsideEnv, fileLink);
@@ -79,7 +82,9 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
           new AbortController().signal,
         );
         expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+        expect(String(result.content)).toMatch(
+          /sensitive file|escapes working directory/i,
+        );
         expect(String(result.content)).not.toContain("SECRET=outside-env");
       });
     });
@@ -97,7 +102,9 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
           new AbortController().signal,
         );
         expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+        expect(String(result.content)).toMatch(
+          /sensitive file|escapes working directory/i,
+        );
         expect(await Bun.file(outsideEnv).text()).toBe(before);
       });
     });
@@ -106,11 +113,17 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
       await withFixture(async ({ cwd }) => {
         const { tools } = runner(cwd, skipPermissions);
         const result = await tools.run(
-          { id: "1", name: "read_file", arguments: { path: "cache/credentials" } },
+          {
+            id: "1",
+            name: "read_file",
+            arguments: { path: "cache/credentials" },
+          },
           new AbortController().signal,
         );
         expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+        expect(String(result.content)).toMatch(
+          /sensitive file|escapes working directory/i,
+        );
         expect(String(result.content)).not.toContain("LEAKED");
       });
     });
@@ -129,7 +142,9 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
           new AbortController().signal,
         );
         expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+        expect(String(result.content)).toMatch(
+          /sensitive file|escapes working directory/i,
+        );
         expect(await Bun.file(target).text()).toBe(before);
       });
     });
@@ -139,7 +154,9 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
         const { gate } = runner(cwd, skipPermissions);
         const result = await createCodexReadRawFile(cwd, gate)("config.txt");
         expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+        expect(String(result.content)).toMatch(
+          /sensitive file|escapes working directory/i,
+        );
         expect(String(result.content)).not.toContain("SECRET=outside-env");
       });
     });
@@ -147,9 +164,14 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
     test(`${mode}: dir symlink → outside .aws/credentials is blocked for apply_patch raw read`, async () => {
       await withFixture(async ({ cwd }) => {
         const { gate } = runner(cwd, skipPermissions);
-        const result = await createCodexReadRawFile(cwd, gate)("cache/credentials");
+        const result = await createCodexReadRawFile(
+          cwd,
+          gate,
+        )("cache/credentials");
         expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+        expect(String(result.content)).toMatch(
+          /sensitive file|escapes working directory/i,
+        );
         expect(String(result.content)).not.toContain("LEAKED");
       });
     });

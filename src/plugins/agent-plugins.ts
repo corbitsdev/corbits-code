@@ -6,7 +6,10 @@ import { isDirectorId } from "../agent/directors/registry.js";
 import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import { isPluginModuleEnabled } from "./register.js";
-import { pluginWarningSink, type PluginLoadDiagnostics } from "./diagnostics.js";
+import {
+  pluginWarningSink,
+  type PluginLoadDiagnostics,
+} from "./diagnostics.js";
 import { type } from "arktype";
 
 export interface ResolveAgentPluginProfilesOptions {
@@ -23,9 +26,10 @@ function resolveAgentProfileWarningHandler(
   opts: ResolveAgentPluginProfilesOptions | ((msg: string) => void),
 ): (msg: string) => void {
   if (typeof opts === "function") return opts;
-  if (opts.diagnostics !== undefined) return pluginWarningSink(opts.diagnostics);
+  if (opts.diagnostics !== undefined)
+    return pluginWarningSink(opts.diagnostics);
   if (opts.onWarning !== undefined) return opts.onWarning;
-  return () => {};
+  return () => undefined;
 }
 
 // Collect agent profiles from every enabled agent-kind plugin. Each profile is
@@ -67,7 +71,9 @@ export async function resolveAgentPluginProfiles(
           typeof raw === "object" && raw !== null && "id" in raw
             ? String((raw as { id: unknown }).id)
             : "<no id>";
-        onWarning(`plugin "${mod.manifest.id}" agent "${id}" skipped: ${result.summary}`);
+        onWarning(
+          `plugin "${mod.manifest.id}" agent "${id}" skipped: ${result.summary}`,
+        );
         continue;
       }
       const profile = { ...(result as AgentProfile) };
@@ -85,7 +91,10 @@ export async function resolveAgentPluginProfiles(
         mod.dir !== undefined
       ) {
         try {
-          const promptRaw = await readFile(join(mod.dir, profile.systemPromptPath), "utf8");
+          const promptRaw = await readFile(
+            join(mod.dir, profile.systemPromptPath),
+            "utf8",
+          );
           profile.systemPromptRole = promptRaw.trim();
         } catch {
           // Missing prompt file is non-fatal — the profile loads without a role.

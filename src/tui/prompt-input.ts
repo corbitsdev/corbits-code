@@ -18,7 +18,11 @@
  *   than rewritten at every call site.
  */
 
-import { TextareaRenderable, type CliRenderer, type TextareaOptions } from "@opentui/core";
+import {
+  TextareaRenderable,
+  type CliRenderer,
+  type TextareaOptions,
+} from "@opentui/core";
 
 /** A textarea that answers to the single-line input's `value` contract. */
 export type PromptInput = TextareaRenderable & { value: string };
@@ -43,9 +47,15 @@ export const PROMPT_KEY_BINDINGS = [
   { name: "kpenter", action: "submit" },
 ] as const satisfies TextareaOptions["keyBindings"];
 
-export type PromptInputOptions = Omit<TextareaOptions, "keyBindings" | "wrapMode" | "initialValue">;
+export type PromptInputOptions = Omit<
+  TextareaOptions,
+  "keyBindings" | "wrapMode" | "initialValue"
+>;
 
-export function createPromptInput(ctx: CliRenderer, options: PromptInputOptions): PromptInput {
+export function createPromptInput(
+  ctx: CliRenderer,
+  options: PromptInputOptions,
+): PromptInput {
   const area = new TextareaRenderable(ctx, {
     ...options,
     // Soft-wrap on words: a long line uses the rows the box already has rather

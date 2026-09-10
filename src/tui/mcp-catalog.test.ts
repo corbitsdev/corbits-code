@@ -2,13 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { createExaMCPServerConfig } from "../mcp/exa.js";
 import { nextMcpCatalog } from "./mcp-catalog.js";
 
-const linear = { name: "linear", type: "http" as const, url: "https://mcp.linear.app/mcp" };
+const linear = {
+  name: "linear",
+  type: "http" as const,
+  url: "https://mcp.linear.app/mcp",
+};
 const globalLinear = {
   name: "global-linear",
   type: "http" as const,
   url: "https://global.test/mcp",
 };
-const customExa = { name: "exa", type: "http" as const, url: "https://custom.exa.test/mcp" };
+const customExa = {
+  name: "exa",
+  type: "http" as const,
+  url: "https://custom.exa.test/mcp",
+};
 
 describe("nextMcpCatalog", () => {
   test("omitted local unshadows the global settings list this session", () => {
@@ -19,7 +27,9 @@ describe("nextMcpCatalog", () => {
     });
     expect(next.mcpServersSource).toBe("global");
     expect(next.overlayEntries).toEqual([globalLinear]);
-    expect(next.mcpServers.map((server) => server.name)).toContain("global-linear");
+    expect(next.mcpServers.map((server) => server.name)).toContain(
+      "global-linear",
+    );
     expect(next.mcpServers.some((server) => server.name === "exa")).toBe(true);
   });
 
@@ -43,7 +53,9 @@ describe("nextMcpCatalog", () => {
     expect(next.mcpServersSource).toBe("local");
     expect(next.overlayEntries).toEqual([linear]);
     expect(next.mcpServers.map((server) => server.name)).toContain("linear");
-    expect(next.mcpServers.map((server) => server.name)).not.toContain("global-linear");
+    expect(next.mcpServers.map((server) => server.name)).not.toContain(
+      "global-linear",
+    );
   });
 
   test("removing a custom-exa-only list resolves to builtin Exa", () => {

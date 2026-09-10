@@ -8,18 +8,27 @@ import {
   loadPluginsFromPaths,
   type ExpandPluginPathSkip,
 } from "../../src/plugins/loader.js";
+import { defined } from "../helpers/defined.js";
 
 test("a marketplace path expands to its declared member plugins", async () => {
-  const mods = await loadPluginsFromPaths(["tests/fixtures/marketplace"], process.cwd());
+  const mods = await loadPluginsFromPaths(
+    ["tests/fixtures/marketplace"],
+    process.cwd(),
+  );
   const ids = mods.map((m) => m.manifest?.id).sort();
   expect(ids).toEqual(["alpha", "beta"]);
 });
 
 test("marketplace members load with their full data (agents + tagged skills)", async () => {
-  const mods = await loadPluginsFromPaths(["tests/fixtures/marketplace"], process.cwd());
+  const mods = await loadPluginsFromPaths(
+    ["tests/fixtures/marketplace"],
+    process.cwd(),
+  );
   const alpha = mods.find((m) => m.manifest?.id === "alpha");
   expect(alpha?.manifest?.kind).toBe("command"); // skills-only with a tagged skill
-  expect(alpha?.commandPlugin?.commands.map((c) => c.name)).toEqual(["alpha-skill"]);
+  expect(alpha?.commandPlugin?.commands.map((c) => c.name)).toEqual([
+    "alpha-skill",
+  ]);
 
   const beta = mods.find((m) => m.manifest?.id === "beta");
   expect(beta?.manifest?.kind).toBe("agent"); // has an agent
@@ -32,7 +41,9 @@ test("a normal plugin directory is not expanded (no marketplace.json, no plugins
     process.cwd(),
   );
   expect(mods.length).toBe(1);
-  expect(mods[0]!.manifest?.id).toBe("example-commands");
+  expect(defined(mods[0], "plugin module").manifest?.id).toBe(
+    "example-commands",
+  );
 });
 
 test("mixed catalog: relative sibling loads; absolute and escape are skipped", async () => {
@@ -75,7 +86,10 @@ test("mixed catalog: relative sibling loads; absolute and escape are skipped", a
       onSkip: (s) => skips.push(s),
     });
     expect(members).toEqual([join(root, "plugins", "alpha"), sibling]);
-    expect(skips.map((s) => s.reason).sort()).toEqual(["absolute", "outside-contain-root"]);
+    expect(skips.map((s) => s.reason).sort()).toEqual([
+      "absolute",
+      "outside-contain-root",
+    ]);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -163,7 +177,9 @@ test("path expand reports skips via onSkip (never silent when callback set)", as
       }),
     );
     const skips: ExpandPluginPathSkip[] = [];
-    const members = await expandPluginPath(root, { onSkip: (s) => skips.push(s) });
+    const members = await expandPluginPath(root, {
+      onSkip: (s) => skips.push(s),
+    });
     expect(members).toEqual([]);
     expect(skips.map((s) => s.reason).sort()).toEqual(["absolute", "missing"]);
     // `missing` keeps the original relative source string (not only absolute path).
@@ -196,21 +212,32 @@ test("onSkip is required — every skip reaches the caller's handler, none silen
     );
     const writes: string[] = [];
     const origWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ..._rest: unknown[]) => {
-      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      ..._rest: unknown[]
+    ) => {
+      writes.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
       return true;
     }) as typeof process.stderr.write;
     const skips: ExpandPluginPathSkip[] = [];
     try {
-      const members = await expandPluginPath(root, { onSkip: (s) => skips.push(s) });
+      const members = await expandPluginPath(root, {
+        onSkip: (s) => skips.push(s),
+      });
       expect(members).toEqual([]);
       expect(writes).toEqual([]);
-      expect(skips.some((s) => s.reason === "absolute" && s.source === "/tmp/not-a-plugin")).toBe(
-        true,
-      );
-      expect(skips.some((s) => s.reason === "missing" && s.source === "./plugins/missing")).toBe(
-        true,
-      );
+      expect(
+        skips.some(
+          (s) => s.reason === "absolute" && s.source === "/tmp/not-a-plugin",
+        ),
+      ).toBe(true);
+      expect(
+        skips.some(
+          (s) => s.reason === "missing" && s.source === "./plugins/missing",
+        ),
+      ).toBe(true);
     } finally {
       process.stderr.write = origWrite;
     }

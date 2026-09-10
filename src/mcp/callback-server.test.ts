@@ -16,10 +16,14 @@ describe("MCP callback server", () => {
     const server = await startCallbackServer();
     try {
       authorize(server, "expected");
-      const response = await fetch(`${server.redirectUrl}?code=abc&state=expected`);
+      const response = await fetch(
+        `${server.redirectUrl}?code=abc&state=expected`,
+      );
 
       expect(response.status).toBe(200);
-      await expect(server.waitForCode(new AbortController().signal)).resolves.toBe("abc");
+      await expect(
+        server.waitForCode(new AbortController().signal),
+      ).resolves.toBe("abc");
     } finally {
       server.close();
     }
@@ -29,12 +33,18 @@ describe("MCP callback server", () => {
     const server = await startCallbackServer();
     try {
       authorize(server, "expected");
-      const rejected = await fetch(`${server.redirectUrl}?code=wrong&state=unexpected`);
-      const accepted = await fetch(`${server.redirectUrl}?code=abc&state=expected`);
+      const rejected = await fetch(
+        `${server.redirectUrl}?code=wrong&state=unexpected`,
+      );
+      const accepted = await fetch(
+        `${server.redirectUrl}?code=abc&state=expected`,
+      );
 
       expect(rejected.status).toBe(400);
       expect(accepted.status).toBe(200);
-      await expect(server.waitForCode(new AbortController().signal)).resolves.toBe("abc");
+      await expect(
+        server.waitForCode(new AbortController().signal),
+      ).resolves.toBe("abc");
     } finally {
       server.close();
     }
@@ -45,15 +55,19 @@ describe("MCP callback server", () => {
     try {
       authorize(server, "first");
       await fetch(`${server.redirectUrl}?error=access_denied&state=first`);
-      await expect(server.waitForCode(new AbortController().signal)).rejects.toThrow(
-        "access_denied",
-      );
+      await expect(
+        server.waitForCode(new AbortController().signal),
+      ).rejects.toThrow("access_denied");
 
       authorize(server, "second");
-      const response = await fetch(`${server.redirectUrl}?code=abc&state=second`);
+      const response = await fetch(
+        `${server.redirectUrl}?code=abc&state=second`,
+      );
 
       expect(response.status).toBe(200);
-      await expect(server.waitForCode(new AbortController().signal)).resolves.toBe("abc");
+      await expect(
+        server.waitForCode(new AbortController().signal),
+      ).resolves.toBe("abc");
     } finally {
       server.close();
     }
@@ -67,7 +81,9 @@ describe("MCP callback server", () => {
       const controller = new AbortController();
       controller.abort();
 
-      await expect(server.waitForCode(controller.signal)).rejects.toThrow("aborted");
+      await expect(server.waitForCode(controller.signal)).rejects.toThrow(
+        "aborted",
+      );
     } finally {
       server.close();
     }
@@ -101,9 +117,9 @@ describe("MCP callback server", () => {
     server.close();
 
     expect(await pending).toContain("closed before authorization completed");
-    await expect(server.waitForCode(new AbortController().signal)).rejects.toThrow(
-      "closed before authorization completed",
-    );
+    await expect(
+      server.waitForCode(new AbortController().signal),
+    ).rejects.toThrow("closed before authorization completed");
   });
 
   test("close is idempotent and does not leak a waiter after a late callback", async () => {
@@ -118,9 +134,9 @@ describe("MCP callback server", () => {
         (err: unknown) => err,
       ),
     ).resolves.toBeInstanceOf(Error);
-    await expect(server.waitForCode(new AbortController().signal)).rejects.toThrow(
-      "closed before authorization completed",
-    );
+    await expect(
+      server.waitForCode(new AbortController().signal),
+    ).rejects.toThrow("closed before authorization completed");
   });
 
   test("rejects start when listen fails without rewriting the OS error as a retry", async () => {

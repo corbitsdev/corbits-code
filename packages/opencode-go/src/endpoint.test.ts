@@ -23,7 +23,9 @@ describe("protocolForGoModel", () => {
 
   test("catalog covers chat-completions and messages at minimum", () => {
     const protocols = new Set(
-      ["kimi-k2.7-code", "gpt-5.6-luna", "minimax-m3"].map((id) => protocolForGoModel(id)),
+      ["kimi-k2.7-code", "gpt-5.6-luna", "minimax-m3"].map((id) =>
+        protocolForGoModel(id),
+      ),
     );
     expect(protocols.has("chat-completions")).toBe(true);
     expect(protocols.has("messages")).toBe(true);
@@ -130,7 +132,10 @@ describe("parseGoAPIError", () => {
       statusCode: 429,
       body: {
         type: "error",
-        error: { type: "GoUsageLimitError", message: "subscription quota exceeded" },
+        error: {
+          type: "GoUsageLimitError",
+          message: "subscription quota exceeded",
+        },
         metadata: { workspace: "ws_1" },
       },
       headers: { "retry-after": "120" },
@@ -158,7 +163,8 @@ describe("parseGoAPIError", () => {
       statusCode: 429,
       body: {
         error: {
-          message: "Error from provider (Console Go): Provider rate limit exceeded",
+          message:
+            "Error from provider (Console Go): Provider rate limit exceeded",
           type: "rate_limit_error",
           code: "provider_rate_limit_exceeded",
         },
@@ -209,7 +215,10 @@ describe("parseGoAPIError", () => {
       statusCode: 403,
       body: {
         type: "error",
-        error: { type: "GoUsageLimitError", message: "subscription usage limit reached" },
+        error: {
+          type: "GoUsageLimitError",
+          message: "subscription usage limit reached",
+        },
       },
     });
     expect(parsed?.kind).toBe("quota_exhausted");
@@ -262,7 +271,9 @@ describe("isOpenCodeGoURL", () => {
   test("rejects host spoofs and path false positives", () => {
     expect(isOpenCodeGoURL("https://not-opencode.ai/zen/go/v1")).toBe(false);
     expect(isOpenCodeGoURL("https://myopencode.ai/zen/go/v1")).toBe(false);
-    expect(isOpenCodeGoURL("https://opencode.ai.evil.com/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://opencode.ai.evil.com/zen/go/v1")).toBe(
+      false,
+    );
     expect(isOpenCodeGoURL("https://opencode.ai/zen/goodies")).toBe(false);
     expect(isOpenCodeGoURL("https://opencode.ai/zen/goodies/v1")).toBe(false);
     expect(isOpenCodeGoURL("https://opencode.ai/zen/v1")).toBe(false);
@@ -270,15 +281,25 @@ describe("isOpenCodeGoURL", () => {
 
   test("rejects private / non-public hosts (intentional FN; use flag or known name)", () => {
     // Product surface is public-host only — no host allowlist env.
-    expect(isOpenCodeGoURL("https://go.internal.example/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://go.internal.example/zen/go/v1")).toBe(
+      false,
+    );
     expect(isOpenCodeGoURL("https://localhost:8080/zen/go/v1")).toBe(false);
     expect(isOpenCodeGoURL("http://10.0.0.5/zen/go/v1")).toBe(false);
   });
 
   test("rejects query-only embeds and path proxies", () => {
-    expect(isOpenCodeGoURL("https://evil.com/?redirect=https://opencode.ai/zen/go/v1")).toBe(false);
-    expect(isOpenCodeGoURL("https://evil.com/proxy/opencode.ai/zen/go/v1")).toBe(false);
-    expect(isOpenCodeGoURL("not a url but mentions opencode.ai/zen/go")).toBe(false);
+    expect(
+      isOpenCodeGoURL(
+        "https://evil.com/?redirect=https://opencode.ai/zen/go/v1",
+      ),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoURL("https://evil.com/proxy/opencode.ai/zen/go/v1"),
+    ).toBe(false);
+    expect(isOpenCodeGoURL("not a url but mentions opencode.ai/zen/go")).toBe(
+      false,
+    );
     expect(isOpenCodeGoURL(undefined)).toBe(false);
     expect(isOpenCodeGoURL("")).toBe(false);
   });

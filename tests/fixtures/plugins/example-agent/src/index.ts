@@ -24,7 +24,8 @@ export const manifest = {
   id: "example-agent",
   name: "Example Agent",
   kind: "agent" as const,
-  description: "Demo agent plugin that adds a read-only `scout` sub-agent profile.",
+  description:
+    "Demo agent plugin that adds a read-only `scout` sub-agent profile.",
 };
 
 // Profiles contributed by this plugin. Each entry is validated against the
@@ -33,7 +34,8 @@ export const agentPlugin: AgentPlugin = {
   agents: [
     {
       id: "scout",
-      description: "Fast read-only explorer — locates relevant code and returns citations",
+      description:
+        "Fast read-only explorer — locates relevant code and returns citations",
       tier: "fast",
       capabilities: {
         mode: "allow",

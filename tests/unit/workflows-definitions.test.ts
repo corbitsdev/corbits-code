@@ -3,10 +3,18 @@ import "../helpers/workflows.js";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { WorkflowRuntime } from "../../src/workflows/runtime.js";
 import { findWorkflow } from "../../src/workflows/index.js";
-import { detectCapabilities, type CapabilityMap } from "../../src/workflows/capabilities.js";
+import {
+  detectCapabilities,
+  type CapabilityMap,
+} from "../../src/workflows/capabilities.js";
+import { defined } from "../helpers/defined.js";
 
 function tool(name: string): ToolDefinition {
-  return { name, description: name, inputSchema: { type: "object", properties: {} } };
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
 }
 
 const fullCaps: CapabilityMap = detectCapabilities([
@@ -24,7 +32,7 @@ function drive(name: string, caps: CapabilityMap): string[] {
   runtime.start(workflow);
   const ids: string[] = [];
   for (let i = 0; i < 200 && runtime.currentStep() !== null; i++) {
-    ids.push(runtime.currentStep()!.id);
+    ids.push(defined(runtime.currentStep(), "current step").id);
     runtime.advance();
   }
   expect(runtime.isComplete()).toBe(true);

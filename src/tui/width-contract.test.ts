@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 import { WIDTH_PROBE, stringWidth } from "./view/height.js";
-import { checkWidthContract, measureRendererWidth, widthContractNotice } from "./width-contract.js";
+import {
+  checkWidthContract,
+  measureRendererWidth,
+  widthContractNotice,
+} from "./width-contract.js";
 
 describe("the OpenTUI width contract", () => {
   test("OpenTUI's own table agrees with ours under both width methods", () => {
     for (const method of ["wcwidth", "unicode"] as const) {
-      expect(measureRendererWidth(WIDTH_PROBE, method)).toBe(stringWidth(WIDTH_PROBE));
+      expect(measureRendererWidth(WIDTH_PROBE, method)).toBe(
+        stringWidth(WIDTH_PROBE),
+      );
     }
   });
 

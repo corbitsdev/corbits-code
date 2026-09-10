@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createMcpToolPermissionRegistry, registerMcpClientTools } from "./tool-permissions.js";
+import {
+  createMcpToolPermissionRegistry,
+  registerMcpClientTools,
+} from "./tool-permissions.js";
 
 describe("removeToolsForServer", () => {
   test("does not delete mcp__linear__* tiers when removing lin", () => {

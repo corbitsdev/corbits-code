@@ -19,10 +19,14 @@ export interface EditFileLineRangeMode {
 }
 
 export type EditFileModeParse =
-  EditFileSubstringMode | EditFileLineRangeMode | { kind: "invalid"; message: string };
+  | EditFileSubstringMode
+  | EditFileLineRangeMode
+  | { kind: "invalid"; message: string };
 
 function optionalInt(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value)
     ? value
     : undefined;
 }
@@ -42,18 +46,23 @@ function validLineNumber(value: unknown): number | undefined {
 
 function hasLineRangeArgs(args: Record<string, unknown>): boolean {
   return (
-    validLineNumber(args.start_line) !== undefined || validLineNumber(args.end_line) !== undefined
+    validLineNumber(args.start_line) !== undefined ||
+    validLineNumber(args.end_line) !== undefined
   );
 }
 
 function describeReceived(args: Record<string, unknown>): string {
   const old = args.old_string;
   return [
-    typeof old === "string" ? `old_string (len ${old.length})` : "no old_string",
+    typeof old === "string"
+      ? `old_string (len ${old.length})`
+      : "no old_string",
     args.start_line === undefined
       ? "no start_line"
       : `start_line=${JSON.stringify(args.start_line)}`,
-    args.end_line === undefined ? "no end_line" : `end_line=${JSON.stringify(args.end_line)}`,
+    args.end_line === undefined
+      ? "no end_line"
+      : `end_line=${JSON.stringify(args.end_line)}`,
   ].join(", ");
 }
 
@@ -94,7 +103,9 @@ export function parseLineRangeFields(
  * Decide which exclusive edit_file mode the call uses. Stock substring mode is the
  * default when no line-range fields are present.
  */
-export function parseEditFileMode(args: Record<string, unknown>): EditFileModeParse {
+export function parseEditFileMode(
+  args: Record<string, unknown>,
+): EditFileModeParse {
   const path = args.path;
   if (typeof path !== "string" || path.length === 0) {
     return { kind: "invalid", message: 'argument "path" is required' };
@@ -152,7 +163,8 @@ export interface SplitFileLines {
 export function splitFileLines(content: string): SplitFileLines {
   const newline: "\n" | "\r\n" = content.includes("\r\n") ? "\r\n" : "\n";
   const trailingNewline =
-    content.length > 0 && (newline === "\r\n" ? content.endsWith("\r\n") : content.endsWith("\n"));
+    content.length > 0 &&
+    (newline === "\r\n" ? content.endsWith("\r\n") : content.endsWith("\n"));
 
   let lines = newline === "\r\n" ? content.split("\r\n") : content.split("\n");
 
@@ -167,7 +179,11 @@ function splitNewStringLines(newString: string): string[] {
   if (newString.length === 0) return [];
   const normalized = newString.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const parts = normalized.split("\n");
-  if (normalized.endsWith("\n") && parts.length > 0 && parts[parts.length - 1] === "") {
+  if (
+    normalized.endsWith("\n") &&
+    parts.length > 0 &&
+    parts[parts.length - 1] === ""
+  ) {
     parts.pop();
   }
   return parts;
@@ -219,7 +235,11 @@ export function applyLineRangeEdit(
   return joinFileLines(merged, newline, keepTrailing);
 }
 
-export function formatLineRangeSuccess(path: string, startLine: number, endLine: number): string {
+export function formatLineRangeSuccess(
+  path: string,
+  startLine: number,
+  endLine: number,
+): string {
   if (startLine === endLine) {
     return `replaced line ${startLine} in ${path}`;
   }
@@ -254,7 +274,12 @@ export async function runEditFileLineRange(
     throw err;
   }
 
-  const newContent = applyLineRangeEdit(content, args.start_line, args.end_line, args.new_string);
+  const newContent = applyLineRangeEdit(
+    content,
+    args.start_line,
+    args.end_line,
+    args.new_string,
+  );
 
   signal.throwIfAborted();
 
@@ -275,7 +300,9 @@ export async function runEditFileLineRange(
 /**
  * Extend the model-visible edit_file schema with exclusive line-range mode (Corbits Code-only).
  */
-export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefinition {
+export function advertiseEditFileLineRange(
+  definition: ToolDefinition,
+): ToolDefinition {
   if (definition.name !== "edit_file") return definition;
 
   const schema = definition.inputSchema;

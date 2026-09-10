@@ -22,7 +22,9 @@ export interface AgeImageResult {
  * Replace base64 image blocks with a rehydratable attachment marker and emit
  * blobs the reactor will write via ContextStore.writeBlob.
  */
-export async function ageImageBlocks(turn: ConversationTurn): Promise<AgeImageResult> {
+export async function ageImageBlocks(
+  turn: ConversationTurn,
+): Promise<AgeImageResult> {
   if (!turn.content.some((b) => b.type === "image")) {
     return { turn, blobs: [] };
   }
@@ -116,9 +118,13 @@ export function createAttachmentRehydrateTransform(
     async apply(turns, _ctx) {
       const output = await rehydrateAttachmentImages(turns, readBlob);
       let restored = 0;
-      for (let i = 0; i < turns.length; i++) {
-        const before = turns[i]!.content.filter((b) => b.type === "image").length;
-        const after = output[i]!.content.filter((b) => b.type === "image").length;
+      for (const [i, turn] of turns.entries()) {
+        const out = output[i];
+        if (out === undefined) {
+          throw new Error("attachment rehydrate length mismatch");
+        }
+        const before = turn.content.filter((b) => b.type === "image").length;
+        const after = out.content.filter((b) => b.type === "image").length;
         restored += Math.max(0, after - before);
       }
       return {

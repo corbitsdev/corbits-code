@@ -5,13 +5,21 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
-import { projectKeyFor, projectRootFor, projectSessionsRoot, projectsRoot } from "./project-key.js";
+import {
+  projectKeyFor,
+  projectRootFor,
+  projectSessionsRoot,
+  projectsRoot,
+} from "./project-key.js";
 import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
 let root = "";
 
 beforeEach(async () => {
-  root = join(tmpdir(), `corbits-project-key-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  root = join(
+    tmpdir(),
+    `corbits-project-key-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
   await mkdir(root, { recursive: true });
 });
 
@@ -47,8 +55,16 @@ test("linked worktrees have distinct project roots and keys from main and each o
   initTemporaryGitRepo(root);
   await commitReadme(root);
 
-  const wtA = join(root, "..", `wt-a-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-  const wtB = join(root, "..", `wt-b-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const wtA = join(
+    root,
+    "..",
+    `wt-a-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
+  const wtB = join(
+    root,
+    "..",
+    `wt-b-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
   try {
     execFileSync("git", ["worktree", "add", "--detach", wtA, "HEAD"], {
       cwd: root,
@@ -85,5 +101,7 @@ test("projectSessionsRoot lives under ~/.corbits/projects/<key>", () => {
   const home = join(root, "home");
   const key = projectKeyFor(root);
   expect(projectsRoot(home)).toBe(join(home, ".corbits", "projects"));
-  expect(projectSessionsRoot(root, home)).toBe(join(home, ".corbits", "projects", key));
+  expect(projectSessionsRoot(root, home)).toBe(
+    join(home, ".corbits", "projects", key),
+  );
 });

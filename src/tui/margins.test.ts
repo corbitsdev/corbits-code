@@ -99,7 +99,9 @@ describe("top padding", () => {
           // sits at the bottom of the transcript zone, against the prompt
           // box, not immediately after the pad.
           expect(rows[0]?.trim()).toBe("");
-          const contentIndex = rows.findIndex((r) => r.includes("first prompt"));
+          const contentIndex = rows.findIndex((r) =>
+            r.includes("first prompt"),
+          );
           expect(contentIndex).toBeGreaterThan(1);
         } finally {
           shell.dispose();
@@ -204,7 +206,9 @@ describe("painted gutter", () => {
             expect(margin).toBeGreaterThan(0);
             for (const row of frameRows(h)) {
               expect(row.slice(0, margin)).toBe(" ".repeat(margin));
-              expect(row.slice(columns - margin, columns)).toBe(" ".repeat(margin));
+              expect(row.slice(columns - margin, columns)).toBe(
+                " ".repeat(margin),
+              );
             }
           } finally {
             shell.dispose();

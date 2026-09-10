@@ -6,7 +6,12 @@ import {
   XAI_TOKEN_URL,
   XAI_TOKEN_TIMEOUT_MS,
 } from "./constants.js";
-import { buildAuthorizeUrl, exchangeCode, refreshTokens, tokensFromResponse } from "./oauth.js";
+import {
+  buildAuthorizeUrl,
+  exchangeCode,
+  refreshTokens,
+  tokensFromResponse,
+} from "./oauth.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -17,9 +22,14 @@ afterEach(() => {
 describe("xAI OAuth", () => {
   test("builds a PKCE authorize URL", () => {
     const url = new URL(
-      buildAuthorizeUrl({ verifier: "verifier", challenge: "challenge", method: "S256" }, "state"),
+      buildAuthorizeUrl(
+        { verifier: "verifier", challenge: "challenge", method: "S256" },
+        "state",
+      ),
     );
-    expect(url.origin + url.pathname).toBe("https://auth.x.ai/oauth2/authorize");
+    expect(url.origin + url.pathname).toBe(
+      "https://auth.x.ai/oauth2/authorize",
+    );
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("client_id")).toBe(XAI_CLIENT_ID);
     expect(url.searchParams.get("redirect_uri")).toBe(XAI_REDIRECT_URI);
@@ -31,7 +41,10 @@ describe("xAI OAuth", () => {
 
   test("exchanges an authorization code with PKCE verifier", async () => {
     let body = "";
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
       expect(String(input)).toBe(XAI_TOKEN_URL);
       expect(init?.method).toBe("POST");
       body = String(init?.body ?? "");
@@ -65,10 +78,13 @@ describe("xAI OAuth", () => {
 
   test("carries refresh token forward when refresh response omits it", async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ access_token: "new-access", expires_in: 5 }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })) as unknown as typeof fetch;
+      new Response(
+        JSON.stringify({ access_token: "new-access", expires_in: 5 }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      )) as unknown as typeof fetch;
 
     await expect(refreshTokens("old-refresh", 2000)).resolves.toEqual({
       access: "new-access",
@@ -78,7 +94,9 @@ describe("xAI OAuth", () => {
   });
 
   test("requires a refresh token on initial exchange", () => {
-    expect(() => tokensFromResponse({ access_token: "access" }, 0)).toThrow(/no refresh_token/);
+    expect(() => tokensFromResponse({ access_token: "access" }, 0)).toThrow(
+      /no refresh_token/,
+    );
   });
 });
 
@@ -90,12 +108,18 @@ describe("xAI token request timeout", () => {
   // regression guard; the platform owns firing that signal after the bound.
   test("passes a timeout signal to the token endpoint", async () => {
     let signal: AbortSignal | undefined;
-    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
       signal = init?.signal ?? undefined;
-      return new Response(JSON.stringify({ access_token: "new-access", expires_in: 5 }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ access_token: "new-access", expires_in: 5 }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as typeof fetch;
 
     await expect(refreshTokens("old-refresh", 2000)).resolves.toEqual({

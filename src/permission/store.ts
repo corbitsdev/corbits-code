@@ -62,10 +62,17 @@ function parseApprovalList(raw: unknown): Approval[] {
 }
 
 function sameApproval(a: Approval, b: Approval): boolean {
-  return a.tool === b.tool && a.pattern === b.pattern && a.providerModel === b.providerModel;
+  return (
+    a.tool === b.tool &&
+    a.pattern === b.pattern &&
+    a.providerModel === b.providerModel
+  );
 }
 
-async function readApprovalsField(path: string, field: string): Promise<Approval[]> {
+async function readApprovalsField(
+  path: string,
+  field: string,
+): Promise<Approval[]> {
   try {
     const raw = await readFile(path, "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -78,7 +85,9 @@ async function readApprovalsField(path: string, field: string): Promise<Approval
 async function readObjectFile(path: string): Promise<Record<string, unknown>> {
   try {
     const parsed = JSON.parse(await readFile(path, "utf-8")) as unknown;
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return {};
   }
@@ -119,27 +128,39 @@ export async function loadProjectApprovals(cwd: string): Promise<Approval[]> {
   return readApprovalsField(projectStorePath(cwd), "approvals");
 }
 
-export async function saveProjectApproval(cwd: string, approval: Approval): Promise<void> {
+export async function saveProjectApproval(
+  cwd: string,
+  approval: Approval,
+): Promise<void> {
   return chainObjectWrite(projectStorePath(cwd), (current) => ({
     ...current,
     approvals: [...parseApprovalList(current.approvals), approval],
   }));
 }
 
-export async function removeProjectApproval(cwd: string, target: Approval): Promise<void> {
+export async function removeProjectApproval(
+  cwd: string,
+  target: Approval,
+): Promise<void> {
   return chainObjectWrite(projectStorePath(cwd), (current) => ({
     ...current,
-    approvals: parseApprovalList(current.approvals).filter((a) => !sameApproval(a, target)),
+    approvals: parseApprovalList(current.approvals).filter(
+      (a) => !sameApproval(a, target),
+    ),
   }));
 }
 
-export async function loadGlobalApprovals(home: string = homedir()): Promise<Approval[]> {
+export async function loadGlobalApprovals(
+  home: string = homedir(),
+): Promise<Approval[]> {
   return readApprovalsField(globalStorePath(home), "approvals");
 }
 
 // Provider-model grants are stored under one keyed map in the global file. Each
 // returned approval carries its `providerModel` key so the matcher can scope it.
-export async function loadProviderModelApprovals(home: string = homedir()): Promise<Approval[]> {
+export async function loadProviderModelApprovals(
+  home: string = homedir(),
+): Promise<Approval[]> {
   try {
     const raw = await readFile(globalStorePath(home), "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -173,7 +194,9 @@ export async function removeGlobalApproval(
 ): Promise<void> {
   return chainObjectWrite(globalStorePath(home), (current) => ({
     ...current,
-    approvals: parseApprovalList(current.approvals).filter((a) => !sameApproval(a, target)),
+    approvals: parseApprovalList(current.approvals).filter(
+      (a) => !sameApproval(a, target),
+    ),
   }));
 }
 
@@ -187,9 +210,14 @@ export async function saveProviderModelApproval(
   return chainObjectWrite(globalStorePath(home), (current) => {
     const rawMap = current.providerModels;
     const map: Record<string, unknown> =
-      typeof rawMap === "object" && rawMap !== null ? (rawMap as Record<string, unknown>) : {};
+      typeof rawMap === "object" && rawMap !== null
+        ? (rawMap as Record<string, unknown>)
+        : {};
     const existing = parseApprovalList(map[providerModel]);
-    return { ...current, providerModels: { ...map, [providerModel]: [...existing, bare] } };
+    return {
+      ...current,
+      providerModels: { ...map, [providerModel]: [...existing, bare] },
+    };
   });
 }
 
@@ -202,8 +230,15 @@ export async function removeProviderModelApproval(
   return chainObjectWrite(globalStorePath(home), (current) => {
     const rawMap = current.providerModels;
     const map: Record<string, unknown> =
-      typeof rawMap === "object" && rawMap !== null ? (rawMap as Record<string, unknown>) : {};
-    const remaining = parseApprovalList(map[providerModel]).filter((a) => !sameApproval(a, bare));
-    return { ...current, providerModels: { ...map, [providerModel]: remaining } };
+      typeof rawMap === "object" && rawMap !== null
+        ? (rawMap as Record<string, unknown>)
+        : {};
+    const remaining = parseApprovalList(map[providerModel]).filter(
+      (a) => !sameApproval(a, bare),
+    );
+    return {
+      ...current,
+      providerModels: { ...map, [providerModel]: remaining },
+    };
   });
 }

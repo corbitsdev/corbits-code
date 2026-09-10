@@ -13,7 +13,8 @@ import {
 
 const scope: Workflow = {
   name: "scope",
-  description: "Scope a feature or task — creates a ticket or a local scope file",
+  description:
+    "Scope a feature or task — creates a ticket or a local scope file",
   steps: [
     {
       id: "research",
@@ -27,7 +28,8 @@ const scope: Workflow = {
       label: "Create ticket",
       capability: "ticket-tracker",
       optional: true,
-      prompt: "Create a well-structured ticket from the research and return its URL.",
+      prompt:
+        "Create a well-structured ticket from the research and return its URL.",
     },
     {
       id: "create-local-scope",
@@ -40,7 +42,8 @@ const scope: Workflow = {
       id: "suggest-build",
       label: "Suggest /build",
       type: "gate",
-      prompt: "Summarize the scope and suggest running /build. Wait for confirmation.",
+      prompt:
+        "Summarize the scope and suggest running /build. Wait for confirmation.",
     },
   ],
 };
@@ -54,7 +57,8 @@ const build: Workflow = {
       label: "Fetch ticket",
       capability: "ticket-tracker",
       optional: true,
-      prompt: "Fetch the referenced ticket, read its criteria, and mark it in progress.",
+      prompt:
+        "Fetch the referenced ticket, read its criteria, and mark it in progress.",
     },
     {
       id: "explore",
@@ -78,13 +82,15 @@ const build: Workflow = {
       label: "Update ticket",
       capability: "ticket-tracker",
       optional: true,
-      prompt: "Post a status update with a summary and next steps on the ticket.",
+      prompt:
+        "Post a status update with a summary and next steps on the ticket.",
     },
     {
       id: "gate",
       label: "Await approval",
       type: "gate",
-      prompt: "Summarize the work and wait for approval before the workflow ends.",
+      prompt:
+        "Summarize the work and wait for approval before the workflow ends.",
     },
   ],
 };
@@ -108,7 +114,8 @@ const review: Workflow = {
       agent: ["reviewer:ui"],
       parallel: true,
       optional: true,
-      prompt: "If the changes include UI, run a UI-focused review. Otherwise skip.",
+      prompt:
+        "If the changes include UI, run a UI-focused review. Otherwise skip.",
     },
     {
       id: "synthesize",

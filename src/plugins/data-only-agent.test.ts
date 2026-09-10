@@ -16,7 +16,8 @@ test("legacy Task tool alias grants a collectable fleet surface", async () => {
 
   const plugin = await loadDataOnlyAgentPlugin(root, { cwd: root });
   const agent = plugin?.agentPlugin.agents[0] as
-    { capabilities?: { mode: string; tools: string[] } } | undefined;
+    | { capabilities?: { mode: string; tools: string[] } }
+    | undefined;
 
   expect(agent?.capabilities).toEqual({
     mode: "allow",
@@ -34,7 +35,8 @@ test("legacy subagent tool alias grants a collectable fleet surface", async () =
 
   const plugin = await loadDataOnlyAgentPlugin(root, { cwd: root });
   const agent = plugin?.agentPlugin.agents[0] as
-    { capabilities?: { mode: string; tools: string[] } } | undefined;
+    | { capabilities?: { mode: string; tools: string[] } }
+    | undefined;
 
   expect(agent?.capabilities).toEqual({
     mode: "allow",

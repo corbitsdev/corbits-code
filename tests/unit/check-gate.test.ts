@@ -9,14 +9,23 @@ import { describe, expect, test } from "bun:test";
 // shards that union via `test:paths`.
 
 const repoRoot = join(import.meta.dir, "..", "..");
-const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+const pkg = JSON.parse(
+  readFileSync(join(repoRoot, "package.json"), "utf8"),
+) as {
   scripts: Record<string, string>;
 };
-const ci = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
-const guardSource = readFileSync(join(repoRoot, "scripts", "guard-real-projects-dir.ts"), "utf8");
+const ci = readFileSync(
+  join(repoRoot, ".github", "workflows", "ci.yml"),
+  "utf8",
+);
+const guardSource = readFileSync(
+  join(repoRoot, "scripts", "guard-real-projects-dir.ts"),
+  "utf8",
+);
 
 const GUARD_SCRIPT = "check:projects-dir-guard";
-const TEST_SUITE = "bun test ./src ./tests ./evals ./scripts --randomize --seed 424242";
+const TEST_SUITE =
+  "bun test ./src ./tests ./evals ./scripts --randomize --seed 424242";
 
 describe("check gate", () => {
   test("`test` is the seeded, randomized one-process suite whose path union CI shards", () => {
@@ -30,7 +39,10 @@ describe("check gate", () => {
     // wrapper requires at least one path.
     expect(pkg.scripts["test:paths"]).toBe("bun scripts/test-paths.ts");
     expect(guardSource).toContain('"run", "test:paths"');
-    const testPathsSource = readFileSync(join(repoRoot, "scripts", "test-paths.ts"), "utf8");
+    const testPathsSource = readFileSync(
+      join(repoRoot, "scripts", "test-paths.ts"),
+      "utf8",
+    );
     expect(testPathsSource).toContain("--randomize");
     expect(testPathsSource).toContain("--seed");
     expect(testPathsSource).toContain("424242");
@@ -38,7 +50,9 @@ describe("check gate", () => {
   });
 
   test("`check` runs the suite through the projects-dir guard", () => {
-    expect(pkg.scripts[GUARD_SCRIPT]).toContain("scripts/guard-real-projects-dir.ts");
+    expect(pkg.scripts[GUARD_SCRIPT]).toContain(
+      "scripts/guard-real-projects-dir.ts",
+    );
     expect(pkg.scripts.check).toContain(`bun run ${GUARD_SCRIPT}`);
     // The guard delegates to `bun run test` so the suite command has one home.
     expect(guardSource).toContain('"run", "test"');

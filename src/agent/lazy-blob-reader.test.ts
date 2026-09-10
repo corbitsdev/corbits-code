@@ -32,16 +32,24 @@ describe("createLazyBlobReader", () => {
 
   test("throws when no backing reader is configured", async () => {
     const lazy = createLazyBlobReader(() => undefined);
-    await expect(lazy.read("tool-output:///x")).rejects.toThrow("blob reader is not configured");
+    await expect(lazy.read("tool-output:///x")).rejects.toThrow(
+      "blob reader is not configured",
+    );
   });
 });
 
 describe("isBlobNotFoundError", () => {
   test("matches store miss messages", () => {
-    expect(isBlobNotFoundError(new Error('Blob not found for key: "x"'))).toBe(true);
-    expect(isBlobNotFoundError(new Error("blob reader is not configured"))).toBe(true);
+    expect(isBlobNotFoundError(new Error('Blob not found for key: "x"'))).toBe(
+      true,
+    );
     expect(
-      isBlobNotFoundError(new Error('invalid tool-output URI scheme: expected "tool-output:"')),
+      isBlobNotFoundError(new Error("blob reader is not configured")),
+    ).toBe(true);
+    expect(
+      isBlobNotFoundError(
+        new Error('invalid tool-output URI scheme: expected "tool-output:"'),
+      ),
     ).toBe(false);
     expect(isBlobNotFoundError("Blob not found")).toBe(false);
   });
@@ -50,14 +58,21 @@ describe("isBlobNotFoundError", () => {
 describe("createCompositeBlobReader", () => {
   test("prefers the primary store when the key is present", async () => {
     const child = readerWith({ shared: "from-child", childOnly: "child-only" });
-    const parent = readerWith({ shared: "from-parent", parentOnly: "parent-only" });
+    const parent = readerWith({
+      shared: "from-parent",
+      parentOnly: "parent-only",
+    });
     const composite = createCompositeBlobReader(
       () => child,
       () => parent,
     );
 
-    expect(dec.decode(await composite.read("tool-output:///shared"))).toBe("from-child");
-    expect(dec.decode(await composite.read("tool-output:///childOnly"))).toBe("child-only");
+    expect(dec.decode(await composite.read("tool-output:///shared"))).toBe(
+      "from-child",
+    );
+    expect(dec.decode(await composite.read("tool-output:///childOnly"))).toBe(
+      "child-only",
+    );
   });
 
   test("falls back to the parent store for missing child keys (sub-agent re-read)", async () => {
@@ -77,7 +92,9 @@ describe("createCompositeBlobReader", () => {
     expect(dec.decode(await composite.read("tool-output:///parentSpill"))).toBe(
       "mcp-skill-body-tail",
     );
-    expect(dec.decode(await composite.read("tool-output:///ownSpill"))).toBe("child-local");
+    expect(dec.decode(await composite.read("tool-output:///ownSpill"))).toBe(
+      "child-local",
+    );
   });
 
   test("surfaces a miss when neither store has the key", async () => {
@@ -85,7 +102,9 @@ describe("createCompositeBlobReader", () => {
       () => readerWith({}),
       () => readerWith({}),
     );
-    await expect(composite.read("tool-output:///gone")).rejects.toThrow("Blob not found");
+    await expect(composite.read("tool-output:///gone")).rejects.toThrow(
+      "Blob not found",
+    );
   });
 
   test("does not fall through on malformed URIs", async () => {
@@ -100,7 +119,9 @@ describe("createCompositeBlobReader", () => {
           },
         }),
     );
-    await expect(composite.read("file:///not-a-blob")).rejects.toThrow("invalid tool-output URI");
+    await expect(composite.read("file:///not-a-blob")).rejects.toThrow(
+      "invalid tool-output URI",
+    );
     expect(parentTouched).toBe(false);
   });
 
@@ -117,6 +138,8 @@ describe("createCompositeBlobReader", () => {
     const child = readerWith({ c: "child" });
     const composite = createCompositeBlobReader(() => child);
     expect(dec.decode(await composite.read("tool-output:///c"))).toBe("child");
-    await expect(composite.read("tool-output:///missing")).rejects.toThrow("Blob not found");
+    await expect(composite.read("tool-output:///missing")).rejects.toThrow(
+      "Blob not found",
+    );
   });
 });

@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { withFileMutationLock } from "./file-mutation-lock.js";
-import { applyLineRangeEdit, parseEditFileMode } from "./edit-file-line-range.js";
+import {
+  applyLineRangeEdit,
+  parseEditFileMode,
+} from "./edit-file-line-range.js";
 import { formatChangeDiff } from "./change-diff.js";
 
 function mutationPath(call: ToolCall): string | undefined {
@@ -11,7 +14,12 @@ function mutationPath(call: ToolCall): string | undefined {
   return typeof path === "string" && path.length > 0 ? path : undefined;
 }
 
-function withDiff(result: ToolResult, path: string, before: string, after: string): ToolResult {
+function withDiff(
+  result: ToolResult,
+  path: string,
+  before: string,
+  after: string,
+): ToolResult {
   const diff = formatChangeDiff(path, before, after);
   if (diff === undefined) return result;
   return { ...result, content: `${result.content}\n\n${diff}` };
@@ -61,7 +69,11 @@ export function verifyPlugin(): ToolPlugin {
           }
         }
 
-        if (call.name === "edit_file" && !result.isError && before !== undefined) {
+        if (
+          call.name === "edit_file" &&
+          !result.isError &&
+          before !== undefined
+        ) {
           const path = String(call.arguments.path ?? "");
           const mode = parseEditFileMode(call.arguments);
           try {
@@ -75,7 +87,12 @@ export function verifyPlugin(): ToolPlugin {
                 mode.new_string,
               );
             } else if (mode.kind === "substring") {
-              expected = applyEdit(before, mode.old_string, mode.new_string, mode.replace_all);
+              expected = applyEdit(
+                before,
+                mode.old_string,
+                mode.new_string,
+                mode.replace_all,
+              );
             } else {
               return result;
             }
@@ -107,7 +124,12 @@ export function verifyPlugin(): ToolPlugin {
   };
 }
 
-function applyEdit(content: string, oldStr: string, newStr: string, replaceAll: boolean): string {
+function applyEdit(
+  content: string,
+  oldStr: string,
+  newStr: string,
+  replaceAll: boolean,
+): string {
   if (oldStr.length === 0) return content;
   if (replaceAll) {
     return content.split(oldStr).join(newStr);

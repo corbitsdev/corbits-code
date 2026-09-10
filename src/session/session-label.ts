@@ -1,6 +1,11 @@
 import { loadSentMessages } from "./sent-messages.js";
 
-const GENERIC_TASKS = new Set(["", "(conversation)", "(no task title)", "Untitled session"]);
+const GENERIC_TASKS = new Set([
+  "",
+  "(conversation)",
+  "(no task title)",
+  "Untitled session",
+]);
 
 export function truncateSessionLabel(text: string, max = 72): string {
   const oneLine = text.replace(/\s+/g, " ").trim();

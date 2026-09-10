@@ -16,7 +16,13 @@ describe("parseArgs", () => {
   });
 
   test("--dry-run with provider and model parses", () => {
-    const opts = parseArgs(["--dry-run", "--provider", "foo", "--model", "bar"]);
+    const opts = parseArgs([
+      "--dry-run",
+      "--provider",
+      "foo",
+      "--model",
+      "bar",
+    ]);
     expect(opts.dryRun).toBe(true);
     expect(opts.provider).toBe("foo");
     expect(opts.model).toBe("bar");

@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -12,7 +13,9 @@ import {
   type InstallProbe,
 } from "./index.js";
 
-function probe(partial: Partial<InstallProbe> & Pick<InstallProbe, "execPath">): InstallProbe {
+function probe(
+  partial: Partial<InstallProbe> & Pick<InstallProbe, "execPath">,
+): InstallProbe {
   return {
     argv: [],
     platform: "darwin",
@@ -237,7 +240,10 @@ describe("checkForUpgrade", () => {
       currentVersion: "0.2.90",
       fetchLatest: async () => null,
     });
-    expect(result).toEqual({ kind: "skipped", reason: "latest version unavailable" });
+    expect(result).toEqual({
+      kind: "skipped",
+      reason: "latest version unavailable",
+    });
   });
 
   test("soft-skips when fetchLatest throws", async () => {
@@ -339,7 +345,7 @@ describe("scheduleUpgradeNotice", () => {
           method: "unknown",
         },
       });
-      resolveFetch!("0.2.0");
+      defined(resolveFetch)("0.2.0");
       await fetchP;
       await Promise.resolve();
       await Promise.resolve();

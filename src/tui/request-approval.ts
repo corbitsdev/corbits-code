@@ -1,9 +1,16 @@
 import { getLogger } from "@intx/log";
 import { randomUUID } from "node:crypto";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import type { ApprovalOutcome, PermissionRequest, RequestApproval } from "../permission/types.js";
+import type {
+  ApprovalOutcome,
+  PermissionRequest,
+  RequestApproval,
+} from "../permission/types.js";
 import { getToolApprovalBudget } from "./tool-execution-watchdog.js";
-import { APPROVAL_UNAVAILABLE_MESSAGE, type PermissionGateEvent } from "./gate-events.js";
+import {
+  APPROVAL_UNAVAILABLE_MESSAGE,
+  type PermissionGateEvent,
+} from "./gate-events.js";
 
 export interface CreateGateRequestApprovalArgs {
   /** Emits the gate event to the UI; returns false when nothing is listening. */
@@ -14,7 +21,9 @@ export interface CreateGateRequestApprovalArgs {
    * — the goal subsystem was the only arming condition and has been removed;
    * a future generalized auto-continue mechanism owns re-arming this.
    */
-  approvalTimeout: () => { timeoutMs: number; timeoutMessage: string } | undefined;
+  approvalTimeout: () =>
+    | { timeoutMs: number; timeoutMessage: string }
+    | undefined;
   /**
    * Session-identity abort. A generation bump (interrupt, /clear, /new)
    * aborts this signal so the outstanding overlay denies through the existing
@@ -47,7 +56,10 @@ export function attachApprovalBudget<T>(
   if (budget === undefined) {
     // Every TUI tool call runs under the watchdog ALS; an absent store means
     // the gate fired outside a tool run or the ALS context was lost.
-    logger.warn("{kind} gate reached with no tool budget in ALS for {tool}", logContext);
+    logger.warn(
+      "{kind} gate reached with no tool budget in ALS for {tool}",
+      logContext,
+    );
   }
   const pauseToken = budget?.waitForApproval ? budget.pause() : undefined;
   let settled = false;
@@ -69,19 +81,27 @@ export function attachApprovalBudget<T>(
  * Always attaches the budget signal so a timeout with waitForApproval off
  * dismisses the modal instead of leaving a ghost.
  */
-function mergeAbortSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+function mergeAbortSignals(
+  a?: AbortSignal,
+  b?: AbortSignal,
+): AbortSignal | undefined {
   if (a === undefined) return b;
   if (b === undefined) return a;
   return AbortSignal.any([a, b]);
 }
 
-export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): RequestApproval {
+export function createGateRequestApproval(
+  args: CreateGateRequestApprovalArgs,
+): RequestApproval {
   return (request: PermissionRequest) =>
     new Promise<ApprovalOutcome>((resolve) => {
-      const { finish, signal } = attachApprovalBudget<ApprovalOutcome>(resolve, {
-        tool: request.tool,
-        kind: "permission",
-      });
+      const { finish, signal } = attachApprovalBudget<ApprovalOutcome>(
+        resolve,
+        {
+          tool: request.tool,
+          kind: "permission",
+        },
+      );
       const timeout = args.approvalTimeout();
       const merged = mergeAbortSignals(signal, args.identitySignal?.());
       const event: PermissionGateEvent = {
@@ -94,9 +114,12 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
       if (!args.emitGate(event)) {
         // Pre-mount or post-unmount: no gate queue exists, so the prompt would
         // never render and finish() would never run. Fail closed.
-        logger.warn("permission gate emitted with no listener for {tool}; denying", {
-          tool: request.tool,
-        });
+        logger.warn(
+          "permission gate emitted with no listener for {tool}; denying",
+          {
+            tool: request.tool,
+          },
+        );
         finish({ allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE });
       }
     });

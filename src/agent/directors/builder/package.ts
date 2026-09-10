@@ -8,7 +8,8 @@ import { BUILD_TOOLS } from "../tool-sets.js";
  */
 export const builderPackage: DirectorPackage = {
   id: "builder",
-  primaryIntent: "Implement the brief in product code — edit, verify, report; nothing more",
+  primaryIntent:
+    "Implement the brief in product code — edit, verify, report; nothing more",
   outOfLane: [
     "inventing architecture beyond the brief",
     "expanding scope after success criteria are met",
@@ -18,7 +19,13 @@ export const builderPackage: DirectorPackage = {
     "orchestrating or spawning other agents",
   ],
   description: "Implementation worker — edit, verify, report",
-  optionalSkills: ["style", "philosophy", "native-runtime", "idiot-proof", "ponytail"],
+  optionalSkills: [
+    "style",
+    "philosophy",
+    "native-runtime",
+    "idiot-proof",
+    "ponytail",
+  ],
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

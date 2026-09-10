@@ -14,7 +14,8 @@ function writeTurns(dir: string, turns: unknown[]): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "turns.jsonl"),
-    turns.map((t) => JSON.stringify(t)).join("\n") + (turns.length > 0 ? "\n" : ""),
+    turns.map((t) => JSON.stringify(t)).join("\n") +
+      (turns.length > 0 ? "\n" : ""),
   );
 }
 
@@ -23,7 +24,10 @@ describe("createReadAgentTraceTool", () => {
     const root = tempDir();
     const tool = createReadAgentTraceTool(() => root);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler({ target: "ghost" }, new AbortController().signal);
+    const text = await tool.handler(
+      { target: "ghost" },
+      new AbortController().signal,
+    );
     expect(text).toContain("No on-disk trace found");
   });
 
@@ -42,7 +46,10 @@ describe("createReadAgentTraceTool", () => {
     ]);
     const tool = createReadAgentTraceTool(() => root);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler({ target: "worker-1" }, new AbortController().signal);
+    const text = await tool.handler(
+      { target: "worker-1" },
+      new AbortController().signal,
+    );
     expect(text).toContain("worker-1");
     expect(text).toContain("hello");
   });
@@ -78,7 +85,10 @@ describe("createReadAgentTraceTool", () => {
         getNodes: () => nodes,
       });
       if (tool.kind !== "string") throw new Error("expected string tool");
-      const text = await tool.handler({ target: "workerA1" }, new AbortController().signal);
+      const text = await tool.handler(
+        { target: "workerA1" },
+        new AbortController().signal,
+      );
       expect(text).toContain("from A1");
     });
 
@@ -90,7 +100,10 @@ describe("createReadAgentTraceTool", () => {
         getNodes: () => nodes,
       });
       if (tool.kind !== "string") throw new Error("expected string tool");
-      const text = await tool.handler({ target: "workerY" }, new AbortController().signal);
+      const text = await tool.handler(
+        { target: "workerY" },
+        new AbortController().signal,
+      );
       expect(text).toContain("Error:");
       expect(text).not.toContain("from Y");
     });
@@ -103,7 +116,10 @@ describe("createReadAgentTraceTool", () => {
         getNodes: () => nodes,
       });
       if (tool.kind !== "string") throw new Error("expected string tool");
-      const text = await tool.handler({ target: "workerA1" }, new AbortController().signal);
+      const text = await tool.handler(
+        { target: "workerA1" },
+        new AbortController().signal,
+      );
       expect(text).toContain("Error:");
       expect(text).not.toContain("from A1");
     });
@@ -112,7 +128,10 @@ describe("createReadAgentTraceTool", () => {
       const root = setUpRoot();
       const tool = createReadAgentTraceTool(() => root);
       if (tool.kind !== "string") throw new Error("expected string tool");
-      const text = await tool.handler({ target: "workerY" }, new AbortController().signal);
+      const text = await tool.handler(
+        { target: "workerY" },
+        new AbortController().signal,
+      );
       expect(text).toContain("from Y");
     });
   });

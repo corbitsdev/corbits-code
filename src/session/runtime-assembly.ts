@@ -6,7 +6,11 @@
 // home of the individual blocks.
 
 import { getLogger } from "@intx/log";
-import type { ConversationTurn, InboundMessage, InferenceSource } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  InboundMessage,
+  InferenceSource,
+} from "@intx/types/runtime";
 import type { Compactor } from "@intx/types/runtime";
 
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -44,7 +48,10 @@ import {
 import type { Approval, GrantScope } from "../permission/types.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
-import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "./compactor.js";
+import {
+  COMPACTOR_KEEP_RECENT_TURNS,
+  createPruningCompactor,
+} from "./compactor.js";
 import type { SummaryContext } from "./summarizer.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 
@@ -58,18 +65,26 @@ export interface SubAgentProviderConfig {
   apiKey?: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
-  providers: readonly Pick<ProviderCatalogEntry, "name" | "bifrostVirtualKey">[];
+  providers: readonly Pick<
+    ProviderCatalogEntry,
+    "name" | "bifrostVirtualKey"
+  >[];
 }
 
 /** Build the live sub-agent provider seed shared by exec and TUI. */
-export function buildSubAgentProvider(config: SubAgentProviderConfig): SubAgentProvider {
+export function buildSubAgentProvider(
+  config: SubAgentProviderConfig,
+): SubAgentProvider {
   return {
     providerName: config.providerName,
     baseURL: config.baseURL,
     model: config.model,
     ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
-    ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-    ...(config.providers.find((p) => p.name === config.providerName)?.bifrostVirtualKey === true
+    ...(config.reasoningEffort !== undefined
+      ? { reasoningEffort: config.reasoningEffort }
+      : {}),
+    ...(config.providers.find((p) => p.name === config.providerName)
+      ?.bifrostVirtualKey === true
       ? { bifrostVirtualKey: true }
       : {}),
   };
@@ -115,12 +130,18 @@ export async function loadSeededApprovals(
   home?: string,
 ): Promise<Approval[]> {
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
-  const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
-    loadProjectApprovals(cwd),
-    loadGlobalApprovals(),
-    loadProviderModelApprovals(),
-  ]);
-  return [...sessionApprovals, ...projectApprovals, ...globalApprovals, ...providerModelApprovals];
+  const [projectApprovals, globalApprovals, providerModelApprovals] =
+    await Promise.all([
+      loadProjectApprovals(cwd),
+      loadGlobalApprovals(),
+      loadProviderModelApprovals(),
+    ]);
+  return [
+    ...sessionApprovals,
+    ...projectApprovals,
+    ...globalApprovals,
+    ...providerModelApprovals,
+  ];
 }
 
 const persistLogger = getLogger([LOG_NAMESPACE_ROOT, "session", "approvals"]);
@@ -165,7 +186,11 @@ export function createApprovalPersist(
 ): (approval: Approval, scope: GrantScope) => void {
   return (approval: Approval, scope: GrantScope) => {
     if (scope === "project")
-      persistBestEffort(scope, saveProjectApproval(cwd, approval), onPersistFailure);
+      persistBestEffort(
+        scope,
+        saveProjectApproval(cwd, approval),
+        onPersistFailure,
+      );
     else if (scope === "global")
       persistBestEffort(scope, saveGlobalApproval(approval), onPersistFailure);
     else if (scope === "provider-model") {
@@ -198,11 +223,15 @@ export async function discoverSessionPlugins(
   args: DiscoverSessionPluginsArgs,
 ): Promise<PluginModule[]> {
   const diag = {
-    ...(args.diagnostics !== undefined ? { diagnostics: args.diagnostics } : {}),
+    ...(args.diagnostics !== undefined
+      ? { diagnostics: args.diagnostics }
+      : {}),
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
   };
   const claudePlugins =
-    args.discoverClaudePlugins === true ? await discoverClaudeInstalledPlugins(args.cwd, diag) : [];
+    args.discoverClaudePlugins === true
+      ? await discoverClaudeInstalledPlugins(args.cwd, diag)
+      : [];
   return dedupePluginModules([
     ...(await discoverRepoPlugins(args.cwd, diag)),
     ...(await discoverUserPlugins(args.cwd, {
@@ -222,9 +251,11 @@ export function skillDirsFromEnabledPlugins(
   modules: readonly PluginModule[],
   pluginConfig: Record<string, PluginConfig | undefined>,
 ): string[] {
-  return modules
-    .filter((m) => m.dir !== undefined && isPluginModuleEnabled(m, pluginConfig))
-    .map((m) => m.dir!);
+  return modules.flatMap((m) =>
+    m.dir !== undefined && isPluginModuleEnabled(m, pluginConfig)
+      ? [m.dir]
+      : [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +330,9 @@ export function buildSessionSourcesFromConfig(
     catalog: config.providers,
     activeProvider: config.providerName,
     activeModel: config.model,
-    ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+    ...(config.reasoningEffort !== undefined
+      ? { reasoningEffort: config.reasoningEffort }
+      : {}),
     sessionId,
   });
 }
@@ -313,7 +346,10 @@ const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 export interface SessionPruningCompactorArgs {
   compactionMode: "llm" | "pruning";
   /** Omitted for sourceless leaves — compaction falls back to the deterministic stub. */
-  summarize?: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
+  summarize?: (
+    turns: ConversationTurn[],
+    ctx?: SummaryContext,
+  ) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
   telemetry?: Telemetry;
   /** Fires only when turns were actually folded away — not on no-ops. */
@@ -321,7 +357,9 @@ export interface SessionPruningCompactorArgs {
 }
 
 /** Shared pruning-compactor defaults for the main session agent. */
-export function createSessionPruningCompactor(args: SessionPruningCompactorArgs): Compactor {
+export function createSessionPruningCompactor(
+  args: SessionPruningCompactorArgs,
+): Compactor {
   const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
@@ -423,7 +461,10 @@ export function buildShellBackgroundMessage(exit: {
   const status = exit.timedOut
     ? `timed out and was killed (exit code ${exit.exitCode})`
     : `exit code ${exit.exitCode}`;
-  const lines = [`Background shell ${exit.id} finished: ${status}.`, `command: ${exit.command}`];
+  const lines = [
+    `Background shell ${exit.id} finished: ${status}.`,
+    `command: ${exit.command}`,
+  ];
   if (exit.output.length > 0) {
     const preview =
       exit.output.length > BACKGROUND_SHELL_PREVIEW_CHARS
@@ -432,7 +473,9 @@ export function buildShellBackgroundMessage(exit: {
     lines.push(`output:\n${preview}`);
   }
   if (exit.spillUri !== undefined) {
-    lines.push(`Full output was spilled to ${exit.spillUri} (readable via read_file).`);
+    lines.push(
+      `Full output was spilled to ${exit.spillUri} (readable via read_file).`,
+    );
   }
   return {
     ref: { uid: 0, mailbox: "system" },

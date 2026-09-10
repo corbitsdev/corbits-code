@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { pendingAskSnapshot, pendingAskWakeText, type FleetLane } from "./fleet-report.js";
+import {
+  pendingAskSnapshot,
+  pendingAskWakeText,
+  type FleetLane,
+} from "./fleet-report.js";
 
 function lane(overrides: Partial<FleetLane> & { id: string }): FleetLane {
   return {

@@ -15,8 +15,12 @@ import { type } from "arktype";
 // Reasoning-effort schema derived from the canonical array, mirroring the
 // pattern in ../agent/profiles.ts (arktype's `type()` needs a literal union
 // string, so a computed one is threaded through `unknown`).
-const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(" | ");
-const ReasoningEffortSchema = type(reasoningEffortLiteral as unknown as "'none'");
+const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(
+  " | ",
+);
+const ReasoningEffortSchema = type(
+  reasoningEffortLiteral as unknown as "'none'",
+);
 
 // Shared shape for one inference leg across the two frontmatter dialects that
 // carry them (native `inference.order[]` and the `model` field). Each call
@@ -86,7 +90,10 @@ function isReasoningEffort(v: unknown): v is ReasoningEffort {
 }
 
 // Resolve the agent id: frontmatter `id` wins, then `name`, then the file stem.
-function pickId(fm: Record<string, unknown> | null, filename: string): string | undefined {
+function pickId(
+  fm: Record<string, unknown> | null,
+  filename: string,
+): string | undefined {
   if (fm !== null) {
     const fromId = typeof fm.id === "string" ? fm.id.trim() : "";
     if (fromId.length > 0) return fromId;
@@ -101,7 +108,9 @@ function pickId(fm: Record<string, unknown> | null, filename: string): string | 
 // Normalize the union of `tools` / `disallowedTools` / `permission` shapes from
 // the three dialects into a single CapabilityFilter. Returns undefined when no
 // restriction was declared (agent inherits all tools).
-function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFilter | undefined {
+function normalizeCapabilities(
+  fm: Record<string, unknown> | null,
+): CapabilityFilter | undefined {
   if (fm === null) return undefined;
 
   // Native: capabilities: { mode, tools[] } — mode must validate, but tools
@@ -117,14 +126,22 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
     if (!(mode instanceof type.errors) && Array.isArray(cap.tools)) {
       return {
         mode,
-        tools: cap.tools.filter((t): t is string => typeof t === "string").flatMap(aliasTools),
+        tools: cap.tools
+          .filter((t): t is string => typeof t === "string")
+          .flatMap(aliasTools),
       };
     }
   }
 
   // Claude Code: tools: [Read, Grep]  (allowlist)
-  if (Array.isArray(fm.tools) && fm.tools.length > 0 && fm.disallowedTools === undefined) {
-    const tools = fm.tools.filter((t): t is string => typeof t === "string").flatMap(aliasTools);
+  if (
+    Array.isArray(fm.tools) &&
+    fm.tools.length > 0 &&
+    fm.disallowedTools === undefined
+  ) {
+    const tools = fm.tools
+      .filter((t): t is string => typeof t === "string")
+      .flatMap(aliasTools);
     if (tools.length > 0) return { mode: "allow", tools };
   }
 
@@ -151,8 +168,10 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
       if (v === true) allowed.push(...aliasTools(k));
       else if (v === false) excluded.push(...aliasTools(k));
     }
-    if (allowed.length > 0 && excluded.length === 0) return { mode: "allow", tools: allowed };
-    if (excluded.length > 0 && allowed.length === 0) return { mode: "exclude", tools: excluded };
+    if (allowed.length > 0 && excluded.length === 0)
+      return { mode: "allow", tools: allowed };
+    if (excluded.length > 0 && allowed.length === 0)
+      return { mode: "exclude", tools: excluded };
     if (allowed.length > 0 && excluded.length > 0) {
       // Mixed: pick whichever is shorter to minimize the filter size.
       return excluded.length <= allowed.length
@@ -167,12 +186,18 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
   // wrongly narrow the agent to only the listed tools. Deny entries are real
   // restrictions and stay. (Subagents' allow entries are real allowlists
   // because there's no inheritance intent.)
-  if (fm.permission !== undefined && typeof fm.permission === "object" && fm.permission !== null) {
+  if (
+    fm.permission !== undefined &&
+    typeof fm.permission === "object" &&
+    fm.permission !== null
+  ) {
     const isPrimary = fm.mode === "primary" || fm.mode === "all";
     if (!isPrimary) {
       return normalizePermission(fm.permission as Record<string, unknown>);
     }
-    const fromPermission = normalizePermission(fm.permission as Record<string, unknown>);
+    const fromPermission = normalizePermission(
+      fm.permission as Record<string, unknown>,
+    );
     if (fromPermission === undefined) return undefined;
     if (fromPermission.mode === "exclude") return fromPermission; // deny list — keep
     // primary + allow list → agent inherits all tools (no restriction).
@@ -186,10 +211,16 @@ function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFi
 //   flat (corbitsdev):     { read: "allow", bash: "deny", write: "allow" }
 //   nested (OpenCode):     { tool: { "*": "deny", read: "allow" } }
 // Resource types other than "tool" (skill, mcp) are ignored in v1.
-function normalizePermission(perm: Record<string, unknown>): CapabilityFilter | undefined {
+function normalizePermission(
+  perm: Record<string, unknown>,
+): CapabilityFilter | undefined {
   let flat: Record<string, unknown> | undefined;
 
-  if (perm.tool !== undefined && typeof perm.tool === "object" && perm.tool !== null) {
+  if (
+    perm.tool !== undefined &&
+    typeof perm.tool === "object" &&
+    perm.tool !== null
+  ) {
     flat = perm.tool as Record<string, unknown>;
   } else {
     // flat shape — every value should be "allow" / "deny" / "ask".
@@ -226,12 +257,20 @@ function normalizePermission(perm: Record<string, unknown>): CapabilityFilter | 
 // A bare Claude Code `effort: high` with no `model` has nothing to attach the
 // effort to now that tiers (which used to map effort to a model swap) are
 // gone, so it is ignored — set `model` alongside `effort` to pin both.
-function normalizeInference(fm: Record<string, unknown> | null): { inference?: InferenceSpec } {
+function normalizeInference(fm: Record<string, unknown> | null): {
+  inference?: InferenceSpec;
+} {
   if (fm === null) return {};
 
   // Native explicit inference spec.
-  if (fm.inference !== undefined && typeof fm.inference === "object" && fm.inference !== null) {
-    const spec = normalizeInferenceSpec(fm.inference as Record<string, unknown>);
+  if (
+    fm.inference !== undefined &&
+    typeof fm.inference === "object" &&
+    fm.inference !== null
+  ) {
+    const spec = normalizeInferenceSpec(
+      fm.inference as Record<string, unknown>,
+    );
     if (spec !== undefined) return { inference: spec };
   }
 
@@ -244,7 +283,9 @@ function normalizeInference(fm: Record<string, unknown> | null): { inference?: I
   return {};
 }
 
-function normalizeInferenceSpec(raw: Record<string, unknown>): InferenceSpec | undefined {
+function normalizeInferenceSpec(
+  raw: Record<string, unknown>,
+): InferenceSpec | undefined {
   const orderRaw = raw.order;
   if (!Array.isArray(orderRaw)) return undefined;
   const order: InferenceLeg[] = [];
@@ -252,8 +293,10 @@ function normalizeInferenceSpec(raw: Record<string, unknown>): InferenceSpec | u
     const base = InferenceLegBaseSchema(leg);
     if (base instanceof type.errors) continue;
     const entry: InferenceLeg = { provider: base.provider, model: base.model };
-    const reasoningEffort = (leg as { reasoningEffort?: unknown }).reasoningEffort;
-    if (isReasoningEffort(reasoningEffort)) entry.reasoningEffort = reasoningEffort;
+    const reasoningEffort = (leg as { reasoningEffort?: unknown })
+      .reasoningEffort;
+    if (isReasoningEffort(reasoningEffort))
+      entry.reasoningEffort = reasoningEffort;
     order.push(entry);
   }
   if (order.length === 0) return undefined;
@@ -263,14 +306,18 @@ function normalizeInferenceSpec(raw: Record<string, unknown>): InferenceSpec | u
 
 // Accept either a single leg object or an array of legs. An optional top-level
 // `effort` is applied to legs that don't declare their own.
-function normalizeModelField(model: unknown, effort: unknown): InferenceSpec | undefined {
+function normalizeModelField(
+  model: unknown,
+  effort: unknown,
+): InferenceSpec | undefined {
   const legs: InferenceLeg[] = [];
 
   const asLeg = (raw: unknown): InferenceLeg | undefined => {
     const base = InferenceLegBaseSchema(raw);
     if (base instanceof type.errors) return undefined;
     const leg: InferenceLeg = { provider: base.provider, model: base.model };
-    const effortForLeg = (raw as { reasoningEffort?: unknown }).reasoningEffort ?? effort;
+    const effortForLeg =
+      (raw as { reasoningEffort?: unknown }).reasoningEffort ?? effort;
     if (isReasoningEffort(effortForLeg)) leg.reasoningEffort = effortForLeg;
     return leg;
   };
@@ -320,7 +367,8 @@ function parseSkillReferencesFromBody(body: string): string[] {
   const re = /\bload\s+the\s+`([a-z0-9_-]+)`\s+skill\b/gi;
   let match: RegExpExecArray | null;
   while ((match = re.exec(body)) !== null) {
-    out.push(match[1]!);
+    const name = match[1];
+    if (name !== undefined) out.push(name);
   }
   return out;
 }
@@ -392,13 +440,17 @@ export async function loadDataOnlyAgentPlugin(
       continue;
     }
     const description =
-      typeof frontmatter.description === "string" ? frontmatter.description : undefined;
+      typeof frontmatter.description === "string"
+        ? frontmatter.description
+        : undefined;
 
     // Skill names: frontmatter list wins; fall back to body references.
     const fmSkillsRaw = frontmatter.skills;
     let skillNames: string[] = [];
     if (Array.isArray(fmSkillsRaw)) {
-      skillNames = fmSkillsRaw.filter((s): s is string => typeof s === "string");
+      skillNames = fmSkillsRaw.filter(
+        (s): s is string => typeof s === "string",
+      );
     } else if (typeof fmSkillsRaw === "string") {
       skillNames = [fmSkillsRaw];
     }
@@ -411,14 +463,18 @@ export async function loadDataOnlyAgentPlugin(
     for (const name of skillNames) {
       const text = await loadSkillText(cwd, name, pluginRoot, extraPluginDirs);
       if (text === undefined) {
-        warning?.(`agent ${id}: skill "${name}" referenced but not found in skill search path`);
+        warning?.(
+          `agent ${id}: skill "${name}" referenced but not found in skill search path`,
+        );
         continue;
       }
       skillBlocks.push(`# Bundled skill: ${name}\n\n${text}`);
     }
 
     const promptBody =
-      skillBlocks.length > 0 ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}` : body;
+      skillBlocks.length > 0
+        ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}`
+        : body;
     // The Corbits Code translation appendix is appended at prompt-build time by
     // buildSubAgentSystemPrompt, so the systemPromptRole stays focused on the
     // agent's own definition (skills + body) and the appendix applies uniformly
@@ -442,7 +498,9 @@ export async function loadDataOnlyAgentPlugin(
     // malformed entry is skipped instead of reaching the dispatcher.
     const result = AgentProfileSchema(profile);
     if (result instanceof type.errors) {
-      warning?.(`skipping ${id}: profile failed schema validation: ${result.summary}`);
+      warning?.(
+        `skipping ${id}: profile failed schema validation: ${result.summary}`,
+      );
       continue;
     }
     agents.push(result as AgentProfile);

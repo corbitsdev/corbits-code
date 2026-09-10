@@ -7,10 +7,17 @@ import { createPermissionGate } from "../permission/gate.js";
 import * as permissionStore from "../permission/store.js";
 import type { Approval } from "../permission/types.js";
 import { createApprovalPersist } from "./runtime-assembly.js";
-import { applyLiveModelSwitch, providerModelKey, type LiveModelRef } from "./live-model-switch.js";
+import {
+  applyLiveModelSwitch,
+  providerModelKey,
+  type LiveModelRef,
+} from "./live-model-switch.js";
 
 const MODEL_A: LiveModelRef = { providerName: "openai", model: "gpt-5" };
-const MODEL_B: LiveModelRef = { providerName: "anthropic", model: "claude-opus" };
+const MODEL_B: LiveModelRef = {
+  providerName: "anthropic",
+  model: "claude-opus",
+};
 const MODEL_KIMI: LiveModelRef = { providerName: "moonshot", model: "kimi-k2" };
 
 const canonicalDefs: readonly ToolDefinition[] = [presentDefinition];
@@ -50,7 +57,9 @@ function createProductionSwitch() {
   let inference: LiveModelRef = MODEL_A;
   let advertised = normalizeToolDefinitionsForProvider(canonicalDefs, MODEL_A);
 
-  const persist = createApprovalPersist("/tmp/proj", () => providerModelKey(identity));
+  const persist = createApprovalPersist("/tmp/proj", () =>
+    providerModelKey(identity),
+  );
   const gate = createPermissionGate({
     approvals: [],
     requestApproval: async () => ({ allow: true, persist: providerModelScope }),
@@ -115,15 +124,19 @@ describe("applyLiveModelSwitch", () => {
 
   test("a grant scoped to A does not cover the action after switching to B; new grants store under B", async () => {
     const saved: string[] = [];
-    spyOn(permissionStore, "saveProviderModelApproval").mockImplementation(async (key: string) => {
-      saved.push(key);
-    });
+    spyOn(permissionStore, "saveProviderModelApproval").mockImplementation(
+      async (key: string) => {
+        saved.push(key);
+      },
+    );
     spyOn(permissionStore, "saveProjectApproval").mockResolvedValue(undefined);
     spyOn(permissionStore, "saveGlobalApproval").mockResolvedValue(undefined);
 
     const session = createProductionSwitch();
 
-    expect((await session.gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect((await session.gate.evaluate(shellCall("npm test"))).allowed).toBe(
+      true,
+    );
     expect(saved).toEqual([providerModelKey(MODEL_A)]);
     const grantA = session.gate
       .getApprovals()
@@ -135,28 +148,41 @@ describe("applyLiveModelSwitch", () => {
     expect(session.identity()).toEqual(MODEL_B);
     expect(session.inference()).toEqual(MODEL_B);
 
-    expect((await session.gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
-    expect(saved).toEqual([providerModelKey(MODEL_A), providerModelKey(MODEL_B)]);
+    expect((await session.gate.evaluate(shellCall("npm test"))).allowed).toBe(
+      true,
+    );
+    expect(saved).toEqual([
+      providerModelKey(MODEL_A),
+      providerModelKey(MODEL_B),
+    ]);
     expect(
-      session.gate.getApprovals().some((a) => a.providerModel === providerModelKey(MODEL_B)),
+      session.gate
+        .getApprovals()
+        .some((a) => a.providerModel === providerModelKey(MODEL_B)),
     ).toBe(true);
   });
 
   test("non-kimi to kimi rewrites advertised present; switching away restores canonical", () => {
     const session = createProductionSwitch();
     expect(schemaHasRef(presentSchema(session.advertised()))).toBe(true);
-    expect(presentSchema(session.advertised())).toBe(presentDefinition.inputSchema);
+    expect(presentSchema(session.advertised())).toBe(
+      presentDefinition.inputSchema,
+    );
 
     session.switchTo(MODEL_KIMI);
 
     expect(session.inference()).toEqual(MODEL_KIMI);
     expect(schemaHasRef(presentSchema(session.advertised()))).toBe(false);
-    expect(presentSchema(session.advertised())).not.toBe(presentDefinition.inputSchema);
+    expect(presentSchema(session.advertised())).not.toBe(
+      presentDefinition.inputSchema,
+    );
 
     session.switchTo(MODEL_A);
 
     expect(session.inference()).toEqual(MODEL_A);
     expect(schemaHasRef(presentSchema(session.advertised()))).toBe(true);
-    expect(presentSchema(session.advertised())).toBe(presentDefinition.inputSchema);
+    expect(presentSchema(session.advertised())).toBe(
+      presentDefinition.inputSchema,
+    );
   });
 });

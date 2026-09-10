@@ -1,7 +1,10 @@
 import { test, expect } from "bun:test";
 import "../helpers/workflows.js";
 import { WORKFLOWS, findWorkflow } from "../../src/workflows/index.js";
-import { isValidWorkflowName, type Workflow } from "../../src/workflows/types.js";
+import {
+  isValidWorkflowName,
+  type Workflow,
+} from "../../src/workflows/types.js";
 
 test("every registered workflow has a unique, slash-command-valid name", () => {
   const names = WORKFLOWS.map((w) => w.name);

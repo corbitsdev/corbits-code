@@ -23,11 +23,21 @@
  * injected clock.
  */
 
-import { StyledText, fg as fgChunk, type CliRenderer, type TextChunk } from "@opentui/core";
+import {
+  StyledText,
+  fg as fgChunk,
+  type CliRenderer,
+  type TextChunk,
+} from "@opentui/core";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import pkg from "../../package.json" with { type: "json" };
 
-import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js";
+import {
+  MARK_LARGE,
+  MARK_MID,
+  MARK_SMALL,
+  type MarkGrid,
+} from "./mark-shape.js";
 import { renderMark } from "./mark-anim.js";
 import { UI } from "./theme.js";
 import { stringWidth } from "./view/height.js";
@@ -98,7 +108,8 @@ const LANDING_KEY_GAP = 2;
 
 /** Columns the hint block needs, its longest line deciding. */
 export const LANDING_HINT_WIDTH = LANDING_HINTS.reduce(
-  (widest, hint) => Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
+  (widest, hint) =>
+    Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
   0,
 );
 
@@ -113,7 +124,10 @@ const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL];
  * one, so both are checked: the mark degrades through the tiers and then
  * disappears, and the prompt box never moves to make room for it.
  */
-export function resolveMarkGrid(aboveRows: number, columns: number): MarkGrid | null {
+export function resolveMarkGrid(
+  aboveRows: number,
+  columns: number,
+): MarkGrid | null {
   const width = Math.max(0, columns) - LANDING_MARGIN;
   for (const grid of MARK_TIERS) {
     if (grid.rows + MARK_GAP_ROWS > aboveRows) continue;
@@ -218,8 +232,10 @@ export function landingBelowContent(input: {
   // One leading blank row, then the notice; the starters add a separating blank
   // row, a header, and one row each.
   const noticeRows = 1 + notice.length;
-  const starterRows = (notice.length === 0 ? 0 : 1) + 1 + LANDING_SUGGESTIONS.length;
-  const suggestions = input.rows >= noticeRows + starterRows ? LANDING_SUGGESTIONS : [];
+  const starterRows =
+    (notice.length === 0 ? 0 : 1) + 1 + LANDING_SUGGESTIONS.length;
+  const suggestions =
+    input.rows >= noticeRows + starterRows ? LANDING_SUGGESTIONS : [];
   return { notice, suggestions };
 }
 
@@ -290,7 +306,10 @@ export interface LandingAbove {
  * Rows are allocated for the largest tier once and hidden from the top down as
  * smaller tiers are selected, so a resize never rebuilds the subtree.
  */
-export function createLandingAbove(ctx: CliRenderer, reducedMotion = false): LandingAbove {
+export function createLandingAbove(
+  ctx: CliRenderer,
+  reducedMotion = false,
+): LandingAbove {
   const box = new BoxRenderable(ctx, {
     id: "shell-landing-above",
     width: "100%",
@@ -364,7 +383,9 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
     backgroundColor: UI.ground,
   });
   LANDING_HINTS.forEach((hint, index) => {
-    const gap = " ".repeat(LANDING_KEY_WIDTH - hint.key.length + LANDING_KEY_GAP);
+    const gap = " ".repeat(
+      LANDING_KEY_WIDTH - hint.key.length + LANDING_KEY_GAP,
+    );
     block.add(
       new TextRenderable(ctx, {
         id: `shell-landing-hint-${index}`,
@@ -383,7 +404,10 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
  * Seat the mark in `grid`, or suppress it entirely when `grid` is null. The
  * hint block stays either way: it is the way off the screen, not decoration.
  */
-export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void {
+export function fitLandingMark(
+  above: LandingAbove,
+  grid: MarkGrid | null,
+): void {
   above.grid = grid;
   // With no mark, the hero is exactly the hint block: one row per door.
   const rows = grid?.rows ?? LANDING_HINTS.length;
@@ -418,7 +442,10 @@ export function paintLandingMark(
   });
 }
 
-export function createLandingBelow(ctx: CliRenderer, content: LandingBelowContent): BoxRenderable {
+export function createLandingBelow(
+  ctx: CliRenderer,
+  content: LandingBelowContent,
+): BoxRenderable {
   const box = new BoxRenderable(ctx, {
     id: "shell-landing-below",
     width: "100%",

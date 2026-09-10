@@ -8,7 +8,11 @@ import type { EventEmitter } from "node:events";
 import type { OperatorResult } from "../agent/tools.js";
 import { formatCommandForApproval } from "./command-display.js";
 import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
-import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
+import type {
+  ApprovalOutcome,
+  ApprovalScope,
+  PermissionRequest,
+} from "../permission/types.js";
 import { appendStreamRow } from "./shell/chrome.js";
 import type { AppShell, OverlaySelection } from "./shell/internals.js";
 import {
@@ -103,7 +107,12 @@ export function approvalOutcomeFromSelection(
   }
   const byId = choices.itemIds.indexOf(selection.id);
   if (byId >= 0) {
-    return choices.outcomes[byId] ?? { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
+    return (
+      choices.outcomes[byId] ?? {
+        allow: false,
+        message: APPROVAL_UNAVAILABLE_MESSAGE,
+      }
+    );
   }
   return { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
 }
@@ -142,7 +151,9 @@ export function permissionBodyFromRequest(
     request.tool,
     request.action,
     ...display.lines,
-    ...request.scopes.flatMap((scope) => (scope.hint ? [`${scope.label}: ${scope.hint}`] : [])),
+    ...request.scopes.flatMap((scope) =>
+      scope.hint ? [`${scope.label}: ${scope.hint}`] : [],
+    ),
     request.agentLabel ? `agent: ${request.agentLabel}` : "",
     request.notice ?? "",
     hint,
@@ -211,15 +222,18 @@ export interface GateLifecycleHooks {
 }
 
 const NOOP_GATE_HOOKS: GateLifecycleHooks = {
-  onGateOpened: () => {},
-  onGateClosed: () => {},
+  onGateOpened: () => undefined,
+  onGateClosed: () => undefined,
 };
 
 /**
  * Wrap a gate's `resolve` so `onGateClosed` fires exactly once no matter
  * which of accept / cancel / auto-deny settles it first.
  */
-function onceClosed<T>(onGateClosed: () => void, resolve: (value: T) => void): (value: T) => void {
+function onceClosed<T>(
+  onGateClosed: () => void,
+  resolve: (value: T) => void,
+): (value: T) => void {
   let closed = false;
   return (value) => {
     if (!closed) {
@@ -248,7 +262,10 @@ export function wireGates(
   // host only enqueues requests and renders whatever settle calls the queue
   // hands back — it never decides which grant covers which request.
   const permissionQueue = createPermissionRequestQueue();
-  const disposeReconciliation = wirePermissionGrantReconciliation(emitter, permissionQueue);
+  const disposeReconciliation = wirePermissionGrantReconciliation(
+    emitter,
+    permissionQueue,
+  );
   // Operator gates have no queue module of their own (unlike permission
   // requests, which register with permissionQueue so dispose can drain
   // them) — each one registers its own teardown callback here for the
@@ -306,7 +323,8 @@ export function wireGates(
     const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true });
     // Nothing was collapsed → no expand affordance, so the overlay leaves the
     // bare key unclaimed.
-    const collapsedAnything = formatCommandForApproval(ev.request.subject).payloadCount > 0;
+    const collapsedAnything =
+      formatCommandForApproval(ev.request.subject).payloadCount > 0;
     let expanded = false;
     // Set only while this gate's own overlay is the one on screen — see
     // overlayGeneration above for why the settle path checks it against the
@@ -323,7 +341,8 @@ export function wireGates(
     // closeInsetOverlay, which fires onCancel after notifying close
     // listeners) — settle's return value is how a call site tells that
     // reentrant call apart from the original one.
-    const settle = (outcome: ApprovalOutcome): boolean => permissionQueue.settle(id, outcome);
+    const settle = (outcome: ApprovalOutcome): boolean =>
+      permissionQueue.settle(id, outcome);
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
       clearTimers();
       if (openedGeneration === undefined) {
@@ -336,7 +355,10 @@ export function wireGates(
 
     const onToggleExpand = (): void => {
       expanded = !expanded;
-      setOverlayBody(shell, permissionBodyFromRequest(ev.request, { expanded, hint: true }));
+      setOverlayBody(
+        shell,
+        permissionBodyFromRequest(ev.request, { expanded, hint: true }),
+      );
       if (!expanded) return;
       // The overlay body is height-capped by geometry, so the authoritative
       // copy of an expanded payload goes to the scrollable transcript — whole,

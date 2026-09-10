@@ -6,14 +6,21 @@ import {
 } from "./secret-guard-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
-const next = async (call: ToolCall): Promise<ToolResult> => ({ callId: call.id, content: "ok" });
+const next = async (call: ToolCall): Promise<ToolResult> => ({
+  callId: call.id,
+  content: "ok",
+});
 
 function handler() {
   const plugin = secretGuardPlugin();
   return plugin.middleware ? plugin.middleware(next) : next;
 }
 
-const read = (path: string): ToolCall => ({ id: "c", name: "read_file", arguments: { path } });
+const read = (path: string): ToolCall => ({
+  id: "c",
+  name: "read_file",
+  arguments: { path },
+});
 const shell = (command: unknown): ToolCall => ({
   id: "c",
   name: "run_shell",
@@ -123,7 +130,10 @@ describe("secretGuardPlugin", () => {
   });
 
   test("allows an ordinary source file", async () => {
-    const result = await handler()(read("src/index.ts"), new AbortController().signal);
+    const result = await handler()(
+      read("src/index.ts"),
+      new AbortController().signal,
+    );
     expect(result.isError).not.toBe(true);
   });
 });
@@ -166,7 +176,8 @@ describe("commandReferencesSensitivePath", () => {
     "cat service-account.json",
   ];
   for (const c of blocked) {
-    test(`flags: ${c}`, () => expect(commandReferencesSensitivePath(c)).toBeDefined());
+    test(`flags: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeDefined());
   }
 
   const allowed = [
@@ -178,7 +189,8 @@ describe("commandReferencesSensitivePath", () => {
     "bun test",
   ];
   for (const c of allowed) {
-    test(`allows: ${c}`, () => expect(commandReferencesSensitivePath(c)).toBeUndefined());
+    test(`allows: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeUndefined());
   }
 });
 
@@ -188,7 +200,10 @@ describe("secretGuardPlugin run_shell", () => {
   // hard-denies path-keyed tools so approval can still let `bun --env-file=…`
   // through when the operator says yes.
   test("does not hard-deny a shell read of a secret file", async () => {
-    const result = await handler()(shell("cat .env"), new AbortController().signal);
+    const result = await handler()(
+      shell("cat .env"),
+      new AbortController().signal,
+    );
     expect(result.isError).not.toBe(true);
     expect(result.content).toBe("ok");
   });
@@ -211,12 +226,18 @@ describe("secretGuardPlugin run_shell", () => {
   });
 
   test("allows a harmless shell command", async () => {
-    const result = await handler()(shell("bun test"), new AbortController().signal);
+    const result = await handler()(
+      shell("bun test"),
+      new AbortController().signal,
+    );
     expect(result.isError).not.toBe(true);
   });
 
   test("does not coerce a non-string command (passes through to tool validation)", async () => {
-    const result = await handler()(shell(undefined), new AbortController().signal);
+    const result = await handler()(
+      shell(undefined),
+      new AbortController().signal,
+    );
     expect(result.content).toBe("ok");
   });
 });

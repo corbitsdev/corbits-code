@@ -115,7 +115,12 @@ function inferenceDoneWithInput(inputTokens: number): ReactorInboundEvent {
     turn: {
       role: "assistant",
       content: [
-        { type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "x.ts" } },
+        {
+          type: "tool_call",
+          id: "call-1",
+          name: "read_file",
+          arguments: { path: "x.ts" },
+        },
       ],
       model: "test-model",
       timestamp: 0,
@@ -138,7 +143,7 @@ const manyTurnsState: ReactorState = {
 
 function makeChatDirectorWithContinuation(onContinue: () => void) {
   return createChatDirector("sys", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     requestContinuation: onContinue,
   });
 }
@@ -150,12 +155,20 @@ test("current context over threshold emits compact and a continuation request, n
   });
 
   // A cycle whose input usage exceeds ~60% of the default 128k window arms compaction.
-  await director.decide(inferenceDoneWithInput(100_000), manyTurnsState, makeCapabilities());
+  await director.decide(
+    inferenceDoneWithInput(100_000),
+    manyTurnsState,
+    makeCapabilities(),
+  );
 
   // The next tool.done would normally re-infer; instead it compacts and asks
   // the host to re-enter the loop.
   const caps = makeCapabilities();
-  const result = await director.decide(toolDoneTurn("call-1"), manyTurnsState, caps);
+  const result = await director.decide(
+    toolDoneTurn("call-1"),
+    manyTurnsState,
+    caps,
+  );
   const arr = Array.isArray(result) ? result : [result];
 
   expect(arr.some((a) => a.type === "compact")).toBe(true);
@@ -164,7 +177,11 @@ test("current context over threshold emits compact and a continuation request, n
 
   // The self-delivered empty message resumes inference against truncated history.
   const resumeCaps = makeCapabilities();
-  const resume = await director.decide(emptyMessageReceived(), state, resumeCaps);
+  const resume = await director.decide(
+    emptyMessageReceived(),
+    state,
+    resumeCaps,
+  );
   const resumeArr = Array.isArray(resume) ? resume : [resume];
   expect(resumeArr.some((a) => a.type === "infer")).toBe(true);
 });
@@ -178,8 +195,16 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
   // After a compaction truncates history, the next cycle's input usage falls
   // back under the threshold — so no further compaction is armed. This is the
   // behavior that makes a (reload-fragile) cooldown unnecessary.
-  await director.decide(inferenceDoneWithInput(5_000), manyTurnsState, makeCapabilities());
-  const result = await director.decide(toolDoneTurn("call-1"), manyTurnsState, makeCapabilities());
+  await director.decide(
+    inferenceDoneWithInput(5_000),
+    manyTurnsState,
+    makeCapabilities(),
+  );
+  const result = await director.decide(
+    toolDoneTurn("call-1"),
+    manyTurnsState,
+    makeCapabilities(),
+  );
   const arr = Array.isArray(result) ? result : [result];
 
   expect(arr.some((a) => a.type === "compact")).toBe(false);
@@ -197,12 +222,22 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
 // directly against resolveModelFamilyPolicy's grok branch.
 // ---------------------------------------------------------------------------
 
-function toolOnlyInferenceDone(callId: string, path = "x.ts"): ReactorInboundEvent {
+function toolOnlyInferenceDone(
+  callId: string,
+  path = "x.ts",
+): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
       role: "assistant",
-      content: [{ type: "tool_call", id: callId, name: "read_file", arguments: { path } }],
+      content: [
+        {
+          type: "tool_call",
+          id: callId,
+          name: "read_file",
+          arguments: { path },
+        },
+      ],
       model: "test-model",
       timestamp: 0,
     },
@@ -223,7 +258,11 @@ async function runToolOnlyStreak(
       state,
       makeCapabilities(),
     );
-    const result = await director.decide(toolDoneTurn(`call-${i}`), state, makeCapabilities());
+    const result = await director.decide(
+      toolDoneTurn(`call-${i}`),
+      state,
+      makeCapabilities(),
+    );
     lastActions = Array.isArray(result) ? result : [result];
   }
   return lastActions;
@@ -231,20 +270,24 @@ async function runToolOnlyStreak(
 
 test("a grok provider no longer pauses a 10-turn productive tool-only streak", async () => {
   const grokDirector = createChatDirector("sys", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     provider: { providerName: "xai", model: "grok-4" },
   });
   const grokActions = await runToolOnlyStreak(grokDirector, 10);
-  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
-    false,
-  );
+  expect(
+    grokActions.some(
+      (a) => a.type === "reply" && a.content.includes("Auto-paused"),
+    ),
+  ).toBe(false);
 
   const defaultDirector = createChatDirector("sys", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     provider: { providerName: "openai", model: "gpt-4" },
   });
   const defaultActions = await runToolOnlyStreak(defaultDirector, 10);
-  expect(defaultActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
-    false,
-  );
+  expect(
+    defaultActions.some(
+      (a) => a.type === "reply" && a.content.includes("Auto-paused"),
+    ),
+  ).toBe(false);
 });

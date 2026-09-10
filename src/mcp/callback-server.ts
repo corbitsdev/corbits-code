@@ -19,12 +19,15 @@ interface CallbackWaiter {
 }
 
 const CALLBACK_PATH = "/callback";
-const CLOSED_ERROR = "OAuth callback server closed before authorization completed.";
+const CLOSED_ERROR =
+  "OAuth callback server closed before authorization completed.";
 
 // Start a loopback server to receive the OAuth redirect. close() fail-closes
 // waitForCode so disposing the toolset cannot leave authorization hung.
 // `serverName` only names the authorization on the page the browser lands on.
-export async function startCallbackServer(serverName?: string): Promise<CallbackServer> {
+export async function startCallbackServer(
+  serverName?: string,
+): Promise<CallbackServer> {
   let closed = false;
   let expectedState: string | undefined;
   let pendingResult: CallbackResult | undefined;
@@ -54,7 +57,10 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
       res.end("Not found");
       return;
     }
-    if (expectedState === undefined || url.searchParams.get("state") !== expectedState) {
+    if (
+      expectedState === undefined ||
+      url.searchParams.get("state") !== expectedState
+    ) {
       res.statusCode = 400;
       res.end("Authorization callback state did not match.");
       return;
@@ -62,7 +68,8 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
 
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
-    const failure = error ?? (code === null ? "the redirect carried no code" : undefined);
+    const failure =
+      error ?? (code === null ? "the redirect carried no code" : undefined);
     res.statusCode = failure === undefined ? 200 : 400;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(
@@ -71,7 +78,8 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
         ...(failure !== undefined ? { error: failure } : {}),
       }),
     );
-    if (error !== null) deliver({ error: new Error(`Authorization failed: ${error}`) });
+    if (error !== null)
+      deliver({ error: new Error(`Authorization failed: ${error}`) });
     else if (code === null)
       deliver({ error: new Error("Authorization redirect carried no code.") });
     else deliver({ code });
@@ -79,7 +87,9 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", (err) => {
-      reject(new Error(`Could not start the OAuth callback server: ${err.message}`));
+      reject(
+        new Error(`Could not start the OAuth callback server: ${err.message}`),
+      );
     });
     server.listen(0, "127.0.0.1", resolve);
   });

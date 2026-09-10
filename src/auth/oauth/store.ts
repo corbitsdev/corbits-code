@@ -1,4 +1,11 @@
-import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -26,7 +33,10 @@ export interface AuthProfile<TTokens extends BaseTokens> {
 export interface AuthStore<TTokens extends BaseTokens> {
   authPath: (home?: string) => string;
   listProfiles: (home?: string) => Promise<AuthProfile<TTokens>[]>;
-  loadProfile: (name: string, home?: string) => Promise<AuthProfile<TTokens> | undefined>;
+  loadProfile: (
+    name: string,
+    home?: string,
+  ) => Promise<AuthProfile<TTokens> | undefined>;
   saveProfile: (profile: AuthProfile<TTokens>, home?: string) => Promise<void>;
   updateTokens: (name: string, tokens: TTokens, home?: string) => Promise<void>;
   // Remove one profile, or all profiles when `name` is undefined. Returns the
@@ -53,7 +63,11 @@ function isProfile<TTokens extends BaseTokens>(
 ): value is AuthProfile<TTokens> {
   if (typeof value !== "object" || value === null) return false;
   const p = value as Record<string, unknown>;
-  return typeof p.name === "string" && typeof p.createdAt === "number" && isTokens(p.tokens);
+  return (
+    typeof p.name === "string" &&
+    typeof p.createdAt === "number" &&
+    isTokens(p.tokens)
+  );
 }
 
 export function createAuthStore<TTokens extends BaseTokens>(
@@ -79,7 +93,11 @@ export function createAuthStore<TTokens extends BaseTokens>(
     }
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (typeof parsed === "object" && parsed !== null && "profiles" in parsed) {
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "profiles" in parsed
+      ) {
         const profiles = (parsed as { profiles: unknown }).profiles;
         if (typeof profiles === "object" && profiles !== null) {
           // Drop any entry that fails validation rather than wedging the session
@@ -100,7 +118,10 @@ export function createAuthStore<TTokens extends BaseTokens>(
     return { profiles: {} };
   }
 
-  async function writeAuthFile(file: AuthFile<TTokens>, home: string): Promise<void> {
+  async function writeAuthFile(
+    file: AuthFile<TTokens>,
+    home: string,
+  ): Promise<void> {
     const path = authPath(home);
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const tmp = `${path}.${process.pid}.tmp`;
@@ -124,7 +145,10 @@ export function createAuthStore<TTokens extends BaseTokens>(
         break;
       } catch (error) {
         const isLocked =
-          typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "EEXIST";
         if (!isLocked) throw error;
         if (Date.now() >= deadline) {
           throw new Error(
@@ -150,9 +174,13 @@ export function createAuthStore<TTokens extends BaseTokens>(
 
   return {
     authPath,
-    async listProfiles(home: string = homedir()): Promise<AuthProfile<TTokens>[]> {
+    async listProfiles(
+      home: string = homedir(),
+    ): Promise<AuthProfile<TTokens>[]> {
       const file = await readAuthFile(home);
-      return Object.values(file.profiles).sort((a, b) => a.name.localeCompare(b.name));
+      return Object.values(file.profiles).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
     },
     async loadProfile(
       name: string,
@@ -161,7 +189,10 @@ export function createAuthStore<TTokens extends BaseTokens>(
       const file = await readAuthFile(home);
       return file.profiles[name];
     },
-    async saveProfile(profile: AuthProfile<TTokens>, home: string = homedir()): Promise<void> {
+    async saveProfile(
+      profile: AuthProfile<TTokens>,
+      home: string = homedir(),
+    ): Promise<void> {
       await withAuthFileLock(home, async () => {
         const file = await readAuthFile(home);
         file.profiles[profile.name] = profile;
@@ -170,7 +201,11 @@ export function createAuthStore<TTokens extends BaseTokens>(
     },
     // Persist refreshed tokens for an existing profile, preserving createdAt. A
     // no-op if the profile no longer exists (e.g. removed in another session).
-    async updateTokens(name: string, tokens: TTokens, home: string = homedir()): Promise<void> {
+    async updateTokens(
+      name: string,
+      tokens: TTokens,
+      home: string = homedir(),
+    ): Promise<void> {
       await withAuthFileLock(home, async () => {
         const file = await readAuthFile(home);
         const existing = file.profiles[name];
@@ -179,7 +214,10 @@ export function createAuthStore<TTokens extends BaseTokens>(
         await writeAuthFile(file, home);
       });
     },
-    async removeProfile(name: string | undefined, home: string = homedir()): Promise<string[]> {
+    async removeProfile(
+      name: string | undefined,
+      home: string = homedir(),
+    ): Promise<string[]> {
       return withAuthFileLock(home, async () => {
         const file = await readAuthFile(home);
         if (name === undefined) {

@@ -25,10 +25,19 @@ import {
   formatPluginWarningsSummary,
 } from "../plugins/diagnostics.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
-import { enablePluginConfig, registerCommandPluginModule } from "../plugins/register.js";
+import {
+  enablePluginConfig,
+  registerCommandPluginModule,
+} from "../plugins/register.js";
 import { executePluginRemove } from "../plugins/uninstall.js";
-import { collectWebPlugins, type WebPluginCandidate } from "../web/plugin-provider.js";
-import { collectToolPlugins, type ToolPluginCandidate } from "../plugins/tool-plugins.js";
+import {
+  collectWebPlugins,
+  type WebPluginCandidate,
+} from "../web/plugin-provider.js";
+import {
+  collectToolPlugins,
+  type ToolPluginCandidate,
+} from "../plugins/tool-plugins.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
 import { trustPlugin, type ProjectTrustStore } from "../trust/project-trust.js";
 import {
@@ -95,7 +104,9 @@ export function buildPluginDescriptor(mod: {
           : {}),
         credentials: mod.manifest.credentials ?? [],
         ...(mod.metadataOnly === true ? { needsTrust: true } : {}),
-        ...(mod.origin === "path" && mod.metadataOnly !== true ? { canRevokeTrust: true } : {}),
+        ...(mod.origin === "path" && mod.metadataOnly !== true
+          ? { canRevokeTrust: true }
+          : {}),
         ...(mod.pluginPath !== undefined ? { pluginPath: mod.pluginPath } : {}),
         ...(mod.source !== undefined ? { source: mod.source } : {}),
       };
@@ -169,10 +180,13 @@ export function createPluginsAdmin(args: {
           trustGrantMessage = formatPluginWarningsSummary(trustDiag.warnings);
           args.noteWarnings(trustDiag.warnings);
           if (full !== null) {
-            state.modules = state.modules.map((m) => (m.manifest?.id === id ? full : m));
+            state.modules = state.modules.map((m) =>
+              m.manifest?.id === id ? full : m,
+            );
             const di = state.descriptors.findIndex((d) => d.id === id);
             const fullDesc = buildPluginDescriptor(full);
-            if (di >= 0 && fullDesc !== undefined) state.descriptors.splice(di, 1, fullDesc);
+            if (di >= 0 && fullDesc !== undefined)
+              state.descriptors.splice(di, 1, fullDesc);
             // Refresh web/tool candidate lists from the newly loaded module.
             for (const cand of collectWebPlugins([full])) {
               const ci = state.webCandidates.findIndex((c) => c.id === cand.id);
@@ -180,7 +194,9 @@ export function createPluginsAdmin(args: {
               else state.webCandidates.push(cand);
             }
             for (const cand of collectToolPlugins([full])) {
-              const ci = state.toolCandidates.findIndex((c) => c.id === cand.id);
+              const ci = state.toolCandidates.findIndex(
+                (c) => c.id === cand.id,
+              );
               if (ci >= 0) state.toolCandidates.splice(ci, 1, cand);
               else state.toolCandidates.push(cand);
             }
@@ -189,7 +205,9 @@ export function createPluginsAdmin(args: {
         }
       }
       await persistPluginSettings();
-      return trustGrantMessage === undefined ? undefined : { message: trustGrantMessage };
+      return trustGrantMessage === undefined
+        ? undefined
+        : { message: trustGrantMessage };
     },
     setWebOverride: async (id) => {
       state.webOverride = id;
@@ -207,14 +225,18 @@ export function createPluginsAdmin(args: {
           { [id]: { enabled: true } },
           { diagnostics: verifyDiag },
         );
-        if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
+        if (profiles.length === 0)
+          return { ok: false, message: "No valid agent profiles found" };
         // Fold warnings into the message (same pattern as `addPath`) instead of
         // logging them: "loaded — N profiles" must not read identically whether
         // or not a profile's skill ref actually resolved.
         const warnings = formatPluginWarningsSummary(verifyDiag.warnings);
         args.noteWarnings(verifyDiag.warnings);
         const base = `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`;
-        return { ok: true, message: warnings === undefined ? base : `${base} (${warnings})` };
+        return {
+          ok: true,
+          message: warnings === undefined ? base : `${base} (${warnings})`,
+        };
       }
       // Tool plugins verify by loading (the factory must construct without
       // error and yield at least one tool).
@@ -223,11 +245,16 @@ export function createPluginsAdmin(args: {
         try {
           const plugin = await toolCand.factory(credentials);
           const count = plugin.tools?.length ?? 0;
-          return { ok: true, message: `loaded — ${count} tool${count === 1 ? "" : "s"}` };
+          return {
+            ok: true,
+            message: `loaded — ${count} tool${count === 1 ? "" : "s"}`,
+          };
         } catch (err) {
           return {
             ok: false,
-            message: scrubSecrets(err instanceof Error ? err.message : String(err)),
+            message: scrubSecrets(
+              err instanceof Error ? err.message : String(err),
+            ),
           };
         }
       }
@@ -239,7 +266,10 @@ export function createPluginsAdmin(args: {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15_000);
         try {
-          const results = await provider.search("corbits connectivity test", controller.signal);
+          const results = await provider.search(
+            "corbits connectivity test",
+            controller.signal,
+          );
           return { ok: true, message: `connected — ${results.length} results` };
         } finally {
           clearTimeout(timer);
@@ -247,7 +277,9 @@ export function createPluginsAdmin(args: {
       } catch (err) {
         return {
           ok: false,
-          message: scrubSecrets(err instanceof Error ? err.message : String(err)),
+          message: scrubSecrets(
+            err instanceof Error ? err.message : String(err),
+          ),
         };
       }
     },
@@ -265,12 +297,17 @@ export function createPluginsAdmin(args: {
       // Collected, not emitted: `emitPluginWarningSummary` writes to stderr, and
       // a raw write lands mid-frame and corrupts the rendered transcript. The
       // warnings are folded into the result message below instead.
-      if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
+      if (mod === null)
+        return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
-        return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
+        return {
+          ok: false,
+          message: "Plugin has no manifest (needs id/name/kind)",
+        };
       }
       const descriptor = buildPluginDescriptor(mod);
-      if (descriptor === undefined) return { ok: false, message: "Invalid plugin manifest" };
+      if (descriptor === undefined)
+        return { ok: false, message: "Invalid plugin manifest" };
       // Persist global path trust only once it resolves to a real plugin, so a
       // bogus path never leaves a dangling entry. Expand marketplaces so each
       // member is trusted (exact-path match on reload). `onSkip` collects into
@@ -279,13 +316,20 @@ export function createPluginsAdmin(args: {
       const members = await expandPluginPath(abs, {
         onSkip: expandSkipDiagnosticsHandler(addDiag),
       });
-      state.pathTrust = await trustPathPlugins(members.length > 0 ? members : [abs]);
+      state.pathTrust = await trustPathPlugins(
+        members.length > 0 ? members : [abs],
+      );
       // Replace any existing descriptor/candidate with the same id so re-adding
       // refreshes rather than duplicates.
-      const existingIdx = state.descriptors.findIndex((d) => d.id === descriptor.id);
-      if (existingIdx >= 0) state.descriptors.splice(existingIdx, 1, descriptor);
+      const existingIdx = state.descriptors.findIndex(
+        (d) => d.id === descriptor.id,
+      );
+      if (existingIdx >= 0)
+        state.descriptors.splice(existingIdx, 1, descriptor);
       else state.descriptors.push(descriptor);
-      const existingModIdx = state.modules.findIndex((m) => m.manifest?.id === descriptor.id);
+      const existingModIdx = state.modules.findIndex(
+        (m) => m.manifest?.id === descriptor.id,
+      );
       if (existingModIdx >= 0) state.modules[existingModIdx] = mod;
       else state.modules.push(mod);
       for (const cand of collectWebPlugins([mod])) {
@@ -300,7 +344,10 @@ export function createPluginsAdmin(args: {
       }
       // Path-add is consent to use the plugin, so persist activation and make
       // its commands available from the registry without requiring a restart.
-      state.pluginConfig = enablePluginConfig(state.pluginConfig, descriptor.id);
+      state.pluginConfig = enablePluginConfig(
+        state.pluginConfig,
+        descriptor.id,
+      );
       registerCommandPluginModule(mod, () => state.pluginConfig);
       // Persist the resolved absolute path so it reloads regardless of the cwd
       // the next session starts from.
@@ -319,8 +366,15 @@ export function createPluginsAdmin(args: {
     },
     revokeTrust: async (id) => {
       const mod = state.modules.find((m) => m.manifest?.id === id);
-      if (mod === undefined || mod.origin !== "path" || mod.pluginPath === undefined) {
-        return { ok: false, message: "Only path-added plugins carry revocable global trust" };
+      if (
+        mod === undefined ||
+        mod.origin !== "path" ||
+        mod.pluginPath === undefined
+      ) {
+        return {
+          ok: false,
+          message: "Only path-added plugins carry revocable global trust",
+        };
       }
       state.pathTrust = await revokePathPlugin(mod.pluginPath);
       // Drop back to the metadata-only stub and disable: the module stays
@@ -333,10 +387,13 @@ export function createPluginsAdmin(args: {
         pluginPath: mod.pluginPath,
         metadataOnly: true,
       };
-      state.modules = state.modules.map((m) => (m.manifest?.id === id ? stub : m));
+      state.modules = state.modules.map((m) =>
+        m.manifest?.id === id ? stub : m,
+      );
       const di = state.descriptors.findIndex((d) => d.id === id);
       const stubDesc = buildPluginDescriptor(stub);
-      if (di >= 0 && stubDesc !== undefined) state.descriptors.splice(di, 1, stubDesc);
+      if (di >= 0 && stubDesc !== undefined)
+        state.descriptors.splice(di, 1, stubDesc);
       const wi = state.webCandidates.findIndex((c) => c.id === id);
       if (wi >= 0) state.webCandidates.splice(wi, 1);
       const ti = state.toolCandidates.findIndex((c) => c.id === id);
@@ -346,7 +403,10 @@ export function createPluginsAdmin(args: {
         [id]: { ...(state.pluginConfig[id] ?? {}), enabled: false },
       };
       await persistPluginSettings();
-      return { ok: true, message: "Trust revoked — code stays unloaded from next launch" };
+      return {
+        ok: true,
+        message: "Trust revoked — code stays unloaded from next launch",
+      };
     },
     remove: async (id) => {
       if (id.length === 0) return { ok: false, message: "Unknown plugin" };
@@ -377,11 +437,16 @@ export function createPluginsAdmin(args: {
         cwd: state.cwd,
         plugins: state.pluginConfig,
         pluginPaths: state.pluginPaths,
-        ...(state.webOverride !== undefined ? { webOverride: state.webOverride } : {}),
+        ...(state.webOverride !== undefined
+          ? { webOverride: state.webOverride }
+          : {}),
         otherLivePluginPaths: state.modules.flatMap((m) =>
-          m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
+          m.manifest?.id !== id && m.pluginPath !== undefined
+            ? [m.pluginPath]
+            : [],
         ),
-        expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
+        expandMembers: (abs) =>
+          expandPluginPath(abs, { onSkip: () => undefined }),
         revokePathPlugin: async (path) => {
           state.pathTrust = await revokePathPlugin(path);
         },

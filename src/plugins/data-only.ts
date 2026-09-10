@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
-import type { CommandDefinition, CommandPlugin } from "../tui/commands/registry.js";
+import type {
+  CommandDefinition,
+  CommandPlugin,
+} from "../tui/commands/registry.js";
 import { loadDataOnlyAgentPlugin } from "./data-only-agent.js";
 import { loadDataOnlyCommands } from "./data-only-commands.js";
 import { loadSkillCommands } from "./skill-commands.js";
@@ -43,11 +46,14 @@ interface ClaudePluginManifest {
   description?: string;
 }
 
-async function readClaudePluginManifestFile(path: string): Promise<ClaudePluginManifest | null> {
+async function readClaudePluginManifestFile(
+  path: string,
+): Promise<ClaudePluginManifest | null> {
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return null;
     const obj = parsed as Record<string, unknown>;
     // Prefer name; some layouts put the marketplace id in `id` instead.
     const nameRaw =
@@ -65,12 +71,18 @@ async function readClaudePluginManifestFile(path: string): Promise<ClaudePluginM
   }
 }
 
-async function readClaudePluginManifest(dir: string): Promise<ClaudePluginManifest | null> {
+async function readClaudePluginManifest(
+  dir: string,
+): Promise<ClaudePluginManifest | null> {
   // plugin.json is the Claude Code convention; manifest.json is an observed
   // marketplace variant that still carries name/description.
   return (
-    (await readClaudePluginManifestFile(join(dir, ".claude-plugin", "plugin.json"))) ??
-    (await readClaudePluginManifestFile(join(dir, ".claude-plugin", "manifest.json")))
+    (await readClaudePluginManifestFile(
+      join(dir, ".claude-plugin", "plugin.json"),
+    )) ??
+    (await readClaudePluginManifestFile(
+      join(dir, ".claude-plugin", "manifest.json"),
+    ))
   );
 }
 
@@ -92,13 +104,14 @@ export async function loadDataOnlyPlugin(
         : { onWarning: stderrPluginWarning },
   );
 
-  const [nativeManifest, claudeManifest, agents, commands, skillCmds] = await Promise.all([
-    readManifestJson(pluginDir),
-    readClaudePluginManifest(pluginDir),
-    loadDataOnlyAgentPlugin(pluginDir, { cwd, onWarning }),
-    loadDataOnlyCommands(pluginDir, { onWarning }),
-    loadSkillCommands(pluginDir, { onWarning }),
-  ]);
+  const [nativeManifest, claudeManifest, agents, commands, skillCmds] =
+    await Promise.all([
+      readManifestJson(pluginDir),
+      readClaudePluginManifest(pluginDir),
+      loadDataOnlyAgentPlugin(pluginDir, { cwd, onWarning }),
+      loadDataOnlyCommands(pluginDir, { onWarning }),
+      loadSkillCommands(pluginDir, { onWarning }),
+    ]);
 
   const hasCommands =
     (commands !== null && commands.commandPlugin.commands.length > 0) ||

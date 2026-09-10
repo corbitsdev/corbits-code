@@ -16,7 +16,10 @@ import type { StreamRow } from "./stream.js";
 import { createStreamMapContext } from "./stream-event-map.js";
 import { appendObserveStreamRow, appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
-import { getPaletteOnObserveRequest, setPaletteOnObserveRequest } from "./shell/internals.js";
+import {
+  getPaletteOnObserveRequest,
+  setPaletteOnObserveRequest,
+} from "./shell/internals.js";
 import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe.js";
 
 function liveChildSession(
@@ -60,10 +63,16 @@ describe("live subagent observe", () => {
           expect(shell.observe?.description).toBe("map callers");
           expect(focusOwner(shell.focus)).toBe("observe");
           expect(shell.parentStreamLog).not.toBeNull();
-          expect(shell.streamLog.some((r) => r.text === "scanning repo…")).toBe(true);
-          expect(shell.streamLog.some((r) => r.text.includes("Viewing explore"))).toBe(true);
+          expect(shell.streamLog.some((r) => r.text === "scanning repo…")).toBe(
+            true,
+          );
+          expect(
+            shell.streamLog.some((r) => r.text.includes("Viewing explore")),
+          ).toBe(true);
           // Parent row is not visible while observing.
-          expect(shell.streamLog.some((r) => r.text === "parent before")).toBe(false);
+          expect(shell.streamLog.some((r) => r.text === "parent before")).toBe(
+            false,
+          );
           expect(shell.layout.heights.agents).toBeGreaterThan(0);
         } finally {
           shell.dispose();
@@ -81,23 +90,34 @@ describe("live subagent observe", () => {
           run: "idle",
         });
         try {
-          enterSubagentObserve(shell, liveChildSession([{ role: "system", text: "seed" }]));
+          enterSubagentObserve(
+            shell,
+            liveChildSession([{ role: "system", text: "seed" }]),
+          );
 
           const ok = appendObserveStreamRow(shell, {
             role: "assistant",
             text: "live delta from host",
           });
           expect(ok).toBe(true);
-          expect(shell.streamLog.some((r) => r.text === "live delta from host")).toBe(true);
-          expect(shell.observe?.lines.some((r) => r.text === "live delta from host")).toBe(true);
+          expect(
+            shell.streamLog.some((r) => r.text === "live delta from host"),
+          ).toBe(true);
+          expect(
+            shell.observe?.lines.some((r) => r.text === "live delta from host"),
+          ).toBe(true);
 
           // Parent appends during observe stay on the snapshot, not the child view.
           appendStreamRow(shell, {
             role: "assistant",
             text: "parent mid-observe",
           });
-          expect(shell.streamLog.some((r) => r.text === "parent mid-observe")).toBe(false);
-          expect(shell.parentStreamLog?.some((r) => r.text === "parent mid-observe")).toBe(true);
+          expect(
+            shell.streamLog.some((r) => r.text === "parent mid-observe"),
+          ).toBe(false);
+          expect(
+            shell.parentStreamLog?.some((r) => r.text === "parent mid-observe"),
+          ).toBe(true);
         } finally {
           shell.dispose();
         }
@@ -146,12 +166,24 @@ describe("live subagent observe", () => {
           // Parent gained exactly the row appended while away plus the
           // "left observe" system row — never a doubled copy of either.
           expect(shell.streamLog.length).toBe(parentLen + 2);
-          expect(shell.streamLog.filter((r) => r.text === "parent user line").length).toBe(1);
-          expect(shell.streamLog.filter((r) => r.text === "parent while away").length).toBe(1);
-          expect(shell.streamLog.filter((r) => r.text.includes("left observe")).length).toBe(1);
+          expect(
+            shell.streamLog.filter((r) => r.text === "parent user line").length,
+          ).toBe(1);
+          expect(
+            shell.streamLog.filter((r) => r.text === "parent while away")
+              .length,
+          ).toBe(1);
+          expect(
+            shell.streamLog.filter((r) => r.text.includes("left observe"))
+              .length,
+          ).toBe(1);
           // Child rows must not leak into the restored parent transcript.
-          expect(shell.streamLog.some((r) => r.text === "child only")).toBe(false);
-          expect(shell.streamLog.some((r) => r.text === "child tool hit")).toBe(false);
+          expect(shell.streamLog.some((r) => r.text === "child only")).toBe(
+            false,
+          );
+          expect(shell.streamLog.some((r) => r.text === "child tool hit")).toBe(
+            false,
+          );
         } finally {
           shell.dispose();
         }
@@ -185,10 +217,17 @@ describe("live subagent observe", () => {
 
           // One "start" row and one "left observe" row per cycle; no
           // child row and no doubled parent row from any cycle.
-          expect(shell.streamLog.filter((r) => r.text === "start").length).toBe(1);
-          expect(shell.streamLog.filter((r) => r.text.includes("left observe")).length).toBe(3);
+          expect(shell.streamLog.filter((r) => r.text === "start").length).toBe(
+            1,
+          );
+          expect(
+            shell.streamLog.filter((r) => r.text.includes("left observe"))
+              .length,
+          ).toBe(3);
           for (let cycle = 0; cycle < 3; cycle++) {
-            expect(shell.streamLog.some((r) => r.text === `child tool ${cycle}`)).toBe(false);
+            expect(
+              shell.streamLog.some((r) => r.text === `child tool ${cycle}`),
+            ).toBe(false);
           }
         } finally {
           shell.dispose();
@@ -230,7 +269,10 @@ describe("live subagent observe", () => {
         });
         try {
           appendStreamRow(shell, { role: "user", text: "stay" });
-          enterSubagentObserve(shell, liveChildSession([{ role: "system", text: "child" }]));
+          enterSubagentObserve(
+            shell,
+            liveChildSession([{ role: "system", text: "child" }]),
+          );
           expect(shell.observe).not.toBeNull();
 
           // ESC needs disambiguation delay on the mock stdin path.
@@ -286,9 +328,17 @@ describe("live subagent observe", () => {
             appendObserveStreamRow(shell, row);
           }
 
-          expect(shell.streamLog.some((r) => r.text === "child task")).toBe(true);
-          expect(shell.streamLog.some((r) => r.text === "child answer")).toBe(true);
-          expect(shell.streamLog.some((r) => r.role === "tool" && r.text === "6 hits")).toBe(true);
+          expect(shell.streamLog.some((r) => r.text === "child task")).toBe(
+            true,
+          );
+          expect(shell.streamLog.some((r) => r.text === "child answer")).toBe(
+            true,
+          );
+          expect(
+            shell.streamLog.some(
+              (r) => r.role === "tool" && r.text === "6 hits",
+            ),
+          ).toBe(true);
         } finally {
           shell.dispose();
         }
@@ -323,7 +373,9 @@ describe("observe request handler injection point", () => {
 
           expect(shell.observe?.sessionId).toBe("live-child-1");
           expect(shell.observe?.agentId).toBe("worker");
-          expect(shell.streamLog.some((r) => r.text === "host seed")).toBe(true);
+          expect(shell.streamLog.some((r) => r.text === "host seed")).toBe(
+            true,
+          );
         } finally {
           shell.dispose();
         }
@@ -361,7 +413,9 @@ describe("observe pure mappers", () => {
       role: "assistant",
       text: "a",
     });
-    expect(rowFromBridgeEvent({ type: "tool_call", name: "bash", detail: "ls" })).toEqual({
+    expect(
+      rowFromBridgeEvent({ type: "tool_call", name: "bash", detail: "ls" }),
+    ).toEqual({
       role: "tool",
       text: "ls",
       meta: "bash",
@@ -389,7 +443,9 @@ describe("observe pure mappers", () => {
     });
     expect(rowFromBridgeEvent({ type: "run", state: "busy" })).toBeNull();
     expect(rowFromBridgeEvent({ type: "tool.boundary" })).toBeNull();
-    expect(rowFromBridgeEvent({ type: "assistant.delta", text: "x" })).toBeNull();
+    expect(
+      rowFromBridgeEvent({ type: "assistant.delta", text: "x" }),
+    ).toBeNull();
   });
 
   test("mapChildStreamEvent maps production reactor types", () => {

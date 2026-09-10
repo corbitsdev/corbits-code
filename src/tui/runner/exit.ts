@@ -14,9 +14,20 @@ import { onTurnBoundary } from "../../agent/reactor-events.js";
 import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
 import { billingIdentityFromSource } from "../../cost/session-cost.js";
 import { createRunSummary, type RunSummary } from "../../session/hooks.js";
-import { finalizeRunState, saveState, type RunState } from "../../session/state.js";
-import { generateSessionId, initSessionDir, sessionContextDir } from "../../session/index.js";
-import { resolveSessionLabel, truncateSessionLabel } from "../../session/session-label.js";
+import {
+  finalizeRunState,
+  saveState,
+  type RunState,
+} from "../../session/state.js";
+import {
+  generateSessionId,
+  initSessionDir,
+  sessionContextDir,
+} from "../../session/index.js";
+import {
+  resolveSessionLabel,
+  truncateSessionLabel,
+} from "../../session/session-label.js";
 import { clearActiveDisposeHost } from "../../session/active-host.js";
 import { getValidCodexToken } from "../../auth/codex/session.js";
 import { getValidXaiToken } from "../../auth/xai/session.js";
@@ -42,7 +53,10 @@ const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
 export function resetSessionForRotation(
   state: Pick<RunnerState, "withFleetPublicationSuspended">,
-  services: Pick<RunnerServices, "deliveryGeneration" | "emitter" | "subAgentSessions">,
+  services: Pick<
+    RunnerServices,
+    "deliveryGeneration" | "emitter" | "subAgentSessions"
+  >,
 ): Promise<string[]> {
   let cancelledWorkers: Promise<string[]> = Promise.resolve([]);
   const reset = (): void => {
@@ -85,7 +99,10 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
   message: string;
 } {
   const message = err instanceof Error ? err.message : String(err);
-  return { type: "error", message: `Could not load prior session transcript: ${message}` };
+  return {
+    type: "error",
+    message: `Could not load prior session transcript: ${message}`,
+  };
 }
 
 // The agent package releases its workdir lock at the very end of close(),
@@ -103,7 +120,10 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
 // this helper: it always points buildAgent() at a freshly minted workdir
 // before rebuilding, so a leaked lock on the old workdir can never be
 // re-acquired there — see the comment at its close() call for why.
-export async function closeAgentForRebuild(agent: Agent, context: string): Promise<boolean> {
+export async function closeAgentForRebuild(
+  agent: Agent,
+  context: string,
+): Promise<boolean> {
   try {
     await agent.close();
     return true;
@@ -159,7 +179,9 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
     kind: SnapshotKind = "progress",
   ): Promise<void> => {
     const task =
-      state.runTaskTitle.trim().length > 0 ? state.runTaskTitle.trim() : "(conversation)";
+      state.runTaskTitle.trim().length > 0
+        ? state.runTaskTitle.trim()
+        : "(conversation)";
     const model = `${state.liveSource.id}:${state.liveSource.model}`;
     // Kept in step with every persisted snapshot so the crash handler's copy
     // (activeRunHandle, read by index.ts) never lags what's actually on disk.
@@ -212,7 +234,11 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
 export async function createRunLifecycle(
   state: RunnerState,
   services: RunnerServices,
-): Promise<{ interrupt: () => void; newSession: () => void; agentProxy: Agent }> {
+): Promise<{
+  interrupt: () => void;
+  newSession: () => void;
+  agentProxy: Agent;
+}> {
   const { persistRunSnapshot } = createRunPersistence(state, services);
   state.persistRunSnapshot = persistRunSnapshot;
 
@@ -223,7 +249,9 @@ export async function createRunLifecycle(
   services.crashGuard.setPartialFlush(() =>
     services.cycleRecorder.dispose("crashed").then(() => undefined),
   );
-  const streamSink = (event: Parameters<typeof services.runSink.sink>[0]): void => {
+  const streamSink = (
+    event: Parameters<typeof services.runSink.sink>[0],
+  ): void => {
     let eventForSink = event;
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
@@ -238,7 +266,9 @@ export async function createRunLifecycle(
         "providerId" in error && typeof error.providerId === "string"
           ? error.providerId
           : (executingAttempt?.providerId ?? state.config.providerName);
-      providerFailureAttempts.observe(normalizeInferenceErrorForTerminal(error, providerId));
+      providerFailureAttempts.observe(
+        normalizeInferenceErrorForTerminal(error, providerId),
+      );
     } else if (event.type === "connector.reply") {
       const reply = providerFailureAttempts.consumeConnectorReply();
       if (reply?.suppressPresentation === true) {
@@ -250,13 +280,20 @@ export async function createRunLifecycle(
     services.runSink.sink(eventForSink);
     services.cycleRecorder.handleEvent(event);
     if (onTurnBoundary(event)) {
-      services.sessionCost.addTurn(event.data.usage, billingIdentityFromSource(event.data.source));
+      services.sessionCost.addTurn(
+        event.data.usage,
+        billingIdentityFromSource(event.data.source),
+      );
     }
   };
 
   state.currentAgent = await services.buildAgent();
   await persistRunSnapshot("running");
-  void resolveSessionLabel(state.config.cwd, state.sessionId, state.runTaskTitle).then((label) => {
+  void resolveSessionLabel(
+    state.config.cwd,
+    state.sessionId,
+    state.runTaskTitle,
+  ).then((label) => {
     services.emitter.emit("session.title", label);
   });
   state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
@@ -274,15 +311,21 @@ export async function createRunLifecycle(
         const old = liveAgent(state);
         const closedCleanly = await closeAgentForRebuild(old, "reload");
         await state.streamPromise?.catch((err: unknown) => {
-          tuiLogger.debug("stream drain during reload teardown failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          tuiLogger.debug(
+            "stream drain during reload teardown failed: {error}",
+            {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         });
         if (!closedCleanly) {
           throw new AgentContextLockError(state.workdir);
         }
         state.currentAgent = await services.buildAgent();
-        state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
+        state.streamPromise = consumeStream(
+          liveAgent(state).stream(),
+          streamSink,
+        );
         // The rebuild made a fresh director; re-attach the active workflow.
         services.workflowHost.reattach();
       } catch (err) {
@@ -301,7 +344,9 @@ export async function createRunLifecycle(
   const promoteTools = (names: string[]): void => {
     if (!services.activatedToolNames.activate(names)) return;
     services.directorHolder.instance?.updateToolDefinitions(
-      services.computeAdvertised(services.toolset.dynamicRunner.currentDefinitions()),
+      services.computeAdvertised(
+        services.toolset.dynamicRunner.currentDefinitions(),
+      ),
     );
     state.pendingReload = true;
     reloadIfIdle();
@@ -336,7 +381,9 @@ export async function createRunLifecycle(
     if (active === undefined) return;
     const { access } = await getValidCodexToken(active.profile);
     const source: InferenceSource =
-      access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
+      access === active.source.apiKey
+        ? active.source
+        : { ...active.source, apiKey: access };
     state.activeCodexSource = { profile: active.profile, source };
     state.liveSource = source;
     setAgentSourceUnlessClosed(liveAgent(state), source);
@@ -347,7 +394,9 @@ export async function createRunLifecycle(
     if (active === undefined) return;
     const { access } = await getValidXaiToken(active.profile);
     const source: InferenceSource =
-      access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
+      access === active.source.apiKey
+        ? active.source
+        : { ...active.source, apiKey: access };
     state.activeXaiSource = { profile: active.profile, source };
     state.liveSource = source;
     setAgentSourceUnlessClosed(liveAgent(state), source);
@@ -362,8 +411,12 @@ export async function createRunLifecycle(
       if (state.fatalBuildError !== null) throw state.fatalBuildError;
       const trimmed = typeof content === "string" ? content.trim() : "";
       if (trimmed.length > 0 && state.runTaskTitle.trim().length === 0) {
-        state.runTaskTitle = trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed;
-        services.emitter.emit("session.title", truncateSessionLabel(state.runTaskTitle));
+        state.runTaskTitle =
+          trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed;
+        services.emitter.emit(
+          "session.title",
+          truncateSessionLabel(state.runTaskTitle),
+        );
         void persistRunSnapshot("running");
       }
       return await runWhileAgentBusy(state, async () => {
@@ -381,7 +434,9 @@ export async function createRunLifecycle(
       const codexProfile = codexProfileFromProviderName(source.id);
       const xaiProfile = xaiProfileFromProviderName(source.id);
       state.activeCodexSource =
-        codexProfile !== undefined ? { profile: codexProfile, source } : undefined;
+        codexProfile !== undefined
+          ? { profile: codexProfile, source }
+          : undefined;
       state.activeXaiSource =
         xaiProfile !== undefined ? { profile: xaiProfile, source } : undefined;
       state.liveSource = source;
@@ -400,9 +455,13 @@ export async function createRunLifecycle(
         const codexProfile = codexProfileFromProviderName(head.id);
         const xaiProfile = xaiProfileFromProviderName(head.id);
         state.activeCodexSource =
-          codexProfile !== undefined ? { profile: codexProfile, source: head } : undefined;
+          codexProfile !== undefined
+            ? { profile: codexProfile, source: head }
+            : undefined;
         state.activeXaiSource =
-          xaiProfile !== undefined ? { profile: xaiProfile, source: head } : undefined;
+          xaiProfile !== undefined
+            ? { profile: xaiProfile, source: head }
+            : undefined;
         state.liveSource = head;
         state.stampProvider.fn?.(head.id);
       }
@@ -441,18 +500,27 @@ export async function createRunLifecycle(
           // and salvages the buffer before that teardown, so it is never lost
           // or misattributed to the rebuilt agent's next cycle.
           await services.cycleRecorder.dispose("interrupted");
-          const closedCleanly = await closeAgentForRebuild(liveAgent(state), "interrupt");
+          const closedCleanly = await closeAgentForRebuild(
+            liveAgent(state),
+            "interrupt",
+          );
           await state.streamPromise?.catch((err: unknown) => {
-            tuiLogger.debug("stream drain during interrupt teardown failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            tuiLogger.debug(
+              "stream drain during interrupt teardown failed: {error}",
+              {
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
           });
           if (!closedCleanly) {
             throw new AgentContextLockError(state.workdir);
           }
           state.currentAgent = await services.buildAgent();
           services.cycleRecorder.reset();
-          state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
+          state.streamPromise = consumeStream(
+            liveAgent(state).stream(),
+            streamSink,
+          );
           services.workflowHost.reattach();
           state.fatalBuildError = null;
         } catch (err) {
@@ -497,16 +565,26 @@ export async function createRunLifecycle(
         await liveAgent(state)
           .close()
           .catch((err: unknown) => {
-            tuiLogger.debug("agent.close during session-rotation teardown failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            tuiLogger.debug(
+              "agent.close during session-rotation teardown failed: {error}",
+              {
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
           });
         await state.streamPromise?.catch((err: unknown) => {
-          tuiLogger.debug("stream drain during session-rotation teardown failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          tuiLogger.debug(
+            "stream drain during session-rotation teardown failed: {error}",
+            {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         });
-        await persistRunSnapshot("done", { finishedAt: Date.now() }, "session-rotation");
+        await persistRunSnapshot(
+          "done",
+          { finishedAt: Date.now() },
+          "session-rotation",
+        );
         state.sessionId = generateSessionId();
         // Repointed, not cleared: the process lives on, so the crash handler
         // must keep finding this handle and close out the *new* session.
@@ -530,7 +608,10 @@ export async function createRunLifecycle(
         services.sessionCost.reset();
         state.currentAgent = await services.buildAgent();
         services.cycleRecorder.reset();
-        state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
+        state.streamPromise = consumeStream(
+          liveAgent(state).stream(),
+          streamSink,
+        );
         await persistRunSnapshot("running");
         // A fresh session drops any active workflow.
         services.workflowHost.reset();
@@ -540,7 +621,8 @@ export async function createRunLifecycle(
         services.hostHolder.instance?.refreshCostContext();
       } catch (err) {
         recordRunError(state, err);
-        state.fatalBuildError = err instanceof Error ? err : new Error(String(err));
+        state.fatalBuildError =
+          err instanceof Error ? err : new Error(String(err));
       }
     });
   };
@@ -606,7 +688,8 @@ export async function finalizeTUIRun(
     "run-end",
   );
   const runSummary = createRunSummary({
-    task: state.runTaskTitle.length > 0 ? state.runTaskTitle : state.config.task,
+    task:
+      state.runTaskTitle.length > 0 ? state.runTaskTitle : state.config.task,
     status: summaryStatus,
     startedAt: state.startedAt,
     finishedAt,
@@ -621,7 +704,11 @@ export async function finalizeTUIRun(
   // operator interrupt and Ctrl+C, since the emit site here cannot tell them
   // apart (runSink only distinguishes done/failed/cancelled).
   const exitReason =
-    runSummary.status === "done" ? "done" : runSummary.status === "failed" ? "error" : "cancelled";
+    runSummary.status === "done"
+      ? "done"
+      : runSummary.status === "failed"
+        ? "error"
+        : "cancelled";
   getTelemetry().capture("session_end", {
     status: runSummary.status,
     turn_count: runSummary.turnsUsed,

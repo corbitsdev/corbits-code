@@ -61,7 +61,9 @@ describe("renderIndeterminateRamp", () => {
   });
 
   test("wraps on the cycle", () => {
-    expect(renderIndeterminateRamp(RAMP_CYCLE_MS + 40)).toBe(renderIndeterminateRamp(40));
+    expect(renderIndeterminateRamp(RAMP_CYCLE_MS + 40)).toBe(
+      renderIndeterminateRamp(40),
+    );
   });
 
   test("never fakes a completed ramp", () => {
@@ -85,7 +87,9 @@ describe("rampFor", () => {
   });
 
   test("working with known progress fills rather than travels", () => {
-    expect(rampFor({ phase: "working", nowMs: 0, progress: 0.7 }).cells).toBe("███████▓▒░");
+    expect(rampFor({ phase: "working", nowMs: 0, progress: 0.7 }).cells).toBe(
+      "███████▓▒░",
+    );
   });
 
   test("done is solid Ridge Green and stops animating", () => {
@@ -125,20 +129,30 @@ describe("rampFor", () => {
 describe("rampPulse", () => {
   test("working cycles the density glyphs, so the cell visibly moves", () => {
     const seen = new Set(
-      [0, 300, 600, 900].map((nowMs) => rampPulse({ phase: "working", nowMs, stalledForMs: null })),
+      [0, 300, 600, 900].map((nowMs) =>
+        rampPulse({ phase: "working", nowMs, stalledForMs: null }),
+      ),
     );
     expect(seen.size).toBeGreaterThan(1);
     for (const glyph of seen) expect("░▒▓█").toContain(glyph);
   });
 
   test("blocked is one static glyph that working never paints", () => {
-    const blocked = rampPulse({ phase: "blocked", nowMs: 0, stalledForMs: null });
-    expect(rampPulse({ phase: "blocked", nowMs: 77_000, stalledForMs: null })).toBe(blocked);
+    const blocked = rampPulse({
+      phase: "blocked",
+      nowMs: 0,
+      stalledForMs: null,
+    });
+    expect(
+      rampPulse({ phase: "blocked", nowMs: 77_000, stalledForMs: null }),
+    ).toBe(blocked);
     expect("░▒▓█").not.toContain(blocked);
   });
 
   test("stalled blinks a bang against a block while the burst runs", () => {
-    expect(rampPulse({ phase: "stalled", nowMs: 0, stalledForMs: 0 })).toBe("█");
+    expect(rampPulse({ phase: "stalled", nowMs: 0, stalledForMs: 0 })).toBe(
+      "█",
+    );
     expect(
       rampPulse({
         phase: "stalled",
@@ -150,7 +164,13 @@ describe("rampPulse", () => {
 
   test("stalled settles to a static bang once the burst is spent", () => {
     for (const nowMs of [0, STALL_BLINK_CYCLE_MS / 2, 9_999]) {
-      expect(rampPulse({ phase: "stalled", nowMs, stalledForMs: STALL_BLINK_BURST_MS })).toBe("!");
+      expect(
+        rampPulse({
+          phase: "stalled",
+          nowMs,
+          stalledForMs: STALL_BLINK_BURST_MS,
+        }),
+      ).toBe("!");
     }
   });
 

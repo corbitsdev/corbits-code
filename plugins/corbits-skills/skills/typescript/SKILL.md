@@ -318,13 +318,18 @@ Prefer generic type parameters with constraints over index signatures:
 ```typescript
 // Bad - index signature (too permissive)
 export interface LoggingBackend {
-  configureApp(args: { level: LogLevel; [key: string]: unknown }): Promise<void>;
+  configureApp(args: {
+    level: LogLevel;
+    [key: string]: unknown;
+  }): Promise<void>;
 }
 
 // Good - generic with constraint (type-safe)
 export type BaseConfigArgs = { level: LogLevel };
 
-export interface LoggingBackend<TConfig extends BaseConfigArgs = BaseConfigArgs> {
+export interface LoggingBackend<
+  TConfig extends BaseConfigArgs = BaseConfigArgs,
+> {
   configureApp(args: TConfig): Promise<void>;
 }
 ```
@@ -417,7 +422,9 @@ let sharp: typeof import("sharp") | undefined;
 try {
   sharp = await import("sharp");
 } catch (err) {
-  logger.warn("sharp not installed, falling back to basic image handling", { cause: err });
+  logger.warn("sharp not installed, falling back to basic image handling", {
+    cause: err,
+  });
 }
 ```
 
@@ -428,7 +435,11 @@ try {
 Use async factory functions that return objects with async methods:
 
 ```typescript
-const createHandler = async (network: string, rpc: RpcClient, config?: HandlerOptions) => {
+const createHandler = async (
+  network: string,
+  rpc: RpcClient,
+  config?: HandlerOptions,
+) => {
   // Async initialization
   const networkInfo = await fetchNetworkInfo(rpc);
 
@@ -463,7 +474,10 @@ function timeout(timeoutMs: number, msg?: string) {
   );
 }
 
-const result = await Promise.race([fetchData(), timeout(5000, "fetch timed out")]);
+const result = await Promise.race([
+  fetchData(),
+  timeout(5000, "fetch timed out"),
+]);
 ```
 
 ### Retry Logic

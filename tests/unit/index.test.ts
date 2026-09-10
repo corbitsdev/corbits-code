@@ -9,6 +9,7 @@ import {
   schedulePricingMetadataRefresh,
 } from "../../src/cost/pricing-metadata.js";
 import { cliCaughtExit, mainWithRunners } from "../../src/index.js";
+import { defined } from "../helpers/defined.js";
 
 const envVars = {
   // Unit tests must never export telemetry or write an installationId into
@@ -51,7 +52,13 @@ beforeEach(() => {
   // or write into the real home cache directory.
   resetPricingMetadataRefreshForTests();
   schedulePricingMetadataRefresh({
-    cachePath: join(sandbox, "home", ".corbits", "cache", "models-pricing.json"),
+    cachePath: join(
+      sandbox,
+      "home",
+      ".corbits",
+      "cache",
+      "models-pricing.json",
+    ),
     fetchImpl: () => Promise.reject(new Error("network disabled in tests")),
   });
 });
@@ -61,7 +68,10 @@ afterEach(() => {
 });
 
 // The subcommand must stay at argv[0]; flags go after it.
-function sandboxArgs(subcommand: readonly string[], rest: readonly string[] = []): string[] {
+function sandboxArgs(
+  subcommand: readonly string[],
+  rest: readonly string[] = [],
+): string[] {
   return [
     ...subcommand,
     "--cwd",
@@ -117,7 +127,7 @@ test("main launches exec when configured with exec subcommand", async () => {
     expect(code).toBe(0);
     expect(runExec).toHaveBeenCalled();
     expect(runTUI).not.toHaveBeenCalled();
-    const cfg = runExec.mock.calls[0]![0];
+    const cfg = defined(runExec.mock.calls[0], "runExec call")[0];
     expect(cfg.command).toBe("exec");
     expect(cfg.task).toBe("say hello");
   });
@@ -135,7 +145,7 @@ test("main launches exec for run alias", async () => {
     });
     expect(code).toBe(0);
     expect(runExec).toHaveBeenCalled();
-    const cfg = runExec.mock.calls[0]![0];
+    const cfg = defined(runExec.mock.calls[0], "runExec call")[0];
     expect(cfg.command).toBe("exec");
     expect(cfg.task).toBe("do the thing");
   });

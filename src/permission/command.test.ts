@@ -14,7 +14,8 @@ describe("deriveCommandScopes exact-scope escaping", () => {
     const exact = scopes.find((s) => s.id === "exact");
     expect(exact).toBeDefined();
     const pattern = exact?.pattern;
-    if (pattern === null || pattern === undefined) throw new Error("expected a pattern");
+    if (pattern === null || pattern === undefined)
+      throw new Error("expected a pattern");
     expect(matchesPattern("rm -rf build/*", pattern)).toBe(true);
     expect(matchesPattern("rm -rf build/../../etc", pattern)).toBe(false);
   });
@@ -48,7 +49,10 @@ describe("splitChainedCommand heredocs", () => {
   });
 
   test("still splits ordinary chained commands", () => {
-    expect(splitChainedCommand("echo a && echo b")).toEqual(["echo a", "echo b"]);
+    expect(splitChainedCommand("echo a && echo b")).toEqual([
+      "echo a",
+      "echo b",
+    ]);
   });
 });
 
@@ -58,11 +62,19 @@ describe("splitChainedCommand redirect and background fragments", () => {
   // fold the following token back in when the segment before the separator
   // actually ends in a dangling redirect operator.
   test("does not fold a bare digit segment across a semicolon", () => {
-    expect(splitChainedCommand("sleep 5 ; -1 ; echo end")).toEqual(["sleep 5", "-1", "echo end"]);
+    expect(splitChainedCommand("sleep 5 ; -1 ; echo end")).toEqual([
+      "sleep 5",
+      "-1",
+      "echo end",
+    ]);
   });
 
   test("does not fold across a subshell boundary", () => {
-    expect(splitChainedCommand("echo x && (1 ; echo y)")).toEqual(["echo x", "1", "echo y"]);
+    expect(splitChainedCommand("echo x && (1 ; echo y)")).toEqual([
+      "echo x",
+      "1",
+      "echo y",
+    ]);
   });
 
   test("does not swallow a pipe operator", () => {
@@ -70,20 +82,30 @@ describe("splitChainedCommand redirect and background fragments", () => {
   });
 
   test("coalesces a genuine dangling fd-duplication target after a semicolon", () => {
-    expect(splitChainedCommand("bun run build 2>&;1")).toEqual(["bun run build 2>& 1"]);
+    expect(splitChainedCommand("bun run build 2>&;1")).toEqual([
+      "bun run build 2>& 1",
+    ]);
   });
 
   test("coalesces a genuine dangling redirect target after &&", () => {
-    expect(splitChainedCommand("bun run build > && out.txt")).toEqual(["bun run build >  out.txt"]);
+    expect(splitChainedCommand("bun run build > && out.txt")).toEqual([
+      "bun run build >  out.txt",
+    ]);
   });
 
   test("keeps 2>&1 attached to its command, not split into a stray 1", () => {
-    expect(splitChainedCommand("bun run build 2>&1")).toEqual(["bun run build 2>&1"]);
+    expect(splitChainedCommand("bun run build 2>&1")).toEqual([
+      "bun run build 2>&1",
+    ]);
   });
 
   test("keeps &>file combined redirects intact", () => {
-    expect(splitChainedCommand("bun run build &> out.log")).toEqual(["bun run build &> out.log"]);
-    expect(splitChainedCommand("bun run build &>out.log")).toEqual(["bun run build &>out.log"]);
+    expect(splitChainedCommand("bun run build &> out.log")).toEqual([
+      "bun run build &> out.log",
+    ]);
+    expect(splitChainedCommand("bun run build &>out.log")).toEqual([
+      "bun run build &>out.log",
+    ]);
   });
 
   test("keeps <&- fd-close redirects intact", () => {

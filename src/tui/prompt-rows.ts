@@ -36,18 +36,27 @@ export function promptBoxCapRows(terminalRows: number): number {
 }
 
 /** Input rows to show for `visualLines` of wrapped content. */
-export function promptInputRows(visualLines: number, terminalRows: number): number {
+export function promptInputRows(
+  visualLines: number,
+  terminalRows: number,
+): number {
   const wanted = Math.max(PROMPT_IDLE_INPUT_ROWS, Math.floor(visualLines));
   const cap = promptBoxCapRows(terminalRows) - PROMPT_BORDER_ROWS;
   return Math.max(1, Math.min(wanted, cap));
 }
 
 /** Bordered box rows to request from the geometry resolver. */
-export function promptBoxRows(visualLines: number, terminalRows: number): number {
+export function promptBoxRows(
+  visualLines: number,
+  terminalRows: number,
+): number {
   return promptInputRows(visualLines, terminalRows) + PROMPT_BORDER_ROWS;
 }
 
 /** True once the content no longer fits and the input is scrolling itself. */
-export function promptIsScrolling(visualLines: number, terminalRows: number): boolean {
+export function promptIsScrolling(
+  visualLines: number,
+  terminalRows: number,
+): boolean {
   return Math.floor(visualLines) > promptInputRows(visualLines, terminalRows);
 }

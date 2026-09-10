@@ -1,4 +1,8 @@
-import { createDependencies, type Dependencies, type AdapterManifest } from "@intx/inference";
+import {
+  createDependencies,
+  type Dependencies,
+  type AdapterManifest,
+} from "@intx/inference";
 import { loadAdapterRegistry } from "@intx/inference/providers";
 import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as opencodeGo from "./opencode-go-adapter.js";
@@ -7,7 +11,10 @@ import * as grokResponses from "./grok-responses-adapter.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as openaiResponses from "./openai-responses-adapter.js";
 import * as opencodeGoAnthropic from "./opencode-go-anthropic-adapter.js";
-import { CODEX_RESPONSES_PROVIDER, withCodexContentTypeRepair } from "./codex-responses-adapter.js";
+import {
+  CODEX_RESPONSES_PROVIDER,
+  withCodexContentTypeRepair,
+} from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";

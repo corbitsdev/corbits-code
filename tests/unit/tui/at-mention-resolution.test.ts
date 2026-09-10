@@ -59,10 +59,15 @@ describe("resolveAtMentions", () => {
       await writeFile(join(dir, "two.txt"), "b".repeat(180_000));
       await writeFile(join(dir, "three.txt"), "c".repeat(180_000));
 
-      const resolved = await resolveAtMentions("read @one.txt @two.txt @three.txt", dir);
+      const resolved = await resolveAtMentions(
+        "read @one.txt @two.txt @three.txt",
+        dir,
+      );
       expect(resolved).toContain("`one.txt`:");
       expect(resolved).toContain("`two.txt`:");
-      expect(resolved).toContain("@three.txt (blocked: total @mention content is too large");
+      expect(resolved).toContain(
+        "@three.txt (blocked: total @mention content is too large",
+      );
       expect(resolved.length).toBeLessThan(400_500);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -103,7 +108,10 @@ describe("resolveAtMentions", () => {
   test("inlines parent-directory paths", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions("read @../src/small.ts", join(dir, "src"));
+      const resolved = await resolveAtMentions(
+        "read @../src/small.ts",
+        join(dir, "src"),
+      );
       expect(resolved).toContain("`../src/small.ts`:");
       expect(resolved).toContain("export const value = 1;");
     } finally {
@@ -113,7 +121,9 @@ describe("resolveAtMentions", () => {
 
   test("inlines symlinked outside-workspace files", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-outside-"),
+    );
     try {
       await writeFile(join(outside, "outside.txt"), "outside content\n");
       await symlink(outside, join(dir, "escape"));
@@ -128,7 +138,9 @@ describe("resolveAtMentions", () => {
 
   test("inlines absolute outside-workspace paths", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-outside-"),
+    );
     try {
       const outsideFile = join(outside, "outside.txt");
       await writeFile(outsideFile, "outside content\n");
@@ -144,12 +156,17 @@ describe("resolveAtMentions", () => {
 
   test("inlines parent-traversal outside-workspace paths", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-outside-"),
+    );
     try {
       await writeFile(join(outside, "outside.txt"), "outside content\n");
       const traversal = `../../${outside.split("/").pop() ?? ""}/outside.txt`;
 
-      const resolved = await resolveAtMentions(`read @${traversal}`, join(dir, "src"));
+      const resolved = await resolveAtMentions(
+        `read @${traversal}`,
+        join(dir, "src"),
+      );
       expect(resolved).toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -159,7 +176,9 @@ describe("resolveAtMentions", () => {
 
   test("summarizes outside-workspace directories", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-outside-"),
+    );
     try {
       await writeFile(join(outside, "a.txt"), "a\n");
       await mkdir(join(outside, "sub"));
@@ -174,7 +193,9 @@ describe("resolveAtMentions", () => {
 
   test("still blocks sensitive outside-workspace paths", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-outside-"),
+    );
     try {
       const outsideEnv = join(outside, ".env");
       await writeFile(outsideEnv, "API_KEY=secret\n");
@@ -195,13 +216,18 @@ describe("resolveAtMentions", () => {
     // must resolve the symlink before the sensitivity check runs regardless
     // of which boundary (workspace, sensitivity) the target crosses.
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-outside-"),
+    );
     try {
       const outsideKey = join(outside, "id_rsa");
       await writeFile(outsideKey, "-----BEGIN OPENSSH PRIVATE KEY-----\n");
       await symlink(outsideKey, join(dir, "looks-like-a-normal-file"));
 
-      const resolved = await resolveAtMentions("read @looks-like-a-normal-file", dir);
+      const resolved = await resolveAtMentions(
+        "read @looks-like-a-normal-file",
+        dir,
+      );
       expect(resolved).toContain("(blocked: sensitive path)");
       expect(resolved).not.toContain("BEGIN OPENSSH PRIVATE KEY");
     } finally {
@@ -214,7 +240,9 @@ describe("resolveAtMentions", () => {
     const dir = await fixture();
     try {
       const resolved = await resolveAtMentions("read @~/some-file.txt", dir);
-      expect(resolved).toContain("(blocked: home-relative paths are not supported)");
+      expect(resolved).toContain(
+        "(blocked: home-relative paths are not supported)",
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -222,21 +250,38 @@ describe("resolveAtMentions", () => {
 
   test("inlines mentions into a sibling git worktree of the same session", async () => {
     const repo = await mkdtemp(join(tmpdir(), "at-mention-resolution-repo-"));
-    const worktree = await mkdtemp(join(tmpdir(), "at-mention-resolution-worktree-"));
+    const worktree = await mkdtemp(
+      join(tmpdir(), "at-mention-resolution-worktree-"),
+    );
     await rm(worktree, { recursive: true, force: true });
     try {
       initTemporaryGitRepo(repo);
       await writeFile(join(repo, "README.md"), "root\n");
       await execFileAsync("git", ["add", "README.md"], { cwd: repo });
       await execFileAsync("git", ["commit", "-m", "initial"], { cwd: repo });
-      await execFileAsync("git", ["worktree", "add", "-b", "sibling", worktree], { cwd: repo });
-      await writeFile(join(worktree, "shared.ts"), "export const shared = true;\n");
+      await execFileAsync(
+        "git",
+        ["worktree", "add", "-b", "sibling", worktree],
+        { cwd: repo },
+      );
+      await writeFile(
+        join(worktree, "shared.ts"),
+        "export const shared = true;\n",
+      );
 
-      const resolved = await resolveAtMentions(`read @${join(worktree, "shared.ts")}`, repo);
+      const resolved = await resolveAtMentions(
+        `read @${join(worktree, "shared.ts")}`,
+        repo,
+      );
       expect(resolved).toContain(`\`${join(worktree, "shared.ts")}\`:`);
       expect(resolved).toContain("export const shared = true;");
     } finally {
-      await execFileAsync("git", ["worktree", "remove", "--force", worktree]).catch(() => {});
+      await execFileAsync("git", [
+        "worktree",
+        "remove",
+        "--force",
+        worktree,
+      ]).catch(() => undefined);
       await rm(repo, { recursive: true, force: true });
       await rm(worktree, { recursive: true, force: true });
     }

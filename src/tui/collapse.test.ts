@@ -7,7 +7,11 @@ import { describe, expect, test } from "bun:test";
 import { toolCallRow } from "./diff";
 import { resolveSideMargin } from "./geometry/margins";
 import { withTestRenderer } from "./harness";
-import { appendStreamRow, toggleCollapsedRow, shellFocusTranscript } from "./shell/chrome";
+import {
+  appendStreamRow,
+  toggleCollapsedRow,
+  shellFocusTranscript,
+} from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
 import {
@@ -17,7 +21,11 @@ import {
   type RowLayout,
   type StreamRow,
 } from "./stream";
-import { thinkingLivePreviewLines, thinkingSettledLine, LIVE_THINKING_MAX_LINES } from "./thinking";
+import {
+  thinkingLivePreviewLines,
+  thinkingSettledLine,
+  LIVE_THINKING_MAX_LINES,
+} from "./thinking";
 import { describeView, toolArgsView } from "./tool-args";
 
 const WIDE: RowLayout = { width: 96, multiAgent: false };
@@ -123,7 +131,10 @@ describe("tool arguments collapse to a human summary", () => {
   test("a shell call keeps its command, with newlines intact when opened", () => {
     const row = toolCallRow({
       name: "run_shell",
-      arguments: JSON.stringify({ command: "bun test\nbun run build", cwd: "/repo" }),
+      arguments: JSON.stringify({
+        command: "bun test\nbun run build",
+        cwd: "/repo",
+      }),
     });
     expect(row.summary).toContain("bun test");
     const expanded = lines({ ...row, expanded: true }).join("\n");
@@ -145,18 +156,26 @@ describe("tool arguments collapse to a human summary", () => {
   });
 
   test("the collapsed call paints its summary and hides the JSON", async () => {
-    await paint([toolCallRow({ name: "present", arguments: VIEW_ARGS })], 80, (frame) => {
-      expect(frame).toContain("stack · 2 text nodes");
-      expect(frame).not.toContain('"children"');
-    });
+    await paint(
+      [toolCallRow({ name: "present", arguments: VIEW_ARGS })],
+      80,
+      (frame) => {
+        expect(frame).toContain("stack · 2 text nodes");
+        expect(frame).not.toContain('"children"');
+      },
+    );
   });
 
   test("the expand key opens the newest summarised call", async () => {
-    await paint([toolCallRow({ name: "present", arguments: VIEW_ARGS })], 80, (_frame, shell) => {
-      shellFocusTranscript(shell);
-      expect(toggleCollapsedRow(shell)).toBe(true);
-      expect(shell.streamLog[0]?.expanded).toBe(true);
-    });
+    await paint(
+      [toolCallRow({ name: "present", arguments: VIEW_ARGS })],
+      80,
+      (_frame, shell) => {
+        shellFocusTranscript(shell);
+        expect(toggleCollapsedRow(shell)).toBe(true);
+        expect(shell.streamLog[0]?.expanded).toBe(true);
+      },
+    );
   });
 });
 
@@ -165,7 +184,12 @@ describe("reasoning collapses to a short wrapped preview", () => {
     "the token helper is referenced from four packages and two of them are vendored, so the rename has to land in one commit";
 
   test("while thinking it wraps a short preview instead of sideways-scrolling", () => {
-    const painted = lines({ role: "system", meta: "thinking", text, streaming: true });
+    const painted = lines({
+      role: "system",
+      meta: "thinking",
+      text,
+      streaming: true,
+    });
     expect(painted.length).toBeGreaterThanOrEqual(1);
     expect(painted.length).toBeLessThanOrEqual(LIVE_THINKING_MAX_LINES);
     // Inset and dim is the whole of reasoning's chrome; it carries no rail.
@@ -178,8 +202,14 @@ describe("reasoning collapses to a short wrapped preview", () => {
 
   test("the live preview wraps newest text rather than windowing one row", () => {
     expect(thinkingLivePreviewLines("abc def", 20)).toEqual(["abc def"]);
-    expect(thinkingLivePreviewLines("abcdefghij", 4)).toEqual(["abcd", "efgh", "ij"]);
-    expect(thinkingLivePreviewLines("line one\nline two", 40)).toEqual(["line one line two"]);
+    expect(thinkingLivePreviewLines("abcdefghij", 4)).toEqual([
+      "abcd",
+      "efgh",
+      "ij",
+    ]);
+    expect(thinkingLivePreviewLines("line one\nline two", 40)).toEqual([
+      "line one line two",
+    ]);
   });
 
   test("once done it keeps its own text rather than swapping in a phrase", () => {
@@ -208,7 +238,9 @@ describe("reasoning collapses to a short wrapped preview", () => {
   test("a long settled chain of thought is cut, never wrapped onto a second row", () => {
     expect(thinkingSettledLine("abc def", 20)).toBe("abc def");
     expect(thinkingSettledLine("abcdefghij", 6)).toBe("abcde…");
-    expect(thinkingSettledLine("line one\nline two", 40)).toBe("line one line two");
+    expect(thinkingSettledLine("line one\nline two", 40)).toBe(
+      "line one line two",
+    );
   });
 
   test("a hydrated reasoning row with no elapsed time keeps its block", () => {

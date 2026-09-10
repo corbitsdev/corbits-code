@@ -65,7 +65,9 @@ test("discoverLifecycleHooks finds supported hook files in stable order", async 
 });
 
 test("discoverLifecycleHooks treats a missing directory as no hooks", async () => {
-  const hooks = await discoverLifecycleHooks(join(tmpdir(), "missing-interchange-hooks"));
+  const hooks = await discoverLifecycleHooks(
+    join(tmpdir(), "missing-interchange-hooks"),
+  );
   expect(hooks).toEqual([]);
 });
 
@@ -82,7 +84,9 @@ test("discoverLifecycleHooks gives local hooks precedence over global hooks", as
   const hooks = await discoverLifecycleHooks([local, global]);
 
   expect(hooks.map((hook) => hook.name)).toEqual(["shared.ts", "global.sh"]);
-  expect(hooks.find((hook) => hook.name === "shared.ts")?.path).toBe(join(local, "shared.ts"));
+  expect(hooks.find((hook) => hook.name === "shared.ts")?.path).toBe(
+    join(local, "shared.ts"),
+  );
 });
 
 test("hookDirectories resolves local hooks from the configured cwd", () => {
@@ -94,9 +98,16 @@ test("hookDirectories resolves local hooks from the configured cwd", () => {
 
 test("createTurnContextCollector emits a turn after inference without tools", () => {
   const turns: unknown[] = [];
-  const collector = createTurnContextCollector((ctx) => turns.push(ctx), makeClock([0, 0, 50, 50]));
+  const collector = createTurnContextCollector(
+    (ctx) => turns.push(ctx),
+    makeClock([0, 0, 50, 50]),
+  );
 
-  collector.observe({ type: "inference.start", seq: 1, data: { model: "test-model" } });
+  collector.observe({
+    type: "inference.start",
+    seq: 1,
+    data: { model: "test-model" },
+  });
   collector.observe(inferenceDoneEvent(0));
 
   expect(turns.length).toBe(1);
@@ -108,9 +119,16 @@ test("createTurnContextCollector emits a turn after inference without tools", ()
 
 test("createTurnContextCollector waits for every tool result before emitting", () => {
   const turns: unknown[] = [];
-  const collector = createTurnContextCollector((ctx) => turns.push(ctx), makeClock([0, 0, 20, 20]));
+  const collector = createTurnContextCollector(
+    (ctx) => turns.push(ctx),
+    makeClock([0, 0, 20, 20]),
+  );
 
-  collector.observe({ type: "inference.start", seq: 1, data: { model: "test-model" } });
+  collector.observe({
+    type: "inference.start",
+    seq: 1,
+    data: { model: "test-model" },
+  });
   collector.observe(inferenceDoneEvent(2));
   expect(turns.length).toBe(0);
 
@@ -184,7 +202,9 @@ test("createLifecycleHookManager executes TypeScript hooks and reports status", 
 
   const events: LifecycleHookEvent[] = [];
   const manager = createLifecycleHookManager({
-    hooks: [{ id: hookPath, name: "record.ts", type: "typescript", path: hookPath }],
+    hooks: [
+      { id: hookPath, name: "record.ts", type: "typescript", path: hookPath },
+    ],
     onEvent: (event) => events.push(event),
   });
 
@@ -200,10 +220,14 @@ test("createLifecycleHookManager executes TypeScript hooks and reports status", 
 
   await waitFor(() =>
     events.some(
-      (event) => event.type === "hook.updated" && event.hook.lastExitStatus !== undefined,
+      (event) =>
+        event.type === "hook.updated" &&
+        event.hook.lastExitStatus !== undefined,
     ),
   );
-  const written = JSON.parse(await readFile(outputPath, "utf8")) as { turnIndex?: unknown };
+  const written = JSON.parse(await readFile(outputPath, "utf8")) as {
+    turnIndex?: unknown;
+  };
   expect(written.turnIndex).toBe(0);
   expect(manager.getStatuses()[0]?.lastExitStatus?.code).toBe(0);
 });
@@ -278,7 +302,9 @@ test("createLifecycleHookManager waits for postRun hooks to finish", async () =>
     }),
   );
 
-  const written = JSON.parse(await readFile(outputPath, "utf8")) as { task?: unknown };
+  const written = JSON.parse(await readFile(outputPath, "utf8")) as {
+    task?: unknown;
+  };
   expect(written.task).toBe("x");
   expect(manager.getStatuses()[0]?.lastExitStatus?.code).toBe(0);
 });

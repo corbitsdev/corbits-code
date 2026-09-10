@@ -46,7 +46,9 @@ function stripForeignBlocks(turn: ConversationTurn): ConversationTurn {
 }
 
 function hasTextOrToolCall(content: ContentBlock[]): boolean {
-  return content.some((block) => block.type === "text" || block.type === "tool_call");
+  return content.some(
+    (block) => block.type === "text" || block.type === "tool_call",
+  );
 }
 
 // transformMessages drops an assistant turn only when stripping thinking
@@ -55,7 +57,9 @@ function hasTextOrToolCall(content: ContentBlock[]): boolean {
 // producing an identical next request and a thinking-only loop. Replace
 // the unusable turn with a stable text marker so the turn stays, roles
 // alternate, and the wire body changes.
-function replaceUnusableAssistantTurn(turn: ConversationTurn): ConversationTurn {
+function replaceUnusableAssistantTurn(
+  turn: ConversationTurn,
+): ConversationTurn {
   if (turn.role !== "assistant" || hasTextOrToolCall(turn.content)) return turn;
   return { ...turn, content: [{ type: "text", text: THINKING_ONLY_OMITTED }] };
 }
@@ -78,10 +82,14 @@ export function sanitizeReplayTurns(
   // "foreign", to both stages; without it transformMessages strips the
   // turn's thinking blocks outright regardless of what this module decides.
   const modelFilled = turns.map((turn) =>
-    turn.role === "assistant" && turn.model === undefined ? { ...turn, model: targetModel } : turn,
+    turn.role === "assistant" && turn.model === undefined
+      ? { ...turn, model: targetModel }
+      : turn,
   );
   const stripped = modelFilled.map((turn) =>
-    turn.role === "assistant" && turn.model !== targetModel ? stripForeignBlocks(turn) : turn,
+    turn.role === "assistant" && turn.model !== targetModel
+      ? stripForeignBlocks(turn)
+      : turn,
   );
   const marked = stripped.map(replaceUnusableAssistantTurn);
   return transformMessages(marked, { targetModel });
@@ -91,7 +99,9 @@ export function sanitizeReplayTurns(
  * Wrap an adapter registry so every resolved adapter sanitizes replayed
  * turns before building its request.
  */
-export function withReplaySanitizer(adapters: AdapterRegistry): AdapterRegistry {
+export function withReplaySanitizer(
+  adapters: AdapterRegistry,
+): AdapterRegistry {
   return {
     has: (provider) => adapters.has(provider),
     resolve(source, quirks) {
@@ -99,7 +109,11 @@ export function withReplaySanitizer(adapters: AdapterRegistry): AdapterRegistry 
       return {
         ...adapter,
         buildRequest: (turns, model, options) =>
-          adapter.buildRequest(sanitizeReplayTurns(turns, model), model, options),
+          adapter.buildRequest(
+            sanitizeReplayTurns(turns, model),
+            model,
+            options,
+          ),
       };
     },
   };

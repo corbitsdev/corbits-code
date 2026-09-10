@@ -11,7 +11,13 @@
  * Single Esc path — one pop closes palette, next pop closes the prior overlay.
  */
 
-import type { FocusFrame, FocusState, FocusTarget, OpenOverlayOpts, ScrollLease } from "./types.js";
+import type {
+  FocusFrame,
+  FocusState,
+  FocusTarget,
+  OpenOverlayOpts,
+  ScrollLease,
+} from "./types.js";
 
 const SHELL_ID = "shell";
 
@@ -62,7 +68,11 @@ export function scrollLeaseOf(state: FocusState): ScrollLease {
  * Lease moves to the overlay list/body. Stacks above whatever is current —
  * including an existing overlay or observe view.
  */
-export function openOverlay(state: FocusState, id: string, opts?: OpenOverlayOpts): FocusState {
+export function openOverlay(
+  state: FocusState,
+  id: string,
+  opts?: OpenOverlayOpts,
+): FocusState {
   const target = opts?.target ?? "overlay";
   const scrollOwner = opts?.scrollOwner ?? target;
   const frame: FocusFrame = { id, target, scrollOwner };
@@ -103,7 +113,8 @@ export function popFocus(state: FocusState): FocusState {
   if (state.frames.length > 1) {
     const next = state.frames.slice(0, -1);
     // Left observe (or last stacked surface): shell is sole frame → prompt + transcript.
-    if (next.length === 1 && next[0]!.id === SHELL_ID) {
+    const frame = next[0];
+    if (next.length === 1 && frame != null && frame.id === SHELL_ID) {
       return { frames: [shellFrame("prompt", "transcript")] };
     }
     // Popped overlay/palette above observe (or another overlay): restore as recorded.

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { stringWidth } from "./view/height";
 import {
   agentVoicesIn,
@@ -60,26 +61,34 @@ describe("stream paint", () => {
     expect(userBody({ role: "user", text: "a", meta: "steer" })[0]).toContain(
       "[will steer next] a",
     );
-    expect(userBody({ role: "user", text: "b", meta: "queue" })[0]).toContain("[will follow up] b");
-    expect(userBody({ role: "user", text: "c", meta: "steering" })[0]).toContain("[steering] c");
-    expect(userBody({ role: "user", text: "d", meta: "following-up" })[0]).toContain(
-      "[following up] d",
+    expect(userBody({ role: "user", text: "b", meta: "queue" })[0]).toContain(
+      "[will follow up] b",
     );
-    expect(userBody({ role: "user", text: "e", meta: "following-up" })[0]).not.toContain(
-      "steering",
-    );
+    expect(
+      userBody({ role: "user", text: "c", meta: "steering" })[0],
+    ).toContain("[steering] c");
+    expect(
+      userBody({ role: "user", text: "d", meta: "following-up" })[0],
+    ).toContain("[following up] d");
+    expect(
+      userBody({ role: "user", text: "e", meta: "following-up" })[0],
+    ).not.toContain("steering");
   });
 
   test("a long operator message wraps as one left-aligned block", () => {
     const text =
       "please find every call site of the legacy token helper and tell me which of them still run in production";
     for (const width of [40, 56, 80, 120]) {
-      const painted = lines({ role: "user", text }, { width, multiAgent: false });
+      const painted = lines(
+        { role: "user", text },
+        { width, multiAgent: false },
+      );
       expect(painted.length).toBeGreaterThan(1);
       // One rectangle: every line's bar sits on the same column.
       const bars = new Set(painted.map((line) => line.indexOf("▍")));
       expect(bars.size).toBe(1);
-      for (const line of painted) expect(stringWidth(line)).toBeLessThanOrEqual(width);
+      for (const line of painted)
+        expect(stringWidth(line)).toBeLessThanOrEqual(width);
     }
   });
 
@@ -120,24 +129,35 @@ describe("stream paint", () => {
     expect(agent).toBe(UI.text);
     for (const row of rows) {
       const fg = paintStreamRow(row, SOLO).fg;
-      const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(fg.slice(i, i + 2), 16)) as [
-        number,
-        number,
-        number,
-      ];
+      const [r, g, b] = [1, 3, 5].map((i) =>
+        Number.parseInt(fg.slice(i, i + 2), 16),
+      ) as [number, number, number];
       expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeGreaterThan(8);
     }
   });
 
   test("tool rows share a result column regardless of tool name", () => {
     const short = lines({ role: "tool", text: "ok", meta: "ls" })[0] as string;
-    const long = lines({ role: "tool", text: "ok", meta: "read_file" })[0] as string;
+    const long = lines({
+      role: "tool",
+      text: "ok",
+      meta: "read_file",
+    })[0] as string;
     expect(short.indexOf("ok")).toBe(long.indexOf("ok"));
   });
 
   test("a tool row leads with one success marker, not a per-type glyph", () => {
-    const names = ["read_file", "write_file", "grep", "bash", "web_fetch", "task"];
-    const rows = names.map((name) => lines({ role: "tool", text: "x", meta: name })[0] as string);
+    const names = [
+      "read_file",
+      "write_file",
+      "grep",
+      "bash",
+      "web_fetch",
+      "task",
+    ];
+    const rows = names.map(
+      (name) => lines({ role: "tool", text: "x", meta: name })[0] as string,
+    );
     // Every row leads with the same mark regardless of tool name.
     expect(new Set(rows.map((row) => row[0])).size).toBe(1);
     expect(rows[0]?.startsWith("✓")).toBe(true);
@@ -155,14 +175,19 @@ describe("stream paint", () => {
   });
 
   test("a call in flight is marked as undecided, not as a success", () => {
-    const call = lines(toolCallRow({ name: "grep", arguments: '{"pattern":"x"}' }))[0] as string;
+    const call = lines(
+      toolCallRow({ name: "grep", arguments: '{"pattern":"x"}' }),
+    )[0] as string;
     expect(call).toContain("·");
     expect(call).not.toContain("✓");
   });
 
   test("a failed tool call is marked and steps out of the live tool voice", () => {
     const ok = paintStreamRow({ role: "tool", text: "ok", meta: "bash" }, SOLO);
-    const bad = paintStreamRow({ role: "tool", text: "boom", meta: "bash", failed: true }, SOLO);
+    const bad = paintStreamRow(
+      { role: "tool", text: "boom", meta: "bash", failed: true },
+      SOLO,
+    );
     expect(bad.content).toContain("×");
     expect(ok.content).not.toContain("×");
     expect(bad.fg).not.toBe(ok.fg);
@@ -186,7 +211,9 @@ describe("stream paint", () => {
       expect(row.startsWith("  ")).toBe(true);
       expect(row).not.toContain("┆");
     }
-    expect(paintStreamRow({ role: "assistant", text: "done" }, SOLO).fg).toBe(UI.text);
+    expect(paintStreamRow({ role: "assistant", text: "done" }, SOLO).fg).toBe(
+      UI.text,
+    );
   });
 
   test("a long reasoning body wraps inside its own block", () => {
@@ -207,20 +234,32 @@ describe("stream paint", () => {
     // Writer identity is a block-level header (see `blockLabel`), not baked
     // into the row body, so a lone row never carries "●" itself.
     const solo = lines({ role: "assistant", text: "on it" })[0] as string;
-    const crew = lines({ role: "assistant", text: "on it", agent: "critic" }, CREW)[0] as string;
+    const crew = lines(
+      { role: "assistant", text: "on it", agent: "critic" },
+      CREW,
+    )[0] as string;
     expect(solo).not.toContain("●");
     expect(crew).not.toContain("●");
     expect(crew.startsWith("on it")).toBe(true);
     // The operator stays a left-aligned bubble either way.
-    expect(lines({ role: "user", text: "go" }, CREW)).toEqual(lines({ role: "user", text: "go" }));
+    expect(lines({ role: "user", text: "go" }, CREW)).toEqual(
+      lines({ role: "user", text: "go" }),
+    );
   });
 
   test("reasoning keeps one body column across its lines", () => {
     const rows = lines(
-      { role: "system", meta: "thinking", text: "checking\nthen deciding", agent: "critic" },
+      {
+        role: "system",
+        meta: "thinking",
+        text: "checking\nthen deciding",
+        agent: "critic",
+      },
       CREW,
     );
-    const columns = new Set(rows.map((row) => row.length - row.trimStart().length));
+    const columns = new Set(
+      rows.map((row) => row.length - row.trimStart().length),
+    );
     expect(columns).toEqual(new Set([2]));
   });
 
@@ -256,8 +295,13 @@ describe("tool row sentence treatment", () => {
       .join("");
 
   test("reads as verb + coloured subject, not tool name + raw args", () => {
-    const row: StreamRow = { role: "tool", text: "{}", verb: "Read", summary: "package.json" };
-    const line = toolSentenceLines(row)[0]!;
+    const row: StreamRow = {
+      role: "tool",
+      text: "{}",
+      verb: "Read",
+      summary: "package.json",
+    };
+    const line = defined(toolSentenceLines(row)[0]);
     expect(flatten(row)).toContain("Read");
     expect(flatten(row)).toContain("package.json");
     const subjectSeg = line.find((seg) => seg.text.includes("package.json"));
@@ -266,7 +310,12 @@ describe("tool row sentence treatment", () => {
   });
 
   test("the arrow only appears on a row with expandable content", () => {
-    const plain: StreamRow = { role: "tool", text: "ok", verb: "Shell", summary: "pwd" };
+    const plain: StreamRow = {
+      role: "tool",
+      text: "ok",
+      verb: "Shell",
+      summary: "pwd",
+    };
     const withDetail: StreamRow = {
       role: "tool",
       text: "{}",
@@ -288,7 +337,9 @@ describe("tool row sentence treatment", () => {
       verb: "Shell",
       summary: "git status && git log --oneline -5 && pwd && date",
     };
-    const rendered = toolSentenceLines(row).map((line) => line.map((seg) => seg.text).join(""));
+    const rendered = toolSentenceLines(row).map((line) =>
+      line.map((seg) => seg.text).join(""),
+    );
     expect(rendered.length).toBe(4);
     expect(rendered[0]).toContain("git status");
     expect(rendered[0]).toContain("&& \\");
@@ -314,7 +365,7 @@ describe("tool row sentence treatment", () => {
     expect(collapsedLines.length).toBe(1);
     const expandedLines = toolRowLines(row);
     expect(expandedLines.length).toBe(2);
-    const tail = expandedLines[1]!;
+    const tail = defined(expandedLines[1]);
     expect(tail[0]?.text).toBe("  ");
     expect(tail.map((s) => s.text).join("")).toContain("+ hello");
   });
@@ -329,7 +380,12 @@ describe("writer identity", () => {
     ];
     expect(isMultiAgent(solo)).toBe(false);
     expect(agentVoicesIn(solo).size).toBe(1);
-    expect(isMultiAgent([...solo, { role: "assistant", text: "hi", agent: "critic" }])).toBe(true);
+    expect(
+      isMultiAgent([
+        ...solo,
+        { role: "assistant", text: "hi", agent: "critic" },
+      ]),
+    ).toBe(true);
   });
 });
 
@@ -337,7 +393,11 @@ describe("vertical rhythm", () => {
   const you = { role: "user", text: "go" } as const;
   const agent = { role: "assistant", text: "ok" } as const;
   const grep = { role: "tool", text: "x", meta: "grep" } as const;
-  const grepResult = { role: "tool", text: "42 matches", meta: "grep" } as const;
+  const grepResult = {
+    role: "tool",
+    text: "42 matches",
+    meta: "grep",
+  } as const;
   const bash = { role: "tool", text: "ls", meta: "bash" } as const;
   const thinking = {
     role: "system",
@@ -361,27 +421,36 @@ describe("vertical rhythm", () => {
 
   test("thinking takes the turn's gap instead of opening one of its own", () => {
     // Same rows either way, so the coalesced line cannot shift the answer.
-    expect(rowGroupGap(you, thinking) + rowGroupGap(thinking, agent)).toBe(rowGroupGap(you, agent));
+    expect(rowGroupGap(you, thinking) + rowGroupGap(thinking, agent)).toBe(
+      rowGroupGap(you, agent),
+    );
     expect(rowGroupGap(agent, thinking)).toBe(0);
   });
 });
 
 describe("row gutter", () => {
   test("a lone agent's markdown body starts on the first column", () => {
-    expect(streamRowGutter({ role: "assistant", text: "hi" }, SOLO).content).toBe("");
+    expect(
+      streamRowGutter({ role: "assistant", text: "hi" }, SOLO).content,
+    ).toBe("");
   });
 
   test("writer identity never lands in the per-row gutter, multi-agent or not", () => {
-    expect(streamRowGutter({ role: "assistant", text: "hi", agent: "critic" }, CREW).content).toBe(
-      "",
-    );
+    expect(
+      streamRowGutter({ role: "assistant", text: "hi", agent: "critic" }, CREW)
+        .content,
+    ).toBe("");
   });
 });
 
 describe("block labels", () => {
   const you = { role: "user", text: "go" } as const;
   const corbits = { role: "assistant", text: "on it" } as const;
-  const critic = { role: "assistant", text: "reviewing", agent: "critic" } as const;
+  const critic = {
+    role: "assistant",
+    text: "reviewing",
+    agent: "critic",
+  } as const;
 
   test("single-agent transcripts never label a row", () => {
     expect(blockLabel(undefined, corbits, SOLO)).toBeNull();
@@ -398,7 +467,10 @@ describe("block labels", () => {
   });
 
   test("a run from the same writer labels only its first row", () => {
-    const secondFromCorbits = { role: "assistant", text: "still going" } as const;
+    const secondFromCorbits = {
+      role: "assistant",
+      text: "still going",
+    } as const;
     expect(blockLabel(corbits, secondFromCorbits, CREW)).toBeNull();
   });
 
@@ -442,7 +514,11 @@ describe("sub-agent dispatch row marks", () => {
   });
 
   test("a resolved dispatch drops back to the plain done mark", () => {
-    const result = toolResultRow({ name: "spawn_agent", content: "8 lines", isError: false });
+    const result = toolResultRow({
+      name: "spawn_agent",
+      content: "8 lines",
+      isError: false,
+    });
     const merged = mergeToolRows({ ...dispatch, agentWorking: true }, result);
     expect(streamRowGutter(merged, SOLO).content).toContain("✓");
   });

@@ -1,4 +1,7 @@
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import {
+  CODEX_BASE_URL,
+  CODEX_DEFAULT_MODELS,
+} from "../auth/codex/constants.js";
 import type { CodexProfile } from "../auth/codex/store.js";
 import { createOAuthProviderProjection } from "./oauth-providers.js";
 
@@ -13,7 +16,9 @@ const projection = createOAuthProviderProjection<CodexProfile>({
   defaultModels: CODEX_DEFAULT_MODELS,
   catalogExtras: (profile) => ({
     codexProfile: profile.name,
-    ...(profile.tokens.accountId !== undefined ? { codexAccountId: profile.tokens.accountId } : {}),
+    ...(profile.tokens.accountId !== undefined
+      ? { codexAccountId: profile.tokens.accountId }
+      : {}),
   }),
 });
 
@@ -21,4 +26,5 @@ export const codexProviderName = projection.providerName;
 export const isCodexProviderName = projection.isProviderName;
 export const codexProfileFromProviderName = projection.profileFromProviderName;
 export const codexProvidersAsSettings = projection.providersAsSettings;
-export const codexProfilesToCatalogEntries = projection.profilesToCatalogEntries;
+export const codexProfilesToCatalogEntries =
+  projection.profilesToCatalogEntries;

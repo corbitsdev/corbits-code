@@ -13,7 +13,9 @@ export interface PathEscapeOptions {
   allowOutside?: boolean | (() => boolean);
 }
 
-function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
+function resolveAllowOutside(
+  value: boolean | (() => boolean) | undefined,
+): boolean {
   if (typeof value === "function") return value();
   return value === true;
 }

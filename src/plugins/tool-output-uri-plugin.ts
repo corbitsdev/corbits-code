@@ -1,5 +1,8 @@
 import type { ToolPlugin } from "@intx/tools-posix";
-import { isToolOutputLike, normalizeToolOutputUri } from "../util/tool-output-uri.js";
+import {
+  isToolOutputLike,
+  normalizeToolOutputUri,
+} from "../util/tool-output-uri.js";
 
 /**
  * Normalize read_file tool-output URIs before the posix handler or read-file
@@ -26,7 +29,10 @@ export function toolOutputUriPlugin(): ToolPlugin {
       if (normalized === path) {
         return next(call, signal);
       }
-      return next({ ...call, arguments: { ...call.arguments, path: normalized } }, signal);
+      return next(
+        { ...call, arguments: { ...call.arguments, path: normalized } },
+        signal,
+      );
     },
   };
 }

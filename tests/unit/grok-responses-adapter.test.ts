@@ -5,7 +5,11 @@ import {
   GROK_USER_ID_OPTION,
 } from "../../src/provider/grok-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
-import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  InferenceOptions,
+  LastCycleSource,
+} from "@intx/types/runtime";
 
 const SOURCE: LastCycleSource = {
   sourceId: "xai/default",
@@ -27,7 +31,11 @@ describe("grok-responses buildRequest", () => {
   };
 
   test("targets the Responses path with the grok-cli client headers", () => {
-    const req = adapter().buildRequest([userTurn("hi")], "grok-4.5", baseOptions);
+    const req = adapter().buildRequest(
+      [userTurn("hi")],
+      "grok-4.5",
+      baseOptions,
+    );
     expect(req.url).toBe("/responses");
     expect(req.headers["authorization"]).toBe(BEARER_CREDENTIAL_SENTINEL);
     expect(req.headers["x-grok-client-identifier"]).toBe("grok-shell");
@@ -56,7 +64,11 @@ describe("grok-responses buildRequest", () => {
       role: "system",
       content: "You are a coding agent.",
     });
-    expect(input[1]).toEqual({ type: "message", role: "user", content: "hello" });
+    expect(input[1]).toEqual({
+      type: "message",
+      role: "user",
+      content: "hello",
+    });
   });
 
   test("maps tool calls and results to function_call items with flat tools", () => {
@@ -64,14 +76,23 @@ describe("grok-responses buildRequest", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } },
+          {
+            type: "tool_call",
+            id: "call-1",
+            name: "read_file",
+            arguments: { path: "a.ts" },
+          },
         ],
         timestamp: 0,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "call-1", content: [{ type: "text", text: "ok" }] },
+          {
+            type: "tool_result",
+            callId: "call-1",
+            content: [{ type: "text", text: "ok" }],
+          },
         ],
         timestamp: 0,
       },
@@ -94,7 +115,11 @@ describe("grok-responses buildRequest", () => {
       arguments: JSON.stringify({ path: "a.ts" }),
       call_id: "call-1",
     });
-    expect(input[1]).toEqual({ type: "function_call_output", call_id: "call-1", output: "ok" });
+    expect(input[1]).toEqual({
+      type: "function_call_output",
+      call_id: "call-1",
+      output: "ok",
+    });
     const tools = body["tools"] as Record<string, unknown>[];
     expect(tools[0]).toMatchObject({ type: "function", name: "read_file" });
     expect(body["tool_choice"]).toBe("auto");
@@ -103,7 +128,10 @@ describe("grok-responses buildRequest", () => {
   test("sets prompt_cache_key from the session id, stable across builds", () => {
     const options: InferenceOptions = {
       ...baseOptions,
-      providerOptions: { ...baseOptions.providerOptions, [GROK_SESSION_ID_OPTION]: "sess-1" },
+      providerOptions: {
+        ...baseOptions.providerOptions,
+        [GROK_SESSION_ID_OPTION]: "sess-1",
+      },
     };
     const first = JSON.parse(
       adapter().buildRequest([userTurn("a")], "grok-4.5", options).body,
@@ -138,29 +166,41 @@ describe("grok-responses buildRequest", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } },
+          {
+            type: "tool_call",
+            id: "call-1",
+            name: "read_file",
+            arguments: { path: "a.ts" },
+          },
         ],
         timestamp: 0,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "call-1", content: [{ type: "text", text: "first" }] },
+          {
+            type: "tool_result",
+            callId: "call-1",
+            content: [{ type: "text", text: "first" }],
+          },
         ],
         timestamp: 0,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "call-1", content: [{ type: "text", text: "duplicate" }] },
+          {
+            type: "tool_result",
+            callId: "call-1",
+            content: [{ type: "text", text: "duplicate" }],
+          },
         ],
         timestamp: 0,
       },
     ];
-    const body = JSON.parse(adapter().buildRequest(turns, "grok-4.5", baseOptions).body) as Record<
-      string,
-      unknown
-    >;
+    const body = JSON.parse(
+      adapter().buildRequest(turns, "grok-4.5", baseOptions).body,
+    ) as Record<string, unknown>;
     expect(body["input"]).toEqual([
       {
         type: "function_call",

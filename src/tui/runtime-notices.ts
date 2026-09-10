@@ -19,7 +19,10 @@
 
 import { type } from "arktype";
 
-import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
+import type {
+  LifecycleHookEvent,
+  LifecycleHookStatus,
+} from "../session/hooks.js";
 import type { MCPServerState } from "../agent/tools.js";
 import type { Approval } from "../permission/types.js";
 
@@ -233,7 +236,9 @@ const workflowPayload = type({
   history: workflowHistoryEntry.array(),
 });
 
-export function workflowPayloadInfo(raw: unknown): WorkflowNoticePayload | null {
+export function workflowPayloadInfo(
+  raw: unknown,
+): WorkflowNoticePayload | null {
   const parsed = workflowPayload(raw);
   if (parsed instanceof type.errors) return null;
   return parsed;

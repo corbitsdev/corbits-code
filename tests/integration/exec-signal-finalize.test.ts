@@ -7,7 +7,10 @@ import { describe, expect, test } from "bun:test";
 import { generateSessionId } from "../../src/session/index.js";
 import type { RunState } from "../../src/session/state.js";
 
-const FIXTURE = join(import.meta.dirname, "../fixtures/crash-run/simulate-exec-signal.ts");
+const FIXTURE = join(
+  import.meta.dirname,
+  "../fixtures/crash-run/simulate-exec-signal.ts",
+);
 
 async function readLine(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
@@ -37,7 +40,11 @@ describe("integration — signaled exec process finalizes run.json", () => {
       try {
         const proc = Bun.spawn(["bun", "run", FIXTURE], {
           cwd,
-          env: { ...process.env, HOME: home, SIGNAL_TEST_SESSION_ID: sessionId },
+          env: {
+            ...process.env,
+            HOME: home,
+            SIGNAL_TEST_SESSION_ID: sessionId,
+          },
           stdout: "pipe",
           stderr: "pipe",
         });

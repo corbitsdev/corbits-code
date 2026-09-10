@@ -25,7 +25,8 @@ export function resolveDefaultModel(
   entry: { defaultModel?: string; models: readonly string[] } | undefined,
 ): string | undefined {
   const defaultModel = entry?.defaultModel;
-  if (defaultModel !== undefined && defaultModel.length > 0) return defaultModel;
+  if (defaultModel !== undefined && defaultModel.length > 0)
+    return defaultModel;
   return entry?.models[0];
 }
 
@@ -63,9 +64,12 @@ export function buildProviderEntry(
   // Hard cutover both ways: an explicit non-Go submission baseURL demotes the
   // sticky opencodeGo pin so a healed row can return to bare Zen without
   // delete/recreate. Known first-class Go id/label still pins via name identity.
-  const anthropic = submission.anthropic === true || existing?.anthropic === true;
-  const submittedBase = submission.baseURL.length > 0 ? submission.baseURL : undefined;
-  const demoteByURL = submittedBase !== undefined && !isOpenCodeGoURL(submittedBase);
+  const anthropic =
+    submission.anthropic === true || existing?.anthropic === true;
+  const submittedBase =
+    submission.baseURL.length > 0 ? submission.baseURL : undefined;
+  const demoteByURL =
+    submittedBase !== undefined && !isOpenCodeGoURL(submittedBase);
   const stickyGoFlag =
     !demoteByURL &&
     (submission.opencodeGo === true ||
@@ -85,17 +89,22 @@ export function buildProviderEntry(
     ...(keyless ? { keyless: true } : {}),
     ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
-    ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
+    ...(submission.defaultModel !== undefined
+      ? { defaultModel: submission.defaultModel }
+      : {}),
     // Form no longer exposes Bifrost; keep any previously stored flag on edit so
     // re-saving a provider does not silently drop x-bf-vk routing.
-    ...(submission.bifrostVirtualKey === true || existing?.bifrostVirtualKey === true
+    ...(submission.bifrostVirtualKey === true ||
+    existing?.bifrostVirtualKey === true
       ? { bifrostVirtualKey: true }
       : {}),
     ...(anthropic ? { anthropic: true } : {}),
     ...(opencodeGo ? { opencodeGo: true } : {}),
   };
   const catalog = currentCatalog
-    .filter((p) => p.name !== submission.name && p.name !== submission.originalName)
+    .filter(
+      (p) => p.name !== submission.name && p.name !== submission.originalName,
+    )
     .concat(entry);
   const selectedModel = resolveDefaultModel(entry);
   if (selectedModel === undefined) {
@@ -110,7 +119,10 @@ export function defaultProviderAfterSave(
   currentGlobalDefault: string | undefined,
 ): string | undefined {
   if (currentGlobalDefault === submission.originalName) return submission.name;
-  if (currentGlobalDefault !== undefined && catalog.some((p) => p.name === currentGlobalDefault)) {
+  if (
+    currentGlobalDefault !== undefined &&
+    catalog.some((p) => p.name === currentGlobalDefault)
+  ) {
     return currentGlobalDefault;
   }
   return catalog.length === 1 ? catalog[0]?.name : submission.name;
@@ -123,7 +135,10 @@ export function defaultProviderAfterDelete(
   currentGlobalDefault: string | undefined,
 ): string | undefined {
   if (currentGlobalDefault === deletedProvider) return fallbackProvider;
-  if (currentGlobalDefault !== undefined && catalog.some((p) => p.name === currentGlobalDefault)) {
+  if (
+    currentGlobalDefault !== undefined &&
+    catalog.some((p) => p.name === currentGlobalDefault)
+  ) {
     return currentGlobalDefault;
   }
   return catalog.length === 1 ? catalog[0]?.name : undefined;

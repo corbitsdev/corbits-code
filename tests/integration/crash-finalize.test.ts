@@ -7,7 +7,10 @@ import { describe, expect, test } from "bun:test";
 import { generateSessionId, sessionDir } from "../../src/session/index.js";
 import type { RunState } from "../../src/session/state.js";
 
-const FIXTURE = join(import.meta.dirname, "../fixtures/crash-run/simulate-crash.ts");
+const FIXTURE = join(
+  import.meta.dirname,
+  "../fixtures/crash-run/simulate-crash.ts",
+);
 const RUN_END_FIXTURE = join(
   import.meta.dirname,
   "../fixtures/crash-run/simulate-run-end-crash.ts",
@@ -86,13 +89,22 @@ describe("integration — crash finalizes run.json", () => {
       // not clear the active-run handle, or the crash below finds it null
       // and never writes a crashed record for the session actually running
       // at the time of the crash.
-      const outgoingRunJsonPath = join(sessionDir(cwd, sessionId, home), "run.json");
-      const outgoingState = JSON.parse(readFileSync(outgoingRunJsonPath, "utf8")) as RunState;
+      const outgoingRunJsonPath = join(
+        sessionDir(cwd, sessionId, home),
+        "run.json",
+      );
+      const outgoingState = JSON.parse(
+        readFileSync(outgoingRunJsonPath, "utf8"),
+      ) as RunState;
       expect(outgoingState.status).toBe("done");
 
       const rotatedRunJsonPath = join(stdout.trim(), "run.json");
-      const rotatedState = JSON.parse(readFileSync(rotatedRunJsonPath, "utf8")) as RunState;
-      expect(rotatedRunJsonPath).toBe(join(sessionDir(cwd, rotatedSessionId, home), "run.json"));
+      const rotatedState = JSON.parse(
+        readFileSync(rotatedRunJsonPath, "utf8"),
+      ) as RunState;
+      expect(rotatedRunJsonPath).toBe(
+        join(sessionDir(cwd, rotatedSessionId, home), "run.json"),
+      );
       expect(rotatedState.status).toBe("crashed");
       expect(rotatedState.finishedAt).toBeGreaterThan(0);
       expect(rotatedState.error).toContain("simulated crash");
@@ -120,7 +132,9 @@ describe("integration — crash finalizes run.json", () => {
       const stderr = await new Response(proc.stderr).text();
 
       expect(exitCode).toBe(1);
-      expect(stderr).toContain("uncaughtException: Error: simulated crash during run-end write");
+      expect(stderr).toContain(
+        "uncaughtException: Error: simulated crash during run-end write",
+      );
 
       // The bug this pins: finalizeRunState used to clear the active-run
       // handle only after its own saveState write resolved. With the

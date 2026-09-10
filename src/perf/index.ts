@@ -238,7 +238,8 @@ export function end(id: string, tags?: Record<string, unknown>): void {
 
   const endTags = sanitizeTags(tags);
   if (endTags !== undefined) {
-    span.tags = span.tags === undefined ? endTags : { ...span.tags, ...endTags };
+    span.tags =
+      span.tags === undefined ? endTags : { ...span.tags, ...endTags };
   }
 
   pushRing(span);
@@ -293,7 +294,9 @@ export function snapshot(): PerfSpan[] {
 
   const open = [...openSpans.values()].map(cloneSpan);
   // Stable order by start time so tests and dumps are deterministic.
-  open.sort((a, b) => (a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0));
+  open.sort((a, b) =>
+    a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
+  );
   return completed.concat(open);
 }
 

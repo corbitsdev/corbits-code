@@ -5,7 +5,7 @@ test("serial operation queue executes operations in order without interleaving",
   const log: string[] = [];
   const { enqueue, awaitTail } = createSessionOperationQueue();
 
-  let resolveA!: () => void;
+  let resolveA: () => void = () => undefined;
   const opA = new Promise<void>((r) => (resolveA = r));
 
   enqueue(async () => {

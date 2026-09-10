@@ -8,7 +8,11 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { generateSessionId } from "../../../src/session/index.js";
 import { createRunSink } from "../../../src/session/run-sink.js";
-import { saveState, loadState, type RunState } from "../../../src/session/state.js";
+import {
+  saveState,
+  loadState,
+  type RunState,
+} from "../../../src/session/state.js";
 
 // End-to-end coverage for the run.json turn-boundary snapshot fix (CL-5534):
 // createRunSink, saveState, and loadState run for real against a temp
@@ -19,7 +23,10 @@ import { saveState, loadState, type RunState } from "../../../src/session/state.
 // does: nothing here calls saveState directly from the turn loop, only from
 // inside onTurnBoundarySnapshot.
 
-const noopHookManager = { dispatchPostTurn: () => undefined, getStatuses: () => [] };
+const noopHookManager = {
+  dispatchPostTurn: () => undefined,
+  getStatuses: () => [],
+};
 
 function inferenceDone(): ReactorEmittedEvent {
   return {
@@ -80,15 +87,24 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       const onDisk = await loadState(cwd, sessionId, home);
       expect(onDisk).toMatchObject({ kind: "ok", state: { turnsUsed: 4 } });
 
-      runSink.sink({ type: "reactor.done", data: {} } as unknown as ReactorEmittedEvent);
+      runSink.sink({
+        type: "reactor.done",
+        data: {},
+      } as unknown as ReactorEmittedEvent);
       await saveState(
         cwd,
         sessionId,
-        baseState({ status: "done", finishedAt: Date.now() }, runSink.getTurnCount()),
+        baseState(
+          { status: "done", finishedAt: Date.now() },
+          runSink.getTurnCount(),
+        ),
         home,
       );
       const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState).toMatchObject({ kind: "ok", state: { status: "done", turnsUsed: 4 } });
+      expect(finalState).toMatchObject({
+        kind: "ok",
+        state: { status: "done", turnsUsed: 4 },
+      });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
@@ -126,7 +142,10 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       await Promise.all(writes);
 
       const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState).toMatchObject({ kind: "ok", state: { turnsUsed: 20 } });
+      expect(finalState).toMatchObject({
+        kind: "ok",
+        state: { turnsUsed: 20 },
+      });
       expect(runSink.getTurnCount()).toBe(20);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -157,18 +176,27 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       // terminal "done" write follows right behind it — this models a
       // straggler turn-boundary snapshot racing the close-out write.
       runSink.sink(inferenceDone());
-      runSink.sink({ type: "reactor.done", data: {} } as unknown as ReactorEmittedEvent);
+      runSink.sink({
+        type: "reactor.done",
+        data: {},
+      } as unknown as ReactorEmittedEvent);
       const doneWrite = saveState(
         cwd,
         sessionId,
-        baseState({ status: "done", finishedAt: Date.now() }, runSink.getTurnCount()),
+        baseState(
+          { status: "done", finishedAt: Date.now() },
+          runSink.getTurnCount(),
+        ),
         home,
       );
 
       await Promise.all([runningWrite, doneWrite]);
 
       const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState).toMatchObject({ kind: "ok", state: { status: "done" } });
+      expect(finalState).toMatchObject({
+        kind: "ok",
+        state: { status: "done" },
+      });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });

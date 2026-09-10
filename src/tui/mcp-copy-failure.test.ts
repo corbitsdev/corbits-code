@@ -8,14 +8,19 @@ import { openCommandSurface, type McpEntry } from "./command-surfaces";
 import { withTestRenderer } from "./harness";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
-import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+} from "./shell/overlay-host";
 import { moveOverlaySelection } from "./shell/overlay-list";
 
 const entries: readonly McpEntry[] = [
   { name: "notion", state: "needs-auth", authURL: "https://notion.test/auth" },
 ];
 
-async function withShell(fn: (shell: AppShell) => Promise<void> | void): Promise<void> {
+async function withShell(
+  fn: (shell: AppShell) => Promise<void> | void,
+): Promise<void> {
   await withTestRenderer(
     async (h) => {
       const shell = createAppShell(h.renderer, {
@@ -35,11 +40,13 @@ async function withShell(fn: (shell: AppShell) => Promise<void> | void): Promise
 describe("mcp auth copy failure", () => {
   test("both clipboard legs failing flashes copy failed instead of crashing", async () => {
     await withShell(async (shell) => {
-      const clip = { writeText: () => Promise.reject(new Error("both legs failed")) };
+      const clip = {
+        writeText: () => Promise.reject(new Error("both legs failed")),
+      };
       (shell as unknown as { clipboard: typeof clip }).clipboard = clip;
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       moveOverlaySelection(shell, 0);
       acceptOverlaySelection(shell);
@@ -57,8 +64,8 @@ describe("mcp auth copy failure", () => {
       const clip = { writeText: () => Promise.resolve() };
       (shell as unknown as { clipboard: typeof clip }).clipboard = clip;
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       moveOverlaySelection(shell, 0);
       acceptOverlaySelection(shell);

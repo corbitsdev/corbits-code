@@ -1,3 +1,4 @@
+import { defined } from "../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,9 +29,19 @@ import {
   type ResolvedProvider,
   type Settings,
 } from "./config/settings.js";
-import { OPENCODE_GO_BASE_URL, OPENCODE_GO_MODEL_IDS } from "../packages/opencode-go/src/index.js";
-import { prefetchGoModels, resetGoModelDiscoveryForTests } from "./provider/opencode-go-models.js";
-import { generateSessionId, initSessionDir, sessionDir } from "./session/index.js";
+import {
+  OPENCODE_GO_BASE_URL,
+  OPENCODE_GO_MODEL_IDS,
+} from "../packages/opencode-go/src/index.js";
+import {
+  prefetchGoModels,
+  resetGoModelDiscoveryForTests,
+} from "./provider/opencode-go-models.js";
+import {
+  generateSessionId,
+  initSessionDir,
+  sessionDir,
+} from "./session/index.js";
 import { saveState } from "./session/state.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
 import { createExaMCPServerConfig } from "./mcp/exa.js";
@@ -48,7 +59,9 @@ afterEach(() => {
   resetGoModelDiscoveryForTests();
 });
 
-function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
+function assertConfigured(
+  config: Config | UnconfiguredConfig,
+): asserts config is Config {
   if (config.configured === false) {
     throw new Error(
       `Expected configured Config but got UnconfiguredConfig: ${config.providerError}`,
@@ -58,11 +71,19 @@ function assertConfigured(config: Config | UnconfiguredConfig): asserts config i
 
 // A global settings path guaranteed not to exist, so resolution finds no
 // provider — used by the "missing provider" cases.
-const NO_SETTINGS = join(tmpdir(), "corbits-tests-missing", ".corbits", "settings.json");
+const NO_SETTINGS = join(
+  tmpdir(),
+  "corbits-tests-missing",
+  ".corbits",
+  "settings.json",
+);
 
 // Writes a minimal valid global settings file with a single provider and
 // returns its path. Provider resolution reads exclusively from such files.
-async function writeGlobalSettings(cwd: string, mcpServers?: unknown): Promise<string> {
+async function writeGlobalSettings(
+  cwd: string,
+  mcpServers?: unknown,
+): Promise<string> {
   const path = join(cwd, "global.json");
   await writeFile(
     path,
@@ -126,7 +147,9 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "hello"], { globalSettingsPath: globalPath });
+      const config = await loadConfig(["--cwd", cwd, "hello"], {
+        globalSettingsPath: globalPath,
+      });
       assertConfigured(config);
       expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
       expect(config.mcpServersSource).toBe("none");
@@ -137,23 +160,29 @@ describe("loadConfig", () => {
   });
 
   test("expands enabled Exa preset and honors explicit disable", () => {
-    expect(resolveMcpServers([{ name: "exa", enabled: true }], undefined)).toEqual([
-      BUILTIN_EXA_MCP,
-    ]);
-    expect(resolveMcpServers([{ name: "exa", enabled: false }], undefined)).toEqual([]);
+    expect(
+      resolveMcpServers([{ name: "exa", enabled: true }], undefined),
+    ).toEqual([BUILTIN_EXA_MCP]);
+    expect(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    ).toEqual([]);
   });
 
   test("keeps global and local MCP source at list level", async () => {
     const cwd = await emptyCwd();
     try {
-      const globalPath = await writeGlobalSettings(cwd, { exa: { enabled: true } });
+      const globalPath = await writeGlobalSettings(cwd, {
+        exa: { enabled: true },
+      });
       const globalConfig = await loadConfig(["--cwd", cwd, "hello"], {
         globalSettingsPath: globalPath,
       });
       assertConfigured(globalConfig);
       expect(globalConfig.mcpServers).toEqual([BUILTIN_EXA_MCP]);
       expect(globalConfig.mcpServersSource).toBe("global");
-      expect(globalConfig.mcpServerEntries).toEqual([{ name: "exa", enabled: true }]);
+      expect(globalConfig.mcpServerEntries).toEqual([
+        { name: "exa", enabled: true },
+      ]);
 
       await writeGlobalSettings(cwd, { exa: { enabled: false } });
       const disabledConfig = await loadConfig(["--cwd", cwd, "hello"], {
@@ -162,7 +191,9 @@ describe("loadConfig", () => {
       assertConfigured(disabledConfig);
       expect(disabledConfig.mcpServers).toEqual([]);
       expect(disabledConfig.mcpServersSource).toBe("global");
-      expect(disabledConfig.mcpServerEntries).toEqual([{ name: "exa", enabled: false }]);
+      expect(disabledConfig.mcpServerEntries).toEqual([
+        { name: "exa", enabled: false },
+      ]);
 
       await writeGlobalSettings(cwd, { exa: { enabled: true } });
       await mkdir(join(cwd, ".corbits"), { recursive: true });
@@ -179,7 +210,9 @@ describe("loadConfig", () => {
         { name: "local", command: "local-mcp" },
       ]);
       expect(localConfig.mcpServersSource).toBe("local");
-      expect(localConfig.mcpServerEntries).toEqual([{ name: "local", command: "local-mcp" }]);
+      expect(localConfig.mcpServerEntries).toEqual([
+        { name: "local", command: "local-mcp" },
+      ]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -205,7 +238,10 @@ describe("loadConfig", () => {
       ),
     ).toEqual([{ name: "local", command: "local-mcp" }]);
     expect(
-      resolveMcpServers([{ name: "exa", enabled: false }], [{ name: "exa", enabled: true }]),
+      resolveMcpServers(
+        [{ name: "exa", enabled: false }],
+        [{ name: "exa", enabled: true }],
+      ),
     ).toEqual([BUILTIN_EXA_MCP]);
     expect(
       resolveMcpServers(
@@ -218,20 +254,34 @@ describe("loadConfig", () => {
         [{ name: "exa", enabled: false }],
         [{ name: "exa", type: "http", url: "https://local.example.test/mcp" }],
       ),
-    ).toEqual([{ name: "exa", type: "http", url: "https://local.example.test/mcp" }]);
+    ).toEqual([
+      { name: "exa", type: "http", url: "https://local.example.test/mcp" },
+    ]);
   });
 
   test("drops disabled transport rows without expanding them to Exa", () => {
     expect(
       resolveMcpServers(
-        [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false }],
+        [
+          {
+            name: "linear",
+            type: "http",
+            url: "https://mcp.linear.app/mcp",
+            enabled: false,
+          },
+        ],
         undefined,
       ),
     ).toEqual([BUILTIN_EXA_MCP]);
     expect(
       resolveMcpServers(
         [
-          { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+          {
+            name: "linear",
+            type: "http",
+            url: "https://mcp.linear.app/mcp",
+            enabled: false,
+          },
           { name: "files", command: "files-mcp" },
         ],
         undefined,
@@ -242,7 +292,14 @@ describe("loadConfig", () => {
   test("resolves custom enabled Exa HTTP without duplicating the builtin", () => {
     expect(
       resolveMcpServers(
-        [{ name: "exa", type: "http", url: "https://example.test/mcp", enabled: true }],
+        [
+          {
+            name: "exa",
+            type: "http",
+            url: "https://example.test/mcp",
+            enabled: true,
+          },
+        ],
         undefined,
       ),
     ).toEqual([{ name: "exa", type: "http", url: "https://example.test/mcp" }]);
@@ -252,13 +309,24 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd, {
-        linear: { type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+        linear: {
+          type: "http",
+          url: "https://mcp.linear.app/mcp",
+          enabled: false,
+        },
       });
-      const config = await loadConfig(["--cwd", cwd, "hello"], { globalSettingsPath: globalPath });
+      const config = await loadConfig(["--cwd", cwd, "hello"], {
+        globalSettingsPath: globalPath,
+      });
       assertConfigured(config);
       expect(config.mcpServersSource).toBe("global");
       expect(config.mcpServerEntries).toEqual([
-        { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+        {
+          name: "linear",
+          type: "http",
+          url: "https://mcp.linear.app/mcp",
+          enabled: false,
+        },
       ]);
       expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
     } finally {
@@ -270,7 +338,9 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "hello"], { globalSettingsPath: globalPath });
+      const config = await loadConfig(["--cwd", cwd, "hello"], {
+        globalSettingsPath: globalPath,
+      });
       assertConfigured(config);
       expect(config.mcpServerEntries).toEqual([]);
       expect(config.mcpServersSource).toBe("none");
@@ -280,9 +350,14 @@ describe("loadConfig", () => {
   });
 
   test("local custom MCP requires trust while built-in Exa bypasses project trust", async () => {
-    const servers = resolveMcpServers(undefined, [{ name: "local", command: "local-mcp" }]);
+    const servers = resolveMcpServers(undefined, [
+      { name: "local", command: "local-mcp" },
+    ]);
 
-    expect(servers).toEqual([BUILTIN_EXA_MCP, { name: "local", command: "local-mcp" }]);
+    expect(servers).toEqual([
+      BUILTIN_EXA_MCP,
+      { name: "local", command: "local-mcp" },
+    ]);
     await expect(
       filterMcpServersForConnect(servers, {
         source: "local",
@@ -296,7 +371,9 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       await expect(
-        loadConfig(["--cwd", cwd, "do it"], { globalSettingsPath: NO_SETTINGS }),
+        loadConfig(["--cwd", cwd, "do it"], {
+          globalSettingsPath: NO_SETTINGS,
+        }),
       ).rejects.toThrow(/missing/);
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -339,8 +416,12 @@ describe("loadConfig", () => {
       expect(result.configured).toBe(false);
       if (result.configured === false) {
         expect(result.settingsDiagnostics).toBeDefined();
-        expect(result.settingsDiagnostics!.length).toBeGreaterThan(0);
-        expect(result.settingsDiagnostics!.some((d) => /unknown/i.test(d.message))).toBe(true);
+        expect(defined(result.settingsDiagnostics).length).toBeGreaterThan(0);
+        expect(
+          defined(result.settingsDiagnostics).some((d) =>
+            /unknown/i.test(d.message),
+          ),
+        ).toBe(true);
       }
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -352,9 +433,12 @@ describe("loadConfig", () => {
     try {
       const configPath = join(cwd, "custom.json");
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const result = await loadConfig(["--cwd", cwd, "--config", configPath, "task"], {
-        allowUnconfigured: true,
-      });
+      const result = await loadConfig(
+        ["--cwd", cwd, "--config", configPath, "task"],
+        {
+          allowUnconfigured: true,
+        },
+      );
       expect(result.configured).toBe(false);
       if (result.configured === false) {
         expect(result.globalSettingsPath).toBe(configPath);
@@ -385,9 +469,12 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["exec", "--cwd", cwd, "--force", "ship it"], {
-        globalSettingsPath: globalPath,
-      });
+      const config = await loadConfig(
+        ["exec", "--cwd", cwd, "--force", "ship it"],
+        {
+          globalSettingsPath: globalPath,
+        },
+      );
       assertConfigured(config);
       expect(config.command).toBe("exec");
       expect(config.task).toBe("ship it");
@@ -416,9 +503,12 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["exec", "--cwd", cwd, "--director", "builder", "ship it"], {
-        globalSettingsPath: globalPath,
-      });
+      const config = await loadConfig(
+        ["exec", "--cwd", cwd, "--director", "builder", "ship it"],
+        {
+          globalSettingsPath: globalPath,
+        },
+      );
       assertConfigured(config);
       expect(config.command).toBe("exec");
       expect(config.director).toBe("builder");
@@ -445,8 +535,12 @@ describe("loadConfig", () => {
 
   test("unknown --director id errors listing DIRECTOR_IDS", async () => {
     await expect(
-      loadConfig(["exec", "--director", "nope", "ship it"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow(new RegExp(`Unknown director "nope".*${DIRECTOR_IDS.join(", ")}`));
+      loadConfig(["exec", "--director", "nope", "ship it"], {
+        globalSettingsPath: NO_SETTINGS,
+      }),
+    ).rejects.toThrow(
+      new RegExp(`Unknown director "nope".*${DIRECTOR_IDS.join(", ")}`),
+    );
   });
 
   test("--director implement is unknown and lists closed-fleet ids including builder", async () => {
@@ -454,7 +548,9 @@ describe("loadConfig", () => {
       loadConfig(["exec", "--director", "implement", "ship it"], {
         globalSettingsPath: NO_SETTINGS,
       }),
-    ).rejects.toThrow(new RegExp(`Unknown director "implement".*${DIRECTOR_IDS.join(", ")}`));
+    ).rejects.toThrow(
+      new RegExp(`Unknown director "implement".*${DIRECTOR_IDS.join(", ")}`),
+    );
     expect(DIRECTOR_IDS).toContain("builder");
     expect(DIRECTOR_IDS).not.toContain("implement");
   });
@@ -467,7 +563,9 @@ describe("loadConfig", () => {
 
   test("--director without exec/run is rejected", async () => {
     await expect(
-      loadConfig(["--director", "implement", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+      loadConfig(["--director", "implement", "ship it"], {
+        globalSettingsPath: NO_SETTINGS,
+      }),
     ).rejects.toThrow("--director is only available in exec mode");
   });
 
@@ -576,10 +674,13 @@ describe("loadConfig", () => {
         },
         home,
       );
-      const config = await loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
+      const config = await loadConfig(
+        ["resume", sessionId, "--force", "--cwd", cwd],
+        {
+          globalSettingsPath: globalPath,
+          home,
+        },
+      );
       assertConfigured(config);
       expect(config.resumeMode).toBe("id");
       expect(config.sessionId).toBe(sessionId);
@@ -616,16 +717,20 @@ describe("loadConfig", () => {
         );
       }
 
-      let config: Awaited<ReturnType<typeof loadConfig>>;
+      let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
       const logged = await withFileLogSink(async () => {
-        config = await loadConfig(["resume", targetId, "--force", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-          home,
-        });
+        config = await loadConfig(
+          ["resume", targetId, "--force", "--cwd", cwd],
+          {
+            globalSettingsPath: globalPath,
+            home,
+          },
+        );
       });
-      assertConfigured(config!);
-      expect(config!.sessionId).toBe(targetId);
-      expect(config!.task).toBe("target failed session");
+      const loaded = defined(config, "config");
+      assertConfigured(loaded);
+      expect(loaded.sessionId).toBe(targetId);
+      expect(loaded.task).toBe("target failed session");
       expect(logged).not.toContain("unreadable session state");
       expect(logged).not.toContain(home);
     } finally {
@@ -848,7 +953,13 @@ describe("loadConfig", () => {
   });
 
   test("value flags do not swallow --help / -h as their value", async () => {
-    for (const flag of ["--provider", "--model", "--cwd", "--config", "--profile"] as const) {
+    for (const flag of [
+      "--provider",
+      "--model",
+      "--cwd",
+      "--config",
+      "--profile",
+    ] as const) {
       await expectCliHelp([flag, "--help"]);
       await expectCliHelp([flag, "-h"]);
     }
@@ -856,7 +967,9 @@ describe("loadConfig", () => {
 
   test("value flags reject other flag-shaped tokens as values", async () => {
     await expect(
-      loadConfig(["--provider", "--force"], { globalSettingsPath: NO_SETTINGS }),
+      loadConfig(["--provider", "--force"], {
+        globalSettingsPath: NO_SETTINGS,
+      }),
     ).rejects.toThrow("--provider requires a value");
     await expect(
       loadConfig(["--model", "--cwd"], { globalSettingsPath: NO_SETTINGS }),
@@ -872,21 +985,21 @@ describe("loadConfig", () => {
   });
 
   test("value flags still error clearly when the value is omitted", async () => {
-    await expect(loadConfig(["--provider"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      "--provider requires a value",
-    );
-    await expect(loadConfig(["--model"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      "--model requires a value",
-    );
-    await expect(loadConfig(["--cwd"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      "--cwd requires a value",
-    );
-    await expect(loadConfig(["--config"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      "--config requires a value",
-    );
-    await expect(loadConfig(["--profile"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      "--profile requires a value",
-    );
+    await expect(
+      loadConfig(["--provider"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--provider requires a value");
+    await expect(
+      loadConfig(["--model"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--model requires a value");
+    await expect(
+      loadConfig(["--cwd"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--cwd requires a value");
+    await expect(
+      loadConfig(["--config"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--config requires a value");
+    await expect(
+      loadConfig(["--profile"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--profile requires a value");
   });
 
   test("value flags accept a POSIX path that starts with a single dash", async () => {
@@ -898,9 +1011,9 @@ describe("loadConfig", () => {
   });
 
   test("rejects unknown flags", async () => {
-    await expect(loadConfig(["--unknown"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      /unrecognized flag/,
-    );
+    await expect(
+      loadConfig(["--unknown"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow(/unrecognized flag/);
   });
 
   test("defaults dangerouslySkipPermissions to false", async () => {
@@ -1103,7 +1216,13 @@ describe("loadConfig", () => {
           },
         }),
       );
-      const config = await loadConfig(["--cwd", cwd, "--config", settingsPath, "task"]);
+      const config = await loadConfig([
+        "--cwd",
+        cwd,
+        "--config",
+        settingsPath,
+        "task",
+      ]);
       assertConfigured(config);
       expect(config.providerName).toBe("firepass");
       expect(config.baseURL).toBe("https://firepass.example/v1");
@@ -1167,9 +1286,14 @@ describe("loadConfig", () => {
       await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
         join(cwd, ".corbits", "profile.json"),
-        JSON.stringify({ model: "profile-model", systemPromptExtensions: ["ext1"] }),
+        JSON.stringify({
+          model: "profile-model",
+          systemPromptExtensions: ["ext1"],
+        }),
       );
-      const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
+      const config = await loadConfig(["--cwd", cwd, "task"], {
+        globalSettingsPath: globalPath,
+      });
       assertConfigured(config);
       expect(config.model).toBe("profile-model");
       expect(config.systemPromptExtensions).toEqual(["ext1"]);
@@ -1188,7 +1312,13 @@ describe("loadConfig", () => {
         JSON.stringify({ model: "profile-model" }),
       );
       const config = await loadConfig(
-        ["--cwd", cwd, "--model", "accounts/fireworks/routers/kimi-k2p6-turbo", "task"],
+        [
+          "--cwd",
+          cwd,
+          "--model",
+          "accounts/fireworks/routers/kimi-k2p6-turbo",
+          "task",
+        ],
         {
           globalSettingsPath: globalPath,
         },
@@ -1214,12 +1344,22 @@ describe("loadConfig", () => {
         JSON.stringify({
           defaultProvider: "a",
           providers: {
-            a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
-            b: { baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
+            a: {
+              baseURL: "https://a/v1",
+              apiKey: "a-key",
+              models: ["a-model"],
+            },
+            b: {
+              baseURL: "https://b/v1",
+              apiKey: "b-key",
+              models: ["b-model"],
+            },
           },
         }),
       );
-      const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
+      const config = await loadConfig(["--cwd", cwd, "task"], {
+        globalSettingsPath: globalPath,
+      });
       assertConfigured(config);
       expect(config.providerName).toBe("b");
       expect(config.model).toBe("b-model");
@@ -1235,13 +1375,23 @@ describe("loadConfig", () => {
       await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
         join(cwd, ".corbits", "settings.json"),
-        JSON.stringify({ provider: "a", model: "a-model", reasoningEffort: "xhigh" }),
+        JSON.stringify({
+          provider: "a",
+          model: "a-model",
+          reasoningEffort: "xhigh",
+        }),
       );
       const globalPath = join(cwd, "global.json");
       await writeFile(
         globalPath,
         JSON.stringify({
-          providers: { a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] } },
+          providers: {
+            a: {
+              baseURL: "https://a/v1",
+              apiKey: "a-key",
+              models: ["a-model"],
+            },
+          },
         }),
       );
       await expect(
@@ -1262,7 +1412,9 @@ describe("buildGoSource", () => {
         model,
         sessionId: "sess-1",
       });
-      expect(source.defaults?.providerOptions).toMatchObject({ opencodeSessionId: "sess-1" });
+      expect(source.defaults?.providerOptions).toMatchObject({
+        opencodeSessionId: "sess-1",
+      });
     }
   });
 
@@ -1365,7 +1517,9 @@ describe("buildBifrostSource", () => {
       model: "m",
       reasoningEffort: "low",
     });
-    expect(source.defaults?.providerOptions).toEqual({ reasoning_effort: "low" });
+    expect(source.defaults?.providerOptions).toEqual({
+      reasoning_effort: "low",
+    });
   });
 });
 
@@ -1378,7 +1532,9 @@ describe("buildXaiSource", () => {
       sessionId: "sess-1",
     });
     expect(source.provider).toBe("grok-responses");
-    expect(source.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
+    expect(source.defaults?.providerOptions).not.toHaveProperty(
+      "reasoning_effort",
+    );
   });
 
   test("sets providerOptions.reasoning_effort when effort is present", () => {
@@ -1389,7 +1545,9 @@ describe("buildXaiSource", () => {
       sessionId: "sess-1",
       reasoningEffort: "low",
     });
-    expect(source.defaults?.providerOptions).toMatchObject({ reasoning_effort: "low" });
+    expect(source.defaults?.providerOptions).toMatchObject({
+      reasoning_effort: "low",
+    });
   });
 
   test("does not invent high when effort is absent", () => {
@@ -1399,7 +1557,9 @@ describe("buildXaiSource", () => {
       model: "grok-4.6",
       sessionId: "sess-1",
     });
-    expect(source.defaults?.providerOptions?.["reasoning_effort"]).toBeUndefined();
+    expect(
+      source.defaults?.providerOptions?.["reasoning_effort"],
+    ).toBeUndefined();
   });
 
   test("stashes the session id for the adapter's prompt_cache_key", () => {
@@ -1409,7 +1569,9 @@ describe("buildXaiSource", () => {
       model: "grok-4.6",
       sessionId: "sess-1",
     });
-    expect(source.defaults?.providerOptions).toMatchObject({ grokSessionId: "sess-1" });
+    expect(source.defaults?.providerOptions).toMatchObject({
+      grokSessionId: "sess-1",
+    });
   });
 });
 
@@ -1436,10 +1598,12 @@ describe("buildProviderCatalog", () => {
     };
     const catalog = buildProviderCatalog(settings, resolved);
     expect(catalog.map((c) => c.name).sort()).toEqual(["fp", "oa"]);
-    const fp = catalog.find((c) => c.name === "fp")!;
+    const fp = defined(catalog.find((c) => c.name === "fp"));
     expect(fp.models).toEqual(["fp-large", "fp-small"]);
     expect(fp.defaultModel).toBe("fp-large");
-    expect(catalog.find((c) => c.name === "oa")!.defaultModel).toBeUndefined();
+    expect(
+      defined(catalog.find((c) => c.name === "oa")).defaultModel,
+    ).toBeUndefined();
   });
 
   test("normalizes provider base URLs from the settings file", () => {
@@ -1468,29 +1632,42 @@ describe("buildProviderCatalog", () => {
       },
     };
     const catalog = buildProviderCatalog(settings, resolved);
-    const bf = catalog.find((c) => c.name === "bf")!;
+    const bf = defined(catalog.find((c) => c.name === "bf"));
     expect(bf.bifrostVirtualKey).toBe(true);
   });
 
   test("falls back to the single resolved provider when there is no settings file", () => {
     const catalog = buildProviderCatalog(null, resolved);
     expect(catalog).toEqual([
-      { name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+      {
+        name: "fp",
+        baseURL: "https://fp/v1",
+        apiKey: "fp-key",
+        models: ["fp-large"],
+      },
     ]);
   });
 
   test("preserves keyless flag and omits apiKey for keyless providers", () => {
     const settings: Settings = {
       providers: {
-        ollama: { baseURL: "http://localhost:11434/v1", keyless: true, models: ["llama3"] },
-        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+        ollama: {
+          baseURL: "http://localhost:11434/v1",
+          keyless: true,
+          models: ["llama3"],
+        },
+        fp: {
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large"],
+        },
       },
     };
     const catalog = buildProviderCatalog(settings, resolved);
-    const ollama = catalog.find((c) => c.name === "ollama")!;
+    const ollama = defined(catalog.find((c) => c.name === "ollama"));
     expect(ollama.keyless).toBe(true);
     expect(ollama.apiKey).toBeUndefined();
-    const fp = catalog.find((c) => c.name === "fp")!;
+    const fp = defined(catalog.find((c) => c.name === "fp"));
     expect(fp.keyless).toBeUndefined();
     expect(fp.apiKey).toBe("fp-key");
   });
@@ -1505,7 +1682,12 @@ describe("buildProviderCatalog", () => {
           models: ["fp-large", "fp-small"],
           defaultModel: "fp-large",
         },
-        { name: "oa", baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+        {
+          name: "oa",
+          baseURL: "https://oa/v1",
+          apiKey: "oa-key",
+          models: ["o-1"],
+        },
       ],
       "oa",
     );
@@ -1526,7 +1708,11 @@ describe("buildProviderCatalog", () => {
   test("runtimeSettingsWithCatalog overlays OAuth catalog entries for provider resolution", () => {
     const disk = {
       providers: {
-        openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk", models: ["gpt-4o"] },
+        openai: {
+          baseURL: "https://api.openai.com/v1",
+          apiKey: "sk",
+          models: ["gpt-4o"],
+        },
       },
     };
     const catalog = [
@@ -1574,7 +1760,14 @@ describe("buildProviderCatalog", () => {
   test("rejects invalid provider catalog URLs when converting back to settings", () => {
     expect(() =>
       providerCatalogToSettings(
-        [{ name: "fp", baseURL: "fp/v1", apiKey: "fp-key", models: ["fp-large"] }],
+        [
+          {
+            name: "fp",
+            baseURL: "fp/v1",
+            apiKey: "fp-key",
+            models: ["fp-large"],
+          },
+        ],
         undefined,
       ),
     ).toThrow(/Invalid OpenAI-compatible baseURL/);
@@ -1582,12 +1775,23 @@ describe("buildProviderCatalog", () => {
 
   test("omits defaultProvider when no global default is known", () => {
     const settings = providerCatalogToSettings(
-      [{ name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] }],
+      [
+        {
+          name: "fp",
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large"],
+        },
+      ],
       undefined,
     );
     expect(settings).toEqual({
       providers: {
-        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+        fp: {
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large"],
+        },
       },
     });
   });
@@ -1616,8 +1820,16 @@ describe("buildProviderCatalog", () => {
     // Settings keys (an allowlist previously dropped sessionMode/shell/tools/…).
     const existing: Settings = {
       defaultProvider: "fp",
-      providers: { fp: { baseURL: "https://fp/v1", apiKey: "old-key", models: ["fp-small"] } },
-      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      providers: {
+        fp: {
+          baseURL: "https://fp/v1",
+          apiKey: "old-key",
+          models: ["fp-small"],
+        },
+      },
+      mcpServers: [
+        { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      ],
       plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
       pluginPaths: ["/abs/plugins/exa"],
       web: "exa",
@@ -1639,13 +1851,22 @@ describe("buildProviderCatalog", () => {
           models: ["fp-large", "fp-small"],
           defaultModel: "fp-large",
         },
-        { name: "oa", baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+        {
+          name: "oa",
+          baseURL: "https://oa/v1",
+          apiKey: "oa-key",
+          models: ["o-1"],
+        },
       ],
       "oa",
       existing,
     );
     const { providers: _ep, defaultProvider: _ed, ...restExisting } = existing;
-    const { providers: outProviders, defaultProvider: outDefault, ...restOut } = settings;
+    const {
+      providers: outProviders,
+      defaultProvider: outDefault,
+      ...restOut
+    } = settings;
     expect(outDefault).toBe("oa");
     expect(outProviders).toEqual({
       fp: {
@@ -1684,7 +1905,7 @@ describe("buildProviderCatalog", () => {
       apiKey: "fp-key",
       model: "fp-large",
     } as ResolvedProvider);
-    const entry = catalog.find((c) => c.name === "fp")!;
+    const entry = defined(catalog.find((c) => c.name === "fp"));
     const roundTripped = { fp: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ fp: provider });
   });
@@ -1703,7 +1924,7 @@ describe("buildProviderCatalog", () => {
       apiKey: "an-key",
       model: "claude",
     } as ResolvedProvider);
-    const entry = catalog.find((c) => c.name === "an")!;
+    const entry = defined(catalog.find((c) => c.name === "an"));
     const roundTripped = { an: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ an: provider });
   });
@@ -1722,7 +1943,7 @@ describe("buildProviderCatalog", () => {
       apiKey: "go-key",
       model: "go-model",
     } as ResolvedProvider);
-    const entry = catalog.find((c) => c.name === "go")!;
+    const entry = defined(catalog.find((c) => c.name === "go"));
     const roundTripped = { go: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ go: provider });
   });
@@ -1758,9 +1979,10 @@ describe("refreshLiveProviderCatalog", () => {
     expect(coldGo?.models).toEqual([...OPENCODE_GO_MODEL_IDS]);
     expect(coldGo?.models).not.toContain("go-model");
     expect(cold.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
-    expect(buildProviderCatalog(settings, resolved).find((c) => c.name === "go")?.models).toEqual([
-      "go-model",
-    ]);
+    expect(
+      buildProviderCatalog(settings, resolved).find((c) => c.name === "go")
+        ?.models,
+    ).toEqual(["go-model"]);
 
     globalThis.fetch = (async () =>
       Response.json({
@@ -1772,16 +1994,19 @@ describe("refreshLiveProviderCatalog", () => {
     const warmGo = warm.find((c) => c.name === "go");
     expect(warmGo?.models).toContain("muse-spark-1.2-contributor");
     expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
-    expect(buildProviderCatalog(settings, resolved).find((c) => c.name === "go")?.models).toEqual([
-      "go-model",
-    ]);
+    expect(
+      buildProviderCatalog(settings, resolved).find((c) => c.name === "go")
+        ?.models,
+    ).toEqual(["go-model"]);
   });
 });
 
 describe("mergeProviderIntoSettings", () => {
   test("preserves plugins and non-provider fields when upserting a provider", () => {
     const existing: Settings = {
-      providers: { old: { baseURL: "https://old/v1", apiKey: "k", models: ["m"] } },
+      providers: {
+        old: { baseURL: "https://old/v1", apiKey: "k", models: ["m"] },
+      },
       plugins: { cmd: { enabled: true } },
       pluginPaths: ["/abs/cmd"],
       sessionMode: "orchestrator",

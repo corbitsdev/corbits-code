@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import {
   collectWebPlugins,
@@ -38,14 +39,24 @@ describe("collectWebPlugins", () => {
     ];
     const candidates = collectWebPlugins(modules);
     expect(candidates.map((c) => c.id)).toEqual(["exa"]);
-    expect(candidates[0]!.credentials[0]!.key).toBe("apiKey");
+    expect(defined(defined(candidates[0]).credentials[0]).key).toBe("apiKey");
   });
 });
 
 describe("selectWebPlugin", () => {
   const candidates: WebPluginCandidate[] = [
-    { id: "exa", name: "Exa Search", credentials: [], factory: () => stubProvider("exa") },
-    { id: "other", name: "Other", credentials: [], factory: () => stubProvider("other") },
+    {
+      id: "exa",
+      name: "Exa Search",
+      credentials: [],
+      factory: () => stubProvider("exa"),
+    },
+    {
+      id: "other",
+      name: "Other",
+      credentials: [],
+      factory: () => stubProvider("other"),
+    },
   ];
 
   test("explicit override wins", () => {
@@ -53,12 +64,18 @@ describe("selectWebPlugin", () => {
   });
 
   test("falls back to the single enabled plugin when no override", () => {
-    expect(selectWebPlugin(candidates, { exa: { enabled: true } }, undefined)?.id).toBe("exa");
+    expect(
+      selectWebPlugin(candidates, { exa: { enabled: true } }, undefined)?.id,
+    ).toBe("exa");
   });
 
   test("returns undefined when multiple enabled and no override (ambiguous)", () => {
     expect(
-      selectWebPlugin(candidates, { exa: { enabled: true }, other: { enabled: true } }, undefined),
+      selectWebPlugin(
+        candidates,
+        { exa: { enabled: true }, other: { enabled: true } },
+        undefined,
+      ),
     ).toBeUndefined();
   });
 

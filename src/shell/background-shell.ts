@@ -1,6 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { BoundedShellOutput, MAX_SHELL_OUTPUT_BYTES } from "../plugins/shell-guard-plugin.js";
+import {
+  BoundedShellOutput,
+  MAX_SHELL_OUTPUT_BYTES,
+} from "../plugins/shell-guard-plugin.js";
 
 // Background run_shell: the starting tool call returns a handle at once and the
 // process keeps running past the end of the turn, so tool.boundary fires and
@@ -55,7 +58,9 @@ export interface BackgroundShellExit {
 }
 
 export type BackgroundShellSnapshot =
-  { state: "running" } | { state: "completed"; exit: BackgroundShellExit } | { state: "not-found" };
+  | { state: "running" }
+  | { state: "completed"; exit: BackgroundShellExit }
+  | { state: "not-found" };
 
 export interface BackgroundShellRegistry {
   start: (args: StartBackgroundShellArgs) => { id: string } | { error: string };
@@ -99,14 +104,18 @@ export function createBackgroundShellRegistry(
       onExit?.(exit);
     };
 
-  const start = (args: StartBackgroundShellArgs): { id: string } | { error: string } => {
+  const start = (
+    args: StartBackgroundShellArgs,
+  ): { id: string } | { error: string } => {
     if (running.size >= MAX_RUNNING_BACKGROUND_SHELLS) {
       return {
         error: `background shell limit reached (${MAX_RUNNING_BACKGROUND_SHELLS} running); collect or cancel one first`,
       };
     }
     const id = randomUUID();
-    const collector = new BoundedShellOutput(args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES);
+    const collector = new BoundedShellOutput(
+      args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES,
+    );
     // detached so the shell leads a process group and cancel/timeout can
     // SIGKILL the whole tree.
     const child = spawn(args.command, {
@@ -139,7 +148,10 @@ export function createBackgroundShellRegistry(
     return { id };
   };
 
-  const collect = async (id: string, waitMs = 0): Promise<BackgroundShellSnapshot> => {
+  const collect = async (
+    id: string,
+    waitMs = 0,
+  ): Promise<BackgroundShellSnapshot> => {
     const done = completed.get(id);
     if (done !== undefined) return { state: "completed", exit: done };
     if (!running.has(id)) return { state: "not-found" };

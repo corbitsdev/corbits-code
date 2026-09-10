@@ -14,11 +14,18 @@ function tableOf(name: string): Map<string, Record<string, unknown>> {
   return t;
 }
 
-export function put(table: string, id: string, row: Record<string, unknown>): void {
+export function put(
+  table: string,
+  id: string,
+  row: Record<string, unknown>,
+): void {
   tableOf(table).set(id, row);
 }
 
-export function get(table: string, id: string): Record<string, unknown> | undefined {
+export function get(
+  table: string,
+  id: string,
+): Record<string, unknown> | undefined {
   return tableOf(table).get(id);
 }
 

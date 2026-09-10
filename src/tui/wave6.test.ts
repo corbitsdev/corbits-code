@@ -2,6 +2,7 @@
  * Wave 6: command palette, long-log windowing, chrome zones, keyboard copy.
  */
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -66,17 +67,19 @@ describe("Wave 6: command list", () => {
           expect(frame).not.toMatch(/│\s*>\s*│/);
           expect(frame).toContain("/compact");
           // List labels live in overlayItems (frame may clip first row under tight height).
-          expect(shell.overlayItems[0]).toBe(CATALOG[0]!.label);
+          expect(shell.overlayItems[0]).toBe(defined(CATALOG[0]).label);
 
           moveOverlaySelection(shell, 1);
-          expect(shell.overlayList!.activeIndex).toBe(1);
+          expect(defined(shell.overlayList).activeIndex).toBe(1);
 
           closeInsetOverlay(shell);
           expect(shell.overlayList).toBeNull();
           expect(shell.overlayKind).toBeNull();
           expect(focusOwner(shell.focus)).toBe("prompt");
           expect(shell.layout.overlayMode).toBe("closed");
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
         } finally {
           shell.dispose();
         }
@@ -96,10 +99,16 @@ describe("Wave 6: command list", () => {
         });
         try {
           openPalette(shell, { catalog: CATALOG });
-          const helpIdx = shell.paletteCommands.findIndex((c) => c.id === "help");
+          const helpIdx = shell.paletteCommands.findIndex(
+            (c) => c.id === "help",
+          );
           expect(helpIdx).toBeGreaterThanOrEqual(0);
           for (let i = 0; i < helpIdx; i++) moveOverlaySelection(shell, 1);
-          expect(shell.paletteCommands[shell.overlayList!.activeIndex]!.id).toBe("help");
+          expect(
+            defined(
+              shell.paletteCommands[defined(shell.overlayList).activeIndex],
+            ).id,
+          ).toBe("help");
 
           acceptOverlaySelection(shell);
           expect(dispatched).toEqual(["help"]);
@@ -162,7 +171,8 @@ describe("Wave 6: long-log windowing", () => {
 
           const t0 = performance.now();
           for (let i = 0; i < n; i++) {
-            const role = i % 3 === 0 ? "user" : i % 3 === 1 ? "assistant" : "tool";
+            const role =
+              i % 3 === 0 ? "user" : i % 3 === 1 ? "assistant" : "tool";
             if (role === "tool") {
               appendStreamRow(shell, {
                 role: "tool",
@@ -211,7 +221,11 @@ describe("Wave 6: long-log windowing", () => {
         try {
           const n = MAX_RETAINED_STREAM_ROWS + 200;
           for (let i = 0; i < n; i++) {
-            appendStreamRow(shell, { role: "tool", text: `row-${i}`, meta: "bash" });
+            appendStreamRow(shell, {
+              role: "tool",
+              text: `row-${i}`,
+              meta: "bash",
+            });
           }
 
           // Retention caps the backing array itself, not just the paint window.
@@ -226,7 +240,9 @@ describe("Wave 6: long-log windowing", () => {
           });
           // Evicted rows read back as gone, not as some other row's data.
           expect(streamRowAt(shell, 0)).toBeUndefined();
-          expect(streamRowAt(shell, n - 1)).toMatchObject({ text: `row-${n - 1}` });
+          expect(streamRowAt(shell, n - 1)).toMatchObject({
+            text: `row-${n - 1}`,
+          });
         } finally {
           shell.dispose();
         }
@@ -243,12 +259,20 @@ describe("Wave 6: long-log windowing", () => {
           wireKeys: false,
         });
         try {
-          appendStreamRow(shell, { role: "tool", text: "pinned call", meta: "bash" });
+          appendStreamRow(shell, {
+            role: "tool",
+            text: "pinned call",
+            meta: "bash",
+          });
           const pinnedIndex = streamRowCount(shell) - 1;
 
           // Push the pinned row well past the retention cap.
           for (let i = 0; i < MAX_RETAINED_STREAM_ROWS + 100; i++) {
-            appendStreamRow(shell, { role: "tool", text: `filler-${i}`, meta: "bash" });
+            appendStreamRow(shell, {
+              role: "tool",
+              text: `filler-${i}`,
+              meta: "bash",
+            });
           }
           // The pinned row itself was evicted; a rewrite must be a safe no-op,
           // not a write to whatever row now occupies that array slot.
@@ -257,8 +281,14 @@ describe("Wave 6: long-log windowing", () => {
 
           const recentIndex = streamRowCount(shell) - 1;
           const before = streamRowAt(shell, recentIndex);
-          replaceStreamRowAt(shell, recentIndex, { role: "tool", text: "edited", meta: "bash" });
-          expect(streamRowAt(shell, recentIndex)).toMatchObject({ text: "edited" });
+          replaceStreamRowAt(shell, recentIndex, {
+            role: "tool",
+            text: "edited",
+            meta: "bash",
+          });
+          expect(streamRowAt(shell, recentIndex)).toMatchObject({
+            text: "edited",
+          });
           expect(before).not.toMatchObject({ text: "edited" });
         } finally {
           shell.dispose();
@@ -284,7 +314,9 @@ describe("Wave 6: chrome zones", () => {
 
           setChromeZones(shell, {
             task: [{ label: "chrome zones", status: "doing" }],
-            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+            agents: [
+              { label: "explore: map callers", tail: "", stalled: false },
+            ],
           });
 
           // CL-5847: the panel is hidden by default — toggle to show before
@@ -306,7 +338,9 @@ describe("Wave 6: chrome zones", () => {
           setChromeZones(shell, { task: null, agents: null });
           expect(shell.layout.heights.task).toBe(0);
           expect(shell.taskBox.visible).toBe(false);
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
         } finally {
           shell.dispose();
         }
@@ -328,7 +362,9 @@ describe("Wave 6: chrome zones", () => {
           // about content-identity rebuilds, not clamp-on-resize.
           setChromeZones(shell, {
             task: [{ label: "seed", status: "todo" }],
-            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+            agents: [
+              { label: "explore: map callers", tail: "", stalled: false },
+            ],
           });
           const firstBefore = shell.agentsBox.getChildren()[0];
           expect(shell.agentsBox.getChildren()).toHaveLength(1);
@@ -336,18 +372,28 @@ describe("Wave 6: chrome zones", () => {
 
           // Task retitle only (same row count) must not rebuild agents rows.
           // Use reference identity — deep-equal on OpenTUI trees hangs on cycles.
-          setChromeZones(shell, { task: [{ label: "unrelated", status: "todo" }] });
+          setChromeZones(shell, {
+            task: [{ label: "unrelated", status: "todo" }],
+          });
           expect(shell.agentsBox.getChildren()[0]).toBe(firstBefore);
 
           // Exact same agent lines again must not rebuild either.
           setChromeZones(shell, {
-            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+            agents: [
+              { label: "explore: map callers", tail: "", stalled: false },
+            ],
           });
           expect(shell.agentsBox.getChildren()[0]).toBe(firstBefore);
 
           // Changed lines must rebuild.
           setChromeZones(shell, {
-            agents: [{ label: "explore: map callers", tail: " · 0:01", stalled: false }],
+            agents: [
+              {
+                label: "explore: map callers",
+                tail: " · 0:01",
+                stalled: false,
+              },
+            ],
           });
           expect(shell.agentsBox.getChildren()[0]).not.toBe(firstBefore);
           expect(shell.agentsBox.getChildren()).toHaveLength(1);
@@ -371,13 +417,19 @@ describe("Wave 6: chrome zones", () => {
             "investigate why the reactor loop keeps re-emitting duplicate tool_call.start events under concurrent subagent dispatch";
           setChromeZones(shell, {
             agents: [
-              { label: `explore: ${longDescription}`, tail: " · 0:42 · grep", stalled: false },
+              {
+                label: `explore: ${longDescription}`,
+                tail: " · 0:42 · grep",
+                stalled: false,
+              },
             ],
           });
 
           await h.renderOnce();
           const frame = h.captureCharFrame();
-          const agentLine = frame.split("\n").find((line) => line.includes("· 0:42 · grep"));
+          const agentLine = frame
+            .split("\n")
+            .find((line) => line.includes("· 0:42 · grep"));
           expect(agentLine).toBeDefined();
           // The frame line includes the shell's left side margin ahead of
           // the zone's own content width.
@@ -412,15 +464,21 @@ describe("Wave 6: chrome zones", () => {
             "调查代理循环中重复出现的工具调用事件问题 across every dispatched worker";
           setChromeZones(shell, {
             agents: [
-              { label: `explore: ${wideDescription}`, tail: " · 0:42 · grep", stalled: false },
+              {
+                label: `explore: ${wideDescription}`,
+                tail: " · 0:42 · grep",
+                stalled: false,
+              },
             ],
           });
 
           await h.renderOnce();
           const frame = h.captureCharFrame();
-          const agentLine = frame.split("\n").find((line) => line.includes("· 0:42 · grep"));
+          const agentLine = frame
+            .split("\n")
+            .find((line) => line.includes("· 0:42 · grep"));
           expect(agentLine).toBeDefined();
-          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(
+          expect(stringWidth(defined(agentLine).trimEnd())).toBeLessThanOrEqual(
             shell.layout.sideMargin + shell.layout.contentWidth,
           );
           expect(agentLine).toContain("…");
@@ -455,7 +513,9 @@ describe("CL-5731: task list panel", () => {
               { label: "add toggle", status: "todo" },
               { label: "write docs", status: "done" },
             ],
-            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+            agents: [
+              { label: "explore: map callers", tail: "", stalled: false },
+            ],
           });
 
           // CL-5847: hidden by default — opt in to see the checklist.
@@ -542,7 +602,9 @@ describe("CL-5731: task list panel", () => {
         try {
           setChromeZones(shell, {
             task: [{ label: "first task", status: "todo" }],
-            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+            agents: [
+              { label: "explore: map callers", tail: "", stalled: false },
+            ],
           });
           const agentsHeightBefore = shell.layout.heights.agents;
 
@@ -623,7 +685,9 @@ describe("CL-5731: task list panel", () => {
           wireKeys: false,
         });
         try {
-          setChromeZones(shell, { task: [{ label: "wire toggle", status: "doing" }] });
+          setChromeZones(shell, {
+            task: [{ label: "wire toggle", status: "doing" }],
+          });
           const before = streamRowCount(shell);
 
           toggleTasksPanel(shell);
@@ -658,7 +722,9 @@ describe("CL-5731: task list panel", () => {
           // Several unrelated live pushes later, the default-hidden choice
           // still holds.
           setChromeZones(shell, { task: [{ label: "a", status: "doing" }] });
-          setChromeZones(shell, { agents: [{ label: "x: y", tail: "", stalled: false }] });
+          setChromeZones(shell, {
+            agents: [{ label: "x: y", tail: "", stalled: false }],
+          });
           setChromeZones(shell, { task: [{ label: "a", status: "done" }] });
           expect(shell.taskBox.visible).toBe(false);
         } finally {
@@ -679,11 +745,15 @@ describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
           wireKeys: false,
         });
         try {
-          const taskTitle = "refit-task-token unique-task-phrase-that-must-not-survive-a-narrow";
-          const agentLabel = "refit-agent-token unique-agent-phrase-that-must-not-survive-a-narrow";
+          const taskTitle =
+            "refit-task-token unique-task-phrase-that-must-not-survive-a-narrow";
+          const agentLabel =
+            "refit-agent-token unique-agent-phrase-that-must-not-survive-a-narrow";
           const agentTail = " · 0:42 · grep";
-          const uniqueTaskPhrase = "unique-task-phrase-that-must-not-survive-a-narrow";
-          const uniqueAgentPhrase = "unique-agent-phrase-that-must-not-survive-a-narrow";
+          const uniqueTaskPhrase =
+            "unique-task-phrase-that-must-not-survive-a-narrow";
+          const uniqueAgentPhrase =
+            "unique-agent-phrase-that-must-not-survive-a-narrow";
 
           setChromeZones(shell, {
             task: [{ label: taskTitle, status: "todo" }],
@@ -710,12 +780,19 @@ describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
           const taskLine = lines.find(
             (line) => line.includes("[ ]") || line.includes("refit-task-token"),
           );
-          const agentLine = lines.find((line) => line.includes("· 0:42 · grep"));
+          const agentLine = lines.find((line) =>
+            line.includes("· 0:42 · grep"),
+          );
           expect(taskLine).toBeDefined();
           expect(agentLine).toBeDefined();
-          const maxPainted = shell.layout.sideMargin + shell.layout.contentWidth;
-          expect(stringWidth(taskLine!.trimEnd())).toBeLessThanOrEqual(maxPainted);
-          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(maxPainted);
+          const maxPainted =
+            shell.layout.sideMargin + shell.layout.contentWidth;
+          expect(stringWidth(defined(taskLine).trimEnd())).toBeLessThanOrEqual(
+            maxPainted,
+          );
+          expect(stringWidth(defined(agentLine).trimEnd())).toBeLessThanOrEqual(
+            maxPainted,
+          );
           expect(taskLine).toContain("[ ]");
           expect(agentLine).toContain("· 0:42 · grep");
           expect(narrowFrame).not.toContain(uniqueTaskPhrase);
@@ -734,7 +811,9 @@ describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
           h.resize(100, 32);
           await h.renderOnce();
           expect(shell.taskBox.getChildren()[0]).toBe(taskBoxChildAfterRestore);
-          expect(shell.agentsBox.getChildren()[0]).toBe(agentsBoxChildAfterRestore);
+          expect(shell.agentsBox.getChildren()[0]).toBe(
+            agentsBoxChildAfterRestore,
+          );
         } finally {
           shell.dispose();
         }
@@ -771,7 +850,10 @@ describe("Wave 6: keyboard copy path", () => {
 
           // Live stream change must not alter frozen targets.
           appendStreamRow(shell, { role: "user", text: "after open" });
-          expect(shell.copyTargets?.map((t) => t.text)).toEqual(["first row", "second row"]);
+          expect(shell.copyTargets?.map((t) => t.text)).toEqual([
+            "first row",
+            "second row",
+          ]);
         } finally {
           shell.dispose();
         }
@@ -965,7 +1047,7 @@ describe("reasoning effort flash TTL", () => {
           flashSchedule: (fn, ms) => {
             expect(ms).toBe(RUNTIME_FLASH_MS);
             lapse.push(fn);
-            return () => {};
+            return () => undefined;
           },
         });
         try {

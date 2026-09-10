@@ -71,8 +71,14 @@ describe("discoverGoModels", () => {
       expected: GoDiscoveryState["status"];
     }[] = [
       { response: async () => Response.json({ data: [] }), expected: "empty" },
-      { response: async () => new Response("no", { status: 503 }), expected: "unavailable" },
-      { response: async () => Response.json({ models: [] }), expected: "malformed" },
+      {
+        response: async () => new Response("no", { status: 503 }),
+        expected: "unavailable",
+      },
+      {
+        response: async () => Response.json({ models: [] }),
+        expected: "malformed",
+      },
     ];
 
     for (const item of cases) {
@@ -80,7 +86,8 @@ describe("discoverGoModels", () => {
       expect((await discoverGoModels()).status).toBe(item.expected);
     }
 
-    globalThis.fetch = (async () => new Response("no", { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response("no", { status: 503 })) as unknown as typeof fetch;
     await expect(discoverGoModels()).resolves.toEqual({
       status: "unavailable",
       message: "OpenCode Go returned HTTP 503",
@@ -97,7 +104,9 @@ describe("discoverGoModels", () => {
 
   test("rejects an oversized catalog body without treating it as models", async () => {
     globalThis.fetch = (async () =>
-      oversizedCatalogResponse(MAX_GO_CATALOG_BYTES + 1)) as unknown as typeof fetch;
+      oversizedCatalogResponse(
+        MAX_GO_CATALOG_BYTES + 1,
+      )) as unknown as typeof fetch;
 
     const state = await discoverGoModels();
     expect(state.status).toBe("malformed");
@@ -127,7 +136,8 @@ describe("discoverGoModels", () => {
     const data = Array.from({ length: MAX_GO_CATALOG_MODELS + 1 }, (_, i) => ({
       id: `go-model-${String(i)}`,
     }));
-    globalThis.fetch = (async () => Response.json({ data })) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      Response.json({ data })) as unknown as typeof fetch;
 
     const state = await discoverGoModels();
     expect(state.status).toBe("malformed");
@@ -142,7 +152,9 @@ describe("prefetchGoModels", () => {
     let fetchCount = 0;
     globalThis.fetch = (async () => {
       fetchCount += 1;
-      return Response.json({ data: [{ id: "grok-4.5" }, { id: LIVE_ONLY_ID }] });
+      return Response.json({
+        data: [{ id: "grok-4.5" }, { id: LIVE_ONLY_ID }],
+      });
     }) as unknown as typeof fetch;
 
     const ids = await prefetchGoModels();
@@ -156,7 +168,9 @@ describe("prefetchGoModels", () => {
 
   test("keeps the live snapshot when a later prefetch fails", async () => {
     globalThis.fetch = (async () =>
-      Response.json({ data: [{ id: LIVE_ONLY_ID }] })) as unknown as typeof fetch;
+      Response.json({
+        data: [{ id: LIVE_ONLY_ID }],
+      })) as unknown as typeof fetch;
     await prefetchGoModels();
     expect(selectableGoModelIds()).toEqual([LIVE_ONLY_ID]);
 
@@ -181,7 +195,9 @@ describe("prefetchGoModels", () => {
 
   test("oversized live catalog does not replace the seed with a truncated prefix", async () => {
     globalThis.fetch = (async () =>
-      oversizedCatalogResponse(MAX_GO_CATALOG_BYTES + 1)) as unknown as typeof fetch;
+      oversizedCatalogResponse(
+        MAX_GO_CATALOG_BYTES + 1,
+      )) as unknown as typeof fetch;
 
     const ids = await prefetchGoModels();
     expect(ids).toEqual(OPENCODE_GO_MODEL_IDS);
@@ -208,7 +224,10 @@ describe("prefetchGoModels", () => {
     expect(fetchCount).toBe(1);
 
     release(Response.json({ data: [{ id: LIVE_ONLY_ID }] }));
-    await expect(Promise.all([first, second])).resolves.toEqual([[LIVE_ONLY_ID], [LIVE_ONLY_ID]]);
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      [LIVE_ONLY_ID],
+      [LIVE_ONLY_ID],
+    ]);
     expect(fetchCount).toBe(1);
 
     await prefetchGoModels();
@@ -217,7 +236,10 @@ describe("prefetchGoModels", () => {
 
   test("an aborted discoverGoModels does not coalesce with prefetchGoModels", async () => {
     let fetchCount = 0;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCount += 1;
       if (init?.signal?.aborted) {
         throw new DOMException("Aborted", "AbortError");

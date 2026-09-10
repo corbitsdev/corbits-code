@@ -14,7 +14,8 @@ export async function ensureFreshInferenceSource(
   catalog: readonly ProviderCatalogEntry[] | undefined,
 ): Promise<InferenceSource> {
   const entry = catalog?.find((e) => e.name === source.id);
-  const codexProfile = entry?.codexProfile ?? codexProfileFromProviderName(source.id);
+  const codexProfile =
+    entry?.codexProfile ?? codexProfileFromProviderName(source.id);
   if (codexProfile !== undefined) {
     const { access } = await getValidCodexToken(codexProfile);
     return { ...source, apiKey: access };

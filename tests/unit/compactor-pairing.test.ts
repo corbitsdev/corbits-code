@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
-import { createPruningCompactor, buildTurnSummary } from "../../src/session/compactor.js";
+import {
+  createPruningCompactor,
+  buildTurnSummary,
+} from "../../src/session/compactor.js";
 import { assertWellFormedToolSequence } from "@intx/inference";
+import { defined } from "../helpers/defined.js";
 
 // The runtime puts a tool_call on an assistant turn and its tool_result on the
 // FOLLOWING user turn, so the two halves of a pair can land on opposite sides of
@@ -10,7 +14,9 @@ import { assertWellFormedToolSequence } from "@intx/inference";
 function assistantCall(id: string, name = "read_file"): ConversationTurn {
   return {
     role: "assistant",
-    content: [{ type: "tool_call", id, name, arguments: { path: `f${id}.ts` } }],
+    content: [
+      { type: "tool_call", id, name, arguments: { path: `f${id}.ts` } },
+    ],
     timestamp: 1,
   };
 }
@@ -46,7 +52,10 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("f"),
       userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
   });
@@ -64,7 +73,10 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("f"),
       userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
   });
@@ -90,7 +102,12 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "edit1", name: "edit_file", arguments: { path: "file.ts" } },
+          {
+            type: "tool_call",
+            id: "edit1",
+            name: "edit_file",
+            arguments: { path: "file.ts" },
+          },
         ],
         timestamp: 1,
       },
@@ -99,12 +116,17 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("f"),
       userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     const kept = output.find((t) =>
       t.content.some((b) => b.type === "tool_result" && b.callId === "edit1"),
     );
-    const resultBlock = kept?.content.find((b) => b.type === "tool_result" && b.callId === "edit1");
+    const resultBlock = kept?.content.find(
+      (b) => b.type === "tool_result" && b.callId === "edit1",
+    );
     expect(resultBlock).toMatchObject({
       content: [{ type: "text", text: "diff applied to file.ts" }],
     });
@@ -127,7 +149,12 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "edit1", name: "edit_file", arguments: { path: "file.ts" } },
+          {
+            type: "tool_call",
+            id: "edit1",
+            name: "edit_file",
+            arguments: { path: "file.ts" },
+          },
         ],
         timestamp: 1,
       },
@@ -140,12 +167,17 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("f"),
       userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     const kept = output.find((t) =>
       t.content.some((b) => b.type === "tool_result" && b.callId === "edit1"),
     );
-    const resultBlock = kept?.content.find((b) => b.type === "tool_result" && b.callId === "edit1");
+    const resultBlock = kept?.content.find(
+      (b) => b.type === "tool_result" && b.callId === "edit1",
+    );
     expect(resultBlock).toMatchObject({
       content: [{ type: "text", text: "diff applied to file.ts" }],
     });
@@ -176,12 +208,18 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
 function assistantRead(id: string, path: string): ConversationTurn {
   return {
     role: "assistant",
-    content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+    content: [
+      { type: "tool_call", id, name: "read_file", arguments: { path } },
+    ],
     timestamp: 1,
   };
 }
 
-function userReadResult(callId: string, body: string, isError = false): ConversationTurn {
+function userReadResult(
+  callId: string,
+  body: string,
+  isError = false,
+): ConversationTurn {
   return {
     role: "user",
     content: [
@@ -196,7 +234,10 @@ function userReadResult(callId: string, body: string, isError = false): Conversa
   };
 }
 
-function resultText(output: ConversationTurn[], callId: string): string | undefined {
+function resultText(
+  output: ConversationTurn[],
+  callId: string,
+): string | undefined {
   for (const turn of output) {
     for (const block of turn.content) {
       if (block.type === "tool_result" && block.callId === callId) {
@@ -228,7 +269,10 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
 
     const older = resultText(output, "r1");
@@ -239,7 +283,7 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     expect(older).toMatch(/read_file/);
     expect(older).toMatch(/src\/hot\.ts/);
     expect(older).toMatch(/omitted|chars/);
-    expect(older!.length).toBeLessThan(oldBody.length);
+    expect(defined(older, "older body").length).toBeLessThan(oldBody.length);
   });
 
   test("preserves error read results verbatim even when a later success supersedes the path", async () => {
@@ -257,7 +301,10 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
 
     expect(resultText(output, "r1")).toBe(errBody);
@@ -282,7 +329,10 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("end"),
     ];
     // keep=3 → recent is kept call + kept result + end; the older pair summarizes.
-    const compactor = createPruningCompactor({ keepRecentTurns: 3, maxAnchorTurns: 0 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 3,
+      maxAnchorTurns: 0,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "old")).toBeUndefined();
     expect(resultText(output, "kept")).toBe(soleBody);
@@ -325,7 +375,10 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "r1")).toBe(body1);
     expect(resultText(output, "r2")).toBe(body2);
@@ -342,20 +395,37 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("c"),
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "r1", name: "read_file", arguments: rangeArgs }],
+        content: [
+          {
+            type: "tool_call",
+            id: "r1",
+            name: "read_file",
+            arguments: rangeArgs,
+          },
+        ],
         timestamp: 1,
       },
       userReadResult("r1", oldBody),
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "r2", name: "read_file", arguments: rangeArgs }],
+        content: [
+          {
+            type: "tool_call",
+            id: "r2",
+            name: "read_file",
+            arguments: rangeArgs,
+          },
+        ],
         timestamp: 1,
       },
       userReadResult("r2", newBody),
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     const older = resultText(output, "r1");
     expect(resultText(output, "r2")).toBe(newBody);
@@ -368,7 +438,11 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
 // grep/search_files/list_dir are replayable the same way read_file is: an
 // identical later call reflects newer workspace state, so an older identical
 // result is stubbed the same way an older full-file read is (CL-6906).
-function assistantQuery(id: string, name: string, args: Record<string, unknown>): ConversationTurn {
+function assistantQuery(
+  id: string,
+  name: string,
+  args: Record<string, unknown>,
+): ConversationTurn {
   return {
     role: "assistant",
     content: [{ type: "tool_call", id, name, arguments: args }],
@@ -393,7 +467,10 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     const older = resultText(output, "g1");
     expect(resultText(output, "g2")).toBe(newBody);
@@ -418,7 +495,10 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "s2")).toBe(newBody);
     expect(resultText(output, "s1")).not.toBe(oldBody);
@@ -440,7 +520,10 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "l2")).toBe(newBody);
     expect(resultText(output, "l1")).not.toBe(oldBody);
@@ -461,7 +544,10 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "g1")).toBe(body1);
     expect(resultText(output, "g2")).toBe(body2);
@@ -486,7 +572,10 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("d"),
       userText("e"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 2,
+    });
     const { output } = await compactor.apply(turns, {} as never);
     expect(resultText(output, "sh1")).toBe(oldBody);
     expect(resultText(output, "sh2")).toBe(newBody);

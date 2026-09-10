@@ -58,7 +58,9 @@ export function filterPaletteCommands(
 }
 
 /** Labels for the shared list viewport. */
-export function paletteLabels(commands: readonly PaletteCommand[]): readonly string[] {
+export function paletteLabels(
+  commands: readonly PaletteCommand[],
+): readonly string[] {
   return commands.map((c) => c.label);
 }
 
@@ -74,6 +76,9 @@ function fitLabel(label: string, width: number): string {
 }
 
 /** Render labels to exactly `width` columns each, ellipsizing long ones. */
-export function formatPaletteRows(labels: readonly string[], width: number): readonly string[] {
+export function formatPaletteRows(
+  labels: readonly string[],
+  width: number,
+): readonly string[] {
   return labels.map((label) => fitLabel(label, width));
 }

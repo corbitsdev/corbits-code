@@ -2,7 +2,8 @@ import type { Workflow } from "../../../../../../src/workflows/definition.js";
 
 export const implementFeature: Workflow = {
   name: "implement-feature",
-  description: "Plan, implement, test, and review a feature with parallel review agents",
+  description:
+    "Plan, implement, test, and review a feature with parallel review agents",
   autoInvoke: "implement this feature",
   steps: [
     {
@@ -14,7 +15,8 @@ export const implementFeature: Workflow = {
     {
       id: "implement",
       label: "Implement",
-      prompt: "Implement the plan. Match repo conventions and keep the diff focused.",
+      prompt:
+        "Implement the plan. Match repo conventions and keep the diff focused.",
     },
     {
       id: "test",

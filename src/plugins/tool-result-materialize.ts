@@ -1,7 +1,10 @@
 import path from "node:path";
 
 /** MIME written with spilled tool-output blobs. */
-export type ToolResultContentType = "application/json" | "application/x-ndjson" | "text/plain";
+export type ToolResultContentType =
+  | "application/json"
+  | "application/x-ndjson"
+  | "text/plain";
 
 export interface MaterializedToolResult {
   text: string;
@@ -26,7 +29,9 @@ function blobExtensionFor(contentType: string): string {
 
 function sanitizeCallId(callId: string): string {
   if (callId.includes("..") || callId.includes("/")) {
-    throw new Error(`callId contains unsafe characters: ${JSON.stringify(callId)}`);
+    throw new Error(
+      `callId contains unsafe characters: ${JSON.stringify(callId)}`,
+    );
   }
   return callId.replace(UNSAFE_FILENAME_CHARS, "_");
 }
@@ -72,7 +77,9 @@ function isNdjson(text: string): boolean {
  * minified JSON → pretty application/json; multi-line NDJSON → keep as-is;
  * everything else → text/plain. Skips pretty-print above ~8MB.
  */
-export function materializeToolResultContent(content: string): MaterializedToolResult {
+export function materializeToolResultContent(
+  content: string,
+): MaterializedToolResult {
   if (content.length > PRETTY_SIZE_CEILING_CHARS) {
     return { text: content, contentType: "text/plain" };
   }

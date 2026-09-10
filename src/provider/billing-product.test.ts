@@ -25,9 +25,15 @@ describe("isBareZenBaseURL", () => {
 
 describe("billingProductForProvider", () => {
   test("OpenCode Go flag or id is subscription", () => {
-    expect(billingProductForProvider({ opencodeGo: true })).toBe("subscription");
-    expect(billingProductForProvider({ name: "opencode-go" })).toBe("subscription");
-    expect(billingProductForProvider({ name: "OpenCode Go" })).toBe("subscription");
+    expect(billingProductForProvider({ opencodeGo: true })).toBe(
+      "subscription",
+    );
+    expect(billingProductForProvider({ name: "opencode-go" })).toBe(
+      "subscription",
+    );
+    expect(billingProductForProvider({ name: "OpenCode Go" })).toBe(
+      "subscription",
+    );
     expect(
       billingProductForProvider({
         name: "opencode-go",
@@ -126,9 +132,9 @@ describe("isGoModelOnZenPath", () => {
 
 describe("billingProductForProvider", () => {
   test("resolves subscription and credits labels for UI rows", () => {
-    expect(billingProductForProvider({ name: "opencode-go", opencodeGo: true })).toBe(
-      "subscription",
-    );
+    expect(
+      billingProductForProvider({ name: "opencode-go", opencodeGo: true }),
+    ).toBe("subscription");
     expect(billingProductForProvider({ name: "zen" })).toBe("credits");
     expect(billingProductForProvider({ name: "openai" })).toBeUndefined();
   });

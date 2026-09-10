@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   collectToolPlugins,
   isToolPluginActive,
@@ -34,7 +35,10 @@ describe("collectToolPlugins", () => {
   test("keeps only tool-kind modules with a factory", () => {
     const mods: PluginModule[] = [
       toolModule("t1"),
-      { manifest: { id: "w", name: "w", kind: "web" }, createWebProvider: (() => ({})) as unknown },
+      {
+        manifest: { id: "w", name: "w", kind: "web" },
+        createWebProvider: (() => ({})) as unknown,
+      },
       { manifest: { id: "broken", name: "b", kind: "tool" } }, // no factory
     ];
     expect(collectToolPlugins(mods).map((c) => c.id)).toEqual(["t1"]);
@@ -43,7 +47,9 @@ describe("collectToolPlugins", () => {
 
 describe("isToolPluginActive", () => {
   test("requires both enabled and consented", () => {
-    expect(isToolPluginActive({ t: { enabled: true, consented: true } }, "t")).toBe(true);
+    expect(
+      isToolPluginActive({ t: { enabled: true, consented: true } }, "t"),
+    ).toBe(true);
     expect(isToolPluginActive({ t: { enabled: true } }, "t")).toBe(false);
     expect(isToolPluginActive({ t: { consented: true } }, "t")).toBe(false);
     expect(isToolPluginActive({}, "t")).toBe(false);
@@ -61,7 +67,9 @@ describe("resolveToolPlugins", () => {
       },
     });
     expect(plugins.length).toBe(1);
-    expect(plugins[0]!.tools![0]!.definition.name).toBe("t1_tool");
+    expect(defined(defined(defined(plugins[0]).tools)[0]).definition.name).toBe(
+      "t1_tool",
+    );
   });
 
   test("a throwing factory is skipped, not fatal", async () => {

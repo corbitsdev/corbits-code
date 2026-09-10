@@ -27,7 +27,10 @@ import {
   shouldSettleUiAfterSendFailure,
 } from "../session-chrome.js";
 import { ingestOperatorPrompt } from "../prompt-attachments.js";
-import { imageAttachmentFromPath, type PendingImageAttachment } from "../image-attachments.js";
+import {
+  imageAttachmentFromPath,
+  type PendingImageAttachment,
+} from "../image-attachments.js";
 import {
   createLeftoverSend,
   createLiveSteerDeliver,
@@ -38,7 +41,12 @@ import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { Agent } from "@intx/agent";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
-import { hostOf, runWhileAgentBusy, type RunnerServices, type RunnerState } from "./state.js";
+import {
+  hostOf,
+  runWhileAgentBusy,
+  type RunnerServices,
+  type RunnerState,
+} from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
@@ -62,12 +70,19 @@ export function routeSubmission(raw: string): SubmissionRoute {
   const sep = body.search(/\s/);
   return sep === -1
     ? { kind: "command", name: body, args: "" }
-    : { kind: "command", name: body.slice(0, sep), args: body.slice(sep + 1).trim() };
+    : {
+        kind: "command",
+        name: body.slice(0, sep),
+        args: body.slice(sep + 1).trim(),
+      };
 }
 
 export interface SubmitHandlerDeps {
   dispatchCommand: (name: string, args: string) => void;
-  sendPrompt: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
+  sendPrompt: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
   /**
@@ -122,7 +137,10 @@ export function classifySubmission(
 
 export function createSubmitHandler(
   deps: SubmitHandlerDeps,
-): (text: string, attachments?: readonly PendingImageAttachment[]) => SubmitOutcome {
+): (
+  text: string,
+  attachments?: readonly PendingImageAttachment[],
+) => SubmitOutcome {
   return (text, attachments) => {
     const route = routeSubmission(text);
     const hasAttachments = attachments !== undefined && attachments.length > 0;
@@ -154,7 +172,9 @@ export function createSubmitHandler(
     }
     // Multi-turn /feedback: next Enter is survey text, not a model prompt.
     if (outcome === "local" && deps.onFeedbackText !== undefined) {
-      const notice = deps.onFeedbackText(route.kind === "prompt" ? route.text : text);
+      const notice = deps.onFeedbackText(
+        route.kind === "prompt" ? route.text : text,
+      );
       deps.onSystemNotice?.(notice);
       return "local";
     }
@@ -206,7 +226,12 @@ export function createSubmitPath(
   state: RunnerState,
   services: RunnerServices,
   live: { attemptIdentity: () => InferenceAttemptIdentity; agentProxy: Agent },
-): { send: (text: string, attachments?: readonly PendingImageAttachment[]) => SubmitOutcome } {
+): {
+  send: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => SubmitOutcome;
+} {
   // Routed through the shell's notice path rather than straight into the
   // transcript: anything the runner says before the first turn arrives while
   // the landing hero still owns the screen, and a transcript row there wipes
@@ -255,7 +280,9 @@ export function createSubmitPath(
   };
   state.handleSendFailure = handleSendFailure;
 
-  const sendWithAttemptIdentity = async (message: InboundMessage): Promise<boolean> => {
+  const sendWithAttemptIdentity = async (
+    message: InboundMessage,
+  ): Promise<boolean> => {
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
     try {
@@ -287,11 +314,13 @@ export function createSubmitPath(
   ): Promise<void> => {
     state.sendAborted = false;
     if (text.trim().length > 0) {
-      void appendSentMessage(state.config.cwd, state.sessionId, text).catch((err: unknown) => {
-        tuiLogger.debug("sent-message append failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
+        (err: unknown) => {
+          tuiLogger.debug("sent-message append failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      );
     }
     const ingested = await ingestOperatorPrompt(
       text,
@@ -299,7 +328,9 @@ export function createSubmitPath(
       imageAttachmentFromPath,
       pending,
     );
-    await sendWithAttemptIdentity(userInboundMessage(ingested.text, ingested.attachments));
+    await sendWithAttemptIdentity(
+      userInboundMessage(ingested.text, ingested.attachments),
+    );
   };
   state.sendUserPrompt = sendUserPrompt;
 
@@ -316,7 +347,10 @@ export function createSubmitPath(
     },
     onPromptSubmitted: () => {
       if (state.telemetryFirstRun && state.liveTelemetryIntent) {
-        void activateHeldTelemetry(state.trueGlobalSettingsPath, () => state.liveTelemetryIntent);
+        void activateHeldTelemetry(
+          state.trueGlobalSettingsPath,
+          () => state.liveTelemetryIntent,
+        );
       }
     },
     isFeedbackCapturePending,
@@ -349,7 +383,12 @@ export function createDeliverRouting(
     send: createLeftoverSend({
       enqueue: services.sessionOps.enqueue,
       ingest: (text, pending) =>
-        ingestOperatorPrompt(text, state.config.cwd, imageAttachmentFromPath, pending),
+        ingestOperatorPrompt(
+          text,
+          state.config.cwd,
+          imageAttachmentFromPath,
+          pending,
+        ),
       send: (text, pending) => {
         state.sendAborted = false;
         void state.sendWithAttemptIdentity?.(userInboundMessage(text, pending));
@@ -357,25 +396,34 @@ export function createDeliverRouting(
       recordSent: (text) => {
         if (text.trim().length === 0) return;
         if (text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)) return;
-        void appendSentMessage(state.config.cwd, state.sessionId, text).catch((err: unknown) => {
-          tuiLogger.debug("sent-message append failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
+        void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
+          (err: unknown) => {
+            tuiLogger.debug("sent-message append failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        );
       },
       captureGeneration: services.deliveryGeneration.capture,
-      onFailure: (error) => state.handleSendFailure?.(error, live.attemptIdentity(), failureStub()),
+      onFailure: (error) =>
+        state.handleSendFailure?.(error, live.attemptIdentity(), failureStub()),
     }),
     parentCycleLive: () => hostOf(state).bridge.parentCycleLive,
     deliverSteer: createLiveSteerDeliver({
       enqueue: services.sessionOps.enqueue,
       ingest: (text, pending) =>
-        ingestOperatorPrompt(text, state.config.cwd, imageAttachmentFromPath, pending),
+        ingestOperatorPrompt(
+          text,
+          state.config.cwd,
+          imageAttachmentFromPath,
+          pending,
+        ),
       deliver: (text, pending) => {
         live.agentProxy.deliver(userInboundMessage(text, pending));
       },
       captureGeneration: services.deliveryGeneration.capture,
-      onFailure: (error) => state.handleSendFailure?.(error, live.attemptIdentity(), failureStub()),
+      onFailure: (error) =>
+        state.handleSendFailure?.(error, live.attemptIdentity(), failureStub()),
     }),
   });
 }

@@ -10,14 +10,23 @@ import { describe, expect, test } from "bun:test";
 // forked pty rather than trusting it to hold forever.
 describe("integration — raw-mode stdin and SIGINT", () => {
   test("Ctrl+C is delivered as a stdin byte, not as SIGINT, while raw mode is active", async () => {
-    const probe = new URL("../fixtures/rawmode-sigint/probe.ts", import.meta.url).pathname;
-    const driver = new URL("../fixtures/rawmode-sigint/pty_probe.py", import.meta.url).pathname;
+    const probe = new URL(
+      "../fixtures/rawmode-sigint/probe.ts",
+      import.meta.url,
+    ).pathname;
+    const driver = new URL(
+      "../fixtures/rawmode-sigint/pty_probe.py",
+      import.meta.url,
+    ).pathname;
 
     const proc = Bun.spawn(["python3", driver, probe], {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    const [stdout, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("GOT_CTRL_C_BYTE");

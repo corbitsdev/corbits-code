@@ -12,6 +12,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import type { Telemetry } from "../telemetry/index.js";
 import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
+import { defined } from "../../tests/helpers/defined.js";
 
 const run = promisify(execFile);
 
@@ -35,8 +36,8 @@ function telemetryCapture() {
     installationId: "test",
     capture: (event, properties = {}) => events.push({ event, properties }),
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   };
   return { telemetry, events };
 }
@@ -68,7 +69,9 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
+async function waitFor(
+  predicate: () => boolean | Promise<boolean>,
+): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt++) {
     if (await predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -80,7 +83,7 @@ function deferred<T>(): {
   promise: Promise<T>;
   resolve: (v: T) => void;
 } {
-  let resolve!: (v: T) => void;
+  let resolve: (v: T) => void = () => undefined;
   const promise = new Promise<T>((res) => {
     resolve = res;
   });
@@ -115,11 +118,17 @@ describe("spawn_agent worktree isolation", () => {
       {
         id: "c1",
         name: "spawn_agent",
-        arguments: { description: "Isolated job", prompt: "Do the work", intent: "explore" },
+        arguments: {
+          description: "Isolated job",
+          prompt: "Do the work",
+          intent: "explore",
+        },
       },
       new AbortController().signal,
     );
-    expect(typeof result.content === "string" ? result.content : "").toContain("running");
+    expect(typeof result.content === "string" ? result.content : "").toContain(
+      "running",
+    );
     await waitFor(() => captured?.cwd !== undefined);
     expect(captured?.cwd).toBeDefined();
     expect(captured?.cwd).not.toBe(repo);
@@ -155,7 +164,11 @@ describe("spawn_agent worktree isolation", () => {
       {
         id: "c2",
         name: "spawn_agent",
-        arguments: { description: "bad", prompt: "Do the work", intent: "explore" },
+        arguments: {
+          description: "bad",
+          prompt: "Do the work",
+          intent: "explore",
+        },
       },
       new AbortController().signal,
     );
@@ -164,7 +177,9 @@ describe("spawn_agent worktree isolation", () => {
     expect(ran).toBe(false);
     expect(sessions.list()).toHaveLength(1);
     expect(sessions.list()[0]?.status).toBe("failed");
-    expect(events.filter((event) => event.event === "subagent_start")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.event === "subagent_start"),
+    ).toHaveLength(1);
     const ends = events.filter((event) => event.event === "subagent_end");
     expect(ends).toHaveLength(1);
     expect(ends[0]?.properties).toMatchObject({
@@ -223,7 +238,11 @@ describe("spawn_agent worktree isolation", () => {
       {
         id: "cancelled-spawn",
         name: "spawn_agent",
-        arguments: { description: "cancelled", prompt: "Do the work", intent: "explore" },
+        arguments: {
+          description: "cancelled",
+          prompt: "Do the work",
+          intent: "explore",
+        },
       },
       new AbortController().signal,
     );
@@ -231,7 +250,9 @@ describe("spawn_agent worktree isolation", () => {
     expect(result.isError).not.toBe(true);
     await waitFor(() => events.some((event) => event.event === "subagent_end"));
     expect(sessions.list()[0]?.status).toBe("cancelled");
-    expect(events.filter((event) => event.event === "subagent_start")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.event === "subagent_start"),
+    ).toHaveLength(1);
     const ends = events.filter((event) => event.event === "subagent_end");
     expect(ends).toHaveLength(1);
     expect(ends[0]?.properties).toMatchObject({
@@ -258,10 +279,10 @@ describe("spawn_agent worktree isolation", () => {
       run: async (params) => {
         workerCwd = params.cwd;
         params.onAgentReady?.({
-          close: async () => {},
-          interrupt: () => {},
+          close: async () => undefined,
+          interrupt: () => undefined,
           followup: async () => "",
-          deliver: () => {},
+          deliver: () => undefined,
         });
         return settle.promise;
       },
@@ -274,7 +295,11 @@ describe("spawn_agent worktree isolation", () => {
       {
         id: "retain-wt",
         name: "spawn_agent",
-        arguments: { description: "keep alive", prompt: "Do the work", intent: "explore" },
+        arguments: {
+          description: "keep alive",
+          prompt: "Do the work",
+          intent: "explore",
+        },
       },
       new AbortController().signal,
     );
@@ -285,11 +310,11 @@ describe("spawn_agent worktree isolation", () => {
     await waitFor(() => workerCwd !== undefined);
 
     expect(workerCwd).toBeDefined();
-    expect(await pathExists(workerCwd!)).toBe(true);
+    expect(await pathExists(defined(workerCwd))).toBe(true);
 
     await sessions.closeOne(agentId, 1000);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await pathExists(workerCwd!)).toBe(false);
+    expect(await pathExists(defined(workerCwd))).toBe(false);
   });
 
   test("defers worktree cleanup while the session is interrupted for followup", async () => {
@@ -314,10 +339,10 @@ describe("spawn_agent worktree isolation", () => {
       run: async (params) => {
         workerCwd = params.cwd;
         params.onAgentReady?.({
-          close: async () => {},
-          interrupt: () => {},
+          close: async () => undefined,
+          interrupt: () => undefined,
           followup: async () => "",
-          deliver: () => {},
+          deliver: () => undefined,
         });
         const result = await settle.promise;
         const summary = Object.freeze({
@@ -348,7 +373,11 @@ describe("spawn_agent worktree isolation", () => {
       {
         id: "interrupt-wt",
         name: "spawn_agent",
-        arguments: { description: "interrupt me", prompt: "Do the work", intent: "explore" },
+        arguments: {
+          description: "interrupt me",
+          prompt: "Do the work",
+          intent: "explore",
+        },
       },
       new AbortController().signal,
     );
@@ -358,7 +387,8 @@ describe("spawn_agent worktree isolation", () => {
     await waitFor(() => sessions.get(agentId)?.lifecycleStatus === "running");
     expect(sessions.interruptOne(agentId).ok).toBe(true);
     settle.resolve({
-      report: "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
+      report:
+        "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
       stopReason: "interrupted",
       interrupted: true,
     });
@@ -374,11 +404,11 @@ describe("spawn_agent worktree isolation", () => {
       stop_reason: "interrupted",
     });
     expect(workerCwd).toBeDefined();
-    expect(await pathExists(workerCwd!)).toBe(true);
+    expect(await pathExists(defined(workerCwd))).toBe(true);
 
     await sessions.closeOne(agentId, 1000);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await pathExists(workerCwd!)).toBe(false);
+    expect(await pathExists(defined(workerCwd))).toBe(false);
   });
 
   test("reclaims the worktree immediately when the agent is not retained", async () => {
@@ -409,7 +439,11 @@ describe("spawn_agent worktree isolation", () => {
       {
         id: "no-retain-wt",
         name: "spawn_agent",
-        arguments: { description: "one shot", prompt: "Do the work", intent: "explore" },
+        arguments: {
+          description: "one shot",
+          prompt: "Do the work",
+          intent: "explore",
+        },
       },
       new AbortController().signal,
     );

@@ -4,7 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createAgent, createDirectorRegistry, defineAgent, defineDirector } from "@intx/agent";
+import {
+  createAgent,
+  createDirectorRegistry,
+  defineAgent,
+  defineDirector,
+} from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import type { ExtendedInferenceOptions } from "@intx/inference";
 import { setupHarness } from "@intx/inference-testing";
@@ -59,116 +64,130 @@ function markerTransform(): ContextTransform {
 }
 
 describe("integration — vendored feature carry", () => {
-  test.serial("contextTransforms riding deps reach the materialized prompt", async () => {
-    const session = await openIntegrationSession({
-      permissionGate: createPermissionGate({
-        approvals: [],
-        interactive: false,
-        skipPermissions: true,
-        reactorGated: false,
-      }),
-      contextTransforms: [markerTransform()],
-    });
+  test.serial(
+    "contextTransforms riding deps reach the materialized prompt",
+    async () => {
+      const session = await openIntegrationSession({
+        permissionGate: createPermissionGate({
+          approvals: [],
+          interactive: false,
+          skipPermissions: true,
+          reactorGated: false,
+        }),
+        contextTransforms: [markerTransform()],
+      });
 
-    try {
-      session.harness.scenario.replyOnce("anthropic", { text: "ok" });
-      await runUntilDone(session, "hello");
+      try {
+        session.harness.scenario.replyOnce("anthropic", { text: "ok" });
+        await runUntilDone(session, "hello");
 
-      const requests = session.harness.scenario.matchedRequests();
-      expect(requests.length).toBeGreaterThan(0);
-      // HarnessRequest resolves to a body-less fallback shape under this project's
-      // DOM-less lib config, even though it carries a real body at runtime; cast
-      // through the Fetch Request shape to read it.
-      const bodies = await Promise.all(
-        requests.map((r) => (r.clone() as unknown as Request).text()),
-      );
-      expect(bodies.some((b) => b.includes(TRANSFORM_MARKER))).toBe(true);
-    } finally {
-      await closeIntegrationSession(session);
-    }
-  });
+        const requests = session.harness.scenario.matchedRequests();
+        expect(requests.length).toBeGreaterThan(0);
+        // HarnessRequest resolves to a body-less fallback shape under this project's
+        // DOM-less lib config, even though it carries a real body at runtime; cast
+        // through the Fetch Request shape to read it.
+        const bodies = await Promise.all(
+          requests.map((r) => (r.clone() as unknown as Request).text()),
+        );
+        expect(bodies.some((b) => b.includes(TRANSFORM_MARKER))).toBe(true);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 
-  test.serial("ephemeralTurns reach the wire but never durable history", async () => {
-    const harness = setupHarness();
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-vendored-carry-"));
-    const workdir = join(cwd, ".agent-state", "carry-session");
+  test.serial(
+    "ephemeralTurns reach the wire but never durable history",
+    async () => {
+      const harness = setupHarness();
+      const cwd = mkdtempSync(join(tmpdir(), "corbits-vendored-carry-"));
+      const workdir = join(cwd, ".agent-state", "carry-session");
 
-    // Minimal director: every user message infers with an ephemeral nudge
-    // attached, exactly the shape the chat director's terminal rewrites emit.
-    const nudgeDirectorDef = defineDirector({
-      id: `${ID_PREFIX}/carry-nudge`,
-      configSchema: type({}),
-      factory: () => ({
-        async decide(event, _state, caps) {
-          if (event.type === "message.received") {
-            const options: ExtendedInferenceOptions = {
-              ephemeralTurns: [
-                {
-                  role: "user",
-                  content: [{ type: "text", text: NUDGE_MARKER }],
-                  timestamp: 0,
-                },
-              ],
-            };
-            return caps.infer(options);
-          }
-          if (event.type === "inference.done") {
-            const text = event.turn.content.find((b) => b.type === "text");
-            return caps.reply(text?.type === "text" ? text.text : "done");
-          }
-          return caps.wait();
+      // Minimal director: every user message infers with an ephemeral nudge
+      // attached, exactly the shape the chat director's terminal rewrites emit.
+      const nudgeDirectorDef = defineDirector({
+        id: `${ID_PREFIX}/carry-nudge`,
+        configSchema: type({}),
+        factory: () => ({
+          async decide(event, _state, caps) {
+            if (event.type === "message.received") {
+              const options: ExtendedInferenceOptions = {
+                ephemeralTurns: [
+                  {
+                    role: "user",
+                    content: [{ type: "text", text: NUDGE_MARKER }],
+                    timestamp: 0,
+                  },
+                ],
+              };
+              return caps.infer(options);
+            }
+            if (event.type === "inference.done") {
+              const text = event.turn.content.find((b) => b.type === "text");
+              return caps.reply(text?.type === "text" ? text.text : "done");
+            }
+            return caps.wait();
+          },
+        }),
+      });
+
+      const def = defineAgent({
+        id: `${ID_PREFIX}/carry-agent`,
+        systemPrompt: "Test agent.",
+        tools: [],
+        capabilities: [],
+        director: nudgeDirectorDef.build({}),
+        inference: {
+          sources: [
+            {
+              provider: INTEGRATION_SOURCE.provider,
+              model: INTEGRATION_SOURCE.model,
+            },
+          ],
         },
-      }),
-    });
+      });
 
-    const def = defineAgent({
-      id: `${ID_PREFIX}/carry-agent`,
-      systemPrompt: "Test agent.",
-      tools: [],
-      capabilities: [],
-      director: nudgeDirectorDef.build({}),
-      inference: {
-        sources: [{ provider: INTEGRATION_SOURCE.provider, model: INTEGRATION_SOURCE.model }],
-      },
-    });
+      const storage = await createOptimizedContextStore(workdir);
+      const agent = await createAgent(def, {
+        sources: [INTEGRATION_SOURCE],
+        defaultSource: INTEGRATION_SOURCE.id,
+        storage,
+        workdir,
+        deps: harness.deps,
+        audit: noopAuditStore(),
+        authorize: permissiveAuthorize(),
+        directors: createDirectorRegistry({
+          factories: [nudgeDirectorDef.factory],
+          defaultId: `${ID_PREFIX}/carry-nudge`,
+        }),
+        closeTimeoutMs: 0,
+      });
 
-    const storage = await createOptimizedContextStore(workdir);
-    const agent = await createAgent(def, {
-      sources: [INTEGRATION_SOURCE],
-      defaultSource: INTEGRATION_SOURCE.id,
-      storage,
-      workdir,
-      deps: harness.deps,
-      audit: noopAuditStore(),
-      authorize: permissiveAuthorize(),
-      directors: createDirectorRegistry({
-        factories: [nudgeDirectorDef.factory],
-        defaultId: `${ID_PREFIX}/carry-nudge`,
-      }),
-      closeTimeoutMs: 0,
-    });
+      try {
+        harness.scenario.replyOnce("anthropic", { text: "ok" });
+        await Promise.all([
+          agent.send("hello"),
+          harness.run({ wallClockBudgetMs: Infinity }),
+        ]);
 
-    try {
-      harness.scenario.replyOnce("anthropic", { text: "ok" });
-      await Promise.all([agent.send("hello"), harness.run({ wallClockBudgetMs: Infinity })]);
+        const requests = harness.scenario.matchedRequests();
+        expect(requests.length).toBeGreaterThan(0);
+        // HarnessRequest resolves to a body-less fallback shape under this project's
+        // DOM-less lib config, even though it carries a real body at runtime; cast
+        // through the Fetch Request shape to read it.
+        const bodies = await Promise.all(
+          requests.map((r) => (r.clone() as unknown as Request).text()),
+        );
+        expect(bodies.some((b) => b.includes(NUDGE_MARKER))).toBe(true);
 
-      const requests = harness.scenario.matchedRequests();
-      expect(requests.length).toBeGreaterThan(0);
-      // HarnessRequest resolves to a body-less fallback shape under this project's
-      // DOM-less lib config, even though it carries a real body at runtime; cast
-      // through the Fetch Request shape to read it.
-      const bodies = await Promise.all(
-        requests.map((r) => (r.clone() as unknown as Request).text()),
-      );
-      expect(bodies.some((b) => b.includes(NUDGE_MARKER))).toBe(true);
-
-      // Prompt-only: the nudge must not be persisted.
-      const history = await agent.history();
-      expect(JSON.stringify(history).includes(NUDGE_MARKER)).toBe(false);
-    } finally {
-      await agent.close();
-      harness.dispose();
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
+        // Prompt-only: the nudge must not be persisted.
+        const history = await agent.history();
+        expect(JSON.stringify(history).includes(NUDGE_MARKER)).toBe(false);
+      } finally {
+        await agent.close();
+        harness.dispose();
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
 });

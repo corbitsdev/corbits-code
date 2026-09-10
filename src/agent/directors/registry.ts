@@ -27,39 +27,44 @@ import {
 } from "./types.js";
 
 /** Intent -> default director when `spawn_agent(agent=...)` is omitted. No general director. */
-export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "general">, DirectorId>> =
-  {
-    implement: "builder",
-    explore: "explorer",
-    plan: "counsel",
-    review: "critic",
-  };
+export const INTENT_DEFAULT_DIRECTOR: Readonly<
+  Record<Exclude<TaskIntent, "general">, DirectorId>
+> = {
+  implement: "builder",
+  explore: "explorer",
+  plan: "counsel",
+  review: "critic",
+};
 
 /**
  * Closed v1 registry — full packages (prompts, envelopes, spawn, nudge, modelRole).
  * Worker modules own package bodies; this file only fans them in.
  */
-export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> = {
-  skywalker: skywalkerPackage,
-  builder: builderPackage,
-  explorer: explorerPackage,
-  counsel: counselPackage,
-  intern: internPackage,
-  critic: criticPackage,
-  greybeard: greybeardPackage,
-  neckbeard: neckbeardPackage,
-  bruckheimer: bruckheimerPackage,
-  gaasbot: gaasbotPackage,
-  draper: draperPackage,
-  emil: emilPackage,
-  rand: randPackage,
-  shakespeare: shakespearePackage,
-  testsmith: testsmithPackage,
-  tester: testerPackage,
-};
+export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
+  {
+    skywalker: skywalkerPackage,
+    builder: builderPackage,
+    explorer: explorerPackage,
+    counsel: counselPackage,
+    intern: internPackage,
+    critic: criticPackage,
+    greybeard: greybeardPackage,
+    neckbeard: neckbeardPackage,
+    bruckheimer: bruckheimerPackage,
+    gaasbot: gaasbotPackage,
+    draper: draperPackage,
+    emil: emilPackage,
+    rand: randPackage,
+    shakespeare: shakespearePackage,
+    testsmith: testsmithPackage,
+    tester: testerPackage,
+  };
 
 export function isDirectorId(value: unknown): value is DirectorId {
-  return typeof value === "string" && (DIRECTOR_IDS as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (DIRECTOR_IDS as readonly string[]).includes(value)
+  );
 }
 
 /** Fleet authority tier for a closed director id, or undefined for non-director profiles. */
@@ -76,7 +81,9 @@ export function listDirectors(): readonly DirectorPackage[] {
  * Explicit `agentId` wins; otherwise intent maps to a default.
  * `general` never maps to a director — reclassify only.
  */
-export function resolveDirector(input: ResolveDirectorInput): ResolveDirectorResult {
+export function resolveDirector(
+  input: ResolveDirectorInput,
+): ResolveDirectorResult {
   if (input.agentId !== undefined && input.agentId !== "") {
     if (!isDirectorId(input.agentId)) {
       const known = DIRECTOR_IDS.join(", ");
@@ -109,7 +116,9 @@ export function resolveDirector(input: ResolveDirectorInput): ResolveDirectorRes
 }
 
 /** Map package tool envelope → profile capability filter. Prefer allow (small mount). */
-export function packageToCapabilities(pkg: DirectorPackage): CapabilityFilter | undefined {
+export function packageToCapabilities(
+  pkg: DirectorPackage,
+): CapabilityFilter | undefined {
   const allow = pkg.tools?.allow;
   if (allow !== undefined && allow.length > 0) {
     return { mode: "allow", tools: [...allow] };

@@ -56,7 +56,9 @@ export const MODEL_ROLE_DEFAULT_EFFORT = {
   test: "medium",
 } as const satisfies Record<ModelRole, ReasoningEffort>;
 
-export function defaultEffortForDirector(pkg: DirectorPackage): ReasoningEffort {
+export function defaultEffortForDirector(
+  pkg: DirectorPackage,
+): ReasoningEffort {
   if (pkg.id === "intern") return "low";
   return MODEL_ROLE_DEFAULT_EFFORT[pkg.modelRole];
 }

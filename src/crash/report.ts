@@ -18,7 +18,10 @@ let primedSessionsRoot: string | null = null;
 export function primeCrashReporting(
   cwd: string,
   home: string = homedir(),
-  resolveSessionsRoot: (cwd: string, home: string) => string = projectSessionsRoot,
+  resolveSessionsRoot: (
+    cwd: string,
+    home: string,
+  ) => string = projectSessionsRoot,
 ): void {
   try {
     primedSessionsRoot = resolveSessionsRoot(cwd, home);
@@ -39,7 +42,9 @@ export function crashReportDir(home: string = homedir()): string {
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? (error.stack ?? error.message) : String(error);
+  return error instanceof Error
+    ? (error.stack ?? error.message)
+    : String(error);
 }
 
 /**

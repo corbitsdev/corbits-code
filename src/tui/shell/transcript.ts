@@ -12,7 +12,10 @@ import {
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
-import { splitAtSettledHeading, withholdIncompleteHeading } from "../markdown-parser.js";
+import {
+  splitAtSettledHeading,
+  withholdIncompleteHeading,
+} from "../markdown-parser.js";
 import { diffLineChunks, retextStyledKindRow } from "./row-retext.js";
 import {
   blockLabel,
@@ -97,7 +100,10 @@ export function streamRowCount(shell: AppShell): number {
  * `index` is absolute (see `streamLogBase`); a row already evicted by the
  * retention cap reads back as undefined, same as one past the end.
  */
-export function streamRowAt(shell: AppShell, index: number): StreamRow | undefined {
+export function streamRowAt(
+  shell: AppShell,
+  index: number,
+): StreamRow | undefined {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
     const local = index - (shell.parentStreamLogBase ?? 0);
     return local >= 0 && local < shell.parentStreamLog.length
@@ -105,7 +111,9 @@ export function streamRowAt(shell: AppShell, index: number): StreamRow | undefin
       : undefined;
   }
   const local = index - shell.streamLogBase;
-  return local >= 0 && local < shell.streamLog.length ? shell.streamLog[local] : undefined;
+  return local >= 0 && local < shell.streamLog.length
+    ? shell.streamLog[local]
+    : undefined;
 }
 
 /**
@@ -125,15 +133,21 @@ export const evictionMarkers = new WeakSet<BaseRenderable>();
  * consumer that needs the row-only view goes through here rather than the
  * raw call.
  */
-export function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
+export function transcriptRowChildren(
+  shell: AppShell,
+): readonly BaseRenderable[] {
   const children = shell.transcript.getChildren().slice(1);
-  return children.length > 0 && evictionMarkers.has(children[0]!) ? children.slice(1) : children;
+  const first = children[0];
+  return first != null && evictionMarkers.has(first)
+    ? children.slice(1)
+    : children;
 }
 
 /** The eviction-notice node, if the retention cap has dropped anything. */
 export function transcriptMarker(shell: AppShell): BaseRenderable | undefined {
   const children = shell.transcript.getChildren().slice(1);
-  return children.length > 0 && evictionMarkers.has(children[0]!) ? children[0] : undefined;
+  const first = children[0];
+  return first != null && evictionMarkers.has(first) ? first : undefined;
 }
 
 /** Raw child-list offset before the first row: the spacer, plus the notice if present. */
@@ -160,7 +174,8 @@ export function retextStreamRow(
   if (label !== null) {
     if (!(node instanceof BoxRenderable)) return false;
     const [headerNode, innerNode] = node.getChildren();
-    if (!(headerNode instanceof TextRenderable) || innerNode === undefined) return false;
+    if (!(headerNode instanceof TextRenderable) || innerNode === undefined)
+      return false;
     if (!retextStreamRowBody(innerNode, row, layout)) return false;
     headerNode.content = label;
     return true;
@@ -169,9 +184,18 @@ export function retextStreamRow(
 }
 
 /** The shape-matching rewrite shared by labelled and unlabelled rows. */
-function retextStreamRowBody(node: BaseRenderable, row: StreamRow, layout: RowLayout): boolean {
+function retextStreamRowBody(
+  node: BaseRenderable,
+  row: StreamRow,
+  layout: RowLayout,
+): boolean {
   if (retextStyledKindRow(node, row, layout)) return true;
-  if (row.diff !== undefined || row.structured !== undefined || isSentenceRow(row)) return false;
+  if (
+    row.diff !== undefined ||
+    row.structured !== undefined ||
+    isSentenceRow(row)
+  )
+    return false;
   if (node instanceof TextRenderable) {
     if (isMarkdownRow(row)) return false;
     node.content = paintStreamRow(row, layout).content;
@@ -201,7 +225,10 @@ function retextStreamRowBody(node: BaseRenderable, row: StreamRow, layout: RowLa
 
   if (!(bodyNode instanceof BoxRenderable)) return false;
   const [frozenNode, liveNode] = bodyNode.getChildren();
-  if (!(frozenNode instanceof MarkdownRenderable) || !(liveNode instanceof MarkdownRenderable)) {
+  if (
+    !(frozenNode instanceof MarkdownRenderable) ||
+    !(liveNode instanceof MarkdownRenderable)
+  ) {
     return false;
   }
   bodyNode.width = width;
@@ -219,7 +246,10 @@ function retextStreamRowBody(node: BaseRenderable, row: StreamRow, layout: RowLa
  * columns so an empty gutter — a lone agent's own prose — costs none, and the
  * answer starts on the transcript's first column.
  */
-function gutterNode(ctx: CliRenderer, gutter: PaintedStreamLine): TextRenderable {
+function gutterNode(
+  ctx: CliRenderer,
+  gutter: PaintedStreamLine,
+): TextRenderable {
   return new TextRenderable(ctx, {
     content: gutter.content,
     fg: gutter.fg,
@@ -233,7 +263,10 @@ function gutterNode(ctx: CliRenderer, gutter: PaintedStreamLine): TextRenderable
  * row's own prefix. Pinned rather than left to `flexGrow`, which reports the
  * body's intrinsic width to yoga and lets a wide table paint past the edge.
  */
-function markdownBodyColumns(gutter: PaintedStreamLine, layout: RowLayout): number {
+function markdownBodyColumns(
+  gutter: PaintedStreamLine,
+  layout: RowLayout,
+): number {
   return Math.max(1, layout.width - stringWidth(gutter.content));
 }
 
@@ -268,7 +301,10 @@ export function buildRowNode(
   if (isSentenceRow(row)) {
     // The sentence is one line: it is cut to the columns beside the marker
     // rather than wrapped, so a long URL or query cannot double the row.
-    const columns = Math.max(1, layout.width - stringWidth(streamRowGutter(row, layout).content));
+    const columns = Math.max(
+      1,
+      layout.width - stringWidth(streamRowGutter(row, layout).content),
+    );
     if (row.structured !== undefined) {
       // The table is what the sentence hides; collapsed, the sentence is the row.
       return row.expanded === true
@@ -288,7 +324,13 @@ export function buildRowNode(
             onToggle,
           );
     }
-    return createStyledLinesRowRenderable(ctx, row, layout, toolRowLines(row, columns), onToggle);
+    return createStyledLinesRowRenderable(
+      ctx,
+      row,
+      layout,
+      toolRowLines(row, columns),
+      onToggle,
+    );
   }
 
   if (row.diff !== undefined) {
@@ -306,11 +348,17 @@ export function buildRowNode(
 
   if (!isMarkdownRow(row)) {
     const painted = paintStreamRow(row, layout);
-    return new TextRenderable(ctx, { content: painted.content, fg: painted.fg });
+    return new TextRenderable(ctx, {
+      content: painted.content,
+      fg: painted.fg,
+    });
   }
 
   const gutter = streamRowGutter(row, layout);
-  const wrapper = new BoxRenderable(ctx, { flexDirection: "row", width: "100%" });
+  const wrapper = new BoxRenderable(ctx, {
+    flexDirection: "row",
+    width: "100%",
+  });
   wrapper.add(gutterNode(ctx, gutter));
   wrapper.add(createMarkdownBody(ctx, row, gutter, layout));
   return wrapper;
@@ -416,7 +464,9 @@ function bodyLineNode(
 ): TextRenderable | BoxRenderable {
   const split = onToggle === undefined ? null : splitTrailingArrow(line);
   if (split === null || onToggle === undefined) {
-    return new TextRenderable(ctx, { content: new StyledText(diffLineChunks(line)) });
+    return new TextRenderable(ctx, {
+      content: new StyledText(diffLineChunks(line)),
+    });
   }
   const wrapper = new BoxRenderable(ctx, { flexDirection: "row", flexGrow: 1 });
   wrapper.add(
