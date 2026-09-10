@@ -128,6 +128,7 @@ function stubChatAgentWiring(overrides: Partial<ChatAgentWiring> = {}): ChatAgen
     requestContinuation: () => {},
     getProvider: () => ({ providerName: "test", model: "m" }),
     getWorkdir: () => "/build-dir",
+    getSessionId: () => "test-session",
     inferenceDeps: stubInferenceDeps(),
     getSources: () => [
       {

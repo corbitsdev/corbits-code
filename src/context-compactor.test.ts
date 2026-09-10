@@ -980,7 +980,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     expect(allText(result2.output)).toContain("UNIQUE_SUCCESS_SUMMARY");
     expect(hasConsecutiveSameRole(result2.output)).toBe(false);
   });
-}
 });
 
 describe("buildContextEnvelope", () => {
