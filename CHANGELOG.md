@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.3.19] - 2026-09-10
+
 ### Security
 
 - Reactor-gated tool middleware still blocks policy denials. A `decide()` deny
@@ -21,6 +23,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   middleware prompt so an approved re-dispatch never re-asks. Middleware is
   not a second copy of `env.authorize`: it consumes the prior verdict when the
   same call (id, name, and arguments) is cached, and decides on a cache miss.
+
+### Added
+
+- `run_shell` can return immediately with a `shell_id` when `background` is
+  true, so long commands do not hold the parent turn. Collect or cancel later
+  with `shell_collect`.
 
 ### Fixed
 
@@ -56,13 +64,24 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Leftover exec dispose is reported as a failed run (stderr + status failed), and
   parent toolset dispose finishes remaining workers and posix teardown before
   surfacing leftover-child failure.
+- MCP OAuth tokens persist after browser auth across overlapping session
+  writes. Sibling `resetAuthorization` does not wipe tokens another session
+  just saved.
+- MCP authorization recovery no longer loops reconnects after a failed or
+  timed-out browser re-auth.
+- OAuth callback servers bind ephemeral ports and re-read disk state across
+  MCP sessions so stale ports and in-memory token copies cannot collide.
+- Rate-limit retries honor the Retry-After header and the terminal message
+  names the wait.
+- Parked director questions wake the parent so `ask_director` does not stall
+  behind an idle orchestrator.
+- Occupancy resumes the parent when the fleet goes dry with open tasks.
 
 ### Changed
 
 - oxfmt formats the tree and oxlint is the lint gate. Prettier and ESLint are
   gone. Dummy CI job names `prettier` and `eslint` stay for protect-main.
   Empty functions and non-null assertions are errors.
-
 - Skywalker may spawn one successor with a changed brief after a failed or
   incomplete-report fleet worker. A parent-initiated interrupt
   (`stop_reason: interrupted`) is a resumable pause — `resume_agent` or
@@ -71,6 +90,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   stay refused at the prompt / spawn-handoff layer. `wait_agents` JSON
   includes `stop_reason` so interrupt vs cancelled vs incomplete-report stay
   distinct. This reverses the 0.3.15 fail-path idle, not operator-cancel.
+- Session git and workflow lifecycle run outside the TUI. The shell renders
+  state and forwards commands; the native workflow host owns child execution.
+- The test suite drops content-pin and cosmetic assertions, closes coverage
+  gaps on load-bearing paths, and CI shards the same path union for faster
+  feedback.
 
 ## [0.3.18] - 2026-09-08
 
