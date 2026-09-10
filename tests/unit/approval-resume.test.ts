@@ -16,6 +16,7 @@ import {
   SESSION_IDENTITY_ABORT_REASON,
 } from "../../src/tui/queued-delivery.js";
 import { createGateRequestApproval } from "../../src/tui/request-approval.js";
+import { startInterruptRebuild } from "../../src/tui/runner/exit.js";
 import { runWhileAgentBusy } from "../../src/tui/runner/state.js";
 import { createSessionOperationQueue } from "../../src/tui/session-operation-queue.js";
 
@@ -172,7 +173,7 @@ describe("approval resume delivery", () => {
 });
 
 describe("approval resume generation capture", () => {
-  test("overlay accept after a generation bump does not deliver", async () => {
+  test("overlay accept after a generation bump rejects the parked call on the old agent", async () => {
     const generation = createDeliveryGeneration();
     const delivered: unknown[] = [];
     const agent = {
@@ -195,7 +196,11 @@ describe("approval resume generation capture", () => {
     });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
-    expect(delivered).toEqual([]);
+    expect(delivered).toHaveLength(1);
+    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
   });
 
   test("a live generation still delivers after the overlay", async () => {
@@ -252,7 +257,11 @@ describe("approval resume generation capture", () => {
     });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
-    expect(deliveredA).toEqual([]);
+    expect(deliveredA).toHaveLength(1);
+    expect(JSON.parse((deliveredA[0] as { content: string }).content)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
     expect(deliveredB).toEqual([]);
   }
 
@@ -262,6 +271,69 @@ describe("approval resume generation capture", () => {
 
   test("interrupt during overlay then decline does not deliver to the rebuilt agent", async () => {
     await interruptDuringOverlayThenDecide({ allow: false, message: "not today" });
+  });
+
+  test("interrupt during overlay rejects the parked call before rebuild enqueue", async () => {
+    const events: string[] = [];
+    const parkedCancel = { fn: undefined as (() => void) | undefined };
+    const generation = createDeliveryGeneration(() => parkedCancel.fn?.());
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const delivered: unknown[] = [];
+    const agent = {
+      deliver: (message: unknown) => {
+        events.push("reject");
+        delivered.push(message);
+      },
+      history: async () => [userTurn()],
+    };
+    let overlayReady: (() => void) | undefined;
+    const waitForOverlay = new Promise<void>((resolve) => {
+      overlayReady = resolve;
+    });
+    let finishOverlay: ((outcome: { allow: boolean }) => void) | undefined;
+    const resume = createApprovalResume({
+      getAgent: () => agent,
+      captureGeneration: generation.capture,
+      registerParkedCancel: (cancel) => {
+        parkedCancel.fn = cancel;
+      },
+      onDropped: () => events.push("dropped"),
+      gate: {
+        resolveSuspended: () => {
+          overlayReady?.();
+          return new Promise((resolve) => {
+            finishOverlay = resolve;
+          });
+        },
+      } as unknown as PermissionGate,
+    });
+
+    const handling = resume.handle(SUSPENDED);
+    await waitForOverlay;
+    startInterruptRebuild({
+      deliveryGeneration: generation,
+      markSendAborted: () => {
+        events.push("abort");
+      },
+      enqueue: (op) => {
+        events.push("enqueue");
+        return enqueue(op);
+      },
+      rebuild: async () => {
+        events.push("rebuild");
+      },
+    });
+    finishOverlay?.({ allow: false });
+
+    expect(await handling).toBe(true);
+    await awaitTail();
+    expect(events.indexOf("reject")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("reject")).toBeLessThan(events.indexOf("enqueue"));
+    expect(events).toContain("rebuild");
+    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
   });
 });
 
@@ -370,7 +442,11 @@ describe("approval resume persist Allow after interrupt", () => {
     expect(persisted).toEqual([]);
     expect(gate.getApprovals()).toEqual([]);
     expect(notices).toEqual([APPROVAL_DROPPED_NOTICE]);
-    expect(delivered).toEqual([]);
+    expect(delivered).toHaveLength(1);
+    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+      outcome: "rejected",
+      message: APPROVAL_DROPPED_NOTICE,
+    });
   });
 });
 
@@ -480,6 +556,85 @@ describe("approval resume occupancy until correlation", () => {
     expect(state.pendingReload).toBe(true);
 
     correlationAcceptance.settle("corr-1");
+    await running;
+    await awaitTail();
+
+    expect(events).toEqual(["deliver", "rebuild"]);
+    expect(state.inFlight).toBe(0);
+  });
+
+  test("approved correlation holds idle rebuild until tool.start", async () => {
+    const events: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const correlationAcceptance = createCorrelationAcceptance();
+    let delivered: (() => void) | undefined;
+    const waitUntilDelivered = new Promise<void>((resolve) => {
+      delivered = resolve;
+    });
+    const state = {
+      inFlight: 0,
+      pendingReload: false,
+      reloadIfIdle: () => {
+        if (!state.pendingReload || state.inFlight > 0) return;
+        state.pendingReload = false;
+        void enqueue(async () => {
+          events.push("rebuild");
+        });
+      },
+    };
+    const agent = {
+      deliver: (_message: unknown) => {
+        events.push("deliver");
+      },
+      history: async () => [userTurn()],
+    };
+    const resume = createApprovalResume({
+      getAgent: () => agent,
+      deliver: (message) =>
+        enqueue(async () => {
+          const correlationId = message.headers.interchangeCorrelationId;
+          const accepted =
+            correlationId === undefined ? undefined : correlationAcceptance.wait(correlationId);
+          agent.deliver(message);
+          delivered?.();
+          await accepted;
+        }),
+      gate: {
+        resolveSuspended: async () => {
+          state.pendingReload = true;
+          state.reloadIfIdle?.();
+          return { allow: true };
+        },
+      } as unknown as PermissionGate,
+    });
+
+    const running = runWhileAgentBusy(state, async () => {
+      await resume.handle(SUSPENDED);
+    });
+
+    await waitUntilDelivered;
+    expect(events).toEqual(["deliver"]);
+    expect(state.inFlight).toBe(1);
+    expect(state.pendingReload).toBe(true);
+
+    correlationAcceptance.observe({
+      type: "message.correlated",
+      data: {
+        correlationId: "corr-1",
+        message: {
+          headers: { interchangeCorrelationId: "corr-1" },
+          content: JSON.stringify({ outcome: "approved" }),
+        },
+      },
+    });
+    await Promise.resolve();
+    expect(events).toEqual(["deliver"]);
+    expect(state.inFlight).toBe(1);
+
+    correlationAcceptance.observe({
+      type: "tool.start",
+      data: { call: { id: "call-ask" } },
+    });
     await running;
     await awaitTail();
 

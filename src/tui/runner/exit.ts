@@ -219,11 +219,9 @@ export async function createRunLifecycle(
     let eventForSink = event;
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
-      const correlationId = event.data.message.headers.interchangeCorrelationId;
-      if (correlationId !== undefined) services.correlationAcceptance.settle(correlationId);
-    } else if (event.type === "message.correlated") {
-      services.correlationAcceptance.settle(event.data.correlationId);
-    } else if (event.type === "inference.start" || event.type === "inference.done") {
+    }
+    services.correlationAcceptance.observe(event);
+    if (event.type === "inference.start" || event.type === "inference.done") {
       providerFailureAttempts.reset();
     } else if (event.type === "inference.error") {
       const error = event.data.error;

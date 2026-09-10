@@ -123,6 +123,9 @@ export function createApprovalResume(args: {
   // TUI: operator-visible notice when an overlay decision is dropped after
   // a generation bump.
   onDropped?: (text: string) => void;
+  // TUI: interrupt/clear bump this to reject the parked call on the old
+  // agent before close/rebuild. Cleared when handle returns.
+  registerParkedCancel?: (cancel: (() => void) | undefined) => void;
   gate: PermissionGate;
 }): ApprovalResume {
   const { getAgent, gate } = args;
@@ -139,59 +142,83 @@ export function createApprovalResume(args: {
     handle: async (result) => {
       if (result.type !== "suspended") return false;
       const stillCurrent = args.captureGeneration?.() ?? (() => true);
+      const parkedAgent = requireAgent();
       const { correlationId, approvalSnapshot } = result;
 
-      const deliverDecision = async (message: InboundMessage): Promise<void> => {
-        if (!stillCurrent()) return;
-        if (args.deliver !== undefined) {
-          await args.deliver(message, stillCurrent);
-          return;
-        }
-        requireAgent().deliver(message);
+      let cancelled = false;
+      const cancelParked = (): void => {
+        if (cancelled) return;
+        cancelled = true;
+        parkedAgent.deliver(decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE));
+      };
+      args.registerParkedCancel?.(cancelParked);
+
+      const dropParked = (): void => {
+        args.onDropped?.(APPROVAL_DROPPED_NOTICE);
+        cancelParked();
       };
 
-      // Turn-count watermark for the settled guard below: a "approval timed
-      // out" tool result appended after this point means the reactor settled
-      // this very correlation before our decision lands.
-      const turnsAtSuspend = (await requireAgent().history()).length;
-      if (!stillCurrent()) return true;
+      try {
+        const deliverDecision = async (message: InboundMessage): Promise<void> => {
+          if (!stillCurrent()) return;
+          if (args.deliver !== undefined) {
+            await args.deliver(message, stillCurrent);
+            return;
+          }
+          requireAgent().deliver(message);
+        };
 
-      if (approvalSnapshot === undefined) {
-        // A suspension without a snapshot cannot be surfaced; fail closed by
-        // rejecting the parked call so the run does not hang on an invisible
-        // gate.
-        await deliverDecision(
-          decisionMessage(correlationId, "rejected", "approval surface unavailable"),
-        );
-        return true;
-      }
+        // Turn-count watermark for the settled guard below: a "approval timed
+        // out" tool result appended after this point means the reactor settled
+        // this very correlation before our decision lands.
+        const turnsAtSuspend = (await parkedAgent.history()).length;
+        if (!stillCurrent()) {
+          dropParked();
+          return true;
+        }
 
-      const request = requestFromApprovalSnapshot(approvalSnapshot, correlationId);
-      if (request === null) {
-        await deliverDecision(
-          decisionMessage(correlationId, "rejected", "approval surface unavailable"),
-        );
-        return true;
-      }
+        if (approvalSnapshot === undefined) {
+          // A suspension without a snapshot cannot be surfaced; fail closed by
+          // rejecting the parked call so the run does not hang on an invisible
+          // gate.
+          args.registerParkedCancel?.(undefined);
+          await deliverDecision(
+            decisionMessage(correlationId, "rejected", "approval surface unavailable"),
+          );
+          return true;
+        }
 
-      const outcome = await gate.resolveSuspended(request, stillCurrent);
-      if (!stillCurrent()) {
-        args.onDropped?.(APPROVAL_DROPPED_NOTICE);
+        const request = requestFromApprovalSnapshot(approvalSnapshot, correlationId);
+        if (request === null) {
+          args.registerParkedCancel?.(undefined);
+          await deliverDecision(
+            decisionMessage(correlationId, "rejected", "approval surface unavailable"),
+          );
+          return true;
+        }
+
+        const outcome = await gate.resolveSuspended(request, stillCurrent);
+        if (!stillCurrent()) {
+          dropParked();
+          return true;
+        }
+        args.registerParkedCancel?.(undefined);
+        if (settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)) {
+          // The reactor already answered the parked call (its approval timeout
+          // fired while the surface was still up). Delivering now would append
+          // the raw decision JSON as an uncorrelated user turn — drop and log.
+          logger.warn`late approval decision dropped correlation=${correlationId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
+          return true;
+        }
+        if (outcome === undefined || !outcome.allow) {
+          await deliverDecision(decisionMessage(correlationId, "rejected", outcome?.message));
+          return true;
+        }
+        await deliverDecision(decisionMessage(correlationId, "approved"));
         return true;
+      } finally {
+        args.registerParkedCancel?.(undefined);
       }
-      if (settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)) {
-        // The reactor already answered the parked call (its approval timeout
-        // fired while the surface was still up). Delivering now would append
-        // the raw decision JSON as an uncorrelated user turn — drop and log.
-        logger.warn`late approval decision dropped correlation=${correlationId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
-        return true;
-      }
-      if (outcome === undefined || !outcome.allow) {
-        await deliverDecision(decisionMessage(correlationId, "rejected", outcome?.message));
-        return true;
-      }
-      await deliverDecision(decisionMessage(correlationId, "approved"));
-      return true;
     },
   };
 }

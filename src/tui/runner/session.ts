@@ -126,7 +126,11 @@ export async function assembleTUISession(
     undefined;
 
   const correlationAcceptance = createCorrelationAcceptance();
-  const deliveryGeneration = createDeliveryGeneration(() => correlationAcceptance.settleAll());
+  const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
+  const deliveryGeneration = createDeliveryGeneration(() => {
+    parkedApprovalCancel.fn?.();
+    correlationAcceptance.settleAll();
+  });
 
   const { gate: permissionGate } = await assembleSessionGate({
     cwd: config.cwd,
@@ -378,9 +382,12 @@ export async function assembleTUISession(
   // so a rebuild never races an in-flight deliver.
   const sessionOps = createSessionOperationQueue();
   const approvalResume = createApprovalResume({
-    getAgent: () => state.agentProxy ?? state.currentAgent,
+    getAgent: () => state.currentAgent,
     captureGeneration: deliveryGeneration.capture,
     onDropped: (text) => state.systemNotice?.(text),
+    registerParkedCancel: (cancel) => {
+      parkedApprovalCancel.fn = cancel;
+    },
     deliver: (message, stillCurrent) => {
       return sessionOps.enqueue(async () => {
         if (!stillCurrent()) return;
