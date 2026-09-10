@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
   OAuthClientInformationFull,
   OAuthTokens,
@@ -126,6 +127,10 @@ export function tryLoadAuthStateSync(
   return parseAuthState(raw);
 }
 
+function isEexist(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "EEXIST";
+}
+
 // pid alone is not unique per call — concurrent saves in one process must not
 // share a temp path or the second rename hits ENOENT after the first moves it.
 let tmpWriteCounter = 0;
@@ -134,6 +139,70 @@ let tmpWriteCounter = 0;
 // the same server cannot clobber each other's fields (classic lost-update: one
 // session's saveCodeVerifier wiping another's just-written tokens).
 const updateChains = new Map<string, Promise<unknown>>();
+
+const LOCK_STALE_MS = 5_000;
+const LOCK_RETRY_MS = 25;
+
+async function acquireAuthFileLock(lockPath: string) {
+  while (true) {
+    try {
+      return await open(lockPath, "wx", 0o600);
+    } catch (err) {
+      if (!isEexist(err)) throw err;
+      try {
+        const info = await stat(lockPath);
+        if (Date.now() - info.mtimeMs > LOCK_STALE_MS) {
+          try {
+            await unlink(lockPath);
+          } catch (unlinkErr) {
+            if (!isEnoent(unlinkErr)) throw unlinkErr;
+          }
+          continue;
+        }
+      } catch (statErr) {
+        if (isEnoent(statErr)) continue;
+        throw statErr;
+      }
+      await delay(LOCK_RETRY_MS);
+    }
+  }
+}
+
+async function withAuthFileLock<T>(path: string, op: () => Promise<T>): Promise<T> {
+  const lockPath = `${path}.lock`;
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const lock = await acquireAuthFileLock(lockPath);
+  try {
+    return await op();
+  } finally {
+    try {
+      await lock.close();
+    } catch {
+      // Close can fail if the handle was already torn down.
+    }
+    try {
+      await unlink(lockPath);
+    } catch {
+      // Missing lock is fine; a leftover file is recovered as stale.
+    }
+  }
+}
+
+function enqueueAuthFileOp<T>(path: string, op: () => Promise<T>): Promise<T> {
+  const previous = updateChains.get(path) ?? Promise.resolve();
+  const run = previous.then(
+    () => withAuthFileLock(path, op),
+    () => withAuthFileLock(path, op),
+  );
+  updateChains.set(
+    path,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+}
 
 async function writeAuthFile(path: string, state: MCPAuthState): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -151,19 +220,7 @@ export async function saveAuthState(
   home: string = homedir(),
 ): Promise<void> {
   const path = authFilePath(identity, home);
-  const previous = updateChains.get(path) ?? Promise.resolve();
-  const write = previous.then(
-    () => writeAuthFile(path, state),
-    () => writeAuthFile(path, state),
-  );
-  updateChains.set(
-    path,
-    write.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  await write;
+  await enqueueAuthFileOp(path, () => writeAuthFile(path, state));
 }
 
 // Load → mutate → save under the per-file chain. Mutator receives a mutable
@@ -174,29 +231,12 @@ export async function updateAuthState(
   home: string = homedir(),
 ): Promise<MCPAuthState> {
   const path = authFilePath(identity, home);
-  const previous = updateChains.get(path) ?? Promise.resolve();
-  const run = previous.then(
-    async () => {
-      const state = await loadAuthState(identity, home);
-      mutator(state);
-      await writeAuthFile(path, state);
-      return state;
-    },
-    async () => {
-      const state = await loadAuthState(identity, home);
-      mutator(state);
-      await writeAuthFile(path, state);
-      return state;
-    },
-  );
-  updateChains.set(
-    path,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return run;
+  return enqueueAuthFileOp(path, async () => {
+    const state = await loadAuthState(identity, home);
+    mutator(state);
+    await writeAuthFile(path, state);
+    return state;
+  });
 }
 
 export async function deleteAuthState(
@@ -204,19 +244,7 @@ export async function deleteAuthState(
   home: string = homedir(),
 ): Promise<void> {
   const path = authFilePath(identity, home);
-  const previous = updateChains.get(path) ?? Promise.resolve();
-  const run = previous.then(
-    () => unlinkAuthFile(path),
-    () => unlinkAuthFile(path),
-  );
-  updateChains.set(
-    path,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  await run;
+  await enqueueAuthFileOp(path, () => unlinkAuthFile(path));
 }
 
 async function unlinkAuthFile(path: string): Promise<void> {

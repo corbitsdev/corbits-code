@@ -198,6 +198,7 @@ export async function createOAuthProvider(
       return stored.tokens;
     },
     saveTokens(tokens: OAuthTokens): Promise<void> {
+      stored.tokens = tokens;
       return apply((state) => {
         state.tokens = tokens;
       });
@@ -220,8 +221,14 @@ export async function createOAuthProvider(
     },
     async resetAuthorization(): Promise<void> {
       oauthState = undefined;
+      // Snapshot before the disk refresh so a session that never held tokens
+      // cannot adopt a sibling's credentials and then delete them.
+      const previous = stored.tokens?.access_token;
+      refreshDurableFromDisk();
       await apply((state) => {
-        delete state.tokens;
+        if (state.tokens?.access_token === previous) {
+          delete state.tokens;
+        }
         delete state.codeVerifier;
         // Next browser flow needs a client registered for *this* loopback port.
         if (!redirectUrisInclude(state.clientInformation, opts.redirectUrl)) {
