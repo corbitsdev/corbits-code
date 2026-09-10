@@ -137,3 +137,29 @@ jobs:
       # `bun run test:paths <paths>`.
       - name: Test
         run: bun run check:projects-dir-guard ${{ matrix.shard.paths }}
+
+  # protect-main still requires the pre-restructure check names. These jobs
+  # exist only to publish those contexts after the real work succeeds.
+  prettier:
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+
+  eslint:
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+
+  typecheck:
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+
+  build-and-test:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
