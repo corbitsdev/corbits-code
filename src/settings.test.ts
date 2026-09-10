@@ -239,24 +239,153 @@ describe("resolveProvider", () => {
     ).toThrow(/not found/);
   });
 
-  test("names the offending provider when a local selection is not configured", () => {
-    expect(() =>
-      resolveProvider({ settings: twoProviders, local: { provider: "zzz" }, cli: {} }),
-    ).toThrow(/Selected provider "zzz" is not configured/);
+  test("falls back from a missing local selection to defaultProvider", () => {
+    const r = resolveProvider({ settings: twoProviders, local: { provider: "zzz" }, cli: {} });
+    expect(r.providerName).toBe("a");
+    expect(r.apiKey).toBe("a-key");
+    expect(r.model).toBe("a-model");
   });
 
-  test("names the offending provider when defaultProvider is a typo", () => {
+  test("falls back from a typo defaultProvider to a resolvable sibling", () => {
     const settings: Settings = {
       defaultProvider: "typo",
       providers: { solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] } },
     };
-    expect(() => resolveProvider({ settings, local: null, cli: {} })).toThrow(
-      /Selected provider "typo" is not configured/,
+    const r = resolveProvider({ settings, local: null, cli: {} });
+    expect(r.providerName).toBe("solo");
+    expect(r.apiKey).toBe("s-key");
+    expect(r.model).toBe("s-model");
+  });
+
+  test("falls back from an orphaned OAuth local selection to a healthy sibling", () => {
+    const r = resolveProvider({
+      settings: firepass,
+      local: { provider: "xai/work" },
+      cli: {},
+    });
+    expect(r.providerName).toBe("firepass");
+    expect(r.apiKey).toBe("fp-key");
+  });
+
+  test("falls back from a missing-key defaultProvider to a healthy sibling", () => {
+    const settings: Settings = {
+      defaultProvider: "broken",
+      providers: {
+        broken: { baseURL: "https://broken/v1", apiKey: "", models: ["broken-model"] },
+        ...firepass.providers,
+      },
+    };
+    const r = resolveProvider({ settings, local: null, cli: {} });
+    expect(r.providerName).toBe("firepass");
+    expect(r.apiKey).toBe("fp-key");
+  });
+
+  test("throws when an explicit CLI provider is present but unusable even if a sibling is healthy", () => {
+    const settings: Settings = {
+      defaultProvider: "firepass",
+      providers: {
+        broken: { baseURL: "https://broken/v1", apiKey: "", models: ["broken-model"] },
+        ...firepass.providers,
+      },
+    };
+    expect(() => resolveProvider({ settings, local: null, cli: { provider: "broken" } })).toThrow(
+      /missing: apiKey/,
     );
+    expect(() => resolveProvider({ settings, local: null, cli: { provider: "broken" } })).toThrow(
+      /Could not resolve an inference provider/,
+    );
+  });
+
+  test("throws the missing-fields error when no remaining provider is resolvable", () => {
+    const settings: Settings = {
+      defaultProvider: "typo",
+      providers: {
+        broken: { baseURL: "https://broken/v1", apiKey: "", models: ["broken-model"] },
+      },
+    };
+    expect(() => resolveProvider({ settings, local: null, cli: {} })).toThrow(
+      /Could not resolve an inference provider \(missing: baseURL, apiKey, model\)/,
+    );
+    expect(() => resolveProvider({ settings, local: null, cli: {} })).toThrow(
+      /Selected provider "typo" is not configured in settings \(available: broken\)/,
+    );
+  });
+
+  test("prefers recentModels provider names over remaining catalog keys", () => {
+    const settings: Settings = {
+      defaultProvider: "gone",
+      providers: {
+        a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
+        b: {
+          baseURL: "https://b/v1",
+          apiKey: "b-key",
+          models: ["b-model"],
+          defaultModel: "b-model",
+        },
+      },
+      recentModels: [
+        { provider: "b", model: "b-recent" },
+        { provider: "ignored", model: "ignored-model" },
+      ],
+    };
+    const r = resolveProvider({ settings, local: null, cli: {} });
+    expect(r.providerName).toBe("b");
+    expect(r.model).toBe("b-recent");
+  });
+
+  test("does not apply local.model to a fallback sibling", () => {
+    const settings: Settings = {
+      defaultProvider: "b",
+      providers: {
+        b: {
+          baseURL: "https://b/v1",
+          apiKey: "b-key",
+          models: ["b-model"],
+          defaultModel: "b-model",
+        },
+      },
+    };
+    const fallback = resolveProvider({
+      settings,
+      local: { provider: "gone", model: "pinned-model" },
+      cli: {},
+    });
+    expect(fallback.providerName).toBe("b");
+    expect(fallback.model).toBe("b-model");
+
+    const overlay = resolveProvider({
+      settings,
+      local: { provider: "gone", model: "pinned-model" },
+      cli: { model: "cli-model" },
+    });
+    expect(overlay.providerName).toBe("b");
+    expect(overlay.model).toBe("cli-model");
+  });
+
+  test("treats an empty local.model as unset on a healthy original pick", () => {
+    const r = resolveProvider({
+      settings: twoProviders,
+      local: { model: "" },
+      cli: {},
+    });
+    expect(r.providerName).toBe("a");
+    expect(r.model).toBe("a-model");
   });
 
   test("throws listing every missing field", () => {
     expect(() => resolveProvider({ settings: null, local: null, cli: {} })).toThrow(
+      /missing: provider, baseURL, apiKey, model/,
+    );
+  });
+
+  test("does not pick a catalog sibling when nothing was selected", () => {
+    const settings: Settings = {
+      providers: {
+        a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
+        b: { baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
+      },
+    };
+    expect(() => resolveProvider({ settings, local: null, cli: {} })).toThrow(
       /missing: provider, baseURL, apiKey, model/,
     );
   });

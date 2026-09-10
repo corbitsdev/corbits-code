@@ -39,6 +39,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Spawned workers enforce the parent permission gate. Unresolved worker
   approvals deny with a reason that names the permission subject so the parent
   can grant and retry, without hanging on operator approval.
+- A session falls back to the next resolvable provider when the selected
+  default or project-local provider is missing or incomplete. `--provider`
+  still errors.
 
 ### Changed
 

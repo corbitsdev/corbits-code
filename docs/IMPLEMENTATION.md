@@ -294,9 +294,11 @@ The `waitForApproval` default is resolved once at the watchdog boundary (`resolv
 
 `loadConfig` resolves the active provider down to `{ apiKey, baseURL, model, providerName }` (the same struct the runtime consumes). Per field, highest wins:
 
-- providerName: `--provider` > local file > `defaultProvider` > sole provider
-- model: `--model` > local file > provider `defaultModel` > first model
+- providerName: `--provider` > local file > `defaultProvider` > sole provider. If that pick is missing or incomplete and `--provider` was not set, resolution walks remaining untried names in this order: local file, `defaultProvider`, `recentModels` provider names (newest first, unique), then remaining catalog keys in insertion order. `--provider` fail-closes: an unknown or unusable CLI provider does not steal a sibling.
+- model: `--model` > local file > provider `defaultModel` > first model on the original pick. `local.model` does not follow a fallback sibling; `--model` may still overlay a fallback. A candidate reached via `recentModels` may use that pair's model when `--model` is unset.
 - baseURL / apiKey: the selected provider only
+
+If no remaining provider is fully resolvable, resolution throws the original pick's missing-fields error.
 
 Credentials and provider definitions come exclusively from the settings files. Environment variables (including `OPENAI_COMPATIBLE_*`) have no influence on provider resolution, and `.env` files are not loaded.
 
