@@ -48,4 +48,20 @@ describe("retryAfterInteractiveAuth", () => {
     expect(operationRan).toBe(false);
     expect(notified).toBe(false);
   });
+
+  test("notifies when the retried operation is aborted after auth completes", async () => {
+    let notified = false;
+    await expect(
+      retryAfterInteractiveAuth(
+        async () => undefined,
+        async () => {
+          throw new DOMException("toolset disposed", "AbortError");
+        },
+        () => {
+          notified = true;
+        },
+      ),
+    ).rejects.toHaveProperty("name", "AbortError");
+    expect(notified).toBe(true);
+  });
 });

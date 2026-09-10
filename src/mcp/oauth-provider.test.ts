@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { authFilePath, loadAuthState, saveAuthState, deleteAuthState } from "./auth-store.js";
+import { fetchWithConnectAbort } from "./client.js";
 import { createOAuthProvider } from "./oauth-provider.js";
 
 async function tempHome(): Promise<string> {
@@ -602,5 +604,189 @@ describe("createOAuthProvider", () => {
     expect((await loadAuthState(existingIdentity, home)).tokens?.access_token).toBe(
       "scoped-secret",
     );
+  });
+
+  test("refreshToken posts grant_type=refresh_token with a resource and persists tokens", async () => {
+    const home = await tempHome();
+    await saveAuthState(
+      linear,
+      {
+        clientInformation: clientInfo(1),
+        tokens: {
+          access_token: "stale",
+          token_type: "bearer",
+          refresh_token: "refresh-me",
+        },
+      },
+      home,
+    );
+
+    const tokenBodies: string[] = [];
+    const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const href = String(url);
+      if (init?.method === "POST") {
+        tokenBodies.push(String(init.body));
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-access",
+            token_type: "bearer",
+            expires_in: 3600,
+            refresh_token: "fresh-refresh",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (href.includes("oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({
+            resource: "https://mcp.linear.app/mcp",
+            authorization_servers: ["https://mcp.linear.app"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (href.includes("oauth-authorization-server") || href.includes("openid-configuration")) {
+        return new Response(
+          JSON.stringify({
+            issuer: "https://mcp.linear.app",
+            authorization_endpoint: "https://mcp.linear.app/authorize",
+            token_endpoint: "https://mcp.linear.app/oauth/token",
+            response_types_supported: ["code"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 404 });
+    };
+
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+      fetchFn,
+    });
+
+    const tokens = await provider.refreshToken("refresh-me");
+    expect(tokens.access_token).toBe("fresh-access");
+    expect(tokenBodies).toHaveLength(1);
+    const body = tokenBodies[0] ?? "";
+    expect(body).toContain("grant_type=refresh_token");
+    expect(body).toContain("refresh_token=refresh-me");
+    expect(body).toContain(`resource=${encodeURIComponent("https://mcp.linear.app/mcp")}`);
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh-access");
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe("fresh-access");
+  });
+
+  test("refreshToken wraps failures as UnauthorizedError", async () => {
+    const home = await tempHome();
+    await saveAuthState(linear, { clientInformation: clientInfo(1) }, home);
+
+    const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const href = String(url);
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (href.includes("oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({
+            resource: "https://mcp.linear.app/mcp",
+            authorization_servers: ["https://mcp.linear.app"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (href.includes("oauth-authorization-server") || href.includes("openid-configuration")) {
+        return new Response(
+          JSON.stringify({
+            issuer: "https://mcp.linear.app",
+            authorization_endpoint: "https://mcp.linear.app/authorize",
+            token_endpoint: "https://mcp.linear.app/oauth/token",
+            response_types_supported: ["code"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 404 });
+    };
+
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+      fetchFn,
+    });
+
+    await expect(provider.refreshToken("refresh-me")).rejects.toBeInstanceOf(UnauthorizedError);
+    await expect(provider.refreshToken("refresh-me")).rejects.toThrow(
+      "Token refresh failed for linear",
+    );
+  });
+
+  test("refreshToken fetch honors the connect AbortSignal", async () => {
+    const home = await tempHome();
+    await saveAuthState(linear, { clientInformation: clientInfo(1) }, home);
+    const abort = new AbortController();
+    const seen: (AbortSignal | undefined)[] = [];
+    const fetchFn = fetchWithConnectAbort(abort.signal, (url, init) => {
+      seen.push(init?.signal ?? undefined);
+      const href = String(url);
+      if (init?.method === "POST") {
+        return new Promise<Response>((_resolve, reject) => {
+          const fail = (): void => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          };
+          if (init.signal?.aborted === true) fail();
+          else init.signal?.addEventListener("abort", fail, { once: true });
+        });
+      }
+      if (href.includes("oauth-protected-resource")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              resource: "https://mcp.linear.app/mcp",
+              authorization_servers: ["https://mcp.linear.app"],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      if (href.includes("oauth-authorization-server") || href.includes("openid-configuration")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              issuer: "https://mcp.linear.app",
+              authorization_endpoint: "https://mcp.linear.app/authorize",
+              token_endpoint: "https://mcp.linear.app/oauth/token",
+              response_types_supported: ["code"],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+      fetchFn,
+    });
+
+    const pending = provider.refreshToken("refresh-me");
+    while (seen.every((signal) => signal !== abort.signal)) await Promise.resolve();
+    abort.abort(new DOMException("toolset disposed", "AbortError"));
+    await expect(pending).rejects.toThrow("toolset disposed");
+    await expect(pending).rejects.not.toBeInstanceOf(UnauthorizedError);
+    expect(seen.some((signal) => signal === abort.signal)).toBe(true);
   });
 });

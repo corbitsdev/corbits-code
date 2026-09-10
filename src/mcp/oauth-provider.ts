@@ -1,12 +1,23 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  discoverAuthorizationServerMetadata,
+  discoverOAuthProtectedResourceMetadata,
+  refreshAuthorization,
+  selectResourceURL,
+  UnauthorizedError,
+  type OAuthClientProvider,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import { resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import type {
+  AuthorizationServerMetadata,
   OAuthClientInformationFull,
   OAuthClientInformationMixed,
   OAuthClientMetadata,
+  OAuthProtectedResourceMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   authFilePath,
   tryLoadAuthStateSync,
@@ -23,8 +34,12 @@ export interface OAuthProviderOptions {
   onAuthURL: (serverName: string, authorizationUrl: string) => void;
   onAuthorizationState?: (state: string) => void;
   home?: string;
+  fetchFn?: FetchLike;
 }
-export type CorbitsOAuthProvider = OAuthClientProvider & { resetAuthorization(): Promise<void> };
+export type CorbitsOAuthProvider = OAuthClientProvider & {
+  resetAuthorization(): Promise<void>;
+  refreshToken(refreshToken: string): Promise<OAuthTokens>;
+};
 
 function redirectUrisInclude(
   info: OAuthClientInformationFull | undefined,
@@ -33,6 +48,10 @@ function redirectUrisInclude(
   const uris = info?.redirect_uris;
   if (uris === undefined || uris.length === 0) return true;
   return uris.includes(redirectUrl);
+}
+
+function isAbortError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "name" in err && err.name === "AbortError";
 }
 
 // Dynamic client registration bakes in the loopback redirect_uri (ephemeral port).
@@ -144,7 +163,10 @@ export async function createOAuthProvider(
   };
 
   let oauthState: string | undefined;
-  return {
+  let authorizationServerMetadata: AuthorizationServerMetadata | undefined;
+  let authorizationServerUrl: string | undefined;
+  let resource: URL | undefined;
+  const provider: CorbitsOAuthProvider = {
     get redirectUrl(): string {
       return opts.redirectUrl;
     },
@@ -208,5 +230,56 @@ export async function createOAuthProvider(
       });
       delete stored.codeVerifier;
     },
+    refreshToken: async (refreshToken: string): Promise<OAuthTokens> => {
+      try {
+        const fetchFn = opts.fetchFn;
+        if (authorizationServerMetadata === undefined || authorizationServerUrl === undefined) {
+          let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+          try {
+            resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+              opts.serverURL,
+              undefined,
+              fetchFn,
+            );
+          } catch {
+            resourceMetadata = undefined;
+          }
+          const fromPrm = resourceMetadata?.authorization_servers?.[0];
+          authorizationServerUrl =
+            fromPrm === undefined ? String(new URL("/", opts.serverURL)) : String(fromPrm);
+          authorizationServerMetadata =
+            (await discoverAuthorizationServerMetadata(
+              authorizationServerUrl,
+              fetchFn === undefined ? {} : { fetchFn },
+            )) ?? undefined;
+          resource =
+            (await selectResourceURL(opts.serverURL, provider, resourceMetadata)) ??
+            resourceUrlFromServerUrl(opts.serverURL);
+        }
+        if (authorizationServerMetadata === undefined)
+          throw new UnauthorizedError("authorization server metadata unavailable");
+        const clientInformation = stored.clientInformation;
+        if (clientInformation === undefined)
+          throw new UnauthorizedError("no client registration to refresh");
+        const resourceURL = resource ?? resourceUrlFromServerUrl(opts.serverURL);
+        const tokens = await refreshAuthorization(authorizationServerUrl, {
+          metadata: authorizationServerMetadata,
+          clientInformation,
+          refreshToken,
+          resource: resourceURL,
+          ...(fetchFn === undefined ? {} : { fetchFn }),
+        });
+        await apply((state) => {
+          state.tokens = tokens;
+        });
+        return tokens;
+      } catch (err) {
+        if (isAbortError(err) || err instanceof UnauthorizedError) throw err;
+        throw new UnauthorizedError(
+          `Token refresh failed for ${opts.serverName}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
   };
+  return provider;
 }
