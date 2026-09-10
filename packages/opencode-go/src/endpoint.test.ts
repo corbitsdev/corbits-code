@@ -14,6 +14,8 @@ describe("protocolForGoModel", () => {
   test("returns protocol for known models", () => {
     expect(protocolForGoModel("kimi-k2.7-code")).toBe("chat-completions");
     expect(protocolForGoModel("gpt-5.6-luna")).toBe("responses");
+    expect(protocolForGoModel("muse-spark-1.3-contributor")).toBe("responses");
+    expect(protocolForGoModel("muse-spark-1.2-contributor")).toBe("responses");
     expect(protocolForGoModel("minimax-m3")).toBe("messages");
   });
 
@@ -46,6 +48,18 @@ describe("resolveGoEndpoint", () => {
     expect(ep.adapter).toBe("openai-responses");
     expect(ep.protocol).toBe("responses");
     expect(ep.baseURL).toContain("/zen/go/v1");
+  });
+
+  test("routes Muse Spark Contributor models to openai-responses adapter", () => {
+    for (const id of [
+      "muse-spark-1.3-contributor",
+      "muse-spark-1.2-contributor",
+    ]) {
+      const ep = resolveGoEndpoint(id);
+      expect(ep.adapter).toBe("openai-responses");
+      expect(ep.protocol).toBe("responses");
+      expect(ep.baseURL).toContain("/zen/go/v1");
+    }
   });
 
   test("routes messages models to anthropic base", () => {

@@ -12,7 +12,7 @@ import {
 } from "./opencode-go-models.js";
 
 const originalFetch = globalThis.fetch;
-const LIVE_ONLY_ID = "muse-spark-1.2-contributor";
+const LIVE_ONLY_ID = "live-only-fixture-model";
 const GO_MODELS_URL = "https://opencode.ai/zen/go/v1/models";
 
 beforeEach(() => {

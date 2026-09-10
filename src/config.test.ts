@@ -1986,13 +1986,13 @@ describe("refreshLiveProviderCatalog", () => {
 
     globalThis.fetch = (async () =>
       Response.json({
-        data: [{ id: "grok-4.5" }, { id: "muse-spark-1.2-contributor" }],
+        data: [{ id: "grok-4.5" }, { id: "live-only-fixture-model" }],
       })) as unknown as typeof fetch;
     await prefetchGoModels();
 
     const warm = await refreshLiveProviderCatalog(settings, resolved);
     const warmGo = warm.find((c) => c.name === "go");
-    expect(warmGo?.models).toContain("muse-spark-1.2-contributor");
+    expect(warmGo?.models).toContain("live-only-fixture-model");
     expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
     expect(
       buildProviderCatalog(settings, resolved).find((c) => c.name === "go")
