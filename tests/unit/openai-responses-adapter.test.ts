@@ -2,7 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   createOpenAIResponsesAdapter,
   OPENAI_SESSION_ID_OPTION,
-} from "../../src/provider/openai-responses-adapter.js";
+} from "../../src/provider/openai-responses.js";
 import { OPENCODE_SESSION_ID_OPTION } from "../../src/provider/opencode-session.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type {
