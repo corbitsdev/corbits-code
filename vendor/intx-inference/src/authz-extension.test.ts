@@ -134,6 +134,16 @@ describe("createAuthzExtension", () => {
     expect(d.resolvedBy.id).toBe("grant-2");
   });
 
+  test("deny effect uses authorize reason when provided", async () => {
+    const ext = createAuthzExtension({
+      authorize: async () => ({ ...denyResult(), reason: "write_file (probe.txt) blocked" }),
+    });
+    const result = await ext.beforeTool(makeCall(), makeState(), signal);
+    expect(result.type).toBe("block");
+    if (result.type !== "block") throw new Error("expected block");
+    expect(result.reason).toBe("Denied by policy: write_file (probe.txt) blocked");
+  });
+
   test("ask effect suspends with a minted correlation and pending operation", async () => {
     const decisions: AuthzDecision[] = [];
 

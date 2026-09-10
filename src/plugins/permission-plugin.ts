@@ -1,3 +1,4 @@
+import type { AgentTool } from "@intx/agent";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { BLOCKED_BY_POLICY_PREFIX } from "../permission/decline-markers.js";
@@ -39,6 +40,19 @@ export async function gateToolCall(
     return blockedByPolicy(call, verdict.reason);
   }
   return next(call, signal);
+}
+
+// Bind full AgentTools to a gate. Workers pass workerPermissionGate so inherited
+// MCP handlers skip middleware the same way posix plugins do.
+export function gateAgentTools(tools: readonly AgentTool[], gate: PermissionGate): AgentTool[] {
+  return tools.map((tool) => {
+    if (tool.kind !== "full") return tool;
+    const inner = tool.handler;
+    return {
+      ...tool,
+      handler: (call: ToolCall, signal: AbortSignal) => gateToolCall(gate, call, signal, inner),
+    };
+  });
 }
 
 // Gate consequential tool calls on operator approval. Runs after the

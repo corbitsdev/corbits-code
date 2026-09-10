@@ -17,7 +17,8 @@ import {
   type SendResult,
 } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
-import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { createIsogitStore } from "@intx/storage-isogit/node";
+import { createWorkerAuthorize, workerPermissionGate } from "../permission/reactor-authorize.js";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
@@ -155,8 +156,7 @@ import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
 
 /**
- * The sub-agent toolset resolves permission approvals inside the tool
- * handler (see createDynamicToolRunner's waitForApproval wiring), so the
+ * Worker authorization denies unresolved approvals without suspending, so the
  * reactor should never park a gate and Agent.send should always settle on
  * "reply". This guard is the sound fallback if that ever drifts: instead of
  * flattening the suspension into an opaque message, the thrown error carries
@@ -454,7 +454,7 @@ async function runSubAgentInner(
 ): Promise<RunSubAgentResult> {
   const inferenceDeps = await assembleInferenceBase();
 
-  const permissionGate = params.permissionGate;
+  const permissionGate = workerPermissionGate(params.permissionGate);
   // Identifies this dispatch to submit_result so a submission survives
   // only for the turn it was spawned under — a stale call from a redirected
   // orchestrator (echoing an old token) is rejected.
@@ -537,7 +537,7 @@ async function runSubAgentInner(
       ),
     }));
 
-    const inherited = params.inheritMcpTools?.() ?? [];
+    const inherited = params.inheritMcpTools?.(permissionGate) ?? [];
     tools = [
       ...tools,
       ...coreSubAgentWebTools(inherited),
@@ -844,13 +844,13 @@ async function runSubAgentInner(
     );
     if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
-    // Every tool call this sub-agent makes runs under its own identity in ALS
-    // (description + cwd), so the permission gate can attribute approvals to
-    // the agent that raised them (see identity-context.ts).
+    // Concurrent workers resolve relative permission subjects against this
+    // identity's cwd (see identity-context.ts).
     const subAgentIdentity = {
       description: params.description,
       cwd: params.cwd,
     };
+    const withWorkerIdentity = <T>(fn: () => T): T => runWithSubAgentIdentity(subAgentIdentity, fn);
     const toolsFactory = defineTool({
       id: `${ID_PREFIX}/subagent-tools`,
       definitions: [],
@@ -860,8 +860,7 @@ async function runSubAgentInner(
         const runner = createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings));
         return {
           ...runner,
-          run: (call, signal) =>
-            runWithSubAgentIdentity(subAgentIdentity, () => runner.run(call, signal)),
+          run: (call, signal) => withWorkerIdentity(() => runner.run(call, signal)),
         };
       },
     });
@@ -897,6 +896,9 @@ async function runSubAgentInner(
     });
 
     const storage = await createOptimizedContextStore(workdir);
+    // Audit commits must not race the native context store's git index.
+    const audit = await createIsogitStore(join(workdir, "audit-store"));
+    const authorize = createWorkerAuthorize(params.permissionGate);
 
     const head = { provider: params.provider.providerName, model: params.provider.model };
     const bundle =
@@ -924,8 +926,9 @@ async function runSubAgentInner(
         ...inferenceDeps,
         contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
       },
-      audit: noopAuditStore(),
-      authorize: permissiveAuthorize(),
+      audit,
+      authorize: (resource, action, context) =>
+        withWorkerIdentity(() => authorize(resource, action, context)),
       directors: createDirectorRegistry({
         factories: [directorDef.factory],
         defaultId: `${ID_PREFIX}/subagent`,

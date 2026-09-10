@@ -49,6 +49,8 @@ export type AuthzCallResult = {
   effect: Effect | null;
   matchingGrants: AuthzMatchedGrant[];
   resolvedBy: AuthzMatchedGrant | null;
+  // Locally patched — see vendor/intx-inference/PATCHES.md#authz-ts-deny-reason
+  reason?: string;
 };
 
 export type AuthzDecision = {
@@ -93,10 +95,13 @@ function formatBlockReason(
   effect: BlockEffect,
   resource: string,
   action: string,
+  detail?: string,
 ): string {
   switch (effect) {
     case "deny":
-      return `Denied by policy: ${resource}/${action}`;
+      return detail !== undefined && detail.length > 0
+        ? `Denied by policy: ${detail}`
+        : `Denied by policy: ${resource}/${action}`;
     case null:
       return `No matching grants for ${resource}/${action}`;
   }
@@ -178,7 +183,12 @@ export function createAuthzExtension<Ctx = unknown>(
       // are blocks.
       const blockReason =
         result.effect === "deny" || result.effect === null
-          ? formatBlockReason(result.effect, resource, action)
+          ? formatBlockReason(
+              result.effect,
+              resource,
+              action,
+              result.effect === "deny" ? result.reason : undefined,
+            )
           : undefined;
 
       const decision: AuthzDecision = {

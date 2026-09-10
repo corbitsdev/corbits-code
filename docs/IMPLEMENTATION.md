@@ -398,6 +398,19 @@ Session runtime state lives under the global projects tree (not in the repo):
 - Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
 
+**Worker audit persistence.** Workers initialize a real `@intx/storage-isogit`
+`AuditStore` at `<worker-workdir>/audit-store` (`src/subagent/run.ts`), separate
+from the native context store's Git index. Initialization failure prevents worker
+execution. The existing agent-owned audit and error collectors persist at
+checkpoint and shutdown; retained worker sessions flush at checkpoint/resume and
+close. The parent still supplies `noopAuditStore()`: collectors exist there too,
+but the parent does not durably store their records.
+
+Audit storage is not transactional with tool execution. A runtime `commitAudit`
+failure after an authorized side effect can lose the drained audit record while
+allowing the worker to complete. It emits a reactor error persisted by the existing
+error collector; there is no added retry subsystem or side-effect rollback.
+
 `createOptimizedContextStore` (`src/session/optimized-context-store.ts`) wraps the
 Interchange git store to keep per-checkpoint cost independent of session length.
 Checkpoint commits go through system git and use the operator's global
@@ -470,15 +483,15 @@ Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests
 
 ### Bounded audit collector retention between checkpoints
 
-| Field                                           | Detail                                                                                                                                                                                                                                                                                    |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status**                                      | Not applicable on the default path; deferred until real audit persistence is enabled                                                                                                                                                                                                      |
-| **Risk**                                        | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs.                                                                                                                            |
-| **Why Corbits Code-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.ts` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
-| **Upstream owner**                              | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata.                                                                                                                                                      |
-| **Future Corbits Code work**                    | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only.                                                                                                                  |
+Agent-owned audit collectors buffer completed tool results until checkpoint or
+shutdown flush, including when a noop store is supplied. Workers use the durable
+store described under State Persistence; the parent's noop store does not make
+collector retention inapplicable. Long, checkpoint-sparse runs can retain
+unbounded results. Bounded retention remains owned by the `@intx/inference`
+audit collector: opportunistic flushing or capped result bodies must preserve
+metadata.
 
-Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; only the two rows above remain upstream or product-gated.
+Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; the two items above remain upstream-owned.
 
 ## Build and Validation
 

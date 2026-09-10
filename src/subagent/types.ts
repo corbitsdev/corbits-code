@@ -42,7 +42,7 @@ export interface SubAgentProvider {
 // recursion bottoms out at one hop of orchestration.
 export interface SubAgentSandboxDeps {
   permissionGate: PermissionGate;
-  inheritMcpTools?: () => readonly AgentTool[];
+  inheritMcpTools?: (gate: PermissionGate) => readonly AgentTool[];
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
   /** Parent session blob store for bounded tool-output:// reads in workers. */
