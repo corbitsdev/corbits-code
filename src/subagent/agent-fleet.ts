@@ -92,7 +92,7 @@ import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import { captureSubagentEnd } from "../telemetry/product-events.js";
 import { getCurrentTurnTraceId } from "../telemetry/feedback.js";
-import type { DirectorPackage } from "../agent/directors/types.js";
+import type { DirectorPackage, ModelRole } from "../agent/directors/types.js";
 import { SPAWN_AGENT_TOOL_NAME } from "./tool-taxonomy.js";
 import {
   assertCanTargetAgent,
@@ -872,7 +872,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   // for liveness: cancel (and other terminals) can stamp finishedAt before the
   // run promise settles and reaches finally, so a map entry alone is not proof
   // the lane is still working.
-  const activeLanes = new Map<string, { description: string; cwd: string }>();
+  // Warnings are for mutating cwd waves only: declared read-only modelRoles
+  // (explore/plan/review/test) never participate, and a cwd emits at most one
+  // conflict while any live mutating writer remains; the wave flag clears when
+  // that set empties so a later independent wave can warn once again.
+  const activeLanes = new Map<
+    string,
+    { description: string; cwd: string; modelRole: ModelRole | undefined }
+  >();
+  const warnedMutatingCwds = new Set<string>();
   let conflictLog: InterventionSink | null = null;
   const recordConflict = (event: Parameters<InterventionSink>[0]): void => {
     conflictLog ??= createInterventionLog(deps.getWorkdirBase(), {
@@ -880,6 +888,35 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
     });
     conflictLog(event);
   };
+  const isOverlapLive = (id: string): boolean => {
+    const session = deps.sessions.get(id);
+    return (
+      session !== undefined &&
+      (session.lifecycle.state === "pending_init" ||
+        session.lifecycle.state === "running")
+    );
+  };
+  const isDeclaredReadOnly = (modelRole: ModelRole | undefined): boolean =>
+    modelRole === "explore" ||
+    modelRole === "plan" ||
+    modelRole === "review" ||
+    modelRole === "test";
+  const clearWarnedCwdsWithoutLiveWriters = (): void => {
+    const liveWriterCwds = new Set<string>();
+    for (const [id, lane] of activeLanes) {
+      if (!isOverlapLive(id)) {
+        activeLanes.delete(id);
+        continue;
+      }
+      if (!isDeclaredReadOnly(lane.modelRole)) {
+        liveWriterCwds.add(lane.cwd);
+      }
+    }
+    for (const cwd of [...warnedMutatingCwds]) {
+      if (!liveWriterCwds.has(cwd)) warnedMutatingCwds.delete(cwd);
+    }
+  };
+
   return tool({
     definition: spawnAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -1234,35 +1271,51 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             return;
           }
 
-          // Detect, don't lock: warn when another lane still running right now
-          // is already working in this same cwd. Worktree-isolated lanes never
-          // collide here (each gets its own directory); this only fires in the
-          // shared-cwd fallback, where two lanes genuinely can overwrite each
-          // other's writes. Never blocks the spawn — the least destructive
+          // Detect, don't lock: warn when another live mutating lane is already
+          // working in this same cwd. Worktree-isolated lanes never collide here
+          // (each gets its own directory); this only fires in the shared-cwd
+          // fallback, where two writers genuinely can overwrite each other's
+          // writes. Declared read-only modelRoles are ignored. At most one
+          // conflict per cwd wave. Never blocks the spawn — the least destructive
           // response that still tells the operator something true, since a
           // shared cwd does not by itself prove the two lanes touch the same
           // files, only that they could.
           const laneCwd = worktreeCwd ?? deps.cwd;
+          const laneModelRole = resolved.pkg?.modelRole;
+          const laneIsWriter = !isDeclaredReadOnly(laneModelRole);
+          clearWarnedCwdsWithoutLiveWriters();
+          let liveMutatingPeer: { id: string; description: string } | undefined;
           for (const [otherId, other] of activeLanes) {
-            const otherSession = deps.sessions.get(otherId);
-            if (
-              otherSession === undefined ||
-              (otherSession.lifecycle.state !== "pending_init" &&
-                otherSession.lifecycle.state !== "running")
-            ) {
+            if (!isOverlapLive(otherId)) {
               activeLanes.delete(otherId);
               continue;
             }
             if (other.cwd !== laneCwd) continue;
+            if (isDeclaredReadOnly(other.modelRole)) continue;
+            liveMutatingPeer ??= {
+              id: otherId,
+              description: other.description,
+            };
+          }
+          if (
+            laneIsWriter &&
+            liveMutatingPeer !== undefined &&
+            !warnedMutatingCwds.has(laneCwd)
+          ) {
+            warnedMutatingCwds.add(laneCwd);
             recordConflict({
               id: "concurrent-lane-overlap",
               class: "conflict",
               detail:
-                `"${description}" (${call.id}) and "${other.description}" (${otherId}) ` +
+                `"${description}" (${call.id}) and "${liveMutatingPeer.description}" (${liveMutatingPeer.id}) ` +
                 `are both running against ${laneCwd} at once`,
             });
           }
-          activeLanes.set(call.id, { description, cwd: laneCwd });
+          activeLanes.set(call.id, {
+            description,
+            cwd: laneCwd,
+            modelRole: laneModelRole,
+          });
 
           const params: RunSubAgentParams = {
             // Name the trace directory after the session-store id so the
@@ -1458,6 +1511,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             })
             .finally(() => {
               activeLanes.delete(call.id);
+              clearWarnedCwdsWithoutLiveWriters();
               finalizeEnd();
               if (!keepWorktreeAlive) void reclaimWorktree();
               admission.release(session.id);

@@ -745,9 +745,185 @@ describe("spawn_agent same-cwd concurrency", () => {
     expect(log).toContain("/repo");
     expect(log).toContain("build one");
     expect(log).toContain("build two");
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(1);
 
     defined(gates[0]).resolve({ report: "one done" });
     defined(gates[1]).resolve({ report: "two done" });
+  });
+
+  test("three concurrent mutating shared-cwd lanes log one concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-wave-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    for (const label of ["one", "two", "three"] as const) {
+      await callTool(spawn, {
+        description: `build ${label}`,
+        prompt: `implement thing ${label}`,
+        intent: "implement",
+        success_criteria: [`thing ${label} ships`],
+      });
+    }
+
+    const path = join(dir, INTERVENTION_FILE);
+    let log = "";
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (log.includes("concurrent-lane-overlap")) break;
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(1);
+
+    for (const gate of gates) defined(gate).resolve({ report: "done" });
+  });
+
+  test("shared-cwd explore then implement does not log concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-readonly-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    await callTool(spawn, {
+      description: "look around",
+      prompt: "map the tree",
+      intent: "explore",
+    });
+    await callTool(spawn, {
+      description: "build one",
+      prompt: "implement thing one",
+      intent: "implement",
+      success_criteria: ["thing one ships"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(
+      readFile(join(dir, INTERVENTION_FILE), "utf8"),
+    ).rejects.toThrow();
+
+    defined(gates[0]).resolve({ report: "mapped" });
+    defined(gates[1]).resolve({ report: "one done" });
+  });
+
+  test("a later mutating wave can warn again after the prior wave settles", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-reset-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    await callTool(spawn, {
+      description: "wave1 a",
+      prompt: "implement a",
+      intent: "implement",
+      success_criteria: ["a ships"],
+    });
+    await callTool(spawn, {
+      description: "wave1 b",
+      prompt: "implement b",
+      intent: "implement",
+      success_criteria: ["b ships"],
+    });
+
+    const path = join(dir, INTERVENTION_FILE);
+    let log = "";
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (log.includes("concurrent-lane-overlap")) break;
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(1);
+
+    defined(gates[0]).resolve({ report: "a done" });
+    defined(gates[1]).resolve({ report: "b done" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    await callTool(spawn, {
+      description: "wave2 a",
+      prompt: "implement c",
+      intent: "implement",
+      success_criteria: ["c ships"],
+    });
+    await callTool(spawn, {
+      description: "wave2 b",
+      prompt: "implement d",
+      intent: "implement",
+      success_criteria: ["d ships"],
+    });
+
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (
+          log
+            .trim()
+            .split("\n")
+            .filter((line) => line.includes("concurrent-lane-overlap"))
+            .length >= 2
+        ) {
+          break;
+        }
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(2);
+    expect(log).toContain("wave2");
+
+    defined(gates[2]).resolve({ report: "c done" });
+    defined(gates[3]).resolve({ report: "d done" });
   });
 });
 
