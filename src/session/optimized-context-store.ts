@@ -489,6 +489,24 @@ function extraCommitPaths(paths: readonly string[]): string[] {
   return paths.filter((filepath) => !VENDOR_COMMIT_ROOT_FILES.has(filepath));
 }
 
+/**
+ * True when any allowlisted managed path differs between HEAD and the
+ * worktree. Callers must pass only managed paths — never "." and never
+ * session junk such as partial.jsonl.
+ */
+async function managedPathsDiffer(
+  dir: string,
+  filepaths: readonly string[],
+): Promise<boolean> {
+  if (filepaths.length === 0) return false;
+  const matrix = await git.statusMatrix({
+    fs,
+    dir,
+    filepaths: [...filepaths],
+  });
+  return matrix.some(([, head, workdir]) => head !== workdir);
+}
+
 export interface SessionStores {
   storage: ContextStore;
   audit: AuditStore;
@@ -723,6 +741,25 @@ export async function createSessionStores(
           stagedRewrite === null ? null : await snapshotTurnSegments(dir);
         const headBefore = stagedRewrite === null ? null : await headOid(dir);
         let extraPaths: string[] = [];
+
+        const managedFilepaths = [
+          ...VENDOR_COMMIT_ROOT_FILES,
+          TOOL_OUTPUT_DIR,
+          EVIDENCE_ARCHIVE_DIR,
+          ...extraPaths,
+        ];
+        if (!(await managedPathsDiffer(dir, managedFilepaths))) {
+          const [head] = await base.log(1);
+          if (head !== undefined) {
+            pendingBlobFilepaths.clear();
+            pendingSegmentPaths.clear();
+            if (stagedRewrite !== null) {
+              liveTurnRefs = stagedRewrite;
+              unpublishedRewrite = null;
+            }
+            return head;
+          }
+        }
 
         try {
           if (stagedRewrite !== null) {

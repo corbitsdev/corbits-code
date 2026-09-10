@@ -9,6 +9,7 @@ import {
   splitPendingControlTail,
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js";
+import { isReactorErrorFatal } from "../agent/reactor-events.js";
 import { terminalProviderFailureMessage } from "../inference-error-message.js";
 import {
   normalizeInferenceErrorForTerminal,
@@ -575,6 +576,9 @@ function mapEvent(
       const error =
         typeof data.error === "string" ? data.error : "reactor error";
       if (ctx) ctx.hadTextDelta = false;
+      if (!isReactorErrorFatal(event.data)) {
+        return [{ type: "error", message: error }];
+      }
       return [
         ...disarmAttempt(ctx),
         { type: "error", message: error },

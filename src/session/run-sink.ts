@@ -2,7 +2,10 @@ import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { LastCycleSource, TokenUsage } from "@intx/types/runtime";
 import { createPerfReactorObserver } from "../perf/reactor-spans.js";
-import { onTurnBoundary } from "../agent/reactor-events.js";
+import {
+  isReactorErrorFatal,
+  onTurnBoundary,
+} from "../agent/reactor-events.js";
 import {
   createTurnContextCollector,
   type LifecycleHookManager,
@@ -191,7 +194,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
       runError = undefined;
       onTurnBoundarySnapshot?.();
     }
-    if (event.type === "reactor.error") {
+    if (event.type === "reactor.error" && isReactorErrorFatal(event.data)) {
       const data = event.data as { error: string };
       runError = data.error;
     }

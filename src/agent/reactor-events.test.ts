@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ReactorInboundEvent } from "@intx/types/runtime";
-import { onReactorShutdown, onTurnBoundary } from "./reactor-events.js";
+import {
+  isReactorErrorFatal,
+  onReactorShutdown,
+  onTurnBoundary,
+} from "./reactor-events.js";
 
 // Bare `{ type: string }` literals only prove the string comparison works.
 // The generic exists so the guards narrow across both `ReactorInboundEvent`
@@ -113,5 +117,29 @@ describe("onReactorShutdown", () => {
 
     const shutdowns = sessionEvents.filter(onReactorShutdown);
     expect(shutdowns.length).toBe(1);
+  });
+});
+
+describe("isReactorErrorFatal", () => {
+  test("fatal:false continues", () => {
+    expect(
+      isReactorErrorFatal({ error: "transient write", fatal: false }),
+    ).toBe(false);
+  });
+
+  test("fatal:true stays terminal", () => {
+    expect(isReactorErrorFatal({ error: "gave up", fatal: true })).toBe(true);
+  });
+
+  test("missing fatal stays terminal", () => {
+    expect(isReactorErrorFatal({ error: "gave up" })).toBe(true);
+  });
+
+  test("malformed payloads stay terminal", () => {
+    expect(isReactorErrorFatal(undefined)).toBe(true);
+    expect(isReactorErrorFatal(null)).toBe(true);
+    expect(isReactorErrorFatal("boom")).toBe(true);
+    expect(isReactorErrorFatal({ fatal: "false" })).toBe(true);
+    expect(isReactorErrorFatal({ fatal: 0 })).toBe(true);
   });
 });
