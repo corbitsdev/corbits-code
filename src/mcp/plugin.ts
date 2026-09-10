@@ -116,11 +116,7 @@ export function mcpClientTools(
                   ...(contextDir !== undefined ? { contextDir } : {}),
                 }
               : undefined;
-          const content = await truncateToolResultContent(
-            flattened,
-            undefined,
-            spill,
-          );
+          const content = await sanitizeMcpResultContent(flattened, spill);
           return { callId: call.id, content };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

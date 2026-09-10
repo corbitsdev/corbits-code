@@ -23,6 +23,11 @@ function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "compaction-archive-"));
 }
 
+function required<T>(value: T | undefined, label: string): T {
+  if (value === undefined) throw new Error(`expected ${label}`);
+  return value;
+}
+
 function inbound(
   partial: Partial<InboundMessage> & { content?: string },
 ): InboundMessage {
@@ -151,8 +156,12 @@ describe("primary message admission", () => {
       inbound({ content: "also sk-abcdefghijklmnopqrstuvwxyz012345" }),
     );
     expect(delivered).toHaveLength(2);
-    expect(delivered[0]!.content).toContain(CREDENTIAL_REDACTION);
-    expect(delivered[1]!.content).toContain(CREDENTIAL_REDACTION);
+    expect(required(delivered[0], "first delivery").content).toContain(
+      CREDENTIAL_REDACTION,
+    );
+    expect(required(delivered[1], "second delivery").content).toContain(
+      CREDENTIAL_REDACTION,
+    );
   });
 
   test("history and archive share the same admitted representation", async () => {
@@ -190,16 +199,19 @@ describe("primary message admission", () => {
     );
     await archive.awaitPendingWrites();
     expect(delivered).toHaveLength(1);
-    const admitted = delivered[0]!.content!;
+    const admitted = required(
+      required(delivered[0], "first delivery").content,
+      "admitted content",
+    );
     expect(admitted).toContain(CREDENTIAL_REDACTION);
     expect(admitted).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
     const occurrences = await archive.listOccurrences();
     expect(occurrences).toHaveLength(1);
-    expect(occurrences[0]!.kind).toBe("user_message");
+    expect(required(occurrences[0], "occurrence").kind).toBe("user_message");
     const archived = await archive.readAuthorizedPayload(
-      occurrences[0]!.occurrenceId,
+      required(occurrences[0], "occurrence").occurrenceId,
     );
-    const history = createInboundTurn(delivered[0]!);
+    const history = createInboundTurn(required(delivered[0], "first delivery"));
     const historyText = history?.content.find((block) => block.type === "text");
     expect(historyText?.type === "text" ? historyText.text : undefined).toBe(
       archived,
@@ -244,8 +256,10 @@ describe("primary message admission", () => {
     const occurrences = await archive.listOccurrences();
     expect(occurrences).toHaveLength(1);
     expect(
-      await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId),
-    ).toBe(`[From: user@local]\n\n${sent[0]!}`);
+      await archive.readAuthorizedPayload(
+        required(occurrences[0], "occurrence").occurrenceId,
+      ),
+    ).toBe(`[From: user@local]\n\n${required(sent[0], "sent")}`);
   });
 });
 

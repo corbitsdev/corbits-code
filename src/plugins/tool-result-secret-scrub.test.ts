@@ -73,7 +73,9 @@ describe("toolResultSecretScrubPlugin", () => {
 
   test("scrubs grep tool results", async () => {
     const plugin = toolResultSecretScrubPlugin();
-    const handler = plugin.middleware!(
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(
       next("secrets/.env:1:TOKEN=supersecretvalue"),
     );
     const result = await handler(
@@ -83,10 +85,11 @@ describe("toolResultSecretScrubPlugin", () => {
     expect(result.content).toContain(CREDENTIAL_REDACTION);
     expect(result.content).not.toContain("supersecretvalue");
   });
-
   test("scrubs error results without stringifying object content", async () => {
     const plugin = toolResultSecretScrubPlugin();
-    const handler = plugin.middleware!(
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(
       next(
         {
           message: "failed with sk-abcdefghijklmnopqrstuvwxyz012345",
@@ -142,7 +145,9 @@ describe("toolResultSecretScrubPlugin", () => {
     const body =
       "Matching agent profiles:\n\n### leaky\n\nSystem prompt / body:\n" +
       "Use token sk-abcdefghijklmnopqrstuvwxyz012345 when calling the provider.";
-    const handler = plugin.middleware!(next(body));
+    if (plugin.middleware === undefined)
+      throw new Error("expected middleware plugin");
+    const handler = plugin.middleware(next(body));
     const result = await handler(
       { id: "c2", name: "search_agents", arguments: { query: "leaky" } },
       new AbortController().signal,

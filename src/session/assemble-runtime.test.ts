@@ -152,8 +152,8 @@ function stubChatAgentWiring(
     computeAdvertised: () => [],
     activateTools: () => false,
     inactivityTimeoutMs: 1_000,
-    onTasksChange: () => {},
-    requestContinuation: () => {},
+    onTasksChange: () => undefined,
+    requestContinuation: () => undefined,
     getProvider: () => ({ providerName: "test", model: "m" }),
     getWorkdir: () => "/build-dir",
     getSessionId: () => "test-session",
@@ -169,7 +169,7 @@ function stubChatAgentWiring(
     ],
     getDefaultSource: () => "s",
     getCompactor: () => stubCompactor("build"),
-    onBuilt: () => {},
+    onBuilt: () => undefined,
     ...overrides,
   };
 }
@@ -182,7 +182,7 @@ describe("assembleChatAgent", () => {
     const fakeStorage = {
       readBlob: async () => new Uint8Array(),
     } as unknown as ContextStore;
-    const fakeAgent = { close: async () => {} } as unknown as Agent;
+    const fakeAgent = { close: async () => undefined } as unknown as Agent;
 
     await withMockedModuleDuring(
       import.meta.resolve("./optimized-context-store.js"),
@@ -256,7 +256,7 @@ describe("assembleChatAgent", () => {
     const fakeStorage = {
       readBlob: async () => new Uint8Array(),
     } as unknown as ContextStore;
-    const fakeAgent = { close: async () => {} } as unknown as Agent;
+    const fakeAgent = { close: async () => undefined } as unknown as Agent;
     const authorize = stubAuthorize();
     let capturedStorage: ContextStore | undefined;
     let capturedAuthorize: unknown;
