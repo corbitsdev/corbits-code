@@ -72,12 +72,14 @@ function truncateAgentBody(body: string): string {
   return `${body.slice(0, MAX_AGENT_SEARCH_BODY_CHARS)}\n…[truncated]`;
 }
 
-// Format one profile for search_agents output. Injects the full loaded
-// systemPromptRole (markdown body / role text) so the parent can inspect plugin
-// and marketplace agents without read_file on paths outside the session cwd
-// (path-escape blocks those roots by design). Bodies longer than
+// Format one profile for search_agents output. Default is id, description, and
+// spawn metadata (orchestrator flag, source). The loaded systemPromptRole is
+// omitted unless includeBody is true. Bodies longer than
 // MAX_AGENT_SEARCH_BODY_CHARS are truncated with an ellipsis marker.
-function formatAgentProfileEntry(p: AgentProfile): string {
+function formatAgentProfileEntry(
+  p: AgentProfile,
+  includeBody: boolean,
+): string {
   const desc = (p.description ?? "").trim();
   const orch = p.orchestrator === true ? " [orchestrator]" : "";
   const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
@@ -85,6 +87,7 @@ function formatAgentProfileEntry(p: AgentProfile): string {
     desc.length > 0
       ? `### ${p.id}${orch}${source}\n${desc}`
       : `### ${p.id}${orch}${source}`;
+  if (!includeBody) return header;
   const body = (p.systemPromptRole ?? "").trim();
   if (body.length === 0) return header;
   return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;
@@ -92,18 +95,19 @@ function formatAgentProfileEntry(p: AgentProfile): string {
 
 export function formatAgentSearchResults(
   profiles: readonly AgentProfile[],
+  includeBody: boolean,
 ): string {
   if (profiles.length === 0) {
     return "No agent profiles matched. Try broader terms (e.g. review, explore, implement) or list_dir on .agents/agents/.";
   }
-  const entries = profiles.map(formatAgentProfileEntry);
+  const entries = profiles.map((p) => formatAgentProfileEntry(p, includeBody));
   // Live scrub for search_agents: this tool is not on the posix middleware path, so
   // SCRUBBABLE_TOOLS in tool-result-secret-scrub-plugin cannot reach it. Scrub here
   // before the formatted string becomes a tool result (marketplace/plugin bodies may
   // contain secret-shaped substrings).
   return scrubSecretShapedContent(
     [
-      "Matching agent profiles (pass id to spawn_agent(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
+      "Matching agent profiles (pass id to spawn_agent(agent=...)):",
       "",
       ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
       "",
@@ -115,7 +119,7 @@ export function formatAgentSearchResults(
 export const searchAgentsDefinition: ToolDefinition = {
   name: "search_agents",
   description:
-    "Find spawnable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids, descriptions, and the full loaded system prompt / body for each match so you can inspect plugin or Claude marketplace agents without reading files outside the workspace. Use the id in spawn_agent(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
+    "Find spawnable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids, descriptions, and spawn metadata (orchestrator flag, source). Pass include_body=true to include the loaded system prompt / body for each match (truncated). Use the id in spawn_agent(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
   inputSchema: {
     type: "object",
     properties: {
@@ -124,12 +128,17 @@ export const searchAgentsDefinition: ToolDefinition = {
         description:
           "What kind of agent or team you need — keywords from the user's request (e.g. 'review team', 'code quality', 'explore codebase').",
       },
+      include_body: {
+        type: "boolean",
+        description:
+          "When true, include each match's loaded system prompt / body (truncated). Default false: id, description, and spawn metadata only.",
+      },
     },
     required: ["query"],
   },
 };
 
-const SearchAgentsArgs = type({ query: "string" });
+const SearchAgentsArgs = type({ query: "string", "include_body?": "boolean" });
 
 export function createSearchAgentsTool(
   getProfiles: () => readonly AgentProfile[],
@@ -140,15 +149,16 @@ export function createSearchAgentsTool(
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = SearchAgentsArgs(rawArgs);
       if (parsed instanceof type.errors) {
-        return "Error: search_agents requires query (string).";
+        return "Error: search_agents requires query (string); include_body is optional boolean.";
       }
       const query = parsed.query.trim();
+      const includeBody = parsed.include_body === true;
       // Empty and non-empty queries share createAgentIndex.search's default limit
       // (12) so a large marketplace catalog cannot dump every body into one result.
       if (query.length === 0 && getProfiles().length === 0) {
         return "No agent profiles are loaded.";
       }
-      return formatAgentSearchResults(index.search(query));
+      return formatAgentSearchResults(index.search(query), includeBody);
     },
   });
 }

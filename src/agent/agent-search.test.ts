@@ -45,46 +45,75 @@ describe("createAgentIndex", () => {
 
 describe("formatAgentSearchResults", () => {
   test("includes spawn hint and ids", () => {
-    const text = formatAgentSearchResults([defined(fixtures[1])]);
+    const text = formatAgentSearchResults([defined(fixtures[1])], false);
     expect(text).toContain("critique");
     expect(text).toContain("spawn_agent(agent=");
   });
 
   test("includes source label when present", () => {
-    const text = formatAgentSearchResults([
-      {
-        id: "marketplace-scout",
-        description: "From Claude install",
-        source: "claude",
-      },
-    ]);
+    const text = formatAgentSearchResults(
+      [
+        {
+          id: "marketplace-scout",
+          description: "From Claude install",
+          source: "claude",
+        },
+      ],
+      false,
+    );
     expect(text).toContain("[source: claude]");
     expect(text).toContain("marketplace-scout");
   });
 
-  test("injects full system prompt body so parent need not read_file plugin roots", () => {
+  test("default omits system prompt body", () => {
+    const uniqueBody =
+      "UNIQUE_BODY_MARKER_draper_review_pull_requests_for_design_clarity_xyz";
+    const text = formatAgentSearchResults(
+      [
+        {
+          id: "draper",
+          description: "PR design reviewer from marketplace",
+          source: "claude",
+          orchestrator: true,
+          systemPromptRole: uniqueBody,
+        },
+      ],
+      false,
+    );
+    expect(text).toContain("### draper");
+    expect(text).toContain("[source: claude]");
+    expect(text).toContain("[orchestrator]");
+    expect(text).toContain("PR design reviewer from marketplace");
+    expect(text).not.toContain(uniqueBody);
+    expect(text).not.toContain("System prompt / body:");
+  });
+
+  test("include_body injects truncated system prompt body", () => {
     const body =
       "You are draper. Review pull requests for design clarity and maintainability.\n" +
       "Prefer concrete file/line citations.";
-    const text = formatAgentSearchResults([
-      {
-        id: "draper",
-        description: "PR design reviewer from marketplace",
-        source: "claude",
-        systemPromptRole: body,
-      },
-    ]);
+    const text = formatAgentSearchResults(
+      [
+        {
+          id: "draper",
+          description: "PR design reviewer from marketplace",
+          source: "claude",
+          systemPromptRole: body,
+        },
+      ],
+      true,
+    );
     expect(text).toContain("### draper");
     expect(text).toContain("[source: claude]");
     expect(text).toContain("System prompt / body:");
     expect(text).toContain(body);
-    expect(text).toContain("do not need read_file on plugin roots");
   });
 
   test("omits body section when systemPromptRole is absent", () => {
-    const text = formatAgentSearchResults([
-      { id: "no-body", description: "Metadata only" },
-    ]);
+    const text = formatAgentSearchResults(
+      [{ id: "no-body", description: "Metadata only" }],
+      true,
+    );
     expect(text).toContain("### no-body");
     expect(text).toContain("Metadata only");
     expect(text).not.toContain("System prompt / body:");
@@ -92,13 +121,16 @@ describe("formatAgentSearchResults", () => {
 
   test("truncates oversized systemPromptRole bodies with ellipsis marker", () => {
     const body = "x".repeat(MAX_AGENT_SEARCH_BODY_CHARS + 500);
-    const text = formatAgentSearchResults([
-      {
-        id: "huge",
-        description: "Oversized marketplace body",
-        systemPromptRole: body,
-      },
-    ]);
+    const text = formatAgentSearchResults(
+      [
+        {
+          id: "huge",
+          description: "Oversized marketplace body",
+          systemPromptRole: body,
+        },
+      ],
+      true,
+    );
     expect(text).toContain("System prompt / body:");
     expect(text).toContain("…[truncated]");
     expect(text).not.toContain(body);
@@ -113,14 +145,17 @@ describe("formatAgentSearchResults", () => {
   test("redacts secret-shaped content in profile body at format layer", () => {
     // search_agents is not on the posix middleware path; scrub must happen here.
     const secret = "sk-live-abc123xyz789012345678";
-    const text = formatAgentSearchResults([
-      {
-        id: "leaky",
-        description: "Profile with credential-shaped body text",
-        source: "claude",
-        systemPromptRole: `Use API_KEY=${secret} when calling the provider.`,
-      },
-    ]);
+    const text = formatAgentSearchResults(
+      [
+        {
+          id: "leaky",
+          description: "Profile with credential-shaped body text",
+          source: "claude",
+          systemPromptRole: `Use API_KEY=${secret} when calling the provider.`,
+        },
+      ],
+      true,
+    );
     expect(text).toContain("### leaky");
     expect(text).toContain("System prompt / body:");
     expect(text).toContain(CREDENTIAL_REDACTION);
@@ -130,7 +165,35 @@ describe("formatAgentSearchResults", () => {
 });
 
 describe("createSearchAgentsTool", () => {
-  test("handler surfaces loaded systemPromptRole for plugin-style profiles", async () => {
+  test("handler default omits systemPromptRole body", async () => {
+    const uniqueBody =
+      "UNIQUE_BODY_MARKER_emil_product_sense_and_user_impact_xyz";
+    const tool = createSearchAgentsTool(() => [
+      {
+        id: "emil",
+        description: "Product-minded reviewer",
+        source: "claude",
+        systemPromptRole: uniqueBody,
+      },
+      {
+        id: "greybeard",
+        description: "Architect",
+        systemPromptRole: "You are greybeard.",
+      },
+    ]);
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const text = await tool.handler(
+      { query: "emil product" },
+      new AbortController().signal,
+    );
+    expect(text).toContain("emil");
+    expect(text).toContain("Product-minded reviewer");
+    expect(text).toContain("[source: claude]");
+    expect(text).not.toContain(uniqueBody);
+    expect(text).not.toContain("System prompt / body:");
+  });
+
+  test("handler include_body true surfaces loaded systemPromptRole", async () => {
     const body = "You are emil. Focus on product sense and user impact.";
     const tool = createSearchAgentsTool(() => [
       {
@@ -147,7 +210,7 @@ describe("createSearchAgentsTool", () => {
     ]);
     if (tool.kind !== "string") throw new Error("expected string tool");
     const text = await tool.handler(
-      { query: "emil product" },
+      { query: "emil product", include_body: true },
       new AbortController().signal,
     );
     expect(text).toContain("emil");
@@ -199,7 +262,7 @@ describe("createSearchAgentsTool", () => {
     ]);
     if (tool.kind !== "string") throw new Error("expected string tool");
     const text = await tool.handler(
-      { query: "leaky" },
+      { query: "leaky", include_body: true },
       new AbortController().signal,
     );
     expect(text).toContain("### leaky");

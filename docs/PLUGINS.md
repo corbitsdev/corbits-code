@@ -170,8 +170,9 @@ Relative install paths and paths outside that root are ignored so a poisoned
 registry cannot load project trees as origin `user`. Profile `source: "claude"`.
 Discovered modules still require `settings.plugins[id].enabled` before agents or
 tools wire into the session. `search_agents` labels those profiles with
-`[source: claude]` and injects each profile's full loaded system prompt / body so
-the parent never needs `read_file` on `~/.claude/plugins/...` (path-escape still
+`[source: claude]`. Default results are id, description, and spawn metadata;
+pass `include_body=true` to include the loaded system prompt / body so the
+parent never needs `read_file` on `~/.claude/plugins/...` (path-escape still
 blocks those roots for path tools; writes/deletes outside cwd stay denied). JS
 Claude plugins (if any) stay on explicit `pluginPaths`.
 

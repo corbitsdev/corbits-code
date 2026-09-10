@@ -13,6 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Changed
+
+- `search_agents` default results are id, description, and spawn metadata.
+  Pass `include_body=true` to include the loaded system prompt / body
+  (still truncated).
+
 ### Fixed
 
 - Dry-fleet transcript and `/status` report the outcome tally only
@@ -23,6 +29,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   cycles through a closed live-activity set (`working`, `warping`,
   `buzzing`, `grinding`, `thinking`, `doing`, `cooking`, `creating`,
   `imagining`, `inventing`) instead of going blank.
+
 
 ## [0.3.19] - 2026-09-10
 
