@@ -59,6 +59,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Changed
 
+- oxfmt formats the tree and oxlint is the lint gate. Prettier and ESLint are
+  gone. Dummy CI job names `prettier` and `eslint` stay for protect-main.
+  Empty functions and non-null assertions are errors.
+
 - Skywalker may spawn one successor with a changed brief after a failed or
   incomplete-report fleet worker. A parent-initiated interrupt
   (`stop_reason: interrupted`) is a resumable pause — `resume_agent` or

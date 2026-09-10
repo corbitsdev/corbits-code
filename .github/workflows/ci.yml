@@ -11,11 +11,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
-  # Prettier, eslint, and typecheck share one runner: one checkout and one
-  # install instead of three of each. Prettier and eslint still run un-cached
-  # in CI: restored result caches can mark files clean against a stale tool
-  # version or config, masking real failures. The --cache flags in the
-  # package.json lint script remain for local speed.
+  # oxfmt, oxlint, and typecheck share one runner: one checkout and one
+  # install instead of three of each. Dummy job names prettier and eslint
+  # stay for protect-main.
   static-analysis:
     runs-on: ubuntu-latest
     steps:
@@ -39,11 +37,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Prettier
-        run: bunx prettier --check .
+      - name: oxfmt
+        run: bunx oxfmt --check .
 
-      - name: ESLint
-        run: bunx eslint .
+      - name: oxlint
+        run: bunx oxlint .
 
       - name: Typecheck
         run: bun run typecheck
