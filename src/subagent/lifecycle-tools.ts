@@ -308,7 +308,7 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
       }
       // Soft interrupt leaves the run in flight; projectWaitStatus treats
       // interrupted+inFlight as running so resume cannot collect a stale stamp.
-      // Flip the wait mailbox overlay here (same as send_input interrupt:true).
+      // Flip the wait mailbox overlay so in-flight wait_agents unblocks as interrupted.
       deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
@@ -331,8 +331,9 @@ export const sendInputToolDefinition: ToolDefinition = {
     "worker has a pending ask_director, the message resolves that question (it does not deliver a " +
     "steer inbound). Otherwise deliver `message` into the live session and return immediately " +
     "without awaiting a reply and without completing wait_agents. " +
-    "With interrupt:true: stop the current turn (same wait-mailbox flip as interrupt_agent) " +
-    "then queue `message` as the next-turn followup without awaiting that reply. Fails on a " +
+    "With interrupt:true: stop the current turn then queue `message` as the next-turn followup " +
+    "without awaiting that reply — wait_agents stays live (running/queued) and collects the " +
+    "followup reply when it finishes. Fails on a " +
     "session that is not currently running an active turn, or when the message is empty / oversize. Nested " +
     "orchestrators may only target their own descendants.",
   inputSchema: {
@@ -381,8 +382,14 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
         ...(interrupt ? { interrupt: true } : {}),
         ...(interrupt && deps.fleetRecords !== undefined
           ? {
+              onStart: () => {
+                deps.fleetRecords?.clearQueued(target);
+              },
               onFollowupReply: (reply: string) => {
                 deps.fleetRecords?.completeAfterInterrupt(target, reply);
+              },
+              onFail: () => {
+                deps.fleetRecords?.completeAfterInterrupt(target);
               },
             }
           : {}),
@@ -393,7 +400,16 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           `Error: cannot send_input to "${target}" (status: ${outcome.status}).`,
         );
       }
-      if (interrupt) deps.fleetRecords?.interrupt(target);
+      // CL-7331: an interrupt-with-followup is transitional, not terminal.
+      // interrupt_agent/close_agent flip the wait mailbox so an in-flight
+      // wait_agents unblocks as interrupted; a queued followup must instead
+      // stay wait-live (running/queued) so the followup reply surfaces via
+      // wait_agents instead of freezing as an already-collected interrupt.
+      if (interrupt && deps.fleetRecords !== undefined) {
+        deps.fleetRecords.noteFollowup(target);
+        const after = deps.sessions.get(target);
+        if (after?.lifecycle.state === "pending_init") deps.fleetRecords.markQueued(target);
+      }
       return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
     },
   });

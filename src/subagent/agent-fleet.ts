@@ -120,8 +120,11 @@ interface FleetRecord {
 interface FleetOverlay {
   collected?: boolean;
   pinHeld?: boolean;
-  /** send_input interrupt:true / close_agent — wait interrupted while session may still be running. */
+  /** interrupt_agent / close_agent — wait interrupted while session may still be running. */
   forceInterrupted?: boolean;
+  /** A send_input interrupt:true followup owns this lane; suppresses any
+   * terminal overlay so wait stays live until the followup settles. */
+  followupLive?: boolean;
   /** Admission overlay: wait JSON `queued` while run() has not been admitted. */
   forceQueued?: boolean;
   /** Frozen wait status after collect. Later session completed must not resurrect this mailbox. */
@@ -205,8 +208,8 @@ class FleetMailbox {
 
   /**
    * Overlay wait-status override so wait unblocks while the session may still
-   * be running (send_input interrupt:true followup, close_agent teardown).
-   * No-op on an already-collected mailbox — frozen status stays interrupted.
+   * be running (interrupt_agent teardown, close_agent teardown). No-op on an
+   * already-collected mailbox — frozen status stays interrupted.
    */
   interrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
@@ -222,16 +225,46 @@ class FleetMailbox {
   }
 
   /**
-   * send_input interrupt:true followup finished. Clear an uncollected
-   * interrupted overlay so wait projects session completed → done. No-op if
-   * wait_agents already collected the interrupt.
+   * CL-7331: mark that a send_input interrupt:true followup owns this lane.
+   * Suppresses any interrupt overlay so wait stays live (running/queued)
+   * until the followup settles, and tells the spawn settlement to swallow
+   * the original run's interrupted result instead of attaching salvage over
+   * the live followup. No-op on an unknown id; safe to call on a collected
+   * mailbox (frozen status still wins for projection, but the settlement
+   * swallow still applies).
+   */
+  noteFollowup(id: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined) return;
+    existing.followupLive = true;
+    delete existing.forceInterrupted;
+    this.sessions?.wake();
+  }
+
+  /** True while a send_input interrupt:true followup owns this lane. */
+  hasLiveFollowup(id: string): boolean {
+    return this.records.get(id)?.followupLive === true;
+  }
+
+  /**
+   * send_input interrupt:true followup finished. Clear the followup lane flag
+   * (and any admission queued overlay) so wait can project the settled session.
+   * Leaves a close/interrupt overlay in place — a followup reply must not undo
+   * interrupt_agent or close_agent. No-op if wait_agents already collected.
    */
   completeAfterInterrupt(id: string, _report?: string): void {
     const existing = this.records.get(id);
     if (existing === undefined || existing.collected === true) return;
-    if (existing.forceInterrupted !== true) return;
-    delete existing.forceInterrupted;
-    this.sessions?.wake();
+    let changed = false;
+    if (existing.followupLive === true) {
+      delete existing.followupLive;
+      changed = true;
+    }
+    if (existing.forceQueued === true) {
+      delete existing.forceQueued;
+      changed = true;
+    }
+    if (changed) this.sessions?.wake();
   }
 
   ids(): string[] {
@@ -295,13 +328,13 @@ class FleetMailbox {
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
     if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
     if (this.sessions.hasPendingAsk(id)) return "awaiting_director";
+    if (overlay.forceInterrupted === true) return "interrupted";
     const live = this.sessionWaitStatus(id);
     if (live !== undefined && !isLiveWaitStatus(live)) {
       overlay.lastWaitStatus = live;
       return live;
     }
     if (overlay.forceQueued === true) return "queued";
-    if (overlay.forceInterrupted === true) return "interrupted";
     if (live !== undefined) {
       overlay.lastWaitStatus = live;
       return live;
@@ -1201,11 +1234,13 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (result.interrupted === true) {
                 keepWorktreeAlive = true;
                 runInterrupted = true;
-                const now = deps.sessions.get(session.id);
-                const overlay = deps.fleetRecords.peek(session.id);
-                const followupLive =
-                  now?.lifecycle.state === "running" && overlay?.status === "interrupted";
-                if (!followupLive) {
+                // CL-7331: a followup started via send_input interrupt owns
+                // this lane now — the settling original turn must not attach
+                // salvage over it. The mailbox flag (set by send_input, not
+                // by interrupt_agent or a bare settle) identifies that lane;
+                // lifecycle alone cannot, since a never-started run and a
+                // queued followup both read pending_init.
+                if (!deps.fleetRecords.hasLiveFollowup(session.id)) {
                   deps.sessions.attachReport(session.id, result.report, {
                     ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
                   });
