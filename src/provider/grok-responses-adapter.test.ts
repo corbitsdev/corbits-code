@@ -196,4 +196,18 @@ describe("createGrokResponsesAdapter", () => {
     ).toBe(1_500);
     expect(adapter.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
   });
+
+  test("treats Responses completed, incomplete, and done events as stream-terminal", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    expect(typeof adapter.isStreamTerminal).toBe("function");
+    for (const type of ["response.completed", "response.incomplete", "response.done"]) {
+      expect(adapter.isStreamTerminal!(JSON.stringify({ type }))).toBe(true);
+    }
+    for (const type of ["response.output_text.delta", "response.created", "response.in_progress"]) {
+      expect(adapter.isStreamTerminal!(JSON.stringify({ type }))).toBe(false);
+    }
+    expect(adapter.isStreamTerminal!("{not json")).toBe(false);
+    expect(adapter.isStreamTerminal!("null")).toBe(false);
+    expect(adapter.isStreamTerminal!('"just a string"')).toBe(false);
+  });
 });
