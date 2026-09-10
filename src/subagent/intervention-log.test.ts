@@ -76,6 +76,16 @@ describe("intervention log", () => {
     expect(records.map((r) => r.id)).toEqual(["report-forced", "turn-budget"]);
   });
 
+  test("preserves an optional coalesced count on the record", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "intervention-log-"));
+    const sink = createInterventionLog(dir, { role: "leaf" });
+    sink({ id: "tool-failure-recovery", class: "nudge", count: 3 });
+    await flush();
+
+    const [record] = await readRecords(dir);
+    expect(record?.count).toBe(3);
+  });
+
   test("a write failure never throws into the caller", async () => {
     const sink = createInterventionLog(
       join(tmpdir(), "intervention-log-missing-dir-xyz"),

@@ -132,6 +132,10 @@ export class SubAgentDirector extends DefaultDirector {
   // overflow compact (interceptOverflow re-arms from lastConsumedNudgeText if
   // the infer that consumed pending never completed).
   private pendingNudgeText: string | null = null;
+  // How many consecutive failed tool.done audits are waiting to be flushed as
+  // one tool-failure-recovery intervention when applyPendingNudge consumes the
+  // pending recovery nudge. Coalesces the audit trail without changing nudge text.
+  private pendingToolFailureRecoveryCount = 0;
   // The text applyPendingNudge last attached to a returned infer. Overflow of
   // that infer means the model never saw it, so interceptOverflow re-arms
   // pending from this when pending is still null. Cleared on a successful
@@ -402,13 +406,10 @@ export class SubAgentDirector extends DefaultDirector {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
       if (event.result.isError === true) {
-        // Failed-tool recovery guidance.
+        // Failed-tool recovery guidance. Arm once; coalesce consecutive failure
+        // audits until applyPendingNudge flushes a single counted record.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
-        this.interventions({
-          id: "tool-failure-recovery",
-          class: "nudge",
-          state: this.interventionState(),
-        });
+        this.pendingToolFailureRecoveryCount += 1;
       }
     }
     const base = await super.decide(event, state, capabilities);
@@ -506,6 +507,15 @@ export class SubAgentDirector extends DefaultDirector {
     const text = this.pendingNudgeText;
     this.pendingNudgeText = null;
     this.lastConsumedNudgeText = text;
+    if (this.pendingToolFailureRecoveryCount > 0) {
+      this.interventions({
+        id: "tool-failure-recovery",
+        class: "nudge",
+        count: this.pendingToolFailureRecoveryCount,
+        state: this.interventionState(),
+      });
+      this.pendingToolFailureRecoveryCount = 0;
+    }
     const existing = actions[inferIndex] as Extract<
       ReactorAction,
       { type: "infer" }
