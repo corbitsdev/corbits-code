@@ -176,7 +176,11 @@ export class SubAgentDirector extends DefaultDirector {
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
-  private consecutiveStalls = 0;
+  // Wall clock when the first stall nudge was issued. Later empty pings inside
+  // stallTimeoutMs of this instant wait without stopping or restarting grace;
+  // stop only after the grace elapses with no activity. Cleared on real
+  // tool.done / turn-boundary activity.
+  private stallNudgeAt: number | undefined;
   private lastAssistantText = "";
   // Every stop and nudge is recorded with its measured value beside its
   // threshold, so a later threshold change can cite data instead of judgment
@@ -303,7 +307,7 @@ export class SubAgentDirector extends DefaultDirector {
     if (onTurnBoundary(event)) {
       this.lastConsumedNudgeText = null;
       this.lastActivityAt = this.now();
-      this.consecutiveStalls = 0;
+      this.stallNudgeAt = undefined;
       this.compaction.noteInferenceDone(event, state.turns);
       this.turnsCompleted++;
       const content = event.turn.content as readonly {
@@ -410,7 +414,7 @@ export class SubAgentDirector extends DefaultDirector {
     }
     if (event.type === "tool.done") {
       this.lastActivityAt = this.now();
-      this.consecutiveStalls = 0;
+      this.stallNudgeAt = undefined;
       if (event.result.isError === true) {
         // Failed-tool recovery guidance. Arm once; coalesce consecutive failure
         // audits until applyPendingNudge flushes a single counted record.
@@ -438,12 +442,12 @@ export class SubAgentDirector extends DefaultDirector {
    * "no pending harness-tracked work" falls out of when this method can run
    * at all rather than needing separate bookkeeping.
    *
-   * First stall past the timeout: one continuation nudge, asking the leaf to
-   * report status or keep going. A second consecutive stall (no activity
-   * since the nudge) escalates to the existing salvage path, same shape as
-   * the turn-boundary checks above. Returns null when this event is not
-   * a stall check the director should act on (let it fall through as an
-   * ordinary continuation).
+   * First silence past the timeout: one continuation nudge, and record
+   * stallNudgeAt. Queued pings that arrive inside the stallTimeoutMs grace
+   * after that nudge neither stop nor restart the grace (and do not count as
+   * activity). Stop only when a ping arrives after the grace with still no
+   * activity. Returns null when this event is not a stall check the director
+   * should act on (let it fall through as an ordinary continuation).
    */
   private checkStallPing(
     event: ReactorInboundEvent,
@@ -456,8 +460,8 @@ export class SubAgentDirector extends DefaultDirector {
     const elapsed = this.now() - this.lastActivityAt;
     if (elapsed < this.stallTimeoutMs) return null;
 
-    this.consecutiveStalls++;
-    if (this.consecutiveStalls === 1) {
+    if (this.stallNudgeAt === undefined) {
+      this.stallNudgeAt = this.now();
       this.interventions({
         id: "stall-nudge",
         class: "nudge",
@@ -473,6 +477,14 @@ export class SubAgentDirector extends DefaultDirector {
         inferWithSubAgentNudge(capabilities, SUBAGENT_STALL_NUDGE),
       ];
     }
+
+    const sinceNudge = this.now() - this.stallNudgeAt;
+    if (sinceNudge < this.stallTimeoutMs) {
+      // Still inside the post-nudge grace. Wait without faking activity or
+      // restarting the grace clock.
+      return [capabilities.wait()];
+    }
+
     this.interventions({
       id: "stalled",
       class: "stop",
