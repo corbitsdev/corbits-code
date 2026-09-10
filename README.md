@@ -152,8 +152,9 @@ Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md`
 
 Corbits Code is a single-process CLI built on Interchange primitives. The primary
 session is always the **orchestrator** (Skywalker): it can act directly and
-delegates substantial work through a closed director fleet via `spawn_agent`,
-`wait_agents`, and `search_agents`.
+delegates substantial work through a closed director fleet via `spawn_agent`
+then idle (mailbox mail inbound), `search_agents`, and optional `wait_agents`
+for nested orchestrators.
 
 ```
 CLI (src/index.ts)
@@ -162,7 +163,7 @@ CLI (src/index.ts)
   → create agent with ChatDirector, posix tools, permission gate
   → mount plugins, MCP, hooks, skills
   → primary orchestrator turn
-       ↳ spawn_agent / wait_agents → closed directors (builder, explorer, …)
+       ↳ spawn_agent then idle → mailbox mail inbound → closed directors (builder, explorer, …)
   → event stream → OpenTUI host (TUI) or stdout (exec)
 ```
 

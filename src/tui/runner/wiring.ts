@@ -22,6 +22,7 @@ import { setActiveDisposeHost } from "../../session/active-host.js";
 import {
   createFleetWatch,
   driveOpenTasksAfterFleetDry,
+  driveMailboxMail,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   liveFleetCount,
@@ -62,7 +63,11 @@ import {
   type RunnerState,
 } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
-import { buildFleetDryContinuationMessage } from "../../session/runtime-assembly.js";
+import {
+  buildFleetDryContinuationMessage,
+  buildMailboxMailMessage,
+} from "../../session/runtime-assembly.js";
+import { steerCount } from "../session-queue.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -210,8 +215,29 @@ export function wirePostStartup(
       },
     });
   });
+  sessionBridge.setMailboxMailDriver(() => {
+    const send = state.sendWithAttemptIdentity;
+    if (send === undefined) return false;
+    return driveMailboxMail({
+      parentProcessing: sessionBridge.turn.isProcessing,
+      mailbox: services.toolset.fleetRecords,
+      lanes: services.subAgentSessions.list(),
+      beginSystemContinuation: (prompt) => {
+        sessionBridge.beginSystemContinuation(prompt);
+      },
+      send: (prompt) => send(buildMailboxMailMessage(prompt)),
+      onSendFailure: () => {
+        sessionBridge.abortSystemContinuation({ rearmDry: false });
+      },
+    });
+  });
+  sessionBridge.setWaitYieldWake(() => {
+    services.subAgentSessions.wake();
+  });
+  state.hasQueuedSteer = () => steerCount(hostOf(state).shell.session) > 0;
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
     fleetWakePublisher.publish();
+    sessionBridge.flushMailboxMail();
     if (fleetSettle !== null) return;
     fleetSettle = setTimeout(() => {
       fleetSettle = null;
@@ -226,6 +252,8 @@ export function wirePostStartup(
     if (fleetSettle !== null) clearTimeout(fleetSettle);
     unsubscribeFleetReport();
     sessionBridge.setDryOpenTaskDriver(undefined);
+    sessionBridge.setMailboxMailDriver(undefined);
+    sessionBridge.setWaitYieldWake(undefined);
   };
 
   // Registered slash-command names only — bare skill/agent words stay unstyled.

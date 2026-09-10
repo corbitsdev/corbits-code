@@ -20,6 +20,7 @@ import type { GrantScope } from "../permission/types.js";
 import {
   APPROVAL_PERSIST_FAILURE_NOTICE,
   buildCompactionContinuationMessage,
+  buildMailboxMailMessage,
   buildSubAgentProvider,
   createApprovalPersist,
   createLiveSubAgentSources,
@@ -531,5 +532,18 @@ describe("buildCompactionContinuationMessage", () => {
     expect(message.headers.messageId.startsWith("compact-continue-")).toBe(
       true,
     );
+  });
+});
+
+describe("buildMailboxMailMessage", () => {
+  test("builds a system inbound with mailbox mail content", () => {
+    const message = buildMailboxMailMessage("mailbox mail — reports");
+    expect(message.content).toBe("mailbox mail — reports");
+    expect(message.flags).toEqual([]);
+    expect(message.signatureStatus).toBe("missing");
+    expect(message.ref).toEqual({ uid: 0, mailbox: "system" });
+    expect(message.headers.from).toBe("user@local");
+    expect(message.headers.to).toEqual(["agent@local"]);
+    expect(message.headers.messageId.startsWith("mailbox-mail-")).toBe(true);
   });
 });

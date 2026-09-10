@@ -28,6 +28,11 @@ export {
 } from "./fleet-report.js";
 export { driveOpenTasksAfterFleetDry } from "./fleet-dry-drive.js";
 export {
+  driveMailboxMail,
+  MAILBOX_MAIL_WAKE_PREFIX,
+  occupancyShouldYieldWait,
+} from "./mailbox-mail-drive.js";
+export {
   EMPTY_THRASH_STATE,
   nextThrashState,
   salvagePathsFromThrash,

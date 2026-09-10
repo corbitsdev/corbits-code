@@ -41,6 +41,7 @@ import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { Agent } from "@intx/agent";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
+import { MAILBOX_MAIL_WAKE_PREFIX } from "../../subagent/mailbox-mail-drive.js";
 import {
   hostOf,
   runWhileAgentBusy,
@@ -396,6 +397,7 @@ export function createDeliverRouting(
       recordSent: (text) => {
         if (text.trim().length === 0) return;
         if (text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)) return;
+        if (text.startsWith(MAILBOX_MAIL_WAKE_PREFIX)) return;
         void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
           (err: unknown) => {
             tuiLogger.debug("sent-message append failed: {error}", {

@@ -129,7 +129,7 @@ export function buildGuidelines(
     ...(subAgent
       ? []
       : [
-          "- Prefer spawn_agent(agent=…) / wait_agents for substantial product implementation, exploration, review, and docs — spawn remains default for substantial work, not a tool ban.",
+          "- Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — mailbox mail arrives as inbound; do not poll wait_agents. Spawn remains default for substantial work, not a tool ban.",
         ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     subAgent
@@ -174,10 +174,10 @@ export function buildGuidelines(
       : [
           "",
           "Orchestration:",
-          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle, and `wait_agents` / `list_agents` on a later turn collect their reports without holding this conversation blocked.",
+          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. Mailbox mail arrives as inbound when a worker finishes; read it and do not poll `wait_agents`. Nested orchestrators still collect with `wait_agents`. `list_agents` shows the fleet without blocking.",
           "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
           "- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (`status: failed` or salvage `incomplete-report`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (`interrupt_agent` / `send_input` with `interrupt:true` unblocks wait with `stop_reason: interrupted`): the worker is often still running and often has no report — `resume_agent` or re-wait; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
-          "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent` / `wait_agents`, not manage_tasks.",
+          "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
   ].join("\n");
@@ -243,7 +243,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   spawn_agent:
     "start a worker agent and return immediately with agent_id; pass returned ids from search_agents as agent=...",
   wait_agents:
-    "wait for spawned workers by agent_id; returns awaiting_director when a worker asks, without collecting that session",
+    "optional/deprecated on the primary parent — mailbox mail arrives as inbound; nested orchestrators still wait for spawned workers by agent_id; returns awaiting_director when a worker asks, without collecting that session",
   search_agents:
     "find agent profiles by role or team before spawning with spawn_agent(agent=...); default results are id, description, and spawn metadata — pass include_body=true for the loaded system prompt / body",
   manage_tasks:

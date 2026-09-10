@@ -25,6 +25,7 @@ import { getProcessAdmissionQueue } from "../../subagent/admission.js";
 import {
   createSubAgentSessionStore,
   liveFleetCount,
+  occupancyShouldYieldWait,
 } from "../../subagent/index.js";
 import {
   buildPluginDescriptor,
@@ -302,12 +303,19 @@ export async function assembleTUISession(
   // construction-order cycle.
   const workflowHostHolder: { instance?: WorkflowHost } = {};
 
+  const toolsetHolder: {
+    current?: Awaited<ReturnType<typeof createAgentToolset>>;
+  } = {};
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
     skillDirs,
     telemetry: liveTelemetry,
     isCodex: isCodexProviderName(config.providerName),
+    shouldYieldWait: () => {
+      if (state.hasQueuedSteer?.() === true) return true;
+      return occupancyShouldYieldWait(toolsetHolder.current?.fleetRecords);
+    },
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
     ...(localSettingsForEnv?.env !== undefined
       ? { shellEnv: localSettingsForEnv.env }
@@ -399,6 +407,7 @@ export async function assembleTUISession(
       profiles: () => liveAgentProfiles,
     },
   });
+  toolsetHolder.current = toolset;
 
   const { systemPrompt } = await loadSessionChatPrompt({
     cwd: config.cwd,

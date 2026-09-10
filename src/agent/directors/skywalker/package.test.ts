@@ -117,18 +117,18 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Do not invent a numeric cap");
   });
 
-  test("systemPrompt prefers spawn_agent then wait_agents (idle-orchestrator)", () => {
+  test("systemPrompt prefers spawn_agent then idle (idle-orchestrator)", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("spawn_agent");
     expect(p).toContain("wait_agents");
     expect(p).toContain("Idle-orchestrator");
     expect(p).not.toContain("task()");
-    expect(p).toContain('mode="all"');
-    expect(p).toContain("uncollected spawns");
+    expect(p).toContain("do not poll wait_agents");
+    expect(p).toContain("mailbox mail arrives as inbound");
     expect(p).toContain(
       "When the fleet goes dry the runtime re-enters with collected reports",
     );
-    expect(p).toContain("do not tight-loop wait_agents");
+    expect(p).not.toContain("do not tight-loop wait_agents");
     expect(p).not.toContain(
       "Present the plan when the change is large or ambiguous",
     );
@@ -140,10 +140,10 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("only surface that talks to the operator");
     expect(p).toContain("frequent short status updates");
     expect(p).toContain("reply to the operator");
-    expect(p).toContain("before you block");
-    expect(p).toContain("timeout_ms");
+    expect(p).toContain("end the turn");
+    expect(p).toContain("mailbox mail");
     expect(p).toContain("answer them first");
-    expect(p).toContain("Enter can land");
+    expect(p).toContain("Enter mid-run");
   });
 
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {
@@ -229,8 +229,7 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("send_input");
     expect(p).toContain("awaiting_director");
     expect(p).toContain("idle-send");
-    expect(p).toContain("target = that worker's session id");
-    expect(p).toContain("target = worker session id");
+    expect(p).toMatch(/target = (that worker's |worker )session id/);
     expect(p).not.toMatch(
       /wait_agents returns status running plus a question/i,
     );

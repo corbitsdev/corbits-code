@@ -3048,3 +3048,131 @@ describe("admission queue", () => {
     ]);
   });
 });
+
+describe("wait_agents occupancy yield (CL-7518)", () => {
+  test("shouldYieldWait finishes as timeout without taking or interrupting workers", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async () => gate.promise);
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () => true,
+    });
+    const spawned = await callTool(spawn, {
+      description: "live",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(waited.timed_out).toBe(true);
+    const row = defined((waited.results as Record<string, unknown>[])[0]);
+    expect(row.status).toBe("running");
+    expect(row.report).toBeUndefined();
+    expect(deps.sessions.get(id)?.status).toBe("running");
+    expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
+    gate.resolve({ report: "ok" });
+  });
+
+  test("queued-steer wake yields an in-flight wait as timeout", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async () => gate.promise);
+    let yieldWait = false;
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () => yieldWait,
+    });
+    const spawned = await callTool(spawn, {
+      description: "live",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    const pending = callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    yieldWait = true;
+    deps.sessions.wake();
+    const waited = await pending;
+    expect(waited.timed_out).toBe(true);
+    expect(deps.sessions.get(id)?.status).toBe("running");
+    expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
+    gate.resolve({ report: "ok" });
+  });
+
+  test("already-collected wait has no second report or error copy", async () => {
+    const deps = makeDeps(async () => ({ report: "shipped" }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "lane",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, id);
+    const first = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(first.timed_out).toBe(false);
+    expect(defined((first.results as { report?: string }[])[0]).report).toBe(
+      "shipped",
+    );
+    expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
+
+    const again = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(again.timed_out).toBe(false);
+    const row = defined((again.results as Record<string, unknown>[])[0]);
+    expect(row.status).toBe("done");
+    expect(row.report).toBeUndefined();
+    expect(row.error).toBeUndefined();
+    expect(row.question).toBeUndefined();
+  });
+
+  test("yield on awaiting_director omits the question payload", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => undefined,
+      });
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .then(
+          () => undefined,
+          () => undefined,
+        );
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    let id = "";
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () =>
+        deps.fleetRecords.peek(id)?.status === "awaiting_director",
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(waited.timed_out).toBe(true);
+    const row = defined((waited.results as Record<string, unknown>[])[0]);
+    expect(row.status).toBe("awaiting_director");
+    expect(row.question).toBeUndefined();
+    expect(row.question_id).toBeUndefined();
+    expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
+    gate.resolve({ report: "ok" });
+  });
+});

@@ -2118,6 +2118,274 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
   });
 });
 
+describe("mailbox mail occupancy (CL-7518)", () => {
+  function settleToollessTurn(
+    bridge: ReturnType<typeof attachSessionBridge>,
+  ): void {
+    bridge.handle({ type: "inference.start", data: {} });
+    bridge.handle({ type: "inference.done", data: {} });
+  }
+
+  test("idle-with-fleet child-done while siblings run flushes mailbox mail", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt =
+            "mailbox mail — worker reports (already collected — do not call wait_agents for these agent_ids):\n[]";
+          let terminals = 0;
+          let drives = 0;
+          bridge.setMailboxMailDriver(() => {
+            if (terminals === 0) return false;
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 2 });
+          settleToollessTurn(bridge);
+          expect(drives).toBe(0);
+          terminals = 1;
+          bridge.handle({ type: "fleet", running: 1 });
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("fail wake is the same idle-with-fleet flush", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let drives = 0;
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          bridge.setMailboxMailDriver(() => {
+            drives += 1;
+            return true;
+          });
+          expect(drives).toBe(0);
+          bridge.flushMailboxMail();
+          expect(drives).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("does not flush while the parent is processing", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let drives = 0;
+          bridge.setMailboxMailDriver(() => {
+            drives += 1;
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          bridge.flushMailboxMail();
+          expect(drives).toBe(0);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("skips mailbox mail when a fleet-dry open-task shot is latched", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let mail = 0;
+          let dry = 0;
+          let allowMail = false;
+          bridge.setMailboxMailDriver(() => {
+            if (!allowMail) return false;
+            mail += 1;
+            return true;
+          });
+          bridge.setDryOpenTaskDriver(() => {
+            dry += 1;
+            bridge.beginSystemContinuation(
+              "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n",
+            );
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          allowMail = true;
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(dry).toBe(1);
+          expect(mail).toBe(0);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("no double-deliver: second flush is a no-op after the driver takes", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let remaining = 1;
+          let drives = 0;
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          bridge.setMailboxMailDriver(() => {
+            if (remaining === 0) return false;
+            remaining = 0;
+            drives += 1;
+            return true;
+          });
+          bridge.flushMailboxMail();
+          bridge.flushMailboxMail();
+          expect(drives).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("queued steer while wait is in-flight wakes occupancy yield", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let wakes = 0;
+          bridge.setWaitYieldWake(() => {
+            wakes += 1;
+          });
+          bridge.submit("waiting on workers", "immediate");
+          bridge.submit("steer now", "steer");
+          expect(wakes).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("live fleet Enter still starts a new primary turn", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.handle({ type: "fleet", running: 2 });
+          settleToollessTurn(bridge);
+          port.clear();
+          shell.prompt.value = "also update the docs";
+          shell.prompt.submit();
+          expect(port.calls.some((c) => c.op === "enqueue")).toBe(false);
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(true);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("mailbox mail send abort does not latch the fleet-dry skip", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let drives = 0;
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          bridge.beginSystemContinuation(
+            "mailbox mail — worker reports (already collected — do not call wait_agents for these agent_ids):\n[]",
+          );
+          bridge.abortSystemContinuation({ rearmDry: false });
+          bridge.setMailboxMailDriver(() => {
+            drives += 1;
+            return true;
+          });
+          bridge.flushMailboxMail();
+          expect(drives).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
 describe("syncAgentProgress", () => {
   function taskSession(
     over: Partial<TaskProgressSession>,

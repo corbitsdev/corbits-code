@@ -13,6 +13,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Added
+
+- Occupancy delivers mailbox mail as system inbound when a worker finishes or
+  fails, including while siblings still run. Skywalker spawn-then-idle; do not
+  poll `wait_agents`. Nested orchestrators still collect with `wait_agents`.
+  TUI-primary `wait_agents` yields as a timeout (workers untouched) when a
+  queued Enter steer or uncollected mail/ask is ready. Already-collected waits
+  return status without a second report body.
+
 ### Changed
 
 - `search_agents` default results are id, description, and spawn metadata.

@@ -440,6 +440,26 @@ export function buildFleetDryContinuationMessage(text: string): InboundMessage {
   };
 }
 
+/**
+ * System-originated inbound that re-enters the parent when mailbox mail
+ * (worker terminal or fail) is ready. Not operator input, so no
+ * OPERATOR_ORIGINATED_FLAG.
+ */
+export function buildMailboxMailMessage(text: string): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `mailbox-mail-${Date.now()}@local`,
+    },
+    flags: [],
+    content: text,
+    signatureStatus: "missing",
+  };
+}
+
 // Preview cap for a background shell's inline output; the full output stays in
 // the registry (shell_collect) and, when truncated, in the spill blob.
 const BACKGROUND_SHELL_PREVIEW_CHARS = 2_000;
