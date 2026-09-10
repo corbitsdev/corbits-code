@@ -1,3 +1,5 @@
+import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformationFull,
@@ -5,7 +7,13 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { updateAuthState, type MCPAuthIdentity, type MCPAuthState } from "./auth-store.js";
+import {
+  authFilePath,
+  tryLoadAuthStateSync,
+  updateAuthState,
+  type MCPAuthIdentity,
+  type MCPAuthState,
+} from "./auth-store.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
 export interface OAuthProviderOptions {
@@ -38,13 +46,41 @@ function dropStaleClientRegistration(state: MCPAuthState, redirectUrl: string): 
   delete state.codeVerifier;
 }
 
-function replaceStored(stored: MCPAuthState, next: MCPAuthState): void {
-  delete stored.clientInformation;
-  delete stored.tokens;
-  delete stored.codeVerifier;
-  if (next.clientInformation !== undefined) stored.clientInformation = next.clientInformation;
+function shouldAdoptClient(stored: MCPAuthState, next: MCPAuthState, redirectUrl: string): boolean {
+  if (next.clientInformation === undefined) return false;
+  if (redirectUrisInclude(next.clientInformation, redirectUrl)) return true;
+  // Other-port DCR is a sibling's in-progress registration unless they also
+  // published new tokens (completed re-auth).
+  return next.tokens !== undefined && next.tokens.access_token !== stored.tokens?.access_token;
+}
+
+function assignTokens(stored: MCPAuthState, next: MCPAuthState): void {
   if (next.tokens !== undefined) stored.tokens = next.tokens;
-  if (next.codeVerifier !== undefined) stored.codeVerifier = next.codeVerifier;
+  else delete stored.tokens;
+}
+
+function assignClient(stored: MCPAuthState, next: MCPAuthState): void {
+  if (next.clientInformation !== undefined) stored.clientInformation = next.clientInformation;
+  else delete stored.clientInformation;
+}
+
+function matchingLiveClient(
+  stored: MCPAuthState,
+  redirectUrl: string,
+): OAuthClientInformationFull | undefined {
+  const live = stored.clientInformation;
+  if (live === undefined || !redirectUrisInclude(live, redirectUrl)) return undefined;
+  return live;
+}
+
+function persistMatchingLiveClient(
+  stored: MCPAuthState,
+  next: MCPAuthState,
+  redirectUrl: string,
+): void {
+  const live = matchingLiveClient(stored, redirectUrl);
+  if (live === undefined) return;
+  next.clientInformation = live;
 }
 
 export async function createOAuthProvider(
@@ -54,20 +90,57 @@ export async function createOAuthProvider(
     serverName: opts.serverName,
     serverURL: opts.serverURL,
   };
+  const home = opts.home ?? homedir();
   // Load + scrub stale DCR under the per-file chain so concurrent providers see
-  // the same cleaned state. Mutations always re-read disk; this in-memory mirror
-  // only serves the SDK's sync getters (tokens / clientInformation / codeVerifier).
+  // the same cleaned state. Mutations always re-read disk; tokens and matching
+  // DCR are observed from disk so a sibling session's completed auth is picked
+  // up. PKCE stays instance-local after this snapshot — a different-port sibling
+  // must not clobber an in-progress verifier.
   const stored: MCPAuthState = await updateAuthState(
     identity,
     (state) => {
       dropStaleClientRegistration(state, opts.redirectUrl);
     },
-    opts.home,
+    home,
   );
 
   const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
-    const next = await updateAuthState(identity, mutator, opts.home);
-    replaceStored(stored, next);
+    const next = await updateAuthState(
+      identity,
+      (state) => {
+        mutator(state);
+        persistMatchingLiveClient(stored, state, opts.redirectUrl);
+      },
+      home,
+    );
+    assignTokens(stored, next);
+    if (matchingLiveClient(stored, opts.redirectUrl) === undefined) {
+      assignClient(stored, next);
+    }
+  };
+
+  // Cheap staleness guard: statSync per getter, sync read only when the file's
+  // mtime or size changed. Stamp commits only after a successful read so a
+  // failed/unreadable file is retried on the next getter call.
+  const authPath = authFilePath(identity, home);
+  let seenStamp: string | undefined;
+  const refreshDurableFromDisk = (): void => {
+    let stamp: string | undefined;
+    try {
+      const stat = statSync(authPath);
+      stamp = `${String(stat.mtimeMs)}:${String(stat.size)}`;
+    } catch {
+      if (seenStamp === undefined) return;
+      seenStamp = undefined;
+      return;
+    }
+    if (stamp === seenStamp) return;
+    const next = tryLoadAuthStateSync(identity, home);
+    if (next === undefined) return;
+    seenStamp = stamp;
+    const adoptClient = shouldAdoptClient(stored, next, opts.redirectUrl);
+    assignTokens(stored, next);
+    if (adoptClient) assignClient(stored, next);
   };
 
   let oauthState: string | undefined;
@@ -89,14 +162,17 @@ export async function createOAuthProvider(
       };
     },
     clientInformation(): OAuthClientInformationMixed | undefined {
+      refreshDurableFromDisk();
       return stored.clientInformation;
     },
     saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
+      stored.clientInformation = info as OAuthClientInformationFull;
       return apply((state) => {
         state.clientInformation = info as OAuthClientInformationFull;
       });
     },
     tokens(): OAuthTokens | undefined {
+      refreshDurableFromDisk();
       return stored.tokens;
     },
     saveTokens(tokens: OAuthTokens): Promise<void> {
@@ -110,6 +186,7 @@ export async function createOAuthProvider(
       opts.onAuthURL(opts.serverName, authorizationUrl.toString());
     },
     saveCodeVerifier(codeVerifier: string): Promise<void> {
+      stored.codeVerifier = codeVerifier;
       return apply((state) => {
         state.codeVerifier = codeVerifier;
       });
@@ -119,9 +196,9 @@ export async function createOAuthProvider(
         throw new Error("No PKCE code verifier saved for this authorization.");
       return stored.codeVerifier;
     },
-    resetAuthorization(): Promise<void> {
+    async resetAuthorization(): Promise<void> {
       oauthState = undefined;
-      return apply((state) => {
+      await apply((state) => {
         delete state.tokens;
         delete state.codeVerifier;
         // Next browser flow needs a client registered for *this* loopback port.
@@ -129,6 +206,7 @@ export async function createOAuthProvider(
           delete state.clientInformation;
         }
       });
+      delete stored.codeVerifier;
     },
   };
 }

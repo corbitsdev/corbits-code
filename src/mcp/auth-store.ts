@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
@@ -41,7 +42,7 @@ export function normalizeMCPServerURL(serverURL: string): string {
   return url.toString();
 }
 
-function authFilePath(identity: MCPAuthIdentity, home: string): string {
+export function authFilePath(identity: MCPAuthIdentity, home: string = homedir()): string {
   const normalizedURL = normalizeMCPServerURL(identity.serverURL);
   const digest = createHash("sha256")
     .update(JSON.stringify([identity.serverName, normalizedURL]))
@@ -49,32 +50,80 @@ function authFilePath(identity: MCPAuthIdentity, home: string): string {
   return join(mcpAuthDir(home), `${serverDisplaySlug(identity.serverName)}-${digest}.json`);
 }
 
-export async function loadAuthState(
-  identity: MCPAuthIdentity,
-  home: string = homedir(),
-): Promise<MCPAuthState> {
-  let raw: string;
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+function parseAuthState(raw: string): MCPAuthState | undefined {
   try {
-    raw = await readFile(authFilePath(identity, home), "utf8");
-  } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return {};
-    }
-    throw err;
-  }
-  try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null) return parsed as MCPAuthState;
   } catch {
     // A corrupt auth file should not wedge the session; treat it as no state and
     // let a fresh authorization overwrite it.
   }
-  return {};
+  return undefined;
+}
+
+function stateFromRaw(raw: string | undefined): MCPAuthState {
+  if (raw === undefined) return {};
+  return parseAuthState(raw) ?? {};
+}
+
+function readAuthFileSync(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    if (isEnoent(err)) return undefined;
+    throw err;
+  }
+}
+
+async function readAuthFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (err) {
+    if (isEnoent(err)) return undefined;
+    throw err;
+  }
+}
+
+// Synchronous connect-contract load. Tolerates a missing (ENOENT) or corrupt
+// file with empty state, matching loadAuthState; other read errors propagate.
+export function loadAuthStateSync(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): MCPAuthState {
+  return stateFromRaw(readAuthFileSync(authFilePath(identity, home)));
+}
+
+export async function loadAuthState(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): Promise<MCPAuthState> {
+  return stateFromRaw(await readAuthFile(authFilePath(identity, home)));
+}
+
+// Cache refresh for a live provider: missing, unreadable, or corrupt files
+// return undefined so the caller keeps its in-memory mirror. Empty-on-corrupt
+// is loadAuthState's connect contract, not cache invalidation.
+export function tryLoadAuthStateSync(
+  identity: MCPAuthIdentity,
+  home: string = homedir(),
+): MCPAuthState | undefined {
+  let raw: string | undefined;
+  try {
+    raw = readAuthFileSync(authFilePath(identity, home));
+  } catch {
+    return undefined;
+  }
+  if (raw === undefined) return undefined;
+  return parseAuthState(raw);
 }
 
 // pid alone is not unique per call — concurrent saves in one process must not
@@ -174,14 +223,7 @@ async function unlinkAuthFile(path: string): Promise<void> {
   try {
     await unlink(path);
   } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return;
-    }
+    if (isEnoent(err)) return;
     throw err;
   }
 }
