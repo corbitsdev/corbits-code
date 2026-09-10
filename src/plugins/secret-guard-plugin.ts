@@ -4,6 +4,7 @@ import {
   realpathNearestOr,
   UNRESOLVABLE,
 } from "../permission/path-restriction.js";
+import { productMutationPaths } from "../agent/product-mutation-tools.js";
 import { looksLikePath } from "./path-escape-plugin.js";
 
 // Files that hold secrets and must never be read or written by path-keyed tools
@@ -23,8 +24,10 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /(^|\/)\.git-credentials$/,
   // Corbits Code's own settings hold provider credentials. Covers both the
   // global (~/.corbits/settings.json) and per-repo (.corbits/settings.json)
-  // locations.
+  // locations. The grant store next to them is not a credential file, but a
+  // write becomes a standing auto-approval on the next run — same path deny.
   /(^|\/)\.corbits\/settings\.json$/,
+  /(^|\/)\.corbits\/permissions\.json$/,
   /(^|\/)\.pgpass$/,
   /(^|\/)\.htpasswd$/,
   /(^|\/)\.ssh\//,
@@ -161,6 +164,15 @@ export function secretGuardPlugin(): ToolPlugin {
           return {
             callId: call.id,
             content: `Access to sensitive file blocked by policy: ${value}`,
+            isError: true,
+          };
+        }
+      }
+      for (const path of productMutationPaths(call.name, call.arguments)) {
+        if (isSensitivePathResolved(path)) {
+          return {
+            callId: call.id,
+            content: `Access to sensitive file blocked by policy: ${path}`,
             isError: true,
           };
         }

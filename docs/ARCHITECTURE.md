@@ -73,7 +73,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses a leading `exec`/`run` subcommand, flags `--cwd`, `--config`, `--provider`, `--model`, `--dangerously-skip-permissions` (forces this process; TUI `/yolo` persists as the user-global default), `--auto` / `--no-auto` (auto mode defaults on); collects positional arguments as the optional initial task for the TUI or the required prompt for exec.
-- Both settings files are on the secret-guard denylist for path-keyed tools, so the agent cannot `read_file` its own credentials. Shell commands that reference them still require explicit operator approval.
+- Both settings files and the project/global grant store (`.corbits/permissions.json`) are on the secret-guard denylist for path-keyed tools, so the agent cannot `read_file` its own credentials or persist standing auto-approvals. Shell commands that reference them still require explicit operator approval.
 
 ### TUI Runner (`src/tui/runner.ts`)
 
