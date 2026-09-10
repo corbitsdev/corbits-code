@@ -295,10 +295,11 @@ export interface PermissionGateOptions {
   // silent by construction.
   telemetry?: Telemetry | undefined;
   // This gate's decisions are consumed by the reactor's before-tool authz
-  // seam (env.authorize) instead of the tool-runner middleware. Set for the
-  // main session so approved re-dispatches skip the middleware gate; kept
-  // false for sub-agents, which still gate in the middleware. Required so a
-  // caller cannot silently fall back to middleware gating by omitting it.
+  // seam (env.authorize) instead of evaluate() in the tool-runner middleware.
+  // Set for the main session so approved re-dispatches skip the middleware
+  // prompt; kept false for sub-agents, which still gate via evaluate().
+  // Required so a caller cannot silently fall back to middleware gating by
+  // omitting it.
   reactorGated: boolean;
   // Ask/settle event log (see approval-log.ts): one record per consequential
   // decision, auto or interactive. Defaults to a no-op so nothing depends on
@@ -306,24 +307,29 @@ export interface PermissionGateOptions {
   approvalLog?: ApprovalLog;
 }
 
+export type AuthorizeVerdict =
+  | { effect: "allow" }
+  | { effect: "deny"; reason: string }
+  | { effect: "ask"; request: PermissionRequest };
+
 export interface PermissionGate {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
   // Reactor-path policy: the same decision evaluate() makes, as the effect the
   // vendored before-tool authz hook consumes (see authorizeCall above).
-  authorizeCall: (
-    call: ToolCall,
-  ) => Promise<
-    | { effect: "allow" }
-    | { effect: "deny"; reason: string }
-    | { effect: "ask"; request: PermissionRequest }
-  >;
+  authorizeCall: (call: ToolCall) => Promise<AuthorizeVerdict>;
+  // Execution-time backstop for reactor-gated posix/MCP middleware: consume the
+  // authorizeCall verdict when the same call identity (id, name, arguments) is
+  // cached; decide only on a miss (nested posix whose outer tool is not
+  // run_shell, colliding reused ids, and tests).
+  executionVerdict: (call: ToolCall) => Promise<AuthorizeVerdict>;
   // Resolve a suspended reactor approval against the operator (and mint the
   // outcome's grant). Returns undefined when no outcome arrived.
   resolveSuspended: (request: PermissionRequest) => Promise<ApprovalOutcome | undefined>;
-  // True when this gate's decisions are consumed by the reactor's authz seam
-  // (env.authorize) rather than by the tool-runner middleware. Tool-runner
-  // gating (gateToolCall) is bypassed under reactor gating so an approved
-  // re-dispatch runs without a second prompt.
+  // True when this gate's decisions go through env.authorize (authorizeCall)
+  // rather than evaluate() in the tool-runner middleware. Under reactor gating,
+  // gateToolCall is an execution backstop: it consumes a matching cached
+  // verdict and decides on a miss. Deny still blocks; ask/allow skip the
+  // middleware prompt so an approved re-dispatch never re-asks.
   isReactorGated: () => boolean;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
@@ -483,6 +489,18 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       })
       .settle(outcome);
   };
+
+  // Consume-once handoff from env.authorize to execution-time middleware.
+  // Not session-lifetime uniqueness: call.id is reused for every Codex proxy
+  // inner posix op, so a lasting set would mute later JSONL records. A hit
+  // still requires matching name and arguments so a reused id cannot apply an
+  // outer allow to a different inner tool. Nested posix with the same id still
+  // consume-once when identity matches. reset() clears leftovers (outer tools
+  // that never hit posix middleware).
+  const authorizedByCallId = new Map<
+    string,
+    { name: string; arguments: ToolCall["arguments"]; verdict: AuthorizeVerdict }
+  >();
 
   // Non-blocking policy decision for one tool call: everything the gate owns —
   // tier pre-filter, auto rules, pre-grant guards, grants, headless denial —
@@ -718,9 +736,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   };
 
   // Middleware path: blocking evaluation used by tool-runner consumers whose
-  // calls never pass through the reactor (sub-agents, late MCP wrappers).
-  // When the gate is reactor-gated this is bypassed entirely — the reactor's
-  // before-tool authz hook owns the decision (see authorizeCall / gateToolCall).
+  // calls never pass through the reactor (sub-agents). When the gate is
+  // reactor-gated, gateToolCall uses executionVerdict instead of evaluate() so
+  // deny still blocks and ask never re-prompts (see gateToolCall).
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     const decision = await decide(call);
     if (decision.kind === "allow") return { allowed: true };
@@ -741,14 +759,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // vendored before-tool authz hook consumes. `allow` proceeds, `deny` becomes
   // an upstream `block`, and `ask` suspends the call as a PendingOperation
   // keyed by the hook-minted correlationId — no resolve closure is held here.
-  const authorizeCall = async (
-    call: ToolCall,
-  ): Promise<
-    | { effect: "allow" }
-    | { effect: "deny"; reason: string }
-    | { effect: "ask"; request: PermissionRequest }
-  > => {
-    const decision = await decide(call);
+  // Stashes the verdict for gateToolCall to consume so middleware is not a
+  // second copy of env.authorize.
+  const mapAuthorizeVerdict = (decision: GateDecision): AuthorizeVerdict => {
     switch (decision.kind) {
       case "allow":
         return { effect: "allow" };
@@ -757,6 +770,29 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       case "ask":
         return { effect: "ask", request: decision.request };
     }
+  };
+
+  const authorizeCall = async (call: ToolCall): Promise<AuthorizeVerdict> => {
+    const verdict = mapAuthorizeVerdict(await decide(call));
+    authorizedByCallId.set(call.id, {
+      name: call.name,
+      arguments: call.arguments,
+      verdict,
+    });
+    return verdict;
+  };
+
+  const executionVerdict = async (call: ToolCall): Promise<AuthorizeVerdict> => {
+    const cached = authorizedByCallId.get(call.id);
+    if (
+      cached !== undefined &&
+      cached.name === call.name &&
+      JSON.stringify(cached.arguments) === JSON.stringify(call.arguments)
+    ) {
+      authorizedByCallId.delete(call.id);
+      return cached.verdict;
+    }
+    return mapAuthorizeVerdict(await decide(call));
   };
 
   // Resolve a suspended reactor approval once the operator answers. The
@@ -782,6 +818,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       if (index !== -1) approvals.splice(index, 1);
     }
     sessionGrants.length = 0;
+    authorizedByCallId.clear();
   };
 
   const sameApproval = (a: Approval, b: Approval): boolean =>
@@ -814,6 +851,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   return {
     evaluate,
     authorizeCall,
+    executionVerdict,
     resolveSuspended,
     isReactorGated: () => reactorGated,
     getApprovals: () => approvals,
