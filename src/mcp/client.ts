@@ -324,15 +324,12 @@ function getOrStartRecovery(
     delete coordinator.refreshInFlight;
     delete coordinator.browserFlow;
   };
-  void shared.then(
-    () => {
-      clear();
-      if ((coordinator.waiters ?? 0) === 0) {
-        completeVerifiedRecovery(context, coordinator.recoveryGeneration ?? 0);
-      }
-    },
-    clear,
-  );
+  void shared.then(() => {
+    clear();
+    if ((coordinator.waiters ?? 0) === 0) {
+      completeVerifiedRecovery(context, coordinator.recoveryGeneration ?? 0);
+    }
+  }, clear);
   return shared;
 }
 
