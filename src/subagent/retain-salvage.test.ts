@@ -56,7 +56,7 @@ describe("retained session lifecycle", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(s.id, async () => {});
+      store.registerClose(s.id, async () => undefined);
       store.complete(s.id, "done");
     }
     expect(store.list().length).toBeLessThanOrEqual(3);

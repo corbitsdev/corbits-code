@@ -1372,7 +1372,7 @@ export function createSubAgentSessionStore(
       if (session.lifecycle.state !== "running") return false;
       if (pendingAsks.has(id)) return false;
       pendingAsks.set(id, ask);
-      mutate(id, () => {});
+      mutate(id, () => undefined);
       return true;
     },
 

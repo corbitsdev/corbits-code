@@ -347,7 +347,8 @@ export async function readAgentTrace(
   let lastReadTurn = fromTurn;
   outer: for (let i = fromTurn; i < toTurn; i++) {
     lastReadTurn = i;
-    const turn = turns[i]!;
+    const turn = turns[i];
+    if (turn === undefined) continue;
     for (const block of turn.content) {
       const entry = blockToEntry(i, turn.role, block);
       if (entry === null) continue;

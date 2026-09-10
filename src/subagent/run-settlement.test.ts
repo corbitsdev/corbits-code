@@ -70,10 +70,10 @@ test("rejected workers settle prior rollups with the latest observed model", asy
               data: { model: "terminal-model" },
             };
           })(),
-        deliver: () => {},
-        close: async () => {},
-        setSource: () => {},
-        setSources: () => {},
+        deliver: () => undefined,
+        close: async () => undefined,
+        setSource: () => undefined,
+        setSources: () => undefined,
         history: async () => [],
         checkpoints: async () => [],
         readAt: async () => [],
@@ -137,11 +137,14 @@ test("pre-progress cancellation settles as cancelled without changing rejection"
         send: async () => {
           throw new Error("send must not start after cancellation");
         },
-        stream: () => (async function* () {})(),
-        deliver: () => {},
-        close: async () => {},
-        setSource: () => {},
-        setSources: () => {},
+        stream: () =>
+          (async function* () {
+            yield* [];
+          })(),
+        deliver: () => undefined,
+        close: async () => undefined,
+        setSource: () => undefined,
+        setSources: () => undefined,
         history: async () => [],
         checkpoints: async () => [],
         readAt: async () => [],

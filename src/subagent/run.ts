@@ -602,13 +602,16 @@ async function runSubAgentInner(
     // Typed reporting channel, Tier 3 leaves only. Gated by the existing
     // tier machinery — never invent a parallel check.
     if (params.tier === "leaf") {
+      if (turnToken === undefined) {
+        throw new Error("leaf dispatch is missing a turn token");
+      }
       tools = [
         ...tools,
         stringTool({
           definition: submitResultDefinition,
           handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
             const outcome = evaluateSubmitResult({
-              turnToken: turnToken!,
+              turnToken,
               submittedToken: rawArgs.turn_token,
               result: rawArgs.result,
               ...(params.reportType !== undefined ? { outputType: params.reportType } : {}),
@@ -1071,7 +1074,8 @@ async function runSubAgentInner(
     ): ReturnType<NonNullable<typeof agent>["send"]> => {
       const pending = runSettlement.beginSend();
       try {
-        const result = await agent!.send(message, options);
+        if (agent === null) throw new Error("sub-agent is not running");
+        const result = await agent.send(message, options);
         await pending.settled;
         return result;
       } catch (error) {
@@ -1167,7 +1171,8 @@ async function runSubAgentInner(
           : "Sub-agent finished without a textual result.";
       };
       const deliver = (message: string): void => {
-        agent!.deliver({
+        if (agent === null) throw new Error("sub-agent is not running");
+        agent.deliver({
           ref: { uid: 1, mailbox: "INBOX" },
           headers: {
             from: "parent@local",

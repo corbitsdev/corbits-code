@@ -31,6 +31,7 @@ import type {
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
+import { defined } from "../../tests/helpers/defined.js";
 
 describe("sub-agent teardown", () => {
   test("disposeSubAgentSession closes agent, awaits stream, and disposes posix tools once", async () => {
@@ -74,7 +75,7 @@ describe("sub-agent teardown", () => {
 
   test("disposeSubAgentSession reaps posix tools before waiting on agent.close", async () => {
     const order: string[] = [];
-    let releaseClose!: () => void;
+    let releaseClose: () => void = () => undefined;
     const closeGate = new Promise<void>((resolve) => {
       releaseClose = resolve;
     });
@@ -125,7 +126,7 @@ describe("sub-agent teardown", () => {
       agent: {
         close: () => {
           closeStarted = true;
-          return new Promise<void>(() => {});
+          return new Promise<void>(() => undefined);
         },
       },
       posixTools,
@@ -149,8 +150,8 @@ describe("sub-agent teardown", () => {
   test("spawn registry tracks in-flight plugin tool calls", async () => {
     const { plugin, snapshot } = createSubAgentSpawnRegistryPlugin();
     expect(plugin.middleware).toBeDefined();
-    const middleware = plugin.middleware!;
-    let release!: () => void;
+    const middleware = defined(plugin.middleware, "middleware");
+    let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });

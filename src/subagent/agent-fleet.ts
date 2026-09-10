@@ -1158,13 +1158,13 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               ? { systemPromptRole: resolved.systemPromptRole }
               : {}),
             directorId: resolved.directorId,
-            ...(orchestrator
+            ...(orchestrator && nestedDispatch !== undefined
               ? {
                   orchestrator: true,
                   ...(resolved.orchestratorTier !== undefined
                     ? { orchestratorTier: resolved.orchestratorTier }
                     : {}),
-                  nestedDispatch: nestedDispatch!,
+                  nestedDispatch,
                 }
               : {}),
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
@@ -1190,7 +1190,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 if (hold.resolve === undefined || hold.reject === undefined) {
                   const err = new Error("ask_director could not register a pending question");
                   hold.reject?.(err);
-                  void answer.catch(() => {});
+                  void answer.catch(() => undefined);
                   throw err;
                 }
                 const ok = deps.sessions.registerAsk(session.id, {
@@ -1202,7 +1202,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 if (!ok) {
                   const err = new Error("ask_director could not register a pending question");
                   hold.reject(err);
-                  void answer.catch(() => {});
+                  void answer.catch(() => undefined);
                   throw err;
                 }
                 return answer;

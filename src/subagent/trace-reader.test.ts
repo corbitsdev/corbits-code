@@ -12,6 +12,7 @@ import {
   MAX_TRACE_TOTAL_CHARS,
   MAX_TRACE_TURN_WINDOW,
 } from "./trace-reader.js";
+import { defined } from "../../tests/helpers/defined.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "trace-reader-"));
@@ -32,7 +33,7 @@ describe("listUniqueSubdirs", () => {
 
     const entries = await listUniqueSubdirs(root);
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.path).toBe(fs.realpathSync(real));
+    expect(defined(entries[0]).path).toBe(fs.realpathSync(real));
   });
 
   test("two distinct real directories are both listed", async () => {
@@ -121,7 +122,7 @@ describe("readAgentTrace", () => {
     const result = await readAgentTrace(root, "worker-1");
     expect(result.totalTurns).toBe(3);
     expect(result.entries.map((e) => e.kind)).toEqual(["text", "tool_call", "error"]);
-    expect(result.entries[2]!.isError).toBe(true);
+    expect(defined(result.entries[2]).isError).toBe(true);
     expect(result.omitted).toBeNull();
   });
 
@@ -151,7 +152,7 @@ describe("readAgentTrace", () => {
     expect(result.entries).toHaveLength(2);
     expect(result.entriesTruncated).toBe(true);
     expect(result.omitted).not.toBeNull();
-    expect(result.omitted!.hint.length).toBeGreaterThan(0);
+    expect(defined(result.omitted).hint.length).toBeGreaterThan(0);
   });
 
   test("never exceeds the total-output character cap regardless of entry/window caps", async () => {
@@ -172,7 +173,7 @@ describe("readAgentTrace", () => {
     expect(totalChars).toBeLessThanOrEqual(MAX_TRACE_TOTAL_CHARS);
     expect(result.entriesTruncated).toBe(true);
     expect(result.omitted).not.toBeNull();
-    expect(result.omitted!.reason).toContain("total output cap");
+    expect(defined(result.omitted).reason).toContain("total output cap");
   });
 
   test("never exceeds the hard entry-limit cap regardless of requested limit", async () => {
@@ -230,8 +231,8 @@ describe("readAgentTrace", () => {
     ]);
 
     const result = await readAgentTrace(root, "worker-1");
-    expect(result.entries[0]!.truncated).toBe(true);
-    expect(result.entries[0]!.content.length).toBeLessThan(10_000);
+    expect(defined(result.entries[0]).truncated).toBe(true);
+    expect(defined(result.entries[0]).content.length).toBeLessThan(10_000);
   });
 
   test("a partially written trace (worker still running) reads what exists so far", async () => {

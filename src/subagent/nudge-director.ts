@@ -141,7 +141,7 @@ export class SubAgentDirector extends DefaultDirector {
   // Structured stop-reason side channel: fired synchronously whenever this
   // director force-stops, so the caller learns the reason as a typed value
   // rather than re-parsing the forcedStopReport prose it returns.
-  private onForcedStop: (reason: ForcedStopReason) => void = () => {};
+  private onForcedStop: (reason: ForcedStopReason) => void = () => undefined;
 
   /** Route this leaf's stop/nudge decisions to an intervention log. */
   observeInterventions(sink: InterventionSink): void {

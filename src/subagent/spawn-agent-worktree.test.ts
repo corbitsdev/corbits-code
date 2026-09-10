@@ -12,6 +12,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import type { Telemetry } from "../telemetry/index.js";
 import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
+import { defined } from "../../tests/helpers/defined.js";
 
 const run = promisify(execFile);
 
@@ -35,8 +36,8 @@ function telemetryCapture() {
     installationId: "test",
     capture: (event, properties = {}) => events.push({ event, properties }),
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   };
   return { telemetry, events };
 }
@@ -80,7 +81,7 @@ function deferred<T>(): {
   promise: Promise<T>;
   resolve: (v: T) => void;
 } {
-  let resolve!: (v: T) => void;
+  let resolve: (v: T) => void = () => undefined;
   const promise = new Promise<T>((res) => {
     resolve = res;
   });
@@ -258,10 +259,10 @@ describe("spawn_agent worktree isolation", () => {
       run: async (params) => {
         workerCwd = params.cwd;
         params.onAgentReady?.({
-          close: async () => {},
-          interrupt: () => {},
+          close: async () => undefined,
+          interrupt: () => undefined,
           followup: async () => "",
-          deliver: () => {},
+          deliver: () => undefined,
         });
         return settle.promise;
       },
@@ -285,11 +286,11 @@ describe("spawn_agent worktree isolation", () => {
     await waitFor(() => workerCwd !== undefined);
 
     expect(workerCwd).toBeDefined();
-    expect(await pathExists(workerCwd!)).toBe(true);
+    expect(await pathExists(defined(workerCwd))).toBe(true);
 
     await sessions.closeOne(agentId, 1000);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await pathExists(workerCwd!)).toBe(false);
+    expect(await pathExists(defined(workerCwd))).toBe(false);
   });
 
   test("defers worktree cleanup while the session is interrupted for followup", async () => {
@@ -314,10 +315,10 @@ describe("spawn_agent worktree isolation", () => {
       run: async (params) => {
         workerCwd = params.cwd;
         params.onAgentReady?.({
-          close: async () => {},
-          interrupt: () => {},
+          close: async () => undefined,
+          interrupt: () => undefined,
           followup: async () => "",
-          deliver: () => {},
+          deliver: () => undefined,
         });
         const result = await settle.promise;
         const summary = Object.freeze({
@@ -374,11 +375,11 @@ describe("spawn_agent worktree isolation", () => {
       stop_reason: "interrupted",
     });
     expect(workerCwd).toBeDefined();
-    expect(await pathExists(workerCwd!)).toBe(true);
+    expect(await pathExists(defined(workerCwd))).toBe(true);
 
     await sessions.closeOne(agentId, 1000);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await pathExists(workerCwd!)).toBe(false);
+    expect(await pathExists(defined(workerCwd))).toBe(false);
   });
 
   test("reclaims the worktree immediately when the agent is not retained", async () => {

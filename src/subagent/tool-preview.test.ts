@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TOOL_PREVIEW_MAX, toolCallPreview } from "./tool-preview";
+import { defined } from "../../tests/helpers/defined.js";
 
 describe("toolCallPreview", () => {
   test("a shell call's subject is the command, not the tool name", () => {
@@ -52,8 +53,8 @@ describe("toolCallPreview", () => {
     const command = "z".repeat(TOOL_PREVIEW_MAX + 20);
     const preview = toolCallPreview("run_shell", JSON.stringify({ command }));
     expect(preview).not.toBeNull();
-    expect(preview!.length).toBe(TOOL_PREVIEW_MAX);
-    expect(preview!.endsWith("…")).toBe(true);
+    expect(defined(preview).length).toBe(TOOL_PREVIEW_MAX);
+    expect(defined(preview).endsWith("…")).toBe(true);
   });
 
   test("newlines collapse to a single-line subject", () => {

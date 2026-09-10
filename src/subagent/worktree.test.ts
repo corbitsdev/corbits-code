@@ -6,6 +6,7 @@ import {
   WorktreeError,
   type WorktreeExec,
 } from "./worktree.js";
+import { defined } from "../../tests/helpers/defined.js";
 
 function recordingExec(responses: Record<string, { stdout?: string; error?: Error }>): {
   exec: WorktreeExec;
@@ -17,7 +18,7 @@ function recordingExec(responses: Record<string, { stdout?: string; error?: Erro
     // Prefer a two-arg key so `rev-parse --show-toplevel` and `rev-parse HEAD`
     // can return different fixtures; fall back to the verb alone.
     const key2 = args.slice(0, 2).join(" ");
-    const key1 = args[0]!;
+    const key1 = defined(args[0]);
     const response = responses[key2] ?? responses[key1];
     if (response?.error !== undefined) throw response.error;
     return { stdout: response?.stdout ?? "", stderr: "" };

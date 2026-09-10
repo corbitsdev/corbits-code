@@ -8,6 +8,8 @@ import { formatAgentsPanel } from "../tui/chrome-state.js";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
+import { defined } from "../../tests/helpers/defined.js";
+
 function startCall(seq: number, callId: string, name: string) {
   return {
     type: "inference.tool_call.start" as const,
@@ -304,7 +306,7 @@ describe("terminal stop reasons", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     expect(store.interruptOne(session.id).ok).toBe(true);
     expect(store.get(session.id)?.stopReason).toBe("interrupted");
   });
@@ -313,8 +315,8 @@ describe("terminal stop reasons", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
-    store.registerFollowup(session.id, () => new Promise(() => {}));
+    store.registerInterrupt(session.id, () => undefined);
+    store.registerFollowup(session.id, () => new Promise(() => undefined));
     expect(store.sendInputOne(session.id, "stop that", { interrupt: true })).toEqual({
       ok: true,
       status: "interrupted",
@@ -359,7 +361,7 @@ describe("CL-6943 reusable worker sessions", () => {
       retained: true,
       provider: "p",
     });
-    let finish: (reply: string) => void = () => {};
+    let finish: (reply: string) => void = () => undefined;
     store.registerFollowup(
       session.id,
       () =>
@@ -392,7 +394,7 @@ describe("CL-6943 reusable worker sessions", () => {
       provider: "p",
     });
     let followupStarted = false;
-    let finish: (reply: string) => void = () => {};
+    let finish: (reply: string) => void = () => undefined;
     store.registerFollowup(
       session.id,
       () =>
@@ -406,7 +408,7 @@ describe("CL-6943 reusable worker sessions", () => {
       admission.enqueue({
         id: "worker",
         provider: "p",
-        start: () => {},
+        start: () => undefined,
       }),
     ).toBe("running");
     expect(admission.occupied("worker")).toBe(true);
@@ -418,7 +420,7 @@ describe("CL-6943 reusable worker sessions", () => {
   });
 
   test("resume-from-completed is a live turn: send_input, interrupt, and appendEvent work", async () => {
-    let finish: (reply: string) => void = () => {};
+    let finish: (reply: string) => void = () => undefined;
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.markRunning(session.id);
@@ -426,7 +428,7 @@ describe("CL-6943 reusable worker sessions", () => {
     store.registerDeliver(session.id, (message) => {
       delivered.push(message);
     });
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(
       session.id,
       () =>
@@ -473,7 +475,7 @@ describe("CL-6943 reusable worker sessions", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(session.id, async () => {
       throw new Error("send failed");
     });
@@ -494,7 +496,7 @@ describe("CL-6943 reusable worker sessions", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(session.id, async () => {
       throw new Error("send failed");
     });
@@ -509,11 +511,11 @@ describe("CL-6943 reusable worker sessions", () => {
   });
 
   test("interrupt then abort does not overwrite interrupted stamp to completed", async () => {
-    let rejectFollowup: (err: unknown) => void = () => {};
+    let rejectFollowup: (err: unknown) => void = () => undefined;
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(
       session.id,
       () =>
@@ -612,7 +614,7 @@ describe("CL-6943 reusable worker sessions", () => {
   test("closeOne fails a hung close instead of reporting shutdown success", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
-    store.registerClose(session.id, () => new Promise<void>(() => {})); // never resolves
+    store.registerClose(session.id, () => new Promise<void>(() => undefined)); // never resolves
 
     const started = Date.now();
     await expect(store.closeOne(session.id, 25)).rejects.toThrow(/session close exceeded 25ms/);
@@ -653,7 +655,7 @@ describe("CL-6943 reusable worker sessions", () => {
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     // registerClose always fires in production before onAgentReady's window
     // closes (CL-7001) — closeOne otherwise waits for it up to the deadline.
-    store.registerClose(session.id, async () => {});
+    store.registerClose(session.id, async () => undefined);
     store.complete(session.id, "## Summary\nDone.");
     await store.closeOne(session.id, 1000);
     expect(store.resumeOne(session.id, "more")).toEqual({ ok: false, status: "shutdown" });
@@ -691,7 +693,7 @@ describe("CL-6943 reusable worker sessions", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(s.id, async () => {});
+      store.registerClose(s.id, async () => undefined);
       store.complete(s.id, "## Summary\nDone.");
     }
 
@@ -723,7 +725,7 @@ describe("CL-6943 reusable worker sessions", () => {
       brief: "b",
       retained: true,
     });
-    store.registerClose(retained.id, async () => {});
+    store.registerClose(retained.id, async () => undefined);
     store.complete(retained.id, "## Summary\nDone.");
 
     for (let i = 0; i < 3; i++) {
@@ -733,7 +735,7 @@ describe("CL-6943 reusable worker sessions", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(s.id, async () => {});
+      store.registerClose(s.id, async () => undefined);
       store.complete(s.id, "## Summary\nDone.");
     }
 
@@ -755,8 +757,8 @@ describe("CL-6943 reusable worker sessions", () => {
     });
     store.markRunning(running.id);
     // Resume it back to "running" so it is an open, actively-driven session.
-    store.registerClose(running.id, async () => {});
-    store.registerFollowup(running.id, () => new Promise<string>(() => {}));
+    store.registerClose(running.id, async () => undefined);
+    store.registerFollowup(running.id, () => new Promise<string>(() => undefined));
     store.complete(running.id, "## Summary\nDone.");
     store.resumeOne(running.id, "keep going");
     expect(store.get(running.id)?.lifecycleStatus).toBe("running");
@@ -768,7 +770,7 @@ describe("CL-6943 reusable worker sessions", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(s.id, async () => {});
+      store.registerClose(s.id, async () => undefined);
       store.complete(s.id, "## Summary\nDone.");
     }
 
@@ -785,7 +787,7 @@ describe("CL-6943 reusable worker sessions", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(s.id, async () => {});
+      store.registerClose(s.id, async () => undefined);
       store.complete(s.id, "## Summary\nDone.");
     }
     const openRetained = store
@@ -802,7 +804,7 @@ describe("CL-6943 reusable worker sessions", () => {
       brief: "b",
       retained: true,
     });
-    store.registerClose(retained.id, async () => {});
+    store.registerClose(retained.id, async () => undefined);
     store.complete(retained.id, "## Summary\nDone.");
     await store.closeOne(retained.id, 1000);
 
@@ -831,7 +833,7 @@ describe("interrupt stamps finishedAt once", () => {
     });
     store.markRunning(session.id);
     store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
 
     t = 2000;
     expect(store.interruptOne(session.id).ok).toBe(true);
@@ -851,7 +853,7 @@ describe("interrupt stamps finishedAt once", () => {
 
   test("sendInputOne interrupt starts a live follow-up turn and keeps tools", async () => {
     let t = 1000;
-    let finish: (reply: string) => void = () => {};
+    let finish: (reply: string) => void = () => undefined;
     const store = createSubAgentSessionStore({
       now: () => t,
       createId: () => "s-send",
@@ -864,7 +866,7 @@ describe("interrupt stamps finishedAt once", () => {
     });
     store.markRunning(session.id);
     store.appendEvent(session.id, startCall(1, "call-1", "run_shell"));
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(
       session.id,
       () =>
@@ -896,7 +898,7 @@ describe("interrupt stamps finishedAt once", () => {
 
   test("a follow-up turn keeps the lane live past the linger window until it completes", async () => {
     let t = 1000;
-    let finish: (reply: string) => void = () => {};
+    let finish: (reply: string) => void = () => undefined;
     const store = createSubAgentSessionStore({
       now: () => t,
       createId: () => "s-followup",
@@ -908,7 +910,7 @@ describe("interrupt stamps finishedAt once", () => {
       retained: true,
     });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(
       session.id,
       () =>
@@ -930,7 +932,7 @@ describe("interrupt stamps finishedAt once", () => {
     const live = store.list();
     expect(live[0]?.lifecycleStatus).toBe("running");
     expect(live[0]?.finishedAt).toBeUndefined();
-    expect(agentLaneIsLive(live[0]!)).toBe(true);
+    expect(agentLaneIsLive(defined(live[0]))).toBe(true);
     expect(formatAgentsPanel(live, undefined, t)?.[0]?.status).toBe("running");
     expect(fleetProgress(live, t).running).toBe(1);
 
@@ -941,7 +943,7 @@ describe("interrupt stamps finishedAt once", () => {
     expect(terminal[0]?.status).toBe("done");
     expect(terminal[0]?.lifecycleStatus).toBe("completed");
     expect(terminal[0]?.finishedAt).toBe(12_000);
-    expect(agentLaneIsLive(terminal[0]!)).toBe(false);
+    expect(agentLaneIsLive(defined(terminal[0]))).toBe(false);
     expect(fleetProgress(terminal, t).running).toBe(0);
   });
 });
@@ -951,7 +953,7 @@ describe("CL-7269 one stored worker lifecycle", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     expect(store.interruptOne(session.id).ok).toBe(true);
     store.complete(session.id, "late original send");
     const after = store.get(session.id);
@@ -1031,7 +1033,7 @@ describe("CL-7269 one stored worker lifecycle", () => {
       retained: true,
     });
     store.markRunning(interrupted.id);
-    store.registerInterrupt(interrupted.id, () => {});
+    store.registerInterrupt(interrupted.id, () => undefined);
     store.registerFollowup(interrupted.id, async () => "next");
     expect(store.interruptOne(interrupted.id).ok).toBe(true);
     const afterInterrupt = store.get(interrupted.id);
@@ -1192,7 +1194,7 @@ describe("pending ask_director", () => {
       retained: true,
     });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     store.registerFollowup(session.id, async () => "next");
     let rejected: unknown;
     store.registerAsk(session.id, {
@@ -1225,7 +1227,7 @@ describe("pending ask_director", () => {
     store.registerDeliver(session.id, (message) => {
       delivered.push(message);
     });
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     const followups: string[] = [];
     store.registerFollowup(session.id, async (message) => {
       followups.push(message);
@@ -1271,7 +1273,7 @@ describe("pending ask_director", () => {
     });
     store.markRunning(parent.id);
     store.markRunning(child.id);
-    store.registerInterrupt(parent.id, () => {});
+    store.registerInterrupt(parent.id, () => undefined);
     store.registerFollowup(parent.id, async () => "next");
     let rejected: unknown;
     store.registerAsk(child.id, {
@@ -1337,7 +1339,7 @@ describe("pending ask_director", () => {
       retained: true,
     });
     store.markRunning(session.id);
-    store.registerInterrupt(session.id, () => {});
+    store.registerInterrupt(session.id, () => undefined);
     expect(store.interruptOne(session.id).ok).toBe(true);
 
     expect(
@@ -1394,7 +1396,7 @@ describe("pending ask_director", () => {
       retained: true,
     });
     store.markRunning(session.id);
-    store.registerClose(session.id, async () => {});
+    store.registerClose(session.id, async () => undefined);
     let rejected: unknown;
     expect(
       store.registerAsk(session.id, {
@@ -1420,7 +1422,7 @@ describe("pending ask_director", () => {
         brief: "b",
         retained: true,
       });
-      store.registerClose(fill.id, async () => {});
+      store.registerClose(fill.id, async () => undefined);
       store.complete(fill.id, "done");
     }
 
@@ -1484,7 +1486,7 @@ describe("pending ask_director", () => {
 
     const closed = store.start({ description: "x", agentId: "a", brief: "b", retained: true });
     store.markRunning(closed.id);
-    store.registerClose(closed.id, async () => {});
+    store.registerClose(closed.id, async () => undefined);
     let closeRejected: unknown;
     store.registerAsk(closed.id, {
       question: "q",

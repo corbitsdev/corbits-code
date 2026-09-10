@@ -2,7 +2,7 @@
  * Regression guard: lifecycle-tools.test.ts proves interrupt_agent /
  * resume_agent behave correctly against *fake registered closures* at the
  * tool/store layer — it never exercises run.ts's real wiring, where
- * `followup` calls `agent!.send()` on the same live agent object created by
+ * `followup` calls `agent.send()` on the same live agent object created by
  * `createAgentWithLiveToolDispatch`. A future refactor could make
  * `resume_agent` rebuild the agent instead of reusing it (exactly the
  * regression this feature exists to prevent — a rebuilt agent means the
@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { defined } from "../../tests/helpers/defined.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
 
@@ -75,17 +76,20 @@ function createStubAgent(opts?: { hangFromSend?: number }) {
           "abort",
           () => {
             if (timer !== undefined) clearTimeout(timer);
-            abort(optsSend.signal!.reason);
+            abort(defined(optsSend.signal).reason);
           },
           { once: true },
         );
       });
     },
-    stream: () => (async function* () {})(),
-    deliver: () => {},
-    close: async () => {},
-    setSource: () => {},
-    setSources: () => {},
+    stream: () =>
+      (async function* () {
+        yield* [];
+      })(),
+    deliver: () => undefined,
+    close: async () => undefined,
+    setSource: () => undefined,
+    setSources: () => undefined,
     history: async () => [],
     checkpoints: async () => [],
     readAt: async () => [],
@@ -163,9 +167,11 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
     // the original turn's prompt and the followup message, proving the
     // followup was sent into the same live object rather than a fresh one
     // with empty history.
-    expect(capturedAgent!.sendLog.length).toBe(2);
-    expect(capturedAgent!.sendLog[0]).toContain("explore the codebase for the bug");
-    expect(capturedAgent!.sendLog[1]).toBe("do X instead, not what the original prompt said");
+    expect(defined(capturedAgent).sendLog.length).toBe(2);
+    expect(defined(capturedAgent).sendLog[0]).toContain("explore the codebase for the bug");
+    expect(defined(capturedAgent).sendLog[1]).toBe(
+      "do X instead, not what the original prompt said",
+    );
     expect(outcome.reply).toBe("reply #2");
   });
 

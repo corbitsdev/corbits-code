@@ -75,7 +75,8 @@ const EVIDENCE_VALUE_FLAGS: ReadonlySet<string> = new Set([
 function firstOperand(args: readonly string[], skip: number): string | undefined {
   let skipped = 0;
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = args[i];
+    if (arg === undefined) continue;
     if (arg === "--") continue;
     if (arg.startsWith("-")) {
       if (EVIDENCE_VALUE_FLAGS.has(arg)) i += 1;
@@ -94,7 +95,9 @@ function classifySegment(segment: string, evidence: ShellFileEvidence): void {
   const tokens = tokenizeSegment(segment);
   if (tokens.length === 0) return;
 
-  const program = programBasename(tokens[0]!);
+  const head = tokens[0];
+  if (head === undefined) return;
+  const program = programBasename(head);
   const args = tokens.slice(1);
 
   if (SHELL_READ_PROGRAMS.has(program)) {

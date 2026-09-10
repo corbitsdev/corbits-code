@@ -9,6 +9,7 @@ import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import type { AdmissionQueue } from "./admission.js";
+import { defined } from "../../tests/helpers/defined.js";
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {
@@ -564,12 +565,12 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 function stubAdmission(notes: { provider: string; until: number }[]): AdmissionQueue {
   return {
     enqueue: () => "running",
-    release: () => {},
-    setCapacity: () => {},
+    release: () => undefined,
+    setCapacity: () => undefined,
     notePressure: (provider, untilMs) => {
       notes.push({ provider, until: untilMs });
     },
-    cancel: () => {},
+    cancel: () => undefined,
     occupied: () => false,
   };
 }
@@ -606,7 +607,7 @@ describe("SubAgentDirector infer retryPolicy", () => {
       },
     });
     expect(notes).toHaveLength(1);
-    expect(notes[0]!.provider).toBe("xai/thegreataxios");
+    expect(defined(notes[0]).provider).toBe("xai/thegreataxios");
 
     notes.length = 0;
     await stamped({

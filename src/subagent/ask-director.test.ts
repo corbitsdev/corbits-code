@@ -91,7 +91,7 @@ describe("evaluateAskDirector", () => {
         registered.push(question);
         return "answer";
       },
-      cancel: () => {},
+      cancel: () => undefined,
     };
     const controller = new AbortController();
     controller.abort();
@@ -180,7 +180,7 @@ describe("evaluateAskDirector", () => {
       register: (): Promise<string> => {
         throw new Error("ask_director could not register a pending question");
       },
-      cancel: () => {},
+      cancel: () => undefined,
     };
     const message = await handleAskDirector({
       question: "which file?",

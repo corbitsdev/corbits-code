@@ -104,7 +104,7 @@ export type InterventionSink = (
 ) => void;
 
 /** Sink that drops everything — the default, so logging is never required. */
-export const NOOP_INTERVENTION_SINK: InterventionSink = () => {};
+export const NOOP_INTERVENTION_SINK: InterventionSink = () => undefined;
 
 /**
  * Append-only sink over `<dir>/interventions.jsonl`.

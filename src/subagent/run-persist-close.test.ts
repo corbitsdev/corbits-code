@@ -30,11 +30,14 @@ function stubAgent() {
         turn: { role: "assistant", content: [] },
       };
     },
-    stream: () => (async function* (): AsyncGenerator<ReactorEmittedEvent> {})(),
-    deliver: () => {},
-    close: async () => {},
-    setSource: () => {},
-    setSources: () => {},
+    stream: () =>
+      (async function* (): AsyncGenerator<ReactorEmittedEvent> {
+        yield* [];
+      })(),
+    deliver: () => undefined,
+    close: async () => undefined,
+    setSource: () => undefined,
+    setSources: () => undefined,
     history: async () => [],
     checkpoints: async () => [],
     readAt: async () => [],
@@ -118,7 +121,7 @@ describe("persist close_agent leftover dispose", () => {
             createAgentWithLiveToolDispatch: async () =>
               ({
                 ...stubAgent(),
-                close: () => new Promise<void>(() => {}),
+                close: () => new Promise<void>(() => undefined),
               }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
           }),
           async () => {
@@ -175,7 +178,7 @@ describe("persist close_agent leftover dispose", () => {
                 ...stubAgent(),
                 close: () => {
                   closeStarted = true;
-                  return new Promise<void>(() => {});
+                  return new Promise<void>(() => undefined);
                 },
               }) as unknown as Awaited<ReturnType<typeof real.createAgentWithLiveToolDispatch>>,
           }),

@@ -139,12 +139,13 @@ export function parseSubAgentReport(reply: string): SubAgentReport {
       paths: "",
     };
   }
-  for (let i = 0; i < matches.length; i++) {
-    const m = matches[i]!;
-    const name = m[1]!.toLowerCase();
+  for (const [i, m] of matches.entries()) {
+    const name = m[1];
+    if (name === undefined) continue;
     const start = (m.index ?? 0) + m[0].length;
-    const end = i + 1 < matches.length ? (matches[i + 1]!.index ?? text.length) : text.length;
-    sections[name] = text.slice(start, end).trim();
+    const next = matches[i + 1];
+    const end = next?.index ?? text.length;
+    sections[name.toLowerCase()] = text.slice(start, end).trim();
   }
   return {
     summary: sections.summary ?? "",
