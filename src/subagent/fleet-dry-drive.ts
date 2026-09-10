@@ -5,6 +5,10 @@
  */
 
 import { hasActiveTasks, type Task } from "../agent/tasks.js";
+import {
+  truncationNotice,
+  truncateWithReservedNotice,
+} from "../plugins/result-truncation-plugin.js";
 import { isLiveWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 
 /** Enough of a lane report for a parent continuation; traces stay on disk. */
@@ -83,46 +87,6 @@ export function fleetDrySpillKey(
   return `fleet-dry:${agentId}:${field}`;
 }
 
-function truncationNotice(args: {
-  maxChars: number;
-  remaining: number;
-  fullLength: number;
-  uri?: string;
-}): string {
-  const { maxChars, remaining, fullLength, uri } = args;
-  if (uri === undefined) {
-    return (
-      `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
-      `${remaining.toLocaleString()} chars discarded, NOT retrievable ` +
-      `(no blob store is configured; re-running gives the same cut). ` +
-      `Use offset/limit or a narrower query.]`
-    );
-  }
-  return (
-    `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
-    `${remaining.toLocaleString()} more chars omitted here. The full result ` +
-    `(${fullLength.toLocaleString()} chars, text/plain) is saved at ${uri}` +
-    ` — use read_file with that URI (offset/limit supported) to see the rest.]`
-  );
-}
-
-function truncateWithReservedNotice(
-  text: string,
-  maxChars: number,
-  buildNotice: (keptLen: number) => string,
-): string {
-  let keptLen = maxChars;
-  for (let i = 0; i < 8; i++) {
-    const notice = buildNotice(keptLen);
-    const total = keptLen + notice.length;
-    if (total <= maxChars) return text.slice(0, keptLen) + notice;
-    keptLen -= total - maxChars;
-    if (keptLen < 0) keptLen = 0;
-  }
-  const notice = buildNotice(keptLen);
-  return (text.slice(0, keptLen) + notice).slice(0, maxChars);
-}
-
 async function clipField(
   text: string | undefined,
   agentId: string,
@@ -146,6 +110,7 @@ async function clipField(
       maxChars: FLEET_DRY_REPORT_CHARS,
       remaining: text.length - keptLen,
       fullLength: text.length,
+      contentType: "text/plain",
       ...(uri !== undefined ? { uri } : {}),
     }),
   );

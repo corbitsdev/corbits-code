@@ -55,7 +55,7 @@ export function spillBlobKey(callId: string): string {
   return `${callId}:full`;
 }
 
-function truncationNotice(args: {
+export function truncationNotice(args: {
   maxChars: number;
   remaining: number;
   fullLength: number;
@@ -92,7 +92,7 @@ function truncationNotice(args: {
  * remaining/fullLength (and optional absolutePath), so shrink kept until the
  * assembled result fits.
  */
-function truncateWithReservedNotice(
+export function truncateWithReservedNotice(
   text: string,
   maxChars: number,
   buildNotice: (keptLen: number) => string,
