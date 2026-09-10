@@ -1305,8 +1305,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
 
   const throwOriginal = (): never => {
     const { selected, baseURL, apiKey, keyless } = fieldsFor(originalName);
-    const model =
-      nonempty(cli.model) ?? nonempty(local?.model) ?? resolveDefaultModel(selected);
+    const model = nonempty(cli.model) ?? nonempty(local?.model) ?? resolveDefaultModel(selected);
     const selectedMissing =
       originalName !== undefined && settings !== null && providers[originalName] === undefined;
     const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
