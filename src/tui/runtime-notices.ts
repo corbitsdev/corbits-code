@@ -236,7 +236,9 @@ const workflowPayload = type({
   history: workflowHistoryEntry.array(),
 });
 
-export function workflowPayloadInfo(raw: unknown): WorkflowNoticePayload | null {
+export function workflowPayloadInfo(
+  raw: unknown,
+): WorkflowNoticePayload | null {
   const parsed = workflowPayload(raw);
   if (parsed instanceof type.errors) return null;
   return parsed;

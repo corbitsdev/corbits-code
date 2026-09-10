@@ -6,7 +6,10 @@ const locks = new Map<string, Promise<unknown>>();
  * Process-wide mutex keyed by resolved directory. Wrapper staging and
  * `base.commit()` / audit writes must not interleave on the same repo.
  */
-export async function withResolvedDirLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+export async function withResolvedDirLock<T>(
+  dir: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   const key = path.resolve(dir);
   const previous = locks.get(key) ?? Promise.resolve();
   let release!: () => void;

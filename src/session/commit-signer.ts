@@ -32,7 +32,8 @@ async function loadPersistedKeyPair(
   try {
     raw = await fs.promises.readFile(filePath, "utf8");
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return null;
     throw cause;
   }
   let parsedJson: unknown;
@@ -46,7 +47,9 @@ async function loadPersistedKeyPair(
   }
   const parsed = PersistedKeyPair(parsedJson);
   if (parsed instanceof type.errors) {
-    throw new Error(`Invalid commit signing key at ${filePath}: ${parsed.summary}`);
+    throw new Error(
+      `Invalid commit signing key at ${filePath}: ${parsed.summary}`,
+    );
   }
   return {
     privateKey: decodeKey("privateKey", parsed.privateKey),
@@ -54,7 +57,9 @@ async function loadPersistedKeyPair(
   };
 }
 
-export async function loadOrCreateCommitSigner(dir: string): Promise<CommitSigner> {
+export async function loadOrCreateCommitSigner(
+  dir: string,
+): Promise<CommitSigner> {
   const keyDir = path.join(dir, KEY_DIR);
   const filePath = path.join(keyDir, KEY_FILE);
   let keyPair = await loadPersistedKeyPair(filePath);
@@ -73,15 +78,22 @@ export async function loadOrCreateCommitSigner(dir: string): Promise<CommitSigne
       log.debug?.("wrote session commit signing key");
       keyPair = generated;
     } catch (cause) {
-      if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") {
+      if (
+        cause instanceof Error &&
+        "code" in cause &&
+        cause.code === "EEXIST"
+      ) {
         keyPair = await loadPersistedKeyPair(filePath);
         if (keyPair === null) {
-          throw new Error(`Commit signing key missing after EEXIST at ${filePath}`);
+          throw new Error(
+            `Commit signing key missing after EEXIST at ${filePath}`,
+          );
         }
       } else {
         throw cause;
       }
     }
   }
-  return (payload) => createSSHSignature(payload, keyPair.privateKey, keyPair.publicKey);
+  return (payload) =>
+    createSSHSignature(payload, keyPair.privateKey, keyPair.publicKey);
 }

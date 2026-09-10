@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import {
   compactionFoldInfo,
   compactionNotice,
@@ -198,11 +199,23 @@ describe("payload validation", () => {
   test("workflow payloads require current + history and reject junk", () => {
     expect(
       workflowPayloadInfo({
-        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        current: {
+          active: true,
+          name: "ship",
+          stepIndex: 0,
+          total: 2,
+          label: "build",
+        },
         history: [],
       }),
     ).toEqual({
-      current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+      current: {
+        active: true,
+        name: "ship",
+        stepIndex: 0,
+        total: 2,
+        label: "build",
+      },
       history: [],
     });
     expect(workflowPayloadInfo({ current: { active: true } })).toBeNull();
@@ -234,7 +247,13 @@ describe("workflowNotice", () => {
   test("active named step flashes index+1 and label", () => {
     expect(
       workflowNotice({
-        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        current: {
+          active: true,
+          name: "ship",
+          stepIndex: 0,
+          total: 2,
+          label: "build",
+        },
         history: [],
       }),
     ).toEqual({
@@ -291,7 +310,7 @@ describe("workflowNotice", () => {
       history: [],
     });
     expect(parsed).not.toBeNull();
-    expect(workflowNotice(parsed!)).toEqual({
+    expect(workflowNotice(defined(parsed))).toEqual({
       kind: "flash",
       text: "workflow ship · step 1/2: build",
     });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AuditStore, ContextStore } from "@intx/types/runtime";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { defined } from "../../tests/helpers/defined.js";
 import { createPermissionGate } from "../permission/gate.js";
 
 const permissionGate = createPermissionGate({
@@ -16,15 +17,21 @@ const permissionGate = createPermissionGate({
 
 test("runSubAgent threads the isogit audit store and session id into createAgent", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "corbits-run-audit-"));
-  const fakeStore = { readBlob: async () => new Uint8Array() } as unknown as ContextStore &
-    AuditStore;
-  let seen: { audit: AuditStore; sessionId?: string; storage: ContextStore } | undefined;
+  const fakeStore = {
+    readBlob: async () => new Uint8Array(),
+  } as unknown as ContextStore & AuditStore;
+  let seen:
+    | { audit: AuditStore; sessionId?: string; storage: ContextStore }
+    | undefined;
 
   await withMockedModuleDuring(
     import.meta.resolve("../session/optimized-context-store.js"),
     (real: typeof import("../session/optimized-context-store.js")) => ({
       ...real,
-      createSessionStores: async () => ({ storage: fakeStore, audit: fakeStore }),
+      createSessionStores: async () => ({
+        storage: fakeStore,
+        audit: fakeStore,
+      }),
     }),
     async () => {
       await withMockedModuleDuring(
@@ -33,7 +40,11 @@ test("runSubAgent threads the isogit audit store and session id into createAgent
           ...real,
           createAgentWithLiveToolDispatch: async (
             _def: unknown,
-            env: { storage: ContextStore; audit: AuditStore; sessionId?: string },
+            env: {
+              storage: ContextStore;
+              audit: AuditStore;
+              sessionId?: string;
+            },
           ) => {
             seen = env;
             return {
@@ -42,11 +53,14 @@ test("runSubAgent threads the isogit audit store and session id into createAgent
                 reply: "ok",
                 turn: { role: "assistant" as const, content: [] },
               }),
-              stream: () => (async function* () {})(),
-              deliver: () => {},
-              close: async () => {},
-              setSource: () => {},
-              setSources: () => {},
+              stream: () =>
+                (async function* () {
+                  yield* [];
+                })(),
+              deliver: () => undefined,
+              close: async () => undefined,
+              setSource: () => undefined,
+              setSources: () => undefined,
               history: async () => [],
               checkpoints: async () => [],
               readAt: async () => [],
@@ -60,7 +74,11 @@ test("runSubAgent threads the isogit audit store and session id into createAgent
             cwd,
             workdirBase: join(cwd, ".ctx"),
             permissionGate,
-            provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+            provider: {
+              providerName: "test",
+              baseURL: "http://localhost",
+              model: "test-model",
+            },
             description: "audit wiring",
             prompt: "noop",
             id: "child-session-1",
@@ -70,8 +88,8 @@ test("runSubAgent threads the isogit audit store and session id into createAgent
     },
   );
 
-  expect(seen).toBeDefined();
-  expect(seen!.storage).toBe(fakeStore);
-  expect(seen!.audit).toBe(fakeStore);
-  expect(seen!.sessionId).toBe("child-session-1");
+  const seenStores = defined(seen);
+  expect(seenStores.storage).toBe(fakeStore);
+  expect(seenStores.audit).toBe(fakeStore);
+  expect(seenStores.sessionId).toBe("child-session-1");
 });
