@@ -78,7 +78,7 @@ export function buildHarnessFacts(
           "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools. Path tools are the DIY surface.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
-    "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
+    "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one. Only read_file a tool-output:// URI if the truncation notice on that result named one; do not re-read a complete inline result.",
     "- run_shell has no default timeout; pass timeout for builds, tests, and other long commands. Prefer background:true for builds, test suites, and dev servers: it returns a shell_id at once, the result is delivered when the process finishes (foreground runs hold steers; background runs do not), and shell_collect collects or cancels later. background does not change the retained shell cwd.",
     "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/search_files tools, and do not substitute another unbounded walk (fd, ls -R, scripted os.walk).",
     ...(subAgent
@@ -226,7 +226,7 @@ export function buildPromptDisciplineBlock(
 
 const TOOL_SUMMARIES: Record<string, string> = {
   read_file:
-    "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell)",
+    "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell). Only read_file a tool-output:// URI if the truncation notice named one",
   write_file: "create or overwrite a file (never shell redirects or heredocs)",
   edit_file:
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",

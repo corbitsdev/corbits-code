@@ -87,6 +87,28 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).not.toContain("Tool results already render richly");
 });
 
+test("harness facts gate tool-output URI reads on a named truncation notice", () => {
+  const facts = buildHarnessFacts();
+  expect(facts).toContain("read_file");
+  expect(facts).toMatch(/filesystem path/i);
+  expect(facts).toMatch(/tool-output:\/\//);
+  expect(facts).toMatch(/truncat/i);
+  expect(facts).toMatch(/named/i);
+  expect(facts).not.toMatch(/prefer the URI/i);
+  expect(facts).not.toMatch(/re-reading huge blobs/i);
+  expect(facts).toMatch(/complete inline/i);
+});
+
+test("read_file catalog summary gates tool-output URI reads on truncation", () => {
+  const listed = buildAvailableTools(["read_file"]);
+  expect(listed).toContain("read_file");
+  expect(listed).toMatch(/tool-output:\/\//);
+  expect(listed).toMatch(/truncat/i);
+  expect(listed).toMatch(/named/i);
+  expect(listed).toContain("cat/head/tail");
+  expect(listed).not.toMatch(/prefer the URI/i);
+});
+
 test("harness facts name skill_search as a resident catalog tool", () => {
   const facts = buildHarnessFacts();
   expect(facts).toMatch(
