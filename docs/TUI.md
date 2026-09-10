@@ -221,6 +221,15 @@ status / current tool) — Amp/Codex-style lanes without a FLEET header board:
 ```
 
 An `ask_director` lane stays live and reads as waiting on the director, not stalled.
+The runner snapshots currently pending root-worker questions, dropping resolved,
+cancelled, replaced, terminal, or removed asks before delivery. It sends one
+coalesced wake when the parent is not processing and all operator gates are closed,
+even while live workers hold the shell busy. Replies use `send_input`'s `target`
+field with the worker's session ID, not its shared catalog ID. The runner
+publishes snapshots and the bridge delivers each session/question identity
+once while pending; the agents strip never re-delivers it. Synthetic wakes use
+the idle delivery path, bypassing composer `/feedback` capture and leaving queued
+user follow-ups untouched.
 
 `formatChromeZones` → `formatAgentsPanel` owns that paint. Geometry stays
 stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is

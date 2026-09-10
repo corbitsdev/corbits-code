@@ -29,6 +29,10 @@ export interface FleetLane {
   readonly error?: string;
   /** Machine-readable forced-stop reason (see SubAgentSession.stopReason). */
   readonly stopReason?: string;
+  /** Catalog agent id (SubAgentSession.agentId); the wake message names it. */
+  readonly agentId?: string;
+  /** Set on nested (one-hop) dispatches; such asks never wake the root. */
+  readonly parentSessionId?: string;
 }
 
 interface LaneMark {
@@ -115,6 +119,56 @@ function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
  */
 export function liveFleetCount(lanes: readonly FleetLane[]): number {
   return lanes.filter((lane) => lane.status === "running").length;
+}
+
+/**
+ * One parked ask_director question. Replies target the unique `sessionId`;
+ * `agentId` is only the descriptive catalog identity shared by workers.
+ */
+export interface PendingAskWake {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly description: string;
+  readonly question: string;
+  readonly questionId: string;
+}
+
+/** Nested orchestrators own their children's questions; only root workers wake the TUI. */
+export function pendingAskSnapshot(
+  lanes: readonly FleetLane[],
+  peekAsk: (sessionId: string) => { question: string; questionId: string } | undefined,
+): readonly PendingAskWake[] {
+  const asks: PendingAskWake[] = [];
+  for (const lane of lanes) {
+    if (lane.parentSessionId !== undefined || lane.status !== "running") continue;
+    const ask = peekAsk(lane.id);
+    if (ask === undefined) continue;
+    asks.push({
+      sessionId: lane.id,
+      agentId: lane.agentId ?? lane.id,
+      description: lane.description,
+      question: ask.question,
+      questionId: ask.questionId,
+    });
+  }
+  return asks;
+}
+
+export const ASK_DIRECTOR_WAKE_PREFIX = "ask_director wake";
+
+/**
+ * The wake turn text. It must read as the worker's question reaching the
+ * parent, not as the operator being asked — the parent answers via
+ * send_input itself and only escalates when it genuinely cannot.
+ */
+export function pendingAskWakeText(wake: PendingAskWake): string {
+  return [
+    `${ASK_DIRECTOR_WAKE_PREFIX} — worker ${wake.agentId} (${wake.description}) parked question ${wake.questionId} while this session was not collecting:`,
+    "",
+    wake.question,
+    "",
+    `The worker — not the operator — raised this. Answer it with send_input (soft) using target ${wake.sessionId}; do not relay to the operator unless it genuinely needs them.`,
+  ].join("\n");
 }
 
 type Change =

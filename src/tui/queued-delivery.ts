@@ -10,6 +10,7 @@
 
 import type { PendingImageAttachment } from "./image-attachments.js";
 import type { ProductHostDeliver } from "./product-host.js";
+import { ASK_DIRECTOR_WAKE_PREFIX } from "../subagent/fleet-report.js";
 
 export interface RouteQueuedDeliveryArgs {
   send: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
@@ -121,9 +122,18 @@ export function createLiveSteerDeliver(
 /**
  * Leftover / queue drain hop: capture generation at hop time, ingest, then
  * send only if /clear|/new has not bumped. Operator Enter must not use this.
+ * `ask_director wake` leftover is passed through raw so worker @paths and
+ * image mentions are not rewritten as operator attachments.
  */
 export function createLeftoverSend(
   args: CreateLeftoverSendArgs,
 ): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
-  return createGenerationGatedHop({ ...args, hop: args.send });
+  return createGenerationGatedHop({
+    ...args,
+    hop: args.send,
+    ingest: async (text, pending) =>
+      text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)
+        ? { text, attachments: pending }
+        : args.ingest(text, pending),
+  });
 }

@@ -18,9 +18,12 @@ export {
   FLEET_STALL_POLL_MS,
   liveFleetCount,
   observeFleet,
+  pendingAskSnapshot,
+  pendingAskWakeText,
   type FleetLane,
   type FleetObservation,
   type FleetWatch,
+  type PendingAskWake,
 } from "./fleet-report.js";
 export {
   EMPTY_THRASH_STATE,

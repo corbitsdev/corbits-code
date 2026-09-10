@@ -214,14 +214,14 @@ export function turnStateGateOpened(state: TurnState): TurnState {
   return {
     ...state,
     status: "blocked",
-    isProcessing: true,
     blockedGateCount,
   };
 }
 
 /**
  * A gate resolved. Only the last outstanding gate clearing returns the turn
- * to "running" — earlier ones just decrement the count. `lastActivityAt`
+ * to "running" if the parent is processing, otherwise "idle" — earlier ones
+ * just decrement the count. `lastActivityAt`
  * moves to `nowMs` so the stall clock restarts from the moment the operator
  * actually answered, rather than crediting silence spent reading the prompt.
  */
@@ -230,7 +230,7 @@ export function turnStateGateClosed(state: TurnState, nowMs: number): TurnState 
   if (blockedGateCount > 0) return { ...state, blockedGateCount };
   return {
     ...state,
-    status: state.status === "blocked" ? "running" : state.status,
+    status: state.status === "blocked" ? (state.isProcessing ? "running" : "idle") : state.status,
     lastActivityAt: nowMs,
     blockedGateCount,
   };

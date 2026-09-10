@@ -67,6 +67,7 @@ import {
   fleetProgress,
   type AgentProgressSession,
 } from "./agent-progress.js";
+import { pendingAskWakeText, type PendingAskWake } from "../subagent/fleet-report.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -268,6 +269,7 @@ function isBridgeInbound(event: { type: string }): event is BridgeInboundEvent {
     case "system":
     case "run":
     case "fleet":
+    case "agent-ask":
     case "tool.boundary":
     case "error":
       return true;
@@ -353,8 +355,22 @@ export interface BridgeBag {
    * session-idle — and the hold releases when the count lands back at zero.
    */
   liveFleet: number;
+  /**
+   * Worker asks parked in ask_director, keyed by session, waiting for a
+   * moment the parent can act on them (idle settle or last gate closing).
+   * Keying by session is what stops a repeat emitter notification from
+   * stashing the same question twice.
+   */
+  pendingAskWake: Map<string, PendingAskWake>;
+  deliveredAskWake: Map<string, string>;
+  /**
+   * Set inside `attachSessionBridge`; the module-scope
+   * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
+   */
+  flushPendingAskWake: (() => void) | null;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
+  lastSentOrigin: "composer" | "internal" | null;
   /** One auto-retry per rate-limit window. */
   quotaFired: boolean;
   now: () => number;
@@ -433,7 +449,7 @@ function resolvePort(handlers?: SessionPortHandlers): SessionPort {
  * `message.received` word that note differently, so echoes match on content.
  */
 function promptContent(text: string): string {
-  const note = text.indexOf("\n[");
+  const note = text.search(/\n\[\d+ images? attached:/);
   return (note === -1 ? text : text.slice(0, note)).trim();
 }
 
@@ -900,11 +916,13 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     // pending send now — the parent they were steering has stopped, so
     // each one starts its own turn — while follow-ups keep waiting.
     drainSteersAtBoundary(shell, bag);
+    bag.flushPendingAskWake?.();
     return;
   }
   shell.session = setRunState(shell.session, "idle");
   // Full drain: soft steers first, then follow-ups (drainOrder).
   drainAtBoundary(shell, bag);
+  bag.flushPendingAskWake?.();
 }
 
 function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent): void {
@@ -913,16 +931,26 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
   // Fleet liveness owns no transcript row state, so it is handled before the
   // open-row machinery — a lane terminalizing mid-parent-stream must not
   // close the assistant row the parent's own deltas are growing.
-  if (event.type === "fleet") {
+  if (event.type === "fleet" || event.type === "agent-ask") {
     // Idle-with-fleet bookkeeping. A transition to zero while the parent is
     // already idle releases the hold: that moment is true session-idle, so
     // queued follow-ups drain now. While the parent is still working the
     // count just updates — the ordinary turn settle does the draining.
-    bag.liveFleet = event.running;
-    if (event.running === 0 && !bag.turn.isProcessing) {
-      settleRunToIdle(shell, bag);
+    if (event.type === "fleet") {
+      bag.liveFleet = event.running;
+      if (event.running === 0 && !bag.turn.isProcessing) {
+        settleRunToIdle(shell, bag);
+      }
+      paintChrome(shell);
+      return;
     }
-    paintChrome(shell);
+    bag.pendingAskWake = new Map(event.asks.map((ask) => [ask.sessionId, ask]));
+    for (const [sessionId, questionId] of bag.deliveredAskWake) {
+      if (bag.pendingAskWake.get(sessionId)?.questionId !== questionId) {
+        bag.deliveredAskWake.delete(sessionId);
+      }
+    }
+    bag.flushPendingAskWake?.();
     return;
   }
 
@@ -1011,7 +1039,11 @@ export function attachSessionBridge(
     disposed: false,
     turn: initialTurnState(now()),
     liveFleet: 0,
+    pendingAskWake: new Map(),
+    deliveredAskWake: new Map(),
+    flushPendingAskWake: null,
     lastSentMessage: "",
+    lastSentOrigin: null,
     quotaFired: false,
     now,
     toolRows: new Map(),
@@ -1209,6 +1241,13 @@ export function attachSessionBridge(
     if (settled) settleRun();
   };
 
+  const recordLastSent = (
+    replay: { text: string; origin: "composer" | "internal" } | null,
+  ): void => {
+    bag.lastSentMessage = replay === null ? "" : replay.text;
+    bag.lastSentOrigin = replay === null ? null : replay.origin;
+  };
+
   const submit = (
     text: string,
     kind: "queue" | "steer" | "immediate" | "reinject",
@@ -1260,7 +1299,7 @@ export function attachSessionBridge(
         meta: "stop",
       });
       bag.port.interrupt();
-      bag.lastSentMessage = "";
+      recordLastSent(null);
       bag.turn = turnStateOnInterrupt(bag.turn, now());
     }
 
@@ -1281,12 +1320,12 @@ export function attachSessionBridge(
         ...(kind === "reinject" ? { meta: "reinject" } : {}),
       });
       bag.pendingEchoes.push(t);
-      bag.port.sendImmediate(t, attachments);
       shell.session = setRunState(shell.session, "busy");
-      bag.lastSentMessage = t;
+      recordLastSent({ text: t, origin: "composer" });
       bag.turn = turnStateOnSubmit(bag.turn, now());
       paintChrome(shell);
       paintPhase();
+      bag.port.sendImmediate(t, attachments);
       return;
     }
 
@@ -1306,6 +1345,29 @@ export function attachSessionBridge(
     paintChrome(shell);
   };
 
+  const sendInternalText = (text: string): void => {
+    appendStreamRow(shell, { role: "user", text });
+    bag.pendingEchoes.push(text);
+    shell.session = setRunState(shell.session, "busy");
+    recordLastSent({ text, origin: "internal" });
+    bag.turn = turnStateOnSubmit(bag.turn, now());
+    paintChrome(shell);
+    paintPhase();
+    // Harness turns are not composer input: /feedback must never consume them.
+    bag.port.deliver({ id: crypto.randomUUID(), text, kind: "queue", enqueuedAt: now() });
+  };
+  const flushPendingAskWake = (): void => {
+    if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0) return;
+    const asks = [...bag.pendingAskWake.values()].filter(
+      (ask) => bag.deliveredAskWake.get(ask.sessionId) !== ask.questionId,
+    );
+    if (asks.length === 0) return;
+    // Outbound delivery can synchronously re-enter through store/stream events.
+    for (const ask of asks) bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
+    sendInternalText(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"));
+  };
+  bag.flushPendingAskWake = flushPendingAskWake;
+
   const doInterrupt = (): void => {
     if (bag.disposed) return;
     closeOpenRow(shell, bag);
@@ -1324,15 +1386,19 @@ export function attachSessionBridge(
     drainAtBoundary(shell, bag);
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
-    bag.lastSentMessage = "";
+    recordLastSent(null);
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
+    flushPendingAskWake();
   };
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
     shell.session = createSessionQueue("idle");
+    recordLastSent(null);
     bag.pendingEchoes.length = 0;
     bag.liveFleet = 0;
+    bag.pendingAskWake.clear();
+    bag.deliveredAskWake.clear();
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
@@ -1353,6 +1419,7 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     bag.turn = turnStateGateClosed(bag.turn, now());
     paintPhase();
+    flushPendingAskWake();
   };
 
   const tick = (): void => {
@@ -1369,12 +1436,13 @@ export function attachSessionBridge(
       })
     ) {
       bag.quotaFired = true;
-      const replay = bag.lastSentMessage;
+      const replay = { text: bag.lastSentMessage, origin: bag.lastSentOrigin };
       bag.turn = clearQuotaWait(bag.turn);
       setStatusFlash(shell, "rate limit cleared — resubmitting", {
         ttlMs: RUNTIME_FLASH_MS,
       });
-      submit(replay, "immediate");
+      if (replay.origin === "internal") sendInternalText(replay.text);
+      else submit(replay.text, "immediate");
       return;
     }
 
@@ -1475,6 +1543,10 @@ export function attachSessionBridge(
     dispose: () => {
       flushOpenRow(shell, bag);
       bag.disposed = true;
+      recordLastSent(null);
+      bag.pendingAskWake.clear();
+      bag.deliveredAskWake.clear();
+      bag.flushPendingAskWake = null;
       applyCadence(null);
       clearShellBridgeHooks(shell);
       bridges.delete(shell);

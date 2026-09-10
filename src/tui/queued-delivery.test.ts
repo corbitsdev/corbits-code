@@ -240,6 +240,35 @@ describe("createLeftoverSend", () => {
     expect(recorded).toEqual(["follow-up"]);
   });
 
+  test("leftover send skips ingest for ask_director wake and still ingests operator prompts", async () => {
+    const sent: string[] = [];
+    const ingested: string[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text, pending) => {
+        ingested.push(text);
+        return { text: `${text} ingested`, attachments: pending };
+      },
+      send: (text) => {
+        sent.push(text);
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+
+    leftoverSend("ask_director wake — see @src/foo.ts");
+    leftoverSend("please read @src/foo.ts");
+    await awaitTail();
+    expect(ingested).toEqual(["please read @src/foo.ts"]);
+    expect(sent).toEqual([
+      "ask_director wake — see @src/foo.ts",
+      "please read @src/foo.ts ingested",
+    ]);
+  });
+
   test("generation bump drops leftover send but not a sibling Enter send", async () => {
     const leftoverSent: string[] = [];
     const enterSent: string[] = [];

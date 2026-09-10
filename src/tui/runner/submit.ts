@@ -37,6 +37,7 @@ import type { InferenceAttemptIdentity } from "./state.js";
 import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { Agent } from "@intx/agent";
+import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
@@ -351,6 +352,7 @@ export function createDeliverRouting(
       },
       recordSent: (text) => {
         if (text.trim().length === 0) return;
+        if (text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)) return;
         void appendSentMessage(state.config.cwd, state.sessionId, text).catch((err: unknown) => {
           tuiLogger.debug("sent-message append failed: {error}", {
             error: err instanceof Error ? err.message : String(err),
