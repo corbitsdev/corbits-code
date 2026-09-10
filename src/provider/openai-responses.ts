@@ -1,4 +1,7 @@
-import { responsesAdapterFactory, type ResponsesQuirks } from "@corbits/openai-responses";
+import {
+  responsesAdapterFactory,
+  type ResponsesQuirks,
+} from "@corbits/openai-responses";
 import type { AdapterFactory } from "@intx/inference";
 import { OPENCODE_SESSION_ID_OPTION } from "./opencode-session.js";
 
@@ -12,11 +15,14 @@ const hostQuirks: ResponsesQuirks = {
   path: "/responses",
   sessionIdOption: OPENAI_SESSION_ID_OPTION,
   headers: {
-    fromOption: [{ optionKey: OPENCODE_SESSION_ID_OPTION, header: "x-opencode-session" }],
+    fromOption: [
+      { optionKey: OPENCODE_SESSION_ID_OPTION, header: "x-opencode-session" },
+    ],
   },
   systemPrompt: { role: "system", shape: "string" },
   contentShape: "flat",
   reasoning: { summary: "auto" },
 };
 
-export const createOpenAIResponsesAdapter: AdapterFactory = responsesAdapterFactory(hostQuirks);
+export const createOpenAIResponsesAdapter: AdapterFactory =
+  responsesAdapterFactory(hostQuirks);

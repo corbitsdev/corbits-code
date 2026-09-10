@@ -204,10 +204,18 @@ describe("createGrokResponsesAdapter", () => {
     if (typeof isStreamTerminal !== "function") {
       throw new Error("expected isStreamTerminal to be a function");
     }
-    for (const type of ["response.completed", "response.incomplete", "response.done"]) {
+    for (const type of [
+      "response.completed",
+      "response.incomplete",
+      "response.done",
+    ]) {
       expect(isStreamTerminal(JSON.stringify({ type }))).toBe(true);
     }
-    for (const type of ["response.output_text.delta", "response.created", "response.in_progress"]) {
+    for (const type of [
+      "response.output_text.delta",
+      "response.created",
+      "response.in_progress",
+    ]) {
       expect(isStreamTerminal(JSON.stringify({ type }))).toBe(false);
     }
     expect(isStreamTerminal("{not json")).toBe(false);
