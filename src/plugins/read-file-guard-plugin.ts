@@ -26,7 +26,7 @@ export const READ_FILE_MAX_LINE_LENGTH = 2000;
 // Absolute ceiling on bytes scanned from disk, so a deep offset into a huge file
 // stays time-bounded even though memory is already bounded by the streaming read.
 export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
-/** Refuse tool-output blobs larger than this before bounded line processing. */
+/** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
 // Headroom reserved out of the byte budget for the continuation notice, so the
 // returned payload including the notice stays under READ_FILE_MAX_BYTES.
@@ -158,6 +158,9 @@ function mapFilesystemStreamError(
 /**
  * Streams UTF-8 from `stream`, emitting up to `limit` line-numbered lines after
  * skipping `offset` lines (zero-based). Never splits the full decoded text in one pass.
+ * When `wrapLongLines` is set, overlong lines are split into successive numbered
+ * windows instead of being truncated and dropped — so a giant JSON line can be
+ * paged through with the same offset/cursor protocol as a multi-line file.
  */
 function readStreamBounded(
   stream: Readable,
@@ -165,9 +168,13 @@ function readStreamBounded(
   offset: number,
   limit: number,
   signal: AbortSignal,
-  mapStreamError?: (err: NodeJS.ErrnoException) => Error,
+  options: {
+    mapStreamError?: (err: NodeJS.ErrnoException) => Error;
+    wrapLongLines?: boolean;
+  } = {},
 ): Promise<BoundedRead> {
   return new Promise<BoundedRead>((resolveP, rejectP) => {
+    const { mapStreamError, wrapLongLines = false } = options;
     const decoder = new StringDecoder("utf8");
     const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
 
@@ -230,10 +237,23 @@ function readStreamBounded(
       return true;
     };
 
+    const emitWrapped = (raw: string, keepTail: boolean): boolean => {
+      let rest = raw;
+      while (rest.length > READ_FILE_MAX_LINE_LENGTH) {
+        if (!handleLine(rest.slice(0, READ_FILE_MAX_LINE_LENGTH), false))
+          return false;
+        rest = rest.slice(READ_FILE_MAX_LINE_LENGTH);
+      }
+      if (keepTail) return handleLine(rest, false);
+      pending = rest;
+      return true;
+    };
+
     const drainPending = (): boolean => {
       for (;;) {
         const nl = pending.indexOf("\n");
         if (nl === -1) {
+          if (wrapLongLines) return emitWrapped(pending, false);
           if (pending.length > READ_FILE_MAX_LINE_LENGTH) {
             pending = pending.slice(0, READ_FILE_MAX_LINE_LENGTH);
             pendingOverflow = true;
@@ -242,10 +262,23 @@ function readStreamBounded(
         }
         const line = pending.slice(0, nl);
         pending = pending.slice(nl + 1);
-        const overflow = pendingOverflow;
-        pendingOverflow = false;
-        if (!handleLine(line, overflow)) return false;
+        if (wrapLongLines) {
+          if (!emitWrapped(line, true)) return false;
+        } else {
+          const overflow = pendingOverflow;
+          pendingOverflow = false;
+          if (!handleLine(line, overflow)) return false;
+        }
       }
+    };
+
+    const flushRemainder = (): void => {
+      if (pending.length === 0) return;
+      if (wrapLongLines) {
+        emitWrapped(pending, true);
+        return;
+      }
+      handleLine(pending, pendingOverflow);
     };
 
     const finishOk = () => {
@@ -296,7 +329,7 @@ function readStreamBounded(
         return;
       }
       if (scanned >= READ_FILE_MAX_SCAN_BYTES) {
-        if (pending.length > 0) handleLine(pending, pendingOverflow);
+        flushRemainder();
         if (truncReason === undefined) truncReason = "scan";
         finishOk();
       }
@@ -306,7 +339,7 @@ function readStreamBounded(
       if (settled) return;
       endReached = true;
       pending += decoder.end();
-      if (pending.length > 0) handleLine(pending, pendingOverflow);
+      flushRemainder();
       finishOk();
     });
 
@@ -337,13 +370,18 @@ export function readFileBounded(
     offset,
     limit,
     signal,
-    (err) => mapFilesystemStreamError(absolutePath, err),
+    {
+      mapStreamError: (err) => mapFilesystemStreamError(absolutePath, err),
+    },
   );
 }
 
 /**
- * Bounded line read over an in-memory UTF-8 blob (tool-output spills). Feeds the
- * buffer in chunks so offset/limit never require a full-text split.
+ * Bounded read over an in-memory UTF-8 blob (tool-output spills). Feeds the
+ * buffer in chunks so offset/limit never require a full-text split. Overlong
+ * lines wrap into numbered windows instead of being truncated and dropped, and
+ * callers should pass a high `limit` so the byte budget — not the source-file
+ * 2000-line cap — pages the spill.
  */
 export function readBytesBounded(
   bytes: Uint8Array,
@@ -365,6 +403,9 @@ export function readBytesBounded(
     offset,
     limit,
     signal,
+    {
+      wrapLongLines: true,
+    },
   );
 }
 
@@ -388,7 +429,10 @@ function continuationNotice(
   }MB scan limit. ${next}]`;
 }
 
-function resolveReadFilePaging(call: { arguments: Record<string, unknown> }): {
+function resolveReadFilePaging(
+  call: { arguments: Record<string, unknown> },
+  defaultLimit = READ_FILE_DEFAULT_MAX_LINES,
+): {
   offset: number;
   limit: number;
 } {
@@ -399,13 +443,13 @@ function resolveReadFilePaging(call: { arguments: Record<string, unknown> }): {
   const limit =
     limitArg !== undefined && limitArg > 0
       ? Math.floor(limitArg)
-      : READ_FILE_DEFAULT_MAX_LINES;
+      : defaultLimit;
   return { offset, limit };
 }
 
 /**
- * Short-circuits read_file for real filesystem paths and configured tool-output URIs
- * with streaming, byte- and line-capped reads. Does not modify interchange.
+ * Short-circuits read_file for filesystem paths (line-capped) and tool-output
+ * URIs (byte-windowed, wrapping long lines). Does not modify interchange.
  */
 export function readFileGuardPlugin(
   cwd: string,
@@ -426,7 +470,11 @@ export function readFileGuardPlugin(
         return next(call, signal);
       }
 
-      const { limit } = resolveReadFilePaging(call);
+      const { offset, limit } = resolveReadFilePaging(call);
+      const { limit: blobLimit } = resolveReadFilePaging(
+        call,
+        Number.POSITIVE_INFINITY,
+      );
 
       if (isToolOutputLike(rawPath)) {
         const uri = canonicalToolOutputUri(rawPath);
@@ -482,7 +530,7 @@ export function readFileGuardPlugin(
             const res = await readBytesBounded(
               bytes,
               cursor.offset,
-              limit,
+              blobLimit,
               signal,
               cursor.uri,
             );
@@ -513,9 +561,14 @@ export function readFileGuardPlugin(
         }
         try {
           signal.throwIfAborted();
-          const { offset } = resolveReadFilePaging(call);
           const bytes = await blobReader.read(uri);
-          const res = await readBytesBounded(bytes, offset, limit, signal, uri);
+          const res = await readBytesBounded(
+            bytes,
+            offset,
+            blobLimit,
+            signal,
+            uri,
+          );
           return res.isError
             ? { callId: call.id, content: res.content, isError: true }
             : {
@@ -544,7 +597,6 @@ export function readFileGuardPlugin(
       }
 
       try {
-        const { offset } = resolveReadFilePaging(call);
         const res = await readFileBounded(absolutePath, offset, limit, signal);
         return res.isError
           ? { callId: call.id, content: res.content, isError: true }
