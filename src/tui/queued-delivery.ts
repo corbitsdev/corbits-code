@@ -11,6 +11,7 @@
 import type { PendingImageAttachment } from "./image-attachments.js";
 import type { ProductHostDeliver } from "./product-host.js";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../subagent/fleet-report.js";
+import { MAILBOX_MAIL_WAKE_PREFIX } from "../subagent/mailbox-mail-drive.js";
 
 export interface RouteQueuedDeliveryArgs {
   send: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
@@ -160,7 +161,8 @@ export function createLeftoverSend(
     ...args,
     hop: args.send,
     ingest: async (text, pending) =>
-      text.startsWith(ASK_DIRECTOR_WAKE_PREFIX)
+      text.startsWith(ASK_DIRECTOR_WAKE_PREFIX) ||
+      text.startsWith(MAILBOX_MAIL_WAKE_PREFIX)
         ? { text, attachments: pending }
         : args.ingest(text, pending),
   });

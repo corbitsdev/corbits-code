@@ -252,17 +252,33 @@ export interface SessionBridge {
   beginSystemContinuation: (text: string) => void;
   /**
    * Occupancy send failed after beginSystemContinuation. Drop the occupancy
-   * echo so a later matching inbound is not swallowed, re-arm the dry-episode
-   * latch, drop the continuation hold, and idle so follow-ups can drain and a
-   * later settle can take another occupancy shot.
+   * echo so a later matching inbound is not swallowed, drop the continuation
+   * hold, and idle so follow-ups can drain. Pass rearmDry:false for mailbox
+   * mail so a later subscribe can retry; fleet-dry defaults to re-arming the
+   * latch for the next settle shot.
    */
-  abortSystemContinuation: () => void;
+  abortSystemContinuation: (opts?: { rearmDry?: boolean }) => void;
   /**
    * Occupancy owner for dry+open continuation. Called once per dry episode
    * from settleRunToIdle when the fleet is dry. Return true if a continuation
    * was sent (run stays busy).
    */
   setDryOpenTaskDriver: (driver: (() => boolean) | undefined) => void;
+  /**
+   * Occupancy owner for per-item mailbox mail. Called from idle-with-fleet
+   * settle (like flushPendingAskWake) and from the store-subscribe driver.
+   */
+  setMailboxMailDriver: (driver: (() => boolean) | undefined) => void;
+  /**
+   * Wake in-flight wait_agents when the operator queues a steer. Timeout-shaped
+   * yield — workers are not interrupted.
+   */
+  setWaitYieldWake: (wake: (() => void) | undefined) => void;
+  /**
+   * Occupancy flush for mailbox mail. No-op while the parent is processing.
+   * Skip when a fleet-dry open-task shot is about to run.
+   */
+  flushMailboxMail: () => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -425,6 +441,11 @@ export interface BridgeBag {
    */
   flushPendingAskWake: (() => void) | null;
   /**
+   * Occupancy flush for per-item mailbox mail. Set inside
+   * `attachSessionBridge` so settle and fleet events share one gate.
+   */
+  flushMailboxMail: (() => void) | null;
+  /**
    * One occupancy shot per dry episode. Reset when a live lane starts. Consumed
    * only when the driver actually sends a continuation — a no-op (no open
    * tasks) must not eat the shot, or a later missed 1→0 with leftover tasks
@@ -439,6 +460,14 @@ export interface BridgeBag {
   awaitingContinuationInference: boolean;
   /** Occupancy driver: collect+send when settle takes a dry-episode shot. */
   dryOpenTaskDriver: (() => boolean) | undefined;
+  /**
+   * Occupancy driver for per-item mailbox mail (worker terminal/fail) while
+   * the parent is idle, including idle-with-fleet. Not the fleet-0+open-tasks
+   * edge — that stays on dryOpenTaskDriver.
+   */
+  mailboxMailDriver: (() => boolean) | undefined;
+  /** Wake in-flight wait_agents when a steer is queued (timeout-shaped yield). */
+  waitYieldWake: (() => void) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
   lastSentOrigin: "composer" | "internal" | null;
@@ -1038,6 +1067,7 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     // each one starts its own turn — while follow-ups keep waiting.
     drainSteersAtBoundary(shell, bag);
     bag.flushPendingAskWake?.();
+    bag.flushMailboxMail?.();
     return;
   }
   if (!bag.droveOpenTasksThisDry) {
@@ -1059,6 +1089,7 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   // Full drain: soft steers first, then follow-ups (drainOrder).
   drainAtBoundary(shell, bag);
   bag.flushPendingAskWake?.();
+  bag.flushMailboxMail?.();
 }
 
 function applyInbound(
@@ -1083,6 +1114,8 @@ function applyInbound(
       }
       if (event.running === 0 && !bag.turn.isProcessing) {
         settleRunToIdle(shell, bag);
+      } else if (event.running > 0 && !bag.turn.isProcessing) {
+        bag.flushMailboxMail?.();
       }
       paintChrome(shell);
       return;
@@ -1185,9 +1218,12 @@ export function attachSessionBridge(
     pendingAskWake: new Map(),
     deliveredAskWake: new Map(),
     flushPendingAskWake: null,
+    flushMailboxMail: null,
     droveOpenTasksThisDry: false,
     awaitingContinuationInference: false,
     dryOpenTaskDriver: undefined,
+    mailboxMailDriver: undefined,
+    waitYieldWake: undefined,
     lastSentMessage: "",
     lastSentOrigin: null,
     quotaFired: false,
@@ -1500,6 +1536,7 @@ export function attachSessionBridge(
         ? enqueueSteer(shell.session, t, undefined, attachments)
         : enqueue(shell.session, t, "queue", undefined, attachments);
     bag.port.enqueue(t, kind);
+    if (kind === "steer") bag.waitYieldWake?.();
     // Show the message itself, not the internal transition ("queue +1 →
     // pending N") — the notice row already carries the depth once, in plain
     // language, so this row's job is making the pending item identifiable.
@@ -1541,6 +1578,16 @@ export function attachSessionBridge(
   };
   bag.flushPendingAskWake = flushPendingAskWake;
 
+  const flushMailboxMail = (): void => {
+    if (bag.disposed || bag.turn.isProcessing) return;
+    try {
+      bag.mailboxMailDriver?.();
+    } catch {
+      // Occupancy miss is retryable on the next idle/subscribe edge.
+    }
+  };
+  bag.flushMailboxMail = flushMailboxMail;
+
   const doInterrupt = (): void => {
     if (bag.disposed) return;
     closeOpenRow(shell, bag);
@@ -1564,6 +1611,7 @@ export function attachSessionBridge(
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
     flushPendingAskWake();
+    flushMailboxMail();
   };
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
@@ -1596,6 +1644,7 @@ export function attachSessionBridge(
     bag.turn = turnStateGateClosed(bag.turn, now());
     paintPhase();
     flushPendingAskWake();
+    flushMailboxMail();
   };
 
   const tick = (): void => {
@@ -1731,7 +1780,7 @@ export function attachSessionBridge(
       paintChrome(shell);
       paintPhase();
     },
-    abortSystemContinuation: () => {
+    abortSystemContinuation: (opts) => {
       if (bag.disposed) return;
       if (bag.awaitingContinuationInference) {
         const occupancy = bag.lastSentMessage;
@@ -1746,7 +1795,9 @@ export function attachSessionBridge(
         }
       }
       bag.awaitingContinuationInference = false;
-      bag.droveOpenTasksThisDry = false;
+      if (opts?.rearmDry !== false) {
+        bag.droveOpenTasksThisDry = false;
+      }
       bag.lastSentMessage = "";
       flushOpenRow(shell, bag);
       bag.turnThinking = null;
@@ -1759,6 +1810,15 @@ export function attachSessionBridge(
     setDryOpenTaskDriver: (driver) => {
       bag.dryOpenTaskDriver = driver;
     },
+    setMailboxMailDriver: (driver) => {
+      bag.mailboxMailDriver = driver;
+    },
+    setWaitYieldWake: (wake) => {
+      bag.waitYieldWake = wake;
+    },
+    flushMailboxMail: () => {
+      flushMailboxMail();
+    },
     dispose: () => {
       flushOpenRow(shell, bag);
       bag.disposed = true;
@@ -1766,6 +1826,7 @@ export function attachSessionBridge(
       bag.pendingAskWake.clear();
       bag.deliveredAskWake.clear();
       bag.flushPendingAskWake = null;
+      bag.flushMailboxMail = null;
       applyCadence(null);
       clearShellBridgeHooks(shell);
       bridges.delete(shell);

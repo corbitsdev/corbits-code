@@ -86,6 +86,8 @@ src/
   subagent/
     index.ts              Sub-agent run exports + SubAgentDirector
     agent-fleet.ts        spawn_agent / wait_agents fleet dispatch and mailbox tools
+    mailbox-mail-drive.ts  per-item mailbox mail occupancy (primary inbound)
+    fleet-dry-drive.ts     fleet-0 + open-tasks occupancy continuation
     admission.ts          Burst-window admission in front of worker run()
     session-store.ts      Retained child session transcripts for observe UI
     identity-context.ts   ALS: worker description + cwd for gate attribution
@@ -194,7 +196,7 @@ Unmatched shell auto-allows, including contained non-force `git worktree add`/`r
 
 - **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only on **session-idle** — parent-idle **and** no live fleet lanes (`run` goes idle). Session-idle Alt+Enter is a no-op. **Ctrl+C** stops the run.
 
-Idle-with-fleet is shipped: after a non-blocking `spawn_agent` dispatch the parent turn can settle while workers keep running. The runner emits a `fleet` event carrying the live-lane count; the bridge holds the run busy on that count, so mid-hold Enter upgrades to a new primary turn (sent immediately) instead of queueing a steer, follow-ups keep waiting for true session-idle, and any steer left pending at the hold's engagement delivers immediately — the parent it was steering has already stopped.
+Idle-with-fleet is shipped: after a non-blocking `spawn_agent` dispatch the parent turn can settle while workers keep running. The runner emits a `fleet` event carrying the live-lane count; the bridge holds the run busy on that count, so mid-hold Enter upgrades to a new primary turn (sent immediately) instead of queueing a steer, follow-ups keep waiting for true session-idle, and any steer left pending at the hold's engagement delivers immediately — the parent it was steering has already stopped. While the hold is up and the parent is not processing, occupancy flushes mailbox mail (`driveMailboxMail` + `buildMailboxMailMessage`) on store subscribe and idle-with-fleet settle — one child done while siblings run is enough. Skip that shot when a fleet-dry open-task continuation is latched. TUI-primary `wait_agents` gets `shouldYieldWait` (queued steer or uncollected mail/ask) and finishes as a timeout without taking workers.
 
 `src/tui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 

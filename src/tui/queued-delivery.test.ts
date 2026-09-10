@@ -251,7 +251,7 @@ describe("createLeftoverSend", () => {
     expect(recorded).toEqual(["follow-up"]);
   });
 
-  test("leftover send skips ingest for ask_director wake and still ingests operator prompts", async () => {
+  test("leftover send skips ingest for ask_director wake and mailbox mail", async () => {
     const sent: string[] = [];
     const ingested: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
@@ -271,11 +271,15 @@ describe("createLeftoverSend", () => {
     });
 
     leftoverSend("ask_director wake — see @src/foo.ts");
+    leftoverSend(
+      "mailbox mail — worker reports (already collected — do not call wait_agents for these agent_ids):\n[]",
+    );
     leftoverSend("please read @src/foo.ts");
     await awaitTail();
     expect(ingested).toEqual(["please read @src/foo.ts"]);
     expect(sent).toEqual([
       "ask_director wake — see @src/foo.ts",
+      "mailbox mail — worker reports (already collected — do not call wait_agents for these agent_ids):\n[]",
       "please read @src/foo.ts ingested",
     ]);
   });

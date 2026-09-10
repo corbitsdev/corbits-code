@@ -567,7 +567,9 @@ Two mid-run gestures, two delivery times (CL-6290):
   next **parent** `tool.boundary` (the parent tool finishing, not a child) via
   `Agent.deliver` into the live reactor, not a new `send`. A
   long parent `run_shell` or an awaiting `wait_agents` is parent-busy and holds
-  steers. The transcript row says `[will steer next]` while pending and
+  steers. An in-flight TUI-primary `wait_agents` yields as a timeout when a
+  steer is queued so occupancy can deliver it. The transcript row says
+  `[will steer next]` while pending and
   `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
   `runtime-bridge.ts`).
 - **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
@@ -587,7 +589,9 @@ the parent turn settles while workers keep running; the runner emits `fleet`
 events carrying the live-lane count and the bridge holds the run busy on it.
 During the hold, Enter upgrades to a new primary turn sent immediately —
 there is no parent tool left to steer — while Alt+Enter follow-ups keep
-waiting for true session-idle. A steer still pending when the hold engages
+waiting for true session-idle. A child done or fail while siblings still run
+flushes mailbox mail as system inbound (`flushMailboxMail`, skip when a
+fleet-dry open-task shot is latched). A steer still pending when the hold engages
 sends at once (the parent it was steering has stopped), and the last lane
 terminalizing releases the hold, drains follow-ups, and returns the session
 to idle — unless todo/doing tasks remain, in which case a system

@@ -121,6 +121,8 @@ interface FleetRecord {
   providerFailure?: true;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
+  /** Set once a waiter or occupancy take handed report/error. */
+  bodyHanded?: boolean;
   /** Set once the payload has been compacted away to bound memory. */
   tombstoned?: boolean;
   /** Present only on a tombstoned record — how to recover the detail. */
@@ -145,6 +147,8 @@ interface FleetOverlay {
   frozenStatus?: WaitJSONStatus;
   /** Last wait projection seen while the session still existed. */
   lastWaitStatus?: WaitJSONStatus;
+  /** Report/error already copied into a wait or occupancy payload. */
+  bodyHanded?: boolean;
   tombstoned?: boolean;
   hint?: string;
   providerFailure?: true;
@@ -314,6 +318,9 @@ class FleetMailbox {
     if (!isLiveWaitStatus(snap.status) && overlay.collected !== true) {
       overlay.frozenStatus = snap.status;
       overlay.collected = true;
+      if (snap.report !== undefined || snap.error !== undefined) {
+        overlay.bodyHanded = true;
+      }
       if (overlay.pinHeld === true) {
         overlay.pinHeld = false;
         this.sessions?.unpin(id);
@@ -403,6 +410,7 @@ class FleetMailbox {
     return {
       status,
       ...(overlay.collected === true ? { collected: true } : {}),
+      ...(overlay.bodyHanded === true ? { bodyHanded: true } : {}),
       ...(overlay.tombstoned === true ? { tombstoned: true } : {}),
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
@@ -476,7 +484,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: SPAWN_AGENT_TOOL_NAME,
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then use wait_agents to collect them. Excess fan-out is queued rather than refused.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then reply and end the turn — workers keep running while you are idle. wait_agents is optional/deprecated on the primary parent (mailbox mail arrives as inbound). Nested orchestrators still collect with wait_agents. Excess fan-out is queued rather than refused.",
   inputSchema: {
     type: "object",
     properties: {
@@ -538,6 +546,7 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
+    `Optional/deprecated on the primary parent: mailbox mail arrives as inbound when workers finish, so spawn then idle instead of polling. Nested orchestrators still collect with this tool. ` +
     `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses. ` +
     `Default mode is "any" (return when the first target finishes or asks). Pass mode="all" to wait until every target is ` +
     `terminal — except a pending ask_director unblocks immediately regardless of mode so the director can send_input. ` +
@@ -1465,10 +1474,18 @@ interface WaitAgentsAuthority {
   getNodes: () => readonly FleetNode[];
 }
 
+type WaitFinishReason = "ready" | "timeout" | "yield";
+
 interface WaitAgentsDeps {
   sessions: SubAgentSessionStore;
   fleetRecords: FleetMailboxHandle;
   authority?: WaitAgentsAuthority;
+  /**
+   * TUI primary only. When true, finish the wait as a timeout (workers
+   * untouched, no take) so occupancy can deliver mailbox mail or a queued
+   * operator steer. Nested mounts omit this.
+   */
+  shouldYieldWait?: () => boolean;
 }
 
 function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
@@ -1478,10 +1495,11 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
 
 /**
  * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
- * elapses. Driven by the session store's mailbox (`subscribe`) raced against
- * a timer and the parent tool signal; never polls. Timeout and abort have no
- * side effects: workers keep running and remain waitable. Overlay writers
- * wake this wait via `sessions.wake()`.
+ * elapses, or TUI-primary `shouldYieldWait` is true. Driven by the session
+ * store's mailbox (`subscribe`) raced against a timer and the parent tool
+ * signal; never polls. Timeout, abort, and yield have no side effects:
+ * workers keep running and remain waitable. Overlay writers wake this wait
+ * via `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
@@ -1490,7 +1508,8 @@ async function waitForTerminal(
   timeoutMs: number,
   mode: "any" | "all",
   signal?: AbortSignal,
-): Promise<boolean> {
+  shouldYieldWait?: () => boolean,
+): Promise<WaitFinishReason> {
   const ready = (): boolean => {
     if (
       targets.some(
@@ -1502,27 +1521,31 @@ async function waitForTerminal(
       ? targets.every((id) => isWaitTerminal(id, fleetRecords))
       : targets.some((id) => isWaitTerminal(id, fleetRecords));
   };
-  if (signal?.aborted) return true;
-  if (ready()) return false;
+  if (signal?.aborted) return "timeout";
+  if (shouldYieldWait?.() === true) return "yield";
+  if (ready()) return "ready";
 
-  return await new Promise<boolean>((resolve) => {
+  return await new Promise<WaitFinishReason>((resolve) => {
     let settled = false;
-    const finish = (timedOut: boolean): void => {
+    const finish = (reason: WaitFinishReason): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       unsubscribeSessions();
       signal?.removeEventListener("abort", onAbort);
-      resolve(timedOut);
+      resolve(reason);
     };
-    const onAbort = (): void => finish(true);
+    const onAbort = (): void => finish("timeout");
     const onChange = (): void => {
-      if (ready()) finish(false);
+      if (shouldYieldWait?.() === true) finish("yield");
+      else if (ready()) finish("ready");
     };
-    const timer = setTimeout(() => finish(true), timeoutMs);
+    const timer = setTimeout(() => finish("timeout"), timeoutMs);
     const unsubscribeSessions = sessions.subscribe(onChange);
     signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) finish(true);
+    if (signal?.aborted) finish("timeout");
+    else if (shouldYieldWait?.() === true) finish("yield");
+    else if (ready()) finish("ready");
   });
 }
 
@@ -1579,23 +1602,36 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         }
       }
 
-      const timedOut = await waitForTerminal(
+      const finishReason = await waitForTerminal(
         deps.sessions,
         deps.fleetRecords,
         targets,
         timeoutMs,
         mode,
         signal,
+        deps.shouldYieldWait,
       );
+      const timedOut = finishReason !== "ready";
+      const yielded = finishReason === "yield";
 
       // Terminal overlay/session projections are marked collected once
       // delivered here; a running record is only peeked, so it stays waitable.
+      // A yield leaves reports for occupancy (mailbox mail / ask-wake).
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
         if (record === undefined) {
           return { agent_id: id, status: "unknown" as const };
         }
         if (record.status === "awaiting_director") {
+          if (yielded) {
+            return {
+              agent_id: id,
+              status: record.status,
+              ...(record.description !== undefined
+                ? { description: record.description }
+                : {}),
+            };
+          }
           return {
             agent_id: id,
             status: record.status,
@@ -1612,6 +1648,16 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         }
         if (isLiveWaitStatus(record.status)) {
           return { agent_id: id, status: record.status };
+        }
+        if (yielded || record.bodyHanded === true) {
+          return {
+            agent_id: id,
+            status: record.status,
+            ...(record.description !== undefined &&
+            record.description.length > 0
+              ? { description: record.description }
+              : {}),
+          };
         }
         const projected = takeAndProjectMailboxRecord(deps.fleetRecords, id);
         if (projected === undefined) {

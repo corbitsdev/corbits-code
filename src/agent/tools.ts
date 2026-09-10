@@ -241,6 +241,12 @@ export interface AgentToolsetArgs {
    * Leaves keep apply_patch when their allowlist includes it.
    */
   isCodex?: boolean;
+  /**
+   * TUI primary only. When true, wait_agents finishes as a timeout (workers
+   * untouched, no take) so occupancy can deliver mailbox mail or a queued
+   * operator steer. Nested mounts omit this.
+   */
+  shouldYieldWait?: () => boolean;
 }
 
 // Per-server connection state surfaced to the TUI.
@@ -521,7 +527,13 @@ export async function createAgentToolset(
       };
       orchestratorTools.push(
         createSpawnAgentTool(fleetDeps),
-        createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
+        createWaitAgentsTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          ...(args.shouldYieldWait !== undefined
+            ? { shouldYieldWait: args.shouldYieldWait }
+            : {}),
+        }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
         createResumeAgentTool({ sessions: fleetSessions, fleetRecords }),
