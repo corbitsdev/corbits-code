@@ -132,6 +132,39 @@ describe("getValidCodexToken", () => {
     });
   });
 
+  test("refresh carries the stored account id when the response omits id_token", async () => {
+    await withHome(async (home) => {
+      await saveCodexProfile(
+        {
+          name: "p",
+          createdAt: 0,
+          tokens: {
+            access: "old",
+            refresh: "old-r",
+            expiresAt: 1_000,
+            accountId: "acct-1",
+          },
+        },
+        home,
+      );
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "fresh",
+            refresh_token: "new-r",
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        )) as unknown as typeof fetch;
+      const token = await getValidCodexToken("p", 5_000, home);
+      expect(token.access).toBe("fresh");
+      expect(token.accountId).toBe("acct-1");
+    });
+  });
+
   test("throws CodexAuthError(missing) for an unknown profile", async () => {
     await withHome(async (home) => {
       const err = await getValidCodexToken("ghost", 0, home).catch(

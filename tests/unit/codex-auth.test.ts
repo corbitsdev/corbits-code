@@ -3,13 +3,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { generatePkce, generateState } from "../../src/auth/codex/pkce.js";
+import {
+  generatePkce,
+  generateState,
+  buildAuthorizeUrl,
+} from "@corbits/oauth-core";
 import {
   accountIdFromIdToken,
-  buildAuthorizeUrl,
-  tokensFromResponse,
-} from "../../src/auth/codex/oauth.js";
-import type { CodexProfile } from "../../src/auth/codex/store.js";
+  codexOAuthConfig,
+  codexTokensFromResponse,
+} from "@corbits/codex-provider";
+import {
+  type CodexProfile,
+  withDefaultCodexExpiry,
+} from "../../src/auth/codex/store.js";
 import {
   listCodexProfiles,
   loadCodexProfile,
@@ -17,10 +24,7 @@ import {
   saveCodexProfile,
   updateCodexTokens,
 } from "../../src/config/oauth-stores.js";
-import {
-  CODEX_CLIENT_ID,
-  CODEX_REDIRECT_URI,
-} from "../../src/auth/codex/constants.js";
+import { CODEX_REDIRECT_URI } from "../../src/auth/codex/constants.js";
 
 function base64url(buf: Buffer): string {
   return buf
@@ -56,28 +60,28 @@ describe("buildAuthorizeUrl", () => {
   test("carries client id, redirect, PKCE challenge, state, and Codex params", () => {
     const pkce = generatePkce();
     const state = generateState();
-    const url = new URL(buildAuthorizeUrl(pkce, state));
+    const url = new URL(buildAuthorizeUrl(codexOAuthConfig, pkce, state));
     expect(url.origin + url.pathname).toBe(
       "https://auth.openai.com/oauth/authorize",
     );
     expect(url.searchParams.get("response_type")).toBe("code");
-    expect(url.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
+    expect(url.searchParams.get("client_id")).toBe(codexOAuthConfig.clientId);
     expect(url.searchParams.get("redirect_uri")).toBe(CODEX_REDIRECT_URI);
     expect(url.searchParams.get("code_challenge")).toBe(pkce.challenge);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe(state);
     expect(url.searchParams.get("scope")).toBe(
-      "openid profile email offline_access",
+      codexOAuthConfig.scopes.join(" "),
     );
     expect(url.searchParams.get("codex_cli_simplified_flow")).toBe("true");
     expect(url.searchParams.get("originator")).toBe("codex_cli_rs");
   });
 });
 
-describe("tokensFromResponse", () => {
+describe("codexTokensFromResponse", () => {
   test("computes absolute expiry from expires_in seconds", () => {
     const now = 1_000_000;
-    const tokens = tokensFromResponse(
+    const tokens = codexTokensFromResponse(
       { access_token: "a", refresh_token: "r", expires_in: 3600 },
       now,
     );
@@ -87,7 +91,7 @@ describe("tokensFromResponse", () => {
   });
 
   test("carries previous refresh token forward when response omits one", () => {
-    const tokens = tokensFromResponse(
+    const tokens = codexTokensFromResponse(
       { access_token: "a", expires_in: 60 },
       0,
       "old-refresh",
@@ -96,22 +100,23 @@ describe("tokensFromResponse", () => {
   });
 
   test("throws when no refresh token is available anywhere", () => {
-    expect(() => tokensFromResponse({ access_token: "a" }, 0)).toThrow(
+    expect(() => codexTokensFromResponse({ access_token: "a" }, 0)).toThrow(
       /refresh_token/,
     );
   });
 
   test("falls back to a default lifetime when expires_in is absent", () => {
-    const tokens = tokensFromResponse(
-      { access_token: "a", refresh_token: "r" },
-      0,
+    const now = 0;
+    const tokens = withDefaultCodexExpiry(
+      codexTokensFromResponse({ access_token: "a", refresh_token: "r" }, now),
+      now,
     );
-    expect(tokens.expiresAt).toBeGreaterThan(0);
+    expect(tokens.expiresAt).toBe(3600 * 1000);
   });
 
   test("extracts accountId from a JWT id_token", () => {
     const jwt = makeIdToken({ chatgpt_account_id: "acct-123" });
-    const tokens = tokensFromResponse(
+    const tokens = codexTokensFromResponse(
       { access_token: "a", refresh_token: "r", id_token: jwt },
       0,
     );
@@ -119,7 +124,7 @@ describe("tokensFromResponse", () => {
   });
 
   test("omits accountId when the id_token is absent", () => {
-    const tokens = tokensFromResponse(
+    const tokens = codexTokensFromResponse(
       { access_token: "a", refresh_token: "r" },
       0,
     );

@@ -2,8 +2,8 @@ import {
   CODEX_BASE_URL,
   CODEX_CLIENT_VERSION,
   CODEX_MODELS_PATH,
+  CODEX_ORIGINATOR,
   CODEX_USAGE_PATH,
-  CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "./constants.js";
 import { getValidCodexToken } from "./session.js";
 
@@ -92,8 +92,8 @@ export function codexAuthHeadersForToken(
 ): Record<string, string> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${token.access}`,
-    originator: CODEX_AUTHORIZE_EXTRA_PARAMS["originator"] ?? "codex_cli_rs",
-    "user-agent": `${commandName} (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
+    originator: CODEX_ORIGINATOR,
+    "user-agent": `${commandName} (${CODEX_ORIGINATOR}/${CODEX_CLIENT_VERSION})`,
   };
   if (token.accountId !== undefined)
     headers["chatgpt-account-id"] = token.accountId;
