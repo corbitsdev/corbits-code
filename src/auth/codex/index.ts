@@ -8,14 +8,13 @@ export {
   CODEX_DEFAULT_MODELS,
   CODEX_REDIRECT_URI,
 } from "./constants.js";
+export type { CodexProfile, CodexTokens } from "./store.js";
 export {
   listCodexProfiles,
   loadCodexProfile,
   removeCodexProfile,
   saveCodexProfile,
-  type CodexProfile,
-  type CodexTokens,
-} from "./store.js";
+} from "../../config/oauth-stores.js";
 export {
   getValidCodexToken,
   isCodexTokenExpired,

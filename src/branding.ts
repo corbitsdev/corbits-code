@@ -40,3 +40,13 @@ export const SHELL_PWD_MARKER = `__${ENV_PREFIX}SHELL_PWD_END__`;
 
 // XML-ish tag wrapping the injected system prompt in the Codex Responses bridge.
 export const ENVIRONMENT_TAG_NAME = `${COMMAND_NAME}_environment`;
+
+// Copy the OAuth callback page renders. Auth takes this as an argument; it does
+// not import branding.
+export const productCallbackCopy = {
+  productName: PRODUCT_NAME,
+  siteUrl: PRODUCT_SITE_URL,
+  siteLabel: PRODUCT_SITE_LABEL,
+  githubUrl: PRODUCT_GITHUB_URL,
+  githubLabel: PRODUCT_GITHUB_LABEL,
+};

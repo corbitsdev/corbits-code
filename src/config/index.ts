@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import { xaiUserIdFromAccessToken } from "@corbits/xai-provider";
 import type { InferenceSource } from "@intx/types/runtime";
 import {
   generateSessionId,
@@ -20,8 +21,9 @@ import {
   defaultPricingCachePath,
   type PricingFetcherOptions,
 } from "../cost/pricing-fetcher.js";
-import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
-import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
+import type { CodexProfile } from "../auth/codex/store.js";
+import type { XaiProfile } from "../auth/xai/store.js";
+import { listCodexProfiles, listXaiProfiles } from "./oauth-stores.js";
 import {
   codexProfilesToCatalogEntries,
   codexProvidersAsSettings,
@@ -56,7 +58,6 @@ import {
 } from "../provider/openai-responses.js";
 import { OPENCODE_SESSION_ID_OPTION } from "../provider/opencode-session.js";
 import { OPENCODE_GO_MESSAGES_PROVIDER } from "../provider/opencode-go-anthropic-adapter.js";
-import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
   OPENCODE_GO_BASE_URL,
   OPENCODE_GO_PROVIDER_ID,

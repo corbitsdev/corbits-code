@@ -1,8 +1,10 @@
+import { startCallbackServer, type CallbackServer } from "@corbits/oauth-core";
+
 import {
   authorizationDoneHtml,
-  startCallbackServer,
-  type CallbackServer,
-} from "../oauth/callback-server.js";
+  callbackPageHtml,
+  type CallbackPageCopy,
+} from "../callback-page.js";
 import { CODEX_CALLBACK_PATH, CODEX_CALLBACK_PORT } from "./constants.js";
 
 export type CodexCallbackServer = CallbackServer;
@@ -11,13 +13,15 @@ export type CodexCallbackServer = CallbackServer;
 // server only accepts this exact redirect_uri for this client.
 export async function startCodexCallbackServer(
   expectedState: string,
+  copy: CallbackPageCopy,
 ): Promise<CodexCallbackServer> {
   return startCallbackServer(expectedState, {
     port: CODEX_CALLBACK_PORT,
-    path: CODEX_CALLBACK_PATH,
     // Codex's registered redirect_uri uses localhost (not 127.0.0.1).
-    publicHost: "localhost",
-    doneHtml: authorizationDoneHtml("Codex"),
-    label: "Codex",
+    host: "localhost",
+    path: CODEX_CALLBACK_PATH,
+    doneHtml: authorizationDoneHtml("Codex", copy),
+    failedHtml: (reason) =>
+      callbackPageHtml({ subject: "Codex", error: reason }, copy),
   });
 }

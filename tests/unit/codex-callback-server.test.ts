@@ -1,4 +1,5 @@
 import { test, expect, describe, afterEach } from "bun:test";
+import { productCallbackCopy } from "../../src/branding.js";
 import { startCodexCallbackServer } from "../../src/auth/codex/callback-server.js";
 import {
   CODEX_CALLBACK_PORT,
@@ -34,7 +35,10 @@ function settle(
 
 describe("startCodexCallbackServer", () => {
   test("resolves with the code when state matches", async () => {
-    const server = await startCodexCallbackServer("good-state");
+    const server = await startCodexCallbackServer(
+      "good-state",
+      productCallbackCopy,
+    );
     active = server;
     const result = settle(server, new AbortController().signal);
     await fetch(`${base}?code=the-code&state=good-state`).catch(
@@ -45,7 +49,10 @@ describe("startCodexCallbackServer", () => {
   });
 
   test("rejects when the state does not match (CSRF guard)", async () => {
-    const server = await startCodexCallbackServer("expected-state");
+    const server = await startCodexCallbackServer(
+      "expected-state",
+      productCallbackCopy,
+    );
     active = server;
     const result = settle(server, new AbortController().signal);
     await fetch(`${base}?code=the-code&state=attacker-state`).catch(
@@ -57,7 +64,10 @@ describe("startCodexCallbackServer", () => {
   });
 
   test("rejects when the redirect carries no state at all", async () => {
-    const server = await startCodexCallbackServer("expected-state");
+    const server = await startCodexCallbackServer(
+      "expected-state",
+      productCallbackCopy,
+    );
     active = server;
     const result = settle(server, new AbortController().signal);
     await fetch(`${base}?code=the-code`).catch(() => undefined);
@@ -67,7 +77,7 @@ describe("startCodexCallbackServer", () => {
   });
 
   test("rejects when the authorization server returns an error", async () => {
-    const server = await startCodexCallbackServer("s");
+    const server = await startCodexCallbackServer("s", productCallbackCopy);
     active = server;
     const result = settle(server, new AbortController().signal);
     await fetch(`${base}?error=access_denied&state=s`).catch(() => undefined);
@@ -77,7 +87,7 @@ describe("startCodexCallbackServer", () => {
   });
 
   test("aborts the wait when the signal fires", async () => {
-    const server = await startCodexCallbackServer("s");
+    const server = await startCodexCallbackServer("s", productCallbackCopy);
     active = server;
     const controller = new AbortController();
     const result = settle(server, controller.signal);

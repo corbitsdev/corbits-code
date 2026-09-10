@@ -3,19 +3,19 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  isCodexTokenExpired,
-  getValidCodexToken,
-  CodexAuthError,
-} from "../../src/auth/codex/session.js";
+  isXaiTokenExpired,
+  getValidXaiToken,
+  XaiAuthError,
+} from "../../src/auth/xai/session.js";
 import {
-  loadCodexProfile,
-  saveCodexProfile,
+  loadXaiProfile,
+  saveXaiProfile,
 } from "../../src/config/oauth-stores.js";
 
-describe("isCodexTokenExpired", () => {
+describe("isXaiTokenExpired", () => {
   test("not expired well before expiry", () => {
     expect(
-      isCodexTokenExpired(
+      isXaiTokenExpired(
         { access: "a", refresh: "r", expiresAt: 1_000_000 },
         500_000,
       ),
@@ -23,18 +23,18 @@ describe("isCodexTokenExpired", () => {
   });
 
   test("expired within the refresh skew window", () => {
-    // 30s before expiry is inside the 60s skew, so treated as expired.
+    // 4 minutes before expiry is inside the 5-minute skew, so treated as expired.
     expect(
-      isCodexTokenExpired(
+      isXaiTokenExpired(
         { access: "a", refresh: "r", expiresAt: 1_000_000 },
-        1_000_000 - 30_000,
+        1_000_000 - 4 * 60_000,
       ),
     ).toBe(true);
   });
 
   test("expired after expiry", () => {
     expect(
-      isCodexTokenExpired(
+      isXaiTokenExpired(
         { access: "a", refresh: "r", expiresAt: 1_000_000 },
         2_000_000,
       ),
@@ -42,7 +42,7 @@ describe("isCodexTokenExpired", () => {
   });
 });
 
-describe("getValidCodexToken", () => {
+describe("getValidXaiToken", () => {
   const realFetch = globalThis.fetch;
   beforeEach(() => {
     globalThis.fetch = realFetch;
@@ -52,7 +52,7 @@ describe("getValidCodexToken", () => {
   });
 
   async function withHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
-    const home = await mkdtemp(join(tmpdir(), "codex-session-"));
+    const home = await mkdtemp(join(tmpdir(), "xai-session-"));
     try {
       return await fn(home);
     } finally {
@@ -65,7 +65,7 @@ describe("getValidCodexToken", () => {
       globalThis.fetch = (() => {
         throw new Error("should not be called");
       }) as unknown as typeof fetch;
-      await saveCodexProfile(
+      await saveXaiProfile(
         {
           name: "p",
           createdAt: 0,
@@ -73,37 +73,13 @@ describe("getValidCodexToken", () => {
         },
         home,
       );
-      expect((await getValidCodexToken("p", 1_000, home)).access).toBe("live");
-    });
-  });
-
-  test("returns the account id alongside the access token", async () => {
-    await withHome(async (home) => {
-      globalThis.fetch = (() => {
-        throw new Error("should not be called");
-      }) as unknown as typeof fetch;
-      await saveCodexProfile(
-        {
-          name: "p",
-          createdAt: 0,
-          tokens: {
-            access: "live",
-            refresh: "r",
-            expiresAt: 10_000_000,
-            accountId: "acct-1",
-          },
-        },
-        home,
-      );
-      const access = await getValidCodexToken("p", 1_000, home);
-      expect(access.access).toBe("live");
-      expect(access.accountId).toBe("acct-1");
+      expect((await getValidXaiToken("p", 1_000, home)).access).toBe("live");
     });
   });
 
   test("refreshes and persists when the token is expired", async () => {
     await withHome(async (home) => {
-      await saveCodexProfile(
+      await saveXaiProfile(
         {
           name: "p",
           createdAt: 0,
@@ -123,29 +99,29 @@ describe("getValidCodexToken", () => {
             headers: { "content-type": "application/json" },
           },
         )) as unknown as typeof fetch;
-      const token = await getValidCodexToken("p", 5_000, home);
+      const token = await getValidXaiToken("p", 5_000, home);
       expect(token.access).toBe("fresh");
-      const stored = await loadCodexProfile("p", home);
+      const stored = await loadXaiProfile("p", home);
       expect(stored?.tokens.access).toBe("fresh");
       expect(stored?.tokens.refresh).toBe("new-r");
       expect(stored?.createdAt).toBe(0);
     });
   });
 
-  test("throws CodexAuthError(missing) for an unknown profile", async () => {
+  test("throws XaiAuthError(missing) for an unknown profile", async () => {
     await withHome(async (home) => {
-      const err = await getValidCodexToken("ghost", 0, home).catch(
+      const err = await getValidXaiToken("ghost", 0, home).catch(
         (e: unknown) => e,
       );
-      expect(err).toBeInstanceOf(CodexAuthError);
-      expect((err as CodexAuthError).reason).toBe("missing");
-      expect((err as CodexAuthError).profile).toBe("ghost");
+      expect(err).toBeInstanceOf(XaiAuthError);
+      expect((err as XaiAuthError).reason).toBe("missing");
+      expect((err as XaiAuthError).profile).toBe("ghost");
     });
   });
 
-  test("throws CodexAuthError(refresh-failed) when refresh is rejected", async () => {
+  test("throws XaiAuthError(refresh-failed) when refresh is rejected", async () => {
     await withHome(async (home) => {
-      await saveCodexProfile(
+      await saveXaiProfile(
         {
           name: "p",
           createdAt: 0,
@@ -155,11 +131,11 @@ describe("getValidCodexToken", () => {
       );
       globalThis.fetch = (async () =>
         new Response("revoked", { status: 400 })) as unknown as typeof fetch;
-      const err = await getValidCodexToken("p", 5_000, home).catch(
+      const err = await getValidXaiToken("p", 5_000, home).catch(
         (e: unknown) => e,
       );
-      expect(err).toBeInstanceOf(CodexAuthError);
-      expect((err as CodexAuthError).reason).toBe("refresh-failed");
+      expect(err).toBeInstanceOf(XaiAuthError);
+      expect((err as XaiAuthError).reason).toBe("refresh-failed");
     });
   });
 });

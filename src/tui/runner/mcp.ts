@@ -4,6 +4,7 @@
  * enable/disable, remove).
  */
 
+import { openInBrowser } from "@corbits/oauth-core";
 import { getLogger } from "@intx/log";
 import { resolveMcpServers } from "../../config/index.js";
 import {
@@ -25,7 +26,6 @@ import {
   createExaMCPServerConfig,
   EXA_MCP_SERVER_NAME,
 } from "../../mcp/exa.js";
-import { openInBrowser } from "../../auth/oauth/browser.js";
 import { mergeMcpSurfaceEntries, isBuiltinRow } from "../mcp-list.js";
 import { nextMcpCatalog } from "../mcp-catalog.js";
 import type { MCPConnectCallbacks } from "../../agent/tools.js";

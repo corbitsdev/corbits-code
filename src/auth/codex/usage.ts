@@ -6,7 +6,6 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "./constants.js";
 import { getValidCodexToken } from "./session.js";
-import { COMMAND_NAME } from "../../branding.js";
 
 // Live usage/quota for a prepaid Codex plan. Since the subscription is not
 // billed per token, dollar cost is meaningless — what matters is how much of
@@ -84,14 +83,17 @@ function parseUsage(payload: unknown): CodexUsage {
   };
 }
 
-export function codexAuthHeadersForToken(token: {
-  readonly access: string;
-  readonly accountId?: string | undefined;
-}): Record<string, string> {
+export function codexAuthHeadersForToken(
+  token: {
+    readonly access: string;
+    readonly accountId?: string | undefined;
+  },
+  commandName: string,
+): Record<string, string> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${token.access}`,
     originator: CODEX_AUTHORIZE_EXTRA_PARAMS["originator"] ?? "codex_cli_rs",
-    "user-agent": `${COMMAND_NAME} (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
+    "user-agent": `${commandName} (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
   };
   if (token.accountId !== undefined)
     headers["chatgpt-account-id"] = token.accountId;
@@ -100,16 +102,21 @@ export function codexAuthHeadersForToken(token: {
 
 export async function codexAuthHeaders(
   profileName: string,
+  commandName: string,
 ): Promise<Record<string, string>> {
-  return codexAuthHeadersForToken(await getValidCodexToken(profileName));
+  return codexAuthHeadersForToken(
+    await getValidCodexToken(profileName),
+    commandName,
+  );
 }
 
 // Fetch the live usage/quota snapshot for a Codex profile.
 export async function fetchCodexUsage(
   profileName: string,
+  commandName: string,
 ): Promise<CodexUsage> {
   const res = await fetch(`${CODEX_BASE_URL}${CODEX_USAGE_PATH}`, {
-    headers: await codexAuthHeaders(profileName),
+    headers: await codexAuthHeaders(profileName, commandName),
   });
   if (!res.ok) {
     throw new Error(`Codex usage request failed (HTTP ${String(res.status)}).`);
@@ -120,10 +127,13 @@ export async function fetchCodexUsage(
 // Fetch the account's available Codex model ids. Returns an empty array when the
 // account has no models available (e.g. while rate-limited), in which case the
 // caller falls back to the default list.
-export async function fetchCodexModels(profileName: string): Promise<string[]> {
+export async function fetchCodexModels(
+  profileName: string,
+  commandName: string,
+): Promise<string[]> {
   const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
   const res = await fetch(url, {
-    headers: await codexAuthHeaders(profileName),
+    headers: await codexAuthHeaders(profileName, commandName),
   });
   if (!res.ok) return [];
   const payload = (await res.json()) as unknown;

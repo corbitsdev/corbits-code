@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { callbackPageHtml } from "../auth/callback-page.js";
+import { productCallbackCopy } from "../branding.js";
 
 export interface CallbackServer {
   // The redirect_uri to register with the authorization server.
@@ -73,10 +74,13 @@ export async function startCallbackServer(
     res.statusCode = failure === undefined ? 200 : 400;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(
-      callbackPageHtml({
-        ...(serverName !== undefined ? { subject: serverName } : {}),
-        ...(failure !== undefined ? { error: failure } : {}),
-      }),
+      callbackPageHtml(
+        {
+          ...(serverName !== undefined ? { subject: serverName } : {}),
+          ...(failure !== undefined ? { error: failure } : {}),
+        },
+        productCallbackCopy,
+      ),
     );
     if (error !== null)
       deliver({ error: new Error(`Authorization failed: ${error}`) });

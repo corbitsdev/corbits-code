@@ -1,28 +1,35 @@
-import { openInBrowser } from "../oauth/browser.js";
 import {
+  openInBrowser,
   startOAuthLogin,
   type OAuthLoginHandle,
   type StartOAuthLoginOptions,
-} from "../oauth/login.js";
+} from "@corbits/oauth-core";
+
+import type { CallbackPageCopy } from "../callback-page.js";
+import { saveCodexProfile } from "../../config/oauth-stores.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "./constants.js";
 import { startCodexCallbackServer } from "./callback-server.js";
 import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";
-import { saveCodexProfile, type CodexTokens } from "./store.js";
+import type { CodexTokens } from "./store.js";
 
 export { openInBrowser };
 
 export type CodexLoginHandle = OAuthLoginHandle<CodexTokens>;
-export type StartCodexLoginOptions = StartOAuthLoginOptions;
+export type StartCodexLoginOptions = StartOAuthLoginOptions & {
+  home?: string;
+  copy: CallbackPageCopy;
+};
 
 // Drive the loopback PKCE login for a Codex profile.
 export async function startCodexLogin(
   opts: StartCodexLoginOptions,
 ): Promise<CodexLoginHandle> {
-  return startOAuthLogin(opts, {
-    startCallbackServer: startCodexCallbackServer,
+  const { home, copy, ...loginOpts } = opts;
+  return startOAuthLogin(loginOpts, {
+    startCallbackServer: (state) => startCodexCallbackServer(state, copy),
     buildAuthorizeUrl,
     exchangeCode,
-    saveProfile: saveCodexProfile,
+    saveProfile: (profile) => saveCodexProfile(profile, home),
   });
 }
 

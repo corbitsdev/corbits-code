@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { OAuthScopeCheckResult } from "../auth/oauth-scope-check.js";
+import { COMMAND_NAME } from "../branding.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 // The oauth branch probes real provider scope over the network; stub the
@@ -515,7 +516,9 @@ describe("buildProviderSubmitHandler", () => {
         );
 
         expect(commits).toBe(1);
-        expect(scopeCheckCalls).toEqual([["codex", stagedCodexTokens]]);
+        expect(scopeCheckCalls).toEqual([
+          ["codex", stagedCodexTokens, COMMAND_NAME],
+        ]);
         expect(await loadLocalSettings(localPath)).toEqual({
           provider: "codex/work",
           model: "gpt-5",

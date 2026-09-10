@@ -10,6 +10,8 @@
 // Never logs or persists the token or any response body — only the HTTP
 // status is inspected to classify the result.
 
+import { OAuthTokenEndpointError } from "@corbits/oauth-core";
+
 import {
   CODEX_BASE_URL,
   CODEX_MODELS_PATH,
@@ -22,7 +24,6 @@ import { XAI_BASE_URL, XAI_TOKEN_TIMEOUT_MS } from "./xai/constants.js";
 import { refreshStagedXaiTokens } from "./xai/session.js";
 import type { XaiTokens } from "./xai/store.js";
 import { xaiAuthHeadersForToken } from "./xai/usage.js";
-import { OAuthTokenEndpointError } from "./oauth/client.js";
 
 export type OAuthScopeCheckKind = "codex" | "xai";
 
@@ -99,11 +100,13 @@ function classifyStatus(
 
 async function checkCodexScope(
   tokens: CodexTokens,
+  commandName: string,
 ): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Codex";
   try {
     const headers = codexAuthHeadersForToken(
       await refreshStagedCodexTokens(tokens),
+      commandName,
     );
     const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
     const res = await fetch(url, {
@@ -146,6 +149,9 @@ async function checkXaiScope(
 export async function checkOAuthProviderScope(
   kind: OAuthScopeCheckKind,
   tokens: CodexTokens | XaiTokens,
+  commandName: string,
 ): Promise<OAuthScopeCheckResult> {
-  return kind === "codex" ? checkCodexScope(tokens) : checkXaiScope(tokens);
+  return kind === "codex"
+    ? checkCodexScope(tokens, commandName)
+    : checkXaiScope(tokens);
 }

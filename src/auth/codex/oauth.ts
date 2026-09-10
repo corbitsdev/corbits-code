@@ -4,9 +4,10 @@ import {
   exchangeCode as exchangeSharedCode,
   refreshTokenRequest,
   type OAuthClientConfig,
+  type Pkce,
   type TokenResponse,
-} from "../oauth/client.js";
-import type { Pkce } from "../oauth/pkce.js";
+} from "@corbits/oauth-core";
+
 import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
   CODEX_AUTHORIZE_URL,
@@ -26,7 +27,6 @@ export const codexOAuthConfig: OAuthClientConfig = {
   scopes: CODEX_SCOPES,
   extraAuthorizeParams: CODEX_AUTHORIZE_EXTRA_PARAMS,
   tokenTimeoutMs: CODEX_TOKEN_TIMEOUT_MS,
-  label: "Codex",
 };
 
 // Build the authorization URL the user opens to grant Codex access.
@@ -62,6 +62,10 @@ export function accountIdFromIdToken(
   return undefined;
 }
 
+// Default access-token lifetime when the server omits expires_in. Conservative
+// so the refresh path engages sooner rather than trusting a stale token.
+const DEFAULT_EXPIRES_IN_S = 3600;
+
 // Convert a token response to stored tokens. `now` is injectable so callers
 // (and tests) control the expiry baseline; `previousRefresh` is carried forward
 // when a refresh response omits a new refresh_token (servers may rotate or not).
@@ -70,10 +74,12 @@ export function tokensFromResponse(
   now: number,
   previousRefresh?: string,
 ): CodexTokens {
-  const base = baseTokensFromResponse(response, now, previousRefresh, "Codex");
+  const base = baseTokensFromResponse(response, now, previousRefresh);
   const accountId = accountIdFromIdToken(response.id_token);
   return {
-    ...base,
+    access: base.access,
+    refresh: base.refresh,
+    expiresAt: base.expiresAt ?? now + DEFAULT_EXPIRES_IN_S * 1000,
     ...(accountId !== undefined ? { accountId } : {}),
   };
 }

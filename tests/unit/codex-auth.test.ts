@@ -9,14 +9,14 @@ import {
   buildAuthorizeUrl,
   tokensFromResponse,
 } from "../../src/auth/codex/oauth.js";
+import type { CodexProfile } from "../../src/auth/codex/store.js";
 import {
   listCodexProfiles,
   loadCodexProfile,
   removeCodexProfile,
   saveCodexProfile,
   updateCodexTokens,
-  type CodexProfile,
-} from "../../src/auth/codex/store.js";
+} from "../../src/config/oauth-stores.js";
 import {
   CODEX_CLIENT_ID,
   CODEX_REDIRECT_URI,

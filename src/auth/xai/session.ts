@@ -1,7 +1,17 @@
-import { createTokenSession } from "../oauth/session.js";
-import { XAI_REFRESH_SKEW_MS } from "./constants.js";
-import { refreshTokens } from "./oauth.js";
-import { loadXaiProfile, updateXaiTokens, type XaiTokens } from "./store.js";
+import {
+  createTokenSession,
+  isTokenExpired,
+  OAuthProfileNotFoundError,
+  OAuthRefreshFailedError,
+  type TokenSession,
+} from "@corbits/oauth-core";
+import {
+  refreshXaiTokens,
+  XAI_REFRESH_SKEW_MS,
+  type XaiTokens,
+} from "@corbits/xai-provider";
+
+import { loadXaiProfile, updateXaiTokens } from "../../config/oauth-stores.js";
 
 export class XaiAuthError extends Error {
   readonly profile: string;
@@ -23,53 +33,64 @@ export interface XaiAccess {
   access: string;
 }
 
-// The grok proxy wants the caller's user id in the x-grok-user-id header. The
-// access token is a JWT whose `sub` claim is that id; decode it rather than
-// threading a separately-stored value through the catalog.
-export function xaiUserIdFromAccessToken(access: string): string | undefined {
-  const payload = access.split(".")[1];
-  if (payload === undefined) return undefined;
-  try {
-    const decoded = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8"),
-    ) as {
-      sub?: unknown;
-    };
-    return typeof decoded.sub === "string" ? decoded.sub : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-const session = createTokenSession<XaiTokens, XaiAccess>({
-  skewMs: XAI_REFRESH_SKEW_MS,
-  loadProfile: loadXaiProfile,
-  updateTokens: updateXaiTokens,
-  refreshTokens,
-  toAccess: (tokens) => ({ access: tokens.access }),
-  missingError: (name) =>
-    new XaiAuthError(
+function wrapXaiAuthError(name: string, err: unknown): never {
+  if (err instanceof OAuthProfileNotFoundError) {
+    throw new XaiAuthError(
       name,
       "missing",
       `xAI profile "${name}" is not authorized. Log in again.`,
-    ),
-  refreshFailedError: (name, err) =>
-    new XaiAuthError(
+    );
+  }
+  if (err instanceof OAuthRefreshFailedError) {
+    const cause = err.cause;
+    throw new XaiAuthError(
       name,
       "refresh-failed",
-      `xAI profile "${name}" could not be refreshed (${err instanceof Error ? err.message : String(err)}). Log in again.`,
-    ),
-});
+      `xAI profile "${name}" could not be refreshed (${cause instanceof Error ? cause.message : String(cause)}). Log in again.`,
+    );
+  }
+  throw err;
+}
 
-export const isXaiTokenExpired = session.isExpired;
-export const getValidXaiToken = session.getValidToken;
+const sessions = new Map<string, TokenSession<XaiTokens, XaiAccess>>();
+
+function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
+  const key = home ?? "";
+  const existing = sessions.get(key);
+  if (existing !== undefined) return existing;
+  const created = createTokenSession<XaiTokens, XaiAccess>({
+    skewMs: XAI_REFRESH_SKEW_MS,
+    loadProfile: (name) => loadXaiProfile(name, home),
+    updateTokens: (name, tokens) => updateXaiTokens(name, tokens, home),
+    refreshTokens: refreshXaiTokens,
+    toAccess: (tokens) => ({ access: tokens.access }),
+  });
+  sessions.set(key, created);
+  return created;
+}
+
+export function isXaiTokenExpired(tokens: XaiTokens, now: number): boolean {
+  return isTokenExpired(tokens, now, XAI_REFRESH_SKEW_MS);
+}
+
+export async function getValidXaiToken(
+  name: string,
+  now?: number,
+  home?: string,
+): Promise<XaiAccess> {
+  try {
+    return await sessionFor(home).getValidToken(name, now);
+  } catch (err) {
+    wrapXaiAuthError(name, err);
+  }
+}
 
 export async function refreshStagedXaiTokens(
   tokens: XaiTokens,
   now: number = Date.now(),
 ): Promise<XaiTokens> {
   if (!isXaiTokenExpired(tokens, now)) return tokens;
-  const refreshed = await refreshTokens(tokens.refresh, now);
+  const refreshed = await refreshXaiTokens(tokens.refresh, now);
   Object.assign(tokens, refreshed);
   return tokens;
 }

@@ -86,10 +86,10 @@ export const defaultProfileLister = async (
   kind: OAuthKind,
 ): Promise<readonly string[]> => {
   if (kind === "codex") {
-    const { listCodexProfiles } = await import("../../auth/codex/store.js");
+    const { listCodexProfiles } = await import("../../config/oauth-stores.js");
     return (await listCodexProfiles()).map((p) => p.name);
   }
-  const { listXaiProfiles } = await import("../../auth/xai/store.js");
+  const { listXaiProfiles } = await import("../../config/oauth-stores.js");
   return (await listXaiProfiles()).map((p) => p.name);
 };
 
@@ -128,12 +128,13 @@ export const defaultLoginStarter = async ({
   readonly profile: string;
   readonly signal: AbortSignal;
 }) => {
+  const { productCallbackCopy } = await import("../../branding.js");
   if (kind === "codex") {
     const { startCodexLogin } = await import("../../auth/codex/login.js");
-    return startCodexLogin({ profile, signal });
+    return startCodexLogin({ profile, signal, copy: productCallbackCopy });
   }
   const { startXaiLogin } = await import("../../auth/xai/login.js");
-  return startXaiLogin({ profile, signal });
+  return startXaiLogin({ profile, signal, copy: productCallbackCopy });
 };
 
 /**
