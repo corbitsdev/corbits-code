@@ -5,6 +5,10 @@
  */
 
 import { hasActiveTasks, type Task } from "../agent/tasks.js";
+import {
+  truncationNotice,
+  truncateWithReservedNotice,
+} from "../plugins/result-truncation-plugin.js";
 import { isLiveWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 
 /** Enough of a lane report for a parent continuation; traces stay on disk. */
@@ -68,10 +72,48 @@ function isPromiseLike(value: unknown): value is Promise<unknown> {
   return typeof value === "object" && value !== null && "then" in value;
 }
 
-function clipField(text: string | undefined): string | undefined {
+/** Session blob-store write; same shape as ContextStore.writeBlob. */
+export type FleetDryBlobWriter = (
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+) => void | Promise<void>;
+
+/** Distinct from leisure `{callId}:full` so a reactor size-cap cannot clobber this spill. */
+export function fleetDrySpillKey(
+  agentId: string,
+  field: "report" | "error",
+): string {
+  return `fleet-dry:${agentId}:${field}`;
+}
+
+async function clipField(
+  text: string | undefined,
+  agentId: string,
+  field: "report" | "error",
+  writeBlob?: FleetDryBlobWriter,
+): Promise<string | undefined> {
   if (text === undefined) return undefined;
   if (text.length <= FLEET_DRY_REPORT_CHARS) return text;
-  return `${text.slice(0, FLEET_DRY_REPORT_CHARS - 1).trimEnd()}…`;
+  let uri: string | undefined;
+  if (writeBlob !== undefined) {
+    const key = fleetDrySpillKey(agentId, field);
+    try {
+      await writeBlob(key, new TextEncoder().encode(text), "text/plain");
+      uri = `tool-output:///${key}`;
+    } catch {
+      // Rejected write: same honest cut as a missing writer — no URI.
+    }
+  }
+  return truncateWithReservedNotice(text, FLEET_DRY_REPORT_CHARS, (keptLen) =>
+    truncationNotice({
+      maxChars: FLEET_DRY_REPORT_CHARS,
+      remaining: text.length - keptLen,
+      fullLength: text.length,
+      contentType: "text/plain",
+      ...(uri !== undefined ? { uri } : {}),
+    }),
+  );
 }
 
 export function projectMailboxRecord(
@@ -115,11 +157,22 @@ export function takeAndProjectMailboxRecord(
   return projectMailboxRecord(id, taken, lane);
 }
 
-function clipCollectedReport(
+async function clipCollectedReport(
   report: CollectedWorkerReport,
-): CollectedWorkerReport {
-  const clippedReport = clipField(report.report);
-  const clippedError = clipField(report.error);
+  writeBlob?: FleetDryBlobWriter,
+): Promise<CollectedWorkerReport> {
+  const clippedReport = await clipField(
+    report.report,
+    report.agent_id,
+    "report",
+    writeBlob,
+  );
+  const clippedError = await clipField(
+    report.error,
+    report.agent_id,
+    "error",
+    writeBlob,
+  );
   return {
     ...report,
     ...(clippedReport !== undefined ? { report: clippedReport } : {}),
@@ -127,11 +180,12 @@ function clipCollectedReport(
   };
 }
 
-export function collectUncollectedTerminals(
+export async function collectUncollectedTerminals(
   mailbox: FleetDryMailbox | undefined,
   lanes: readonly FleetDryLane[],
   consume: boolean,
-): CollectedWorkerReport[] {
+  writeBlob?: FleetDryBlobWriter,
+): Promise<CollectedWorkerReport[]> {
   if (mailbox === undefined) return [];
   const byId = new Map(lanes.map((lane) => [lane.id, lane]));
   const reports: CollectedWorkerReport[] = [];
@@ -144,7 +198,7 @@ export function collectUncollectedTerminals(
       ? takeAndProjectMailboxRecord(mailbox, id, byId.get(id))
       : projectMailboxRecord(id, peeked, byId.get(id));
     if (projected === undefined) continue;
-    reports.push(clipCollectedReport(projected));
+    reports.push(await clipCollectedReport(projected, writeBlob));
   }
   return reports;
 }
@@ -180,10 +234,11 @@ export function driveOpenTasksAfterFleetDry(args: {
   deferredDryEdge?: boolean;
   mailbox: FleetDryMailbox | undefined;
   lanes: readonly FleetDryLane[];
+  writeBlob?: FleetDryBlobWriter;
   beginSystemContinuation: (prompt: string) => void;
   send: (prompt: string) => unknown;
   onSendFailure?: () => void;
-}): boolean {
+}): boolean | Promise<boolean> {
   const tasks = [...args.openTasks];
   if (
     !shouldDriveOpenTasks({
@@ -196,7 +251,19 @@ export function driveOpenTasksAfterFleetDry(args: {
   ) {
     return false;
   }
-  const reports = collectUncollectedTerminals(args.mailbox, args.lanes, false);
+  return driveOpenTasksAfterFleetDrySpill(args, tasks);
+}
+
+async function driveOpenTasksAfterFleetDrySpill(
+  args: Parameters<typeof driveOpenTasksAfterFleetDry>[0],
+  tasks: Task[],
+): Promise<boolean> {
+  const reports = await collectUncollectedTerminals(
+    args.mailbox,
+    args.lanes,
+    false,
+    args.writeBlob,
+  );
   const prompt = buildFleetDryContinuationPrompt(tasks, reports);
   const takeReports = (): void => {
     for (const report of reports) {
