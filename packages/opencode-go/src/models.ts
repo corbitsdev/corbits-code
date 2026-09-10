@@ -14,6 +14,16 @@ export interface GoModel {
 export const OPENCODE_GO_MODELS = [
   { id: "grok-4.5", name: "Grok 4.5", protocol: "chat-completions" },
   { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", protocol: "responses" },
+  {
+    id: "muse-spark-1.3-contributor",
+    name: "Muse Spark 1.3 Contributor",
+    protocol: "responses",
+  },
+  {
+    id: "muse-spark-1.2-contributor",
+    name: "Muse Spark 1.2 Contributor",
+    protocol: "responses",
+  },
   { id: "glm-5.2", name: "GLM-5.2", protocol: "chat-completions" },
   { id: "glm-5.1", name: "GLM-5.1", protocol: "chat-completions" },
   { id: "kimi-k3", name: "Kimi K3", protocol: "chat-completions" },

@@ -40,6 +40,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   cycles through a closed live-activity set (`working`, `warping`,
   `buzzing`, `grinding`, `thinking`, `doing`, `cooking`, `creating`,
   `imagining`, `inventing`) instead of going blank.
+- OpenCode Go routes Muse Spark 1.2 Contributor and Muse Spark 1.3
+  Contributor through the Responses API instead of chat completions.
 
 
 ## [0.3.19] - 2026-09-10

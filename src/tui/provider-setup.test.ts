@@ -751,7 +751,7 @@ describe("runProviderSetup Ollama discovery", () => {
 });
 
 describe("runProviderSetup Go models", () => {
-  const LIVE_ONLY_ID = "muse-spark-1.2-contributor";
+  const LIVE_ONLY_ID = "live-only-fixture-model";
 
   test("choiceFromDef lists selectable Go ids", () => {
     const go = providerChoiceById("opencode-go");
