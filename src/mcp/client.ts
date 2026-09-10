@@ -95,8 +95,9 @@ function isAbortError(err: unknown): boolean {
   return typeof err === "object" && err !== null && "name" in err && err.name === "AbortError";
 }
 
-export const MAX_BROWSER_AUTH_ATTEMPTS = 3;
+export const MAX_BROWSER_AUTH_ATTEMPTS = 1;
 export const BROWSER_AUTH_COOLDOWN_MS = 5 * 60_000;
+export const BROWSER_AUTH_WAIT_MS = 2 * 60_000;
 
 interface BrowserAuthAttempts {
   count: number;
@@ -105,17 +106,44 @@ interface BrowserAuthAttempts {
 // Keyed by server identity, not provider instance, so the cap survives the
 // provider re-creation that every reconnect performs.
 const browserAuthAttempts = new Map<string, BrowserAuthAttempts>();
+let browserAuthWaitMs = BROWSER_AUTH_WAIT_MS;
 
 export function resetBrowserAuthState(): void {
   browserAuthAttempts.clear();
+  browserAuthWaitMs = BROWSER_AUTH_WAIT_MS;
+}
+
+export function setBrowserAuthWaitMs(ms: number): void {
+  browserAuthWaitMs = ms;
 }
 
 function browserAuthCapError(serverName: string): Error {
   const minutes = Math.round(BROWSER_AUTH_COOLDOWN_MS / 60_000);
+  const attempts =
+    MAX_BROWSER_AUTH_ATTEMPTS === 1 ? "1 attempt" : `${String(MAX_BROWSER_AUTH_ATTEMPTS)} attempts`;
   return new Error(
-    `MCP authorization for ${serverName} failed after ${MAX_BROWSER_AUTH_ATTEMPTS} attempts; ` +
+    `MCP authorization for ${serverName} failed after ${attempts}; ` +
       `retrying paused for ${minutes} minutes. Retry later after the cooldown.`,
   );
+}
+
+function browserAuthWaitError(serverName: string): Error {
+  return new Error(
+    `MCP authorization for ${serverName} timed out waiting for the browser; ` +
+      `the server is disconnected. Retry later after the cooldown.`,
+  );
+}
+
+async function waitForBrowserAuthCode(context: HTTPAuthContext): Promise<string> {
+  const lifecycle = context.coordinator.lifecycle.signal;
+  const deadline = AbortSignal.any([lifecycle, AbortSignal.timeout(browserAuthWaitMs)]);
+  try {
+    return await context.callback.waitForCode(deadline);
+  } catch (err) {
+    if (lifecycle.aborted) throw err;
+    if (deadline.aborted) throw browserAuthWaitError(context.serverName);
+    throw err;
+  }
 }
 
 function browserAuthKey(context: HTTPAuthContext): string {
@@ -294,7 +322,7 @@ async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPA
 
   const browserFlow = coordinator.browserFlow;
   await browserFlow.promptEmitted;
-  const code = await context.callback.waitForCode(coordinator.lifecycle.signal);
+  const code = await waitForBrowserAuthCode(context);
   await new StreamableHTTPClientTransport(
     context.url,
     streamableHTTPTransportOptions(context.authProvider, coordinator.lifecycle.signal),
