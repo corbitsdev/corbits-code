@@ -228,10 +228,17 @@ export function wirePostStartup(
   sessionBridge.setMailboxMailDriver(() => {
     const send = state.sendWithAttemptIdentity;
     if (send === undefined) return false;
-    return driveMailboxMail({
+    const storage = state.currentStorage;
+    const driven = driveMailboxMail({
       parentProcessing: sessionBridge.turn.isProcessing,
       mailbox: services.toolset.fleetRecords,
       lanes: services.subAgentSessions.list(),
+      ...(storage !== null
+        ? {
+            writeBlob: (key, bytes, contentType) =>
+              storage.writeBlob(key, bytes, contentType),
+          }
+        : {}),
       beginSystemContinuation: (prompt) => {
         sessionBridge.beginSystemContinuation(prompt);
       },
@@ -240,6 +247,9 @@ export function wirePostStartup(
         sessionBridge.abortSystemContinuation({ rearmDry: false });
       },
     });
+    if (driven === false) return false;
+    void driven;
+    return true;
   });
   sessionBridge.setWaitYieldWake(() => {
     services.subAgentSessions.wake();

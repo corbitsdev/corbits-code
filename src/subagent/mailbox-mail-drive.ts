@@ -9,6 +9,7 @@ import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   collectUncollectedTerminals,
   type CollectedWorkerReport,
+  type FleetDryBlobWriter,
   type FleetDryLane,
   type FleetDryMailbox,
 } from "./fleet-dry-drive.js";
@@ -46,12 +47,24 @@ export function driveMailboxMail(args: {
   parentProcessing: boolean;
   mailbox: FleetDryMailbox | undefined;
   lanes: readonly FleetDryLane[];
+  writeBlob?: FleetDryBlobWriter;
   beginSystemContinuation: (prompt: string) => void;
   send: (prompt: string) => unknown;
   onSendFailure?: () => void;
-}): boolean {
+}): boolean | Promise<boolean> {
   if (args.parentProcessing) return false;
-  const reports = collectUncollectedTerminals(args.mailbox, args.lanes, false);
+  return driveMailboxMailAfterCollect(args);
+}
+
+async function driveMailboxMailAfterCollect(
+  args: Parameters<typeof driveMailboxMail>[0],
+): Promise<boolean> {
+  const reports = await collectUncollectedTerminals(
+    args.mailbox,
+    args.lanes,
+    false,
+    args.writeBlob,
+  );
   if (reports.length === 0) return false;
   const prompt = buildMailboxMailPrompt(reports);
   const takeReports = (): void => {
