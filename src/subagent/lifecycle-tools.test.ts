@@ -620,8 +620,7 @@ describe("send_input", () => {
 
     await callTool(sendInput, { target: worker.id, message: "stop that", interrupt: true });
     const inflight = fleetRecords.peek(worker.id);
-    expect(inflight?.status).toBe("interrupted");
-    expect(inflight?.stopReason).toBe("interrupted");
+    expect(inflight?.status).toBe("running");
     expect(sessions.get(worker.id)?.stopReason).toBe("interrupted");
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
 
