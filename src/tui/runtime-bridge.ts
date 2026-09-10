@@ -1011,6 +1011,11 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   }
 }
 
+function occupancyHold(bag: BridgeBag, runBusy: boolean): boolean {
+  if (bag.liveFleet > 0 || bag.awaitingContinuationInference) return true;
+  return runBusy && bag.pendingDryOpenDrive;
+}
+
 /**
  * Release the run to idle and drain everything queued — but only at true
  * session-idle. A live fleet holds the run busy after the parent turn settles
@@ -1286,15 +1291,18 @@ export function attachSessionBridge(
       status: turn.status,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
+      nowMs,
+      sessionActive: occupancyHold(bag, shell.session.run === "busy"),
     };
     const fleet = fleetProgress(bag.agentSessions, nowMs);
     const label = resolveTurnLabel(input, isStalled, fleet);
+    const sessionLive = label !== undefined;
     if (label === undefined) {
       // The bottom-left status slot rides the same re-entry as the landing
       // mark, so it crossfades between phases without a timer of its own.
       setLockupFrame(shell, {
         nowMs,
-        animating: turn.isProcessing,
+        animating: false,
         phase: null,
         rampPhase: null,
         stalledForMs: null,
@@ -1309,7 +1317,7 @@ export function attachSessionBridge(
     const stalledFor = stalledForMs(nowMs, rampPhase === "stalled");
     setLockupFrame(shell, {
       nowMs,
-      animating: turn.isProcessing,
+      animating: sessionLive,
       phase: label,
       rampPhase,
       stalledForMs: stalledFor,
@@ -1383,13 +1391,19 @@ export function attachSessionBridge(
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
         drainLiveSteersAtBoundary(shell, bag);
       }
-      if (settled) settleRun();
+      if (settled) {
+        settleRun();
+        paintPhase();
+      }
       return;
     }
     if (isBridgeInbound(event)) {
       applyInbound(shell, bag, event);
     }
-    if (settled) settleRun();
+    if (settled) {
+      settleRun();
+      paintPhase();
+    }
   };
 
   const recordLastSent = (

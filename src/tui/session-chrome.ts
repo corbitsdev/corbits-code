@@ -25,6 +25,13 @@ export interface TurnLabelInput {
   readonly status: TurnStatus;
   readonly currentToolName: string | null;
   readonly streamingType: "text" | "thinking" | "tool" | null;
+  /** Clock for cycling live-activity words. Missing means the first word. */
+  readonly nowMs?: number;
+  /**
+   * Session is still occupied even if this parent turn has settled —
+   * live fleet occupancy or a pending dry-fleet continuation.
+   */
+  readonly sessionActive?: boolean;
 }
 
 /**
@@ -35,11 +42,16 @@ export interface TurnLabelInput {
  * can appear in the ticker."
  */
 export const ACTIVITY_STATES = [
-  "thinking",
-  "planning",
-  "researching",
-  "building",
   "working",
+  "warping",
+  "buzzing",
+  "grinding",
+  "thinking",
+  "doing",
+  "cooking",
+  "creating",
+  "imagining",
+  "inventing",
   "waiting",
   "stalled",
   "stopping",
@@ -47,34 +59,35 @@ export const ACTIVITY_STATES = [
 
 export type ActivityState = (typeof ACTIVITY_STATES)[number];
 
-/**
- * Execution → activity-state mapping, kept in this one place with an
- * explicit fallback so a newly added tool (built-in, MCP, or plugin) renders
- * a generic "working" state instead of leaking its identifier — no ticker
- * change is required to add a tool correctly.
- */
-const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
-  read_file: "researching",
-  search_files: "researching",
-  grep: "researching",
-  list_dir: "researching",
-  web_search: "researching",
-  web_fetch: "researching",
-  write_file: "building",
-  edit_file: "building",
-  run_shell: "building",
-  delete_file: "building",
-  manage_tasks: "planning",
-  task: "planning",
-  tool_search: "researching",
-  search_agents: "researching",
-  ask_operator: "waiting",
-  submit_output: "working",
-};
+/** Words the lockup cycles while the session is live and not gated. */
+export const LIVE_ACTIVITY_WORDS = [
+  "working",
+  "warping",
+  "buzzing",
+  "grinding",
+  "thinking",
+  "doing",
+  "cooking",
+  "creating",
+  "imagining",
+  "inventing",
+] as const;
 
-function activityStateForTool(name: string | null): ActivityState {
-  if (name === null) return "working";
-  return TOOL_ACTIVITY_STATES[name] ?? "working";
+/** How long each live-activity word holds before the next. */
+export const LIVE_WORD_MS = 4_000;
+
+function liveActivityWord(nowMs: number): ActivityState {
+  const index = Math.floor(nowMs / LIVE_WORD_MS) % LIVE_ACTIVITY_WORDS.length;
+  return LIVE_ACTIVITY_WORDS[index] ?? "working";
+}
+
+function sessionIsLive(
+  input: TurnLabelInput,
+  fleet: FleetProgress | null,
+): boolean {
+  if (input.isProcessing) return true;
+  if (input.sessionActive === true) return true;
+  return fleet !== null && fleet.running > 0;
 }
 
 /**
@@ -94,23 +107,22 @@ export function resolveTurnLabel(
   isStalled: boolean,
   fleet: FleetProgress | null,
 ): ActivityState | undefined {
-  if (!input.isProcessing) return undefined;
-  if (input.status === "blocked") return "waiting";
-  if (input.status === "stopping" || input.status === "stopped") {
+  const occupied = sessionIsLive(input, fleet);
+  if (input.status === "blocked" && (input.isProcessing || occupied)) {
+    return "waiting";
+  }
+  // Stopping is this parent turn aborting. A settled parent with live
+  // lanes is still occupied — don't let a leftover stopping status blank
+  // the lockup or freeze it on "stopping".
+  if (
+    input.isProcessing &&
+    (input.status === "stopping" || input.status === "stopped")
+  ) {
     return "stopping";
   }
-  // Live fleet means the session is working — recovery is silent. Never paint
-  // "stalled" for the operator; the orchestrator keeps lanes moving.
-  if (fleet !== null && fleet.running > 0) {
-    return "working";
-  }
-  // Parent silence is still work-in-progress from the operator's POV; nudge
-  // paths handle recovery without renaming the ticker.
+  if (!occupied) return undefined;
   void isStalled;
-  if (input.currentToolName !== null)
-    return activityStateForTool(input.currentToolName);
-  if (input.streamingType === "thinking") return "thinking";
-  return "working";
+  return liveActivityWord(input.nowMs ?? 0);
 }
 
 /**
@@ -125,12 +137,16 @@ export function resolveRampPhase(
   fleet: FleetProgress | null,
 ): RampPhase {
   if (input.status === "blocked") return "blocked";
-  if (input.status === "done") return "done";
-  // Operator chrome never enters the stalled ramp: fleet or parent silence is
-  // still "working" while recovery runs under the hood.
-  if (fleet !== null && fleet.running > 0) {
+  // Occupied session (live lanes or a pending continuation) stays the working
+  // ramp even if this parent turn already settled as done.
+  if (
+    sessionIsLive(input, fleet) &&
+    (input.sessionActive === true || (fleet !== null && fleet.running > 0))
+  ) {
+    void isStalled;
     return "working";
   }
+  if (input.status === "done") return "done";
   void isStalled;
   return "working";
 }

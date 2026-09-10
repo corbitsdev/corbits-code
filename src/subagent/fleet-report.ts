@@ -185,6 +185,10 @@ type Change =
   | { readonly kind: "cancelled"; readonly line: string }
   | { readonly kind: "stalled"; readonly line: string };
 
+export interface FleetReportOptions {
+  readonly stallMs?: number;
+}
+
 export interface FleetObservation {
   readonly watch: FleetWatch;
   /** Ready-to-print lines, already coalesced. Usually empty. */
@@ -195,8 +199,9 @@ export function observeFleet(
   previous: FleetWatch,
   lanes: readonly FleetLane[],
   nowMs: number,
-  stallMs: number = DEFAULT_STALL_MS,
+  options: FleetReportOptions = {},
 ): FleetObservation {
+  const stallMs = options.stallMs ?? DEFAULT_STALL_MS;
   const marks = new Map<string, LaneMark>();
   const changes: Change[] = [];
   let running = 0;
@@ -262,9 +267,7 @@ export function observeFleet(
   if (wentDry) {
     return {
       watch,
-      updates: [
-        clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS),
-      ],
+      updates: [clip(idleSummary(lanes), MAX_UPDATE_CHARS)],
     };
   }
 
@@ -355,14 +358,12 @@ function idleSummary(lanes: readonly FleetLane[]): string {
 export function fleetDigest(
   lanes: readonly FleetLane[],
   nowMs: number,
-  stallMs: number = DEFAULT_STALL_MS,
+  options: FleetReportOptions = {},
 ): string {
-  if (lanes.length === 0) return "nothing running";
+  const stallMs = options.stallMs ?? DEFAULT_STALL_MS;
   const running = lanes.filter((l) => l.status === "running");
   const parts: string[] = [];
-  if (running.length === 0) {
-    parts.push("nothing running");
-  } else {
+  if (running.length > 0) {
     const named = running
       .slice(0, DIGEST_NAMED_LANES)
       .map((lane) => {

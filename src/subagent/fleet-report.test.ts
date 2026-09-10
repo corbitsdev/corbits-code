@@ -89,7 +89,7 @@ describe("observeFleet", () => {
       ],
       T0 + 1000,
     );
-    expect(updates).toEqual(["2 done · nothing running"]);
+    expect(updates).toEqual(["2 done"]);
   });
 
   test("a failure names what went wrong while the fleet is still live", () => {
@@ -155,7 +155,7 @@ describe("observeFleet", () => {
         : { ...l, status: "failed" as const, error: "boom" },
     );
     const { updates } = observeFleet(seeded, after, T0 + 1000);
-    expect(updates).toEqual(["9 done, 3 failed · nothing running"]);
+    expect(updates).toEqual(["9 done, 3 failed"]);
   });
 
   test("a cancelled-only dry fleet counts cancelled, not failed", () => {
@@ -172,7 +172,7 @@ describe("observeFleet", () => {
       ],
       T0 + 1000,
     );
-    expect(updates).toEqual(["0 done, 2 cancelled · nothing running"]);
+    expect(updates).toEqual(["0 done, 2 cancelled"]);
   });
 
   test("a mixed dry fleet names done, failed, and cancelled separately", () => {
@@ -190,9 +190,7 @@ describe("observeFleet", () => {
       ],
       T0 + 1000,
     );
-    expect(updates).toEqual([
-      "1 done, 1 failed, 1 cancelled · nothing running",
-    ]);
+    expect(updates).toEqual(["1 done, 1 failed, 1 cancelled"]);
   });
 
   test("a burst of live cancels coalesces as cancelled, not failed", () => {
@@ -236,11 +234,11 @@ describe("fleetDigest", () => {
     expect(digest).toBe("2 running (api 1:20, docs 0:20) · 1 done · 1 failed");
   });
 
-  test("a fleet with nothing left running says so rather than going blank", () => {
+  test("a dry fleet is the outcome tally, not an idle claim", () => {
     expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe(
-      "nothing running · 1 done",
+      "1 done",
     );
-    expect(fleetDigest([], T0)).toBe("nothing running");
+    expect(fleetDigest([], T0)).toBe("");
   });
 
   test("cancelled lanes are named separately from failed", () => {
@@ -252,7 +250,7 @@ describe("fleetDigest", () => {
         ],
         T0,
       ),
-    ).toBe("nothing running · 1 failed · 1 cancelled");
+    ).toBe("1 failed · 1 cancelled");
   });
 });
 

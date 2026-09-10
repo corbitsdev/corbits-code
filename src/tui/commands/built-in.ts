@@ -146,6 +146,9 @@ export function registerBuiltInCommands(): void {
           text: "Fleet status is not available in this session.",
         };
       }
+      if (status.length === 0) {
+        return { type: "noop" };
+      }
       return { type: "message", text: status };
     },
   });

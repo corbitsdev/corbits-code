@@ -13,6 +13,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Fixed
+
+- Dry-fleet transcript and `/status` report the outcome tally only
+  (`2 done, 1 failed`). They no longer claim `nothing running` when the
+  parent may still continue.
+- The prompt-box lockup stays on while a fleet is live or a dry-fleet
+  continuation is pending, even if the parent turn has settled. The word
+  cycles through a closed live-activity set (`working`, `warping`,
+  `buzzing`, `grinding`, `thinking`, `doing`, `cooking`, `creating`,
+  `imagining`, `inventing`) instead of going blank.
+
 ## [0.3.19] - 2026-09-10
 
 ### Security
