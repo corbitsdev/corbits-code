@@ -50,6 +50,12 @@ function redirectUrisInclude(
   return uris.includes(redirectUrl);
 }
 
+function isAbortError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  if ("name" in err && err.name === "AbortError") return true;
+  return err instanceof Error && err.name === "Error";
+}
+
 // Dynamic client registration bakes in the loopback redirect_uri (ephemeral port).
 // A later session that binds a new port cannot reuse that client_id for authorize
 // / token exchange — drop the stale registration when we have no refreshable
@@ -253,9 +259,10 @@ export async function createOAuthProvider(
             resourceUrlFromServerUrl(opts.serverURL);
         }
         if (authorizationServerMetadata === undefined)
-          throw new Error("authorization server metadata unavailable");
+          throw new UnauthorizedError("authorization server metadata unavailable");
         const clientInformation = stored.clientInformation;
-        if (clientInformation === undefined) throw new Error("no client registration to refresh");
+        if (clientInformation === undefined)
+          throw new UnauthorizedError("no client registration to refresh");
         const resourceURL = resource ?? resourceUrlFromServerUrl(opts.serverURL);
         const tokens = await refreshAuthorization(authorizationServerUrl, {
           metadata: authorizationServerMetadata,
@@ -269,6 +276,7 @@ export async function createOAuthProvider(
         });
         return tokens;
       } catch (err) {
+        if (isAbortError(err) || err instanceof UnauthorizedError) throw err;
         throw new UnauthorizedError(
           `Token refresh failed for ${opts.serverName}: ${err instanceof Error ? err.message : String(err)}`,
         );

@@ -30,6 +30,9 @@ let refreshGate: Promise<void> | undefined;
 let releaseRefresh: (() => void) | undefined;
 let callbackGate: Promise<void> | undefined;
 let releaseCallback: (() => void) | undefined;
+let lastRequestSignal: AbortSignal | undefined;
+let retryGate: Promise<void> | undefined;
+let releaseRetry: (() => void) | undefined;
 let saveGate: Promise<void> | undefined;
 let releaseSave: (() => void) | undefined;
 interface MockAuthProvider {
@@ -45,7 +48,7 @@ const fakeProvider = {
   refreshToken: async () => {
     refreshCalls += 1;
     authEvents.push("refresh");
-    await refreshGate;
+    await waitForOptionalGate(refreshGate, lastRequestSignal);
     if (!refreshSucceeds) throw new UnauthorizedError("refresh rejected");
     return { access_token: "fresh", refresh_token: "refresh-me" };
   },
@@ -98,8 +101,12 @@ async function emitRedirects(provider: MockAuthProvider | undefined): Promise<vo
   }
 }
 
-function waitForGate(signal: AbortSignal): Promise<void> {
-  if (callbackGate === undefined) return Promise.resolve();
+function waitForOptionalGate(
+  gate: Promise<void> | undefined,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (gate === undefined) return Promise.resolve();
+  if (signal === undefined) return gate;
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise((resolve, reject) => {
     const onAbort = () => {
@@ -107,11 +114,15 @@ function waitForGate(signal: AbortSignal): Promise<void> {
       reject(signal.reason);
     };
     signal.addEventListener("abort", onAbort, { once: true });
-    void callbackGate?.then(() => {
+    void gate.then(() => {
       signal.removeEventListener("abort", onAbort);
       resolve();
     });
   });
+}
+
+function waitForGate(signal: AbortSignal): Promise<void> {
+  return waitForOptionalGate(callbackGate, signal);
 }
 
 await withMockedModule(
@@ -147,6 +158,7 @@ await withMockedModule(
           }
           throw new UnauthorizedError("authorization required");
         }
+        await retryGate;
         return { content: [] };
       }
       async close(): Promise<void> {}
@@ -160,8 +172,13 @@ await withMockedModule(
     ...real,
     StreamableHTTPClientTransport: class {
       provider?: MockAuthProvider;
-      constructor(_url: URL, options?: { authProvider?: MockAuthProvider }) {
+      constructor(
+        _url: URL,
+        options?: { authProvider?: MockAuthProvider; requestInit?: RequestInit },
+      ) {
         if (options?.authProvider !== undefined) this.provider = options.authProvider;
+        const signal = options?.requestInit?.signal;
+        if (signal !== undefined && signal !== null) lastRequestSignal = signal;
       }
       async finishAuth(): Promise<void> {
         finishAuthCalls += 1;
@@ -263,6 +280,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     releaseCallback = undefined;
     saveGate = undefined;
     releaseSave = undefined;
+    lastRequestSignal = undefined;
+    retryGate = undefined;
+    releaseRetry = undefined;
     resetBrowserAuthState();
     setSystemTime();
   });
@@ -383,6 +403,90 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(authURLCount).toBe(1);
   });
 
+  test("aborted waiter still fires onAuthorized when background finishAuth succeeds", async () => {
+    finishAuthError = undefined;
+    callbackGate = new Promise((resolve) => {
+      releaseCallback = resolve;
+    });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 1;
+    const abort = new AbortController();
+    const call = connected.client.call("ping", {}, abort.signal);
+    while (authURLCount === 0 || waitForCodeCalls === 0) await Promise.resolve();
+
+    abort.abort(new Error("caller stopped"));
+    await expect(call).rejects.toThrow("caller stopped");
+    expect(authorizedCount).toBe(0);
+
+    releaseCallback?.();
+    while (finishAuthCalls === 0) await Promise.resolve();
+    for (let tick = 0; tick < 20 && authorizedCount === 0; tick += 1) await Promise.resolve();
+    expect(authorizedCount).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+
+    finishAuthError = new Error("finishAuth exploded");
+    for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
+      callFailuresLeft = 1;
+      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+        "finishAuth exploded",
+      );
+    }
+    expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "retrying paused",
+    );
+    expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
+  });
+
+  test("refresh-only recovery clears prior browser-cap counts", async () => {
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+
+    for (let episode = 0; episode < 2; episode += 1) {
+      callFailuresLeft = 1;
+      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+        "finishAuth exploded",
+      );
+    }
+    expect(authURLCount).toBe(2);
+    expect(authorizedCount).toBe(0);
+
+    refreshSucceeds = true;
+    finishAuthError = undefined;
+    redirectsPerFailure = 0;
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+    expect(authorizedCount).toBe(1);
+    expect(authURLCount).toBe(2);
+
+    refreshSucceeds = false;
+    finishAuthError = new Error("finishAuth exploded");
+    redirectsPerFailure = 1;
+    for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
+      callFailuresLeft = 1;
+      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+        "finishAuth exploded",
+      );
+    }
+    expect(authURLCount).toBe(2 + MAX_BROWSER_AUTH_ATTEMPTS);
+
+    callFailuresLeft = 1;
+    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
+      "retrying paused",
+    );
+    expect(authURLCount).toBe(2 + MAX_BROWSER_AUTH_ATTEMPTS);
+  });
+
   test("client close aborts the shared callback waiter", async () => {
     finishAuthError = undefined;
     callbackGate = new Promise((resolve) => {
@@ -399,6 +503,57 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     await expect(call).rejects.toHaveProperty("name", "AbortError");
     expect(finishAuthCalls).toBe(0);
+  });
+
+  test("client close during hung refresh does not emit a browser prompt", async () => {
+    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    refreshGate = new Promise(() => undefined);
+    redirectsPerFailure = 0;
+    callFailuresLeft = 1;
+    const call = connected.client.call("ping", {}, new AbortController().signal);
+    while (refreshCalls === 0) await Promise.resolve();
+
+    await connected.client.close();
+
+    await expect(call).rejects.toHaveProperty("name", "AbortError");
+    expect(authURLCount).toBe(0);
+    expect(waitForCodeCalls).toBe(0);
+  });
+
+  test("late retry success from a prior recovery does not fire onAuthorized after a new recovery starts", async () => {
+    finishAuthError = undefined;
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    retryGate = new Promise((resolve) => {
+      releaseRetry = resolve;
+    });
+    callFailuresLeft = 2;
+    const first = connected.client.call("first", {}, new AbortController().signal);
+    const second = connected.client.call("second", {}, new AbortController().signal);
+    while (callToolCalls < 4) await Promise.resolve();
+
+    callbackGate = new Promise((resolve) => {
+      releaseCallback = resolve;
+    });
+    callFailuresLeft = 1;
+    const third = connected.client.call("third", {}, new AbortController().signal);
+    while (waitForCodeCalls < 2) await Promise.resolve();
+
+    releaseRetry?.();
+    await expect(first).resolves.toBe("");
+    await expect(second).resolves.toBe("");
+    expect(authorizedCount).toBe(0);
+
+    releaseCallback?.();
+    await expect(third).resolves.toBe("");
+    expect(authorizedCount).toBe(1);
+    expect(authURLCount).toBe(2);
   });
 
   test("does not repeat the SDK refresh after redirecting to authorization", async () => {
@@ -516,7 +671,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(authURLCount).toBe(3 + MAX_BROWSER_AUTH_ATTEMPTS);
   });
 
-  test("prompts resume five minutes after the third failed episode without a fourth probe", async () => {
+  test("prompts resume five minutes after the third failed episode", async () => {
     const thirdEpisodeAt = new Date("2026-01-01T00:00:00Z").getTime();
     setSystemTime(thirdEpisodeAt);
     connectFailuresLeft = Number.POSITIVE_INFINITY;

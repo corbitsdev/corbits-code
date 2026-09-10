@@ -785,8 +785,8 @@ describe("createOAuthProvider", () => {
     const pending = provider.refreshToken("refresh-me");
     while (seen.every((signal) => signal !== abort.signal)) await Promise.resolve();
     abort.abort(new Error("toolset disposed"));
-    await expect(pending).rejects.toBeInstanceOf(UnauthorizedError);
     await expect(pending).rejects.toThrow("toolset disposed");
+    await expect(pending).rejects.not.toBeInstanceOf(UnauthorizedError);
     expect(seen.some((signal) => signal === abort.signal)).toBe(true);
   });
 });
