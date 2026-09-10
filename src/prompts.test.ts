@@ -92,19 +92,17 @@ test("harness facts gate tool-output URI reads on a named truncation notice", ()
   expect(facts).toContain("read_file");
   expect(facts).toMatch(/filesystem path/i);
   expect(facts).toMatch(/tool-output:\/\//);
-  expect(facts).toMatch(/truncat/i);
-  expect(facts).toMatch(/named/i);
+  expect(facts).toContain("truncation notice on that result named one");
+  expect(facts).toContain("do not re-read a complete inline result");
   expect(facts).not.toMatch(/prefer the URI/i);
   expect(facts).not.toMatch(/re-reading huge blobs/i);
-  expect(facts).toMatch(/complete inline/i);
 });
 
 test("read_file catalog summary gates tool-output URI reads on truncation", () => {
   const listed = buildAvailableTools(["read_file"]);
   expect(listed).toContain("read_file");
   expect(listed).toMatch(/tool-output:\/\//);
-  expect(listed).toMatch(/truncat/i);
-  expect(listed).toMatch(/named/i);
+  expect(listed).toContain("truncation notice named one");
   expect(listed).toContain("cat/head/tail");
   expect(listed).not.toMatch(/prefer the URI/i);
 });
