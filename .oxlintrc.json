@@ -63,7 +63,7 @@
     "typescript/no-namespace": "error",
     "typescript/no-non-null-asserted-nullish-coalescing": "error",
     "typescript/no-non-null-asserted-optional-chain": "error",
-    "typescript/no-non-null-assertion": "off",
+    "typescript/no-non-null-assertion": "error",
     "typescript/no-this-alias": "error",
     "typescript/no-unnecessary-type-constraint": "error",
     "typescript/no-unsafe-declaration-merging": "error",
@@ -75,7 +75,7 @@
     "typescript/prefer-literal-enum-member": "error",
     "typescript/prefer-namespace-keyword": "error",
     "typescript/unified-signatures": "error",
-    "no-empty-function": "off"
+    "no-empty-function": "error"
   },
   "overrides": [
     {
