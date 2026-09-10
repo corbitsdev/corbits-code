@@ -299,6 +299,28 @@ describe("terminal stop reasons", () => {
     store.cancel(bare.id);
     expect(store.get(bare.id)?.stopReason).toBe("cancelled");
   });
+
+  test("interruptOne records stopReason interrupted", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    expect(store.interruptOne(session.id).ok).toBe(true);
+    expect(store.get(session.id)?.stopReason).toBe("interrupted");
+  });
+
+  test("sendInputOne interrupt records stopReason interrupted", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, () => new Promise(() => {}));
+    expect(store.sendInputOne(session.id, "stop that", { interrupt: true })).toEqual({
+      ok: true,
+      status: "interrupted",
+    });
+    expect(store.get(session.id)?.stopReason).toBe("interrupted");
+  });
 });
 
 describe("CL-6943 reusable worker sessions", () => {
@@ -466,6 +488,24 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(after?.status).toBe("done");
     expect(after?.lifecycleStatus).toBe("completed");
     expect(store.interruptOne(session.id)).toEqual({ ok: false, status: "completed" });
+  });
+
+  test("rejected followup after interrupt restamps stopReason interrupted", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    store.registerInterrupt(session.id, () => {});
+    store.registerFollowup(session.id, async () => {
+      throw new Error("send failed");
+    });
+    expect(store.sendInputOne(session.id, "stop that", { interrupt: true })).toEqual({
+      ok: true,
+      status: "interrupted",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const after = store.get(session.id);
+    expect(after?.lifecycle.state).toBe("interrupted");
+    expect(after?.stopReason).toBe("interrupted");
   });
 
   test("interrupt then abort does not overwrite interrupted stamp to completed", async () => {

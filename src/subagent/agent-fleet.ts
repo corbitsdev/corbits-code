@@ -102,6 +102,7 @@ interface FleetRecord {
   status: WaitJSONStatus;
   report?: string;
   error?: string;
+  stopReason?: string;
   providerFailure?: true;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
@@ -336,6 +337,10 @@ class FleetMailbox {
       overlay.tombstoned !== true && session !== undefined && sessionWait === status
         ? session
         : undefined;
+    const stopReason =
+      overlay.tombstoned !== true && !isLiveWaitStatus(status)
+        ? (payload?.stopReason ?? session?.stopReason)
+        : payload?.stopReason;
     const ask = status === "awaiting_director" ? this.sessions.peekAsk(id) : undefined;
     return {
       status,
@@ -344,6 +349,7 @@ class FleetMailbox {
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
       ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
+      ...(stopReason !== undefined ? { stopReason } : {}),
       ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
       ...(ask !== undefined ? { question: ask.question, questionId: ask.questionId } : {}),
       ...(status === "awaiting_director" && session !== undefined
@@ -463,8 +469,10 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `wait_agents pair started — never every running session in the shared store. Default timeout ${DEFAULT_WAIT_TIMEOUT_MS}ms, ` +
     `clamped to a ${MAX_WAIT_TIMEOUT_MS}ms max. A timeout or parent-turn abort is NOT an error and never touches ` +
     `the workers — they keep running and remain waitable. Live wait status includes "queued" (waiting for a burst ` +
-    `slot), "running", and "awaiting_director". interrupt_agent and close_agent unblock this wait immediately with ` +
-    `status "interrupted". awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
+    `slot), "running", and "awaiting_director". interrupt_agent unblocks this wait immediately with ` +
+    `status "interrupted" (a parent-initiated pause — resume_agent, do not spawn_agent a successor against the still-live worker). ` +
+    `close_agent also unblocks with status "interrupted" but is permanent. Terminal JSON includes stop_reason when the session recorded one ` +
+    `(interrupted, cancelled, incomplete-report, and similar). awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
     `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
     `queued, running, or awaiting a director answer, not "try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
     `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,
@@ -1197,13 +1205,17 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 const followupLive =
                   now?.lifecycle.state === "running" && overlay?.status === "interrupted";
                 if (!followupLive) {
-                  deps.sessions.attachReport(session.id, result.report);
+                  deps.sessions.attachReport(session.id, result.report, {
+                    ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                  });
                 }
                 return;
               }
               const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
               if (alreadyCancelled) {
-                deps.sessions.attachReport(session.id, result.report);
+                deps.sessions.attachReport(session.id, result.report, {
+                  ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                });
                 return;
               }
               const agentRetained = result.agentRetained === true;
@@ -1397,6 +1409,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
             ? { report: taken.report }
             : {}),
           ...(taken.error !== undefined ? { error: taken.error } : {}),
+          ...(taken.stopReason !== undefined ? { stop_reason: taken.stopReason } : {}),
           ...(taken.providerFailure === true ? { provider_failure: true } : {}),
           ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
         };
@@ -1412,7 +1425,7 @@ export const listAgentsToolDefinition: ToolDefinition = {
   description:
     "List the workers this session started with spawn_agent — the same fleet wait_agents " +
     "collects. Does not list siblings or another orchestrator's workers. Each entry is id, " +
-    "director, description, wait status, lifecycle, and whether wait_agents already collected it. " +
+    "director, description, wait status, lifecycle, stop_reason when recorded, and whether wait_agents already collected it. " +
     "When status is awaiting_director, the entry also includes question and question_id.",
   inputSchema: {
     type: "object",
@@ -1427,6 +1440,7 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
       const agents = deps.fleetRecords.ids().map((id) => {
         const record = deps.fleetRecords.peek(id);
         const session = deps.sessions.get(id);
+        const stopReason = record?.stopReason ?? session?.stopReason;
         return {
           agent_id: id,
           status: record?.status ?? "unknown",
@@ -1438,6 +1452,7 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
                 lifecycle: session.lifecycleStatus,
               }
             : {}),
+          ...(stopReason !== undefined ? { stop_reason: stopReason } : {}),
           ...(record?.status === "awaiting_director" && record.question !== undefined
             ? { question: record.question }
             : {}),

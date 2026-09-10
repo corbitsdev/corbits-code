@@ -35,6 +35,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   workflow rails. Frozen-prefix matching ignores model-emitted copies of the
   marker.
 
+### Changed
+
+- Skywalker may spawn one successor with a changed brief after a failed or
+  incomplete-report fleet worker. A parent-initiated interrupt
+  (`stop_reason: interrupted`) is a resumable pause — `resume_agent` or
+  re-wait, not a successor — unless the session is no longer resumable.
+  Operator-cancelled salvage still waits for the operator. Identical briefs
+  stay refused at the prompt / spawn-handoff layer. `wait_agents` JSON
+  includes `stop_reason` so interrupt vs cancelled vs incomplete-report stay
+  distinct. This reverses the 0.3.15 fail-path idle, not operator-cancel.
+
 ## [0.3.18] - 2026-09-08
 
 ### Added

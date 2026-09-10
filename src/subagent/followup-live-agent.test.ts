@@ -169,6 +169,64 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
     expect(outcome.reply).toBe("reply #2");
   });
 
+  test("interrupt_agent salvage is stopReason interrupted, not cancelled", async () => {
+    const cwd = await tmpCwd();
+    let capturedAgent: ReturnType<typeof createStubAgent> | undefined;
+
+    const outcome = await withMockedModuleDuring(
+      import.meta.resolve("../agent/live-tool-dispatch.js"),
+      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+        ...real,
+        createAgentWithLiveToolDispatch: async () => {
+          const stub = createStubAgent({ hangFromSend: 1 });
+          capturedAgent = stub;
+          return stub as unknown as Awaited<
+            ReturnType<typeof real.createAgentWithLiveToolDispatch>
+          >;
+        },
+      }),
+      async () => {
+        const { runSubAgent } = await import("./run.js");
+
+        let handles:
+          | {
+              close: (ms?: number) => Promise<void>;
+              interrupt: () => void;
+              followup: (message: string) => Promise<string>;
+            }
+          | undefined;
+
+        const runPromise = runSubAgent({
+          cwd,
+          workdirBase: join(cwd, ".ctx"),
+          permissionGate: testPermissionGate,
+          provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+          description: "interrupt salvage stopReason probe",
+          prompt: "hang until interrupted",
+          persist: true,
+          onAgentReady: (h) => {
+            handles = h;
+          },
+        });
+        for (let i = 0; i < 500 && (capturedAgent?.sendLog.length ?? 0) < 1; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        if (handles === undefined) throw new Error("onAgentReady never fired");
+        handles.interrupt();
+        return runPromise;
+      },
+    );
+
+    expect(capturedAgent?.abortedSends[0]).toBe(true);
+    expect(outcome.stopReason).toBe("interrupted");
+    expect(outcome.stopReason).not.toBe("cancelled");
+    expect(outcome.interrupted).toBe(true);
+    expect(outcome.report).toContain("resume_agent");
+    expect(outcome.report).toContain("still-live");
+    expect(outcome.report).not.toContain("MAY spawn one successor");
+    expect(outcome.report).not.toContain("wait for the operator");
+  });
+
   test("interrupt_agent aborts the resumed followup agent.send", async () => {
     const cwd = await tmpCwd();
     let constructions = 0;

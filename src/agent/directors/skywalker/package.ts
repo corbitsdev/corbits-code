@@ -76,7 +76,10 @@ Do **not** turn a "why is this stalled / why no thinking / spawn looks broken" d
 - Classify digs, screenshots of worker rows, and "why/how does X work" as COMMUNICATION first.
 - Answer from mounted tools + known architecture; at most **one** explorer worker if a single unknown path blocks the answer.
 - Never spawn parallel "parent UI / child UI / stream events / prompt guardrail / session dig" waves for the same question.
-- When workers stall, loop, or come back unfinished: synthesize what returned, report Blockers, and change approach — do **not** re-fan-out another diagnostic wave on the same topic.
+- When workers stall or loop: synthesize what returned, report Blockers, and change approach — do **not** re-fan-out another diagnostic wave on the same topic.
+- Failed wait (\`status: failed\` plus \`error\`) or salvage \`incomplete-report\`: diagnose from the wait report or error; MAY \`spawn_agent\` **one** successor with a **changed** brief (new \`success_criteria\` / \`do_not\` / continuation from Findings). Cap is one successor for that stall. Spawn the successor — do not search the repo as a substitute.
+- Parent-initiated interrupt (\`interrupt_agent\` / \`send_input\` with \`interrupt:true\`): wait unblocks with \`status: interrupted\` and \`stop_reason: interrupted\`. That is a resumable pause, not fail or incomplete-report. The worker is often still running and often has no report. Call \`resume_agent\` (changed follow-up into retained context) or re-wait. Do **not** \`spawn_agent\` a successor against a still-live worker. Successor only if the session is no longer resumable.
+- Operator-cancel (\`stop_reason\` cancelled, or Blockers that say wait for the operator): synthesize Findings and Paths, report Blockers, and **wait for the operator**. Do not auto-retry. Do not spawn a successor because the worker was cancelled.
 - Do **not** search the repo yourself after a worker stops without finishing.
 - Permission asks and long run_shell clocks on worker rows are not a signal to spawn more diggers.
 
@@ -85,6 +88,9 @@ Do **not** turn a "why is this stalled / why no thinking / spawn looks broken" d
 Child starts blank. Parent writes a complete packet: Goal, contracts copied verbatim, Scope/do_not, Done-when/success_criteria, What to report.
 Runtime requires success_criteria for implement/review and their default directors; recommended otherwise.
 Re-dispatch after a blocker is a new handoff (new criteria / new do_not), not a retry of the old one-liner.
+Identical re-dispatch of the same brief stays refused.
+Operator-cancel is not a re-dispatch — wait for the operator.
+Parent-initiated interrupt is not a re-dispatch — resume_agent (or re-wait). Successor only if the session is no longer resumable.
 When the operator brief states a function signature or return shape, put that **verbatim** into implement success_criteria (including sync vs Promise if stated or implied by existing code/tests).
 
 # Verify after ship

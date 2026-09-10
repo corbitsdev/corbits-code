@@ -181,7 +181,8 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
   return text.length > 0 ? text : null;
 }
 
-export type ForcedStopReason = "cancelled" | "deadline" | "stalled" | "incomplete-report";
+export type ForcedStopReason =
+  "cancelled" | "deadline" | "stalled" | "incomplete-report" | "interrupted";
 
 /** Optional detail / Paths payload for a forced-stop salvage envelope. */
 export interface ForcedStopReportOptions {
@@ -201,7 +202,29 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   stalled:
     "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly.",
   "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
+  interrupted: "Stopped: interrupted before finishing.",
 };
+
+const FAIL_THEN_SUCCESSOR_BLOCKERS =
+  "Diagnose from Findings; MAY spawn one successor with a changed brief. Do not repeat the same brief. Do not start a diagnostic wave.";
+
+const INTERRUPT_RESUME_BLOCKERS =
+  "Parent-initiated pause; the worker is still resumable. Call resume_agent (changed follow-up into retained context) or re-wait. Do not spawn_agent a successor against this still-live session. Successor only if the session is no longer resumable.";
+
+function forcedStopBlockers(reason: ForcedStopReason): string {
+  switch (reason) {
+    case "cancelled":
+      return "Operator or parent cancelled the worker mid-run; synthesize the partial findings below, report Blockers, and wait for the operator.";
+    case "deadline":
+      return "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work.";
+    case "stalled":
+      return "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish this lane or check on the background work directly. Do not start a diagnostic wave.";
+    case "interrupted":
+      return INTERRUPT_RESUME_BLOCKERS;
+    case "incomplete-report":
+      return FAIL_THEN_SUCCESSOR_BLOCKERS;
+  }
+}
 
 function normalizeSalvagePaths(paths: ForcedStopReportOptions["paths"]): string {
   if (paths === undefined) return "";
@@ -227,14 +250,7 @@ export function forcedStopReport(
   const detail = options.detail;
   const pathText = normalizeSalvagePaths(options.paths);
   const summary = FORCED_STOP_SUMMARIES[reason];
-  const blockers =
-    reason === "cancelled"
-      ? "Operator or parent cancelled the worker mid-run; synthesize the partial findings below, report Blockers, and wait for the operator."
-      : reason === "deadline"
-        ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
-        : reason === "stalled"
-          ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
-          : "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report.";
+  const blockers = forcedStopBlockers(reason);
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (cancel after a structured partial).
@@ -260,6 +276,10 @@ const DEADLINE_PARENT_HINT =
 const CANCELLED_PARENT_HINT =
   "[Sub-agent was cancelled before finishing. Synthesize Findings and Paths rather than redoing completed work; wait for the operator instead of auto-starting another specialist.]";
 
+const FAIL_THEN_SUCCESSOR_PARENT_HINT = `[Sub-agent stopped before finishing. ${FAIL_THEN_SUCCESSOR_BLOCKERS}]`;
+
+const INTERRUPT_RESUME_PARENT_HINT = `[Sub-agent was interrupted before finishing. ${INTERRUPT_RESUME_BLOCKERS}]`;
+
 /** Options for parent-hint stacking (session re-dispatch ledger state). */
 export interface SubAgentParentHintOptions {
   /**
@@ -272,8 +292,8 @@ export interface SubAgentParentHintOptions {
 /**
  * Prepend the parent-facing salvage hint for `reason`, chosen from the
  * structured ForcedStopReason the run reported directly — never by parsing
- * `report`'s prose. Reasons with no dedicated hint (stalled, incomplete-report,
- * or a normal complete) pass `report` through unchanged.
+ * `report`'s prose. Stalled salvage and a normal complete pass `report`
+ * through unchanged.
  */
 export function appendSubAgentParentHints(
   report: string,
@@ -285,6 +305,10 @@ export function appendSubAgentParentHints(
       return `${DEADLINE_PARENT_HINT}\n\n${report}`;
     case "cancelled":
       return `${CANCELLED_PARENT_HINT}\n\n${report}`;
+    case "interrupted":
+      return `${INTERRUPT_RESUME_PARENT_HINT}\n\n${report}`;
+    case "incomplete-report":
+      return `${FAIL_THEN_SUCCESSOR_PARENT_HINT}\n\n${report}`;
     default:
       return report;
   }

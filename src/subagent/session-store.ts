@@ -277,7 +277,7 @@ export interface SubAgentSessionStore {
    * flip to interrupted rather than completed. Clears the in-flight-run bit
    * and notifies waiters.
    */
-  attachReport(id: string, report: string): void;
+  attachReport(id: string, report: string, opts?: { stopReason?: ForcedStopReason }): void;
   /** True while a run or followup has not settled. */
   isRunInFlight(id: string): boolean;
   /**
@@ -753,12 +753,16 @@ export function createSubAgentSessionStore(
     mutate(id, (s) => {
       s.lifecycle = { state: "running" };
       delete s.finishedAt;
+      delete s.stopReason;
     });
   };
   const endFollowupTurn = (id: string, restore: "completed" | "interrupted"): void => {
     mutate(id, (s) => {
       if (s.lifecycle.state !== "running" && s.lifecycle.state !== "pending_init") {
         s.finishedAt = s.finishedAt ?? now();
+        if (restore === "interrupted" && s.stopReason === undefined) {
+          s.stopReason = "interrupted";
+        }
         return;
       }
       if (restore === "interrupted") {
@@ -766,6 +770,7 @@ export function createSubAgentSessionStore(
           state: "interrupted",
           ...(s.report !== undefined ? { report: s.report } : {}),
         };
+        s.stopReason = "interrupted";
       } else {
         s.lifecycle = { state: "completed", report: s.report ?? "" };
       }
@@ -813,6 +818,7 @@ export function createSubAgentSessionStore(
             s.lifecycle = { state: "completed", report: reply };
             s.finishedAt = now();
             s.report = reply;
+            delete s.stopReason;
             pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
           });
           runInFlight.delete(id);
@@ -1298,6 +1304,12 @@ export function createSubAgentSessionStore(
         queueFollowupTurn(id, message, "interrupted", {
           ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
         });
+        // After beginFollowupTurn, which clears leftover stopReason. Stamp
+        // here so an in-flight wait_agents overlay can project interrupted
+        // without flipping lifecycle off the live follow-up.
+        mutate(id, (s) => {
+          s.stopReason = "interrupted";
+        });
         pruneRetained();
         return { ok: true, status: "interrupted" };
       }
@@ -1382,6 +1394,7 @@ export function createSubAgentSessionStore(
               ...(s.report !== undefined ? { report: s.report } : {}),
             };
             s.finishedAt = s.finishedAt ?? now();
+            s.stopReason = "interrupted";
           });
           pruneRetained();
           return { ok: true };
@@ -1396,6 +1409,7 @@ export function createSubAgentSessionStore(
           ...(s.report !== undefined ? { report: s.report } : {}),
         };
         s.finishedAt = s.finishedAt ?? now();
+        s.stopReason = "interrupted";
       });
       pruneRetained();
       return { ok: true };
@@ -1499,7 +1513,7 @@ export function createSubAgentSessionStore(
       } else pinCounts.set(id, next);
     },
 
-    attachReport(id: string, report: string): void {
+    attachReport(id: string, report: string, opts?: { stopReason?: ForcedStopReason }): void {
       mutate(id, (session) => {
         const state = session.lifecycle.state;
         if (state === "completed" || state === "failed") {
@@ -1510,6 +1524,7 @@ export function createSubAgentSessionStore(
           session.lifecycle = { state: "interrupted", report };
           session.report = report;
           session.finishedAt = session.finishedAt ?? now();
+          if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
           pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         } else if (
           (state === "cancelled" || state === "interrupted" || state === "shutdown") &&
@@ -1517,6 +1532,7 @@ export function createSubAgentSessionStore(
         ) {
           session.report = report;
           session.lifecycle = { ...session.lifecycle, report };
+          if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
           pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         }
         runInFlight.delete(id);

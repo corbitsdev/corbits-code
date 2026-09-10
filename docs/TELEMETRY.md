@@ -111,8 +111,8 @@ a truthy value (`1`, `true`, …) to restore per-call spans for debugging.
 worker ending during an active parent turn carries that turn's `parent_trace_id`.
 Pre-progress operator aborts settle with `status=cancelled` and
 `stop_reason=cancelled` even when the worker promise rejects. An interrupt that
-keeps a worker resumable settles with `status=interrupted` and the same
-`stop_reason=cancelled`; terminal events never report a still-running status.
+keeps a worker resumable settles with `status=interrupted` and
+`stop_reason=interrupted`; terminal events never report a still-running status.
 
 A deterministic synthetic fixture captures 10 parent generations, 80 parent
 tool spans, and 4 worker start/end pairs. The comparable former shape is 98
