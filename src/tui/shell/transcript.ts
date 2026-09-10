@@ -127,13 +127,15 @@ export const evictionMarkers = new WeakSet<BaseRenderable>();
  */
 export function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
   const children = shell.transcript.getChildren().slice(1);
-  return children.length > 0 && evictionMarkers.has(children[0]!) ? children.slice(1) : children;
+  const first = children[0];
+  return first != null && evictionMarkers.has(first) ? children.slice(1) : children;
 }
 
 /** The eviction-notice node, if the retention cap has dropped anything. */
 export function transcriptMarker(shell: AppShell): BaseRenderable | undefined {
   const children = shell.transcript.getChildren().slice(1);
-  return children.length > 0 && evictionMarkers.has(children[0]!) ? children[0] : undefined;
+  const first = children[0];
+  return first != null && evictionMarkers.has(first) ? first : undefined;
 }
 
 /** Raw child-list offset before the first row: the spacer, plus the notice if present. */

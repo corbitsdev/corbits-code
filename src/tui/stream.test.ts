@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { stringWidth } from "./view/height";
 import {
   agentVoicesIn,
@@ -257,7 +258,7 @@ describe("tool row sentence treatment", () => {
 
   test("reads as verb + coloured subject, not tool name + raw args", () => {
     const row: StreamRow = { role: "tool", text: "{}", verb: "Read", summary: "package.json" };
-    const line = toolSentenceLines(row)[0]!;
+    const line = defined(toolSentenceLines(row)[0]);
     expect(flatten(row)).toContain("Read");
     expect(flatten(row)).toContain("package.json");
     const subjectSeg = line.find((seg) => seg.text.includes("package.json"));
@@ -314,7 +315,7 @@ describe("tool row sentence treatment", () => {
     expect(collapsedLines.length).toBe(1);
     const expandedLines = toolRowLines(row);
     expect(expandedLines.length).toBe(2);
-    const tail = expandedLines[1]!;
+    const tail = defined(expandedLines[1]);
     expect(tail[0]?.text).toBe("  ");
     expect(tail.map((s) => s.text).join("")).toContain("+ hello");
   });

@@ -16,6 +16,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
 import { helpItems, SHELL_SHORTCUTS } from "./keybindings.js";
 import { createHarness, withTestRenderer, type Harness } from "./harness.js";
@@ -483,7 +484,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       let interrupted = 0;
       let exited = 0;
       setShellBridgeHooks(shell, {
-        onSubmit: () => {},
+        onSubmit: () => undefined,
         onInterrupt: () => {
           interrupted++;
         },
@@ -510,7 +511,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       submitPrompt(shell, "queue");
       applyShellInterrupt(shell);
       expect(shell.pendingQueue).toBe(1);
-      expect(shell.session.items[0]!.text).toBe("keep me");
+      expect(defined(shell.session.items[0]).text).toBe("keep me");
       const notice = shell.streamLog[shell.streamLog.length - 1];
       expect(notice?.text).toBe("1 pending kept");
       expect(notice?.text).not.toContain("discarded");
@@ -546,7 +547,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       press(h, chords[0]);
 
       expect(shell.pendingQueue).toBe(1);
-      expect(shell.session.items[0]!.text).toBe("keep");
+      expect(defined(shell.session.items[0]).text).toBe("keep");
       const rows = shell.streamLog.map((row) => row.meta);
       // The retracted message's row is rewritten, not left claiming "queue"
       // as though it will still dispatch (the bug that got the first attempt
@@ -620,7 +621,7 @@ async function settle(h: Harness): Promise<void> {
 }
 
 function attachOnNextPrompt(shell: AppShell, id: string): Promise<void> {
-  let done: () => void = () => {};
+  let done: () => void = () => undefined;
   const attached = new Promise<void>((resolve) => {
     done = resolve;
   });
@@ -644,7 +645,7 @@ function recordSubmits(shell: AppShell): { readonly text: string; readonly kind:
   const sent: { text: string; kind: string }[] = [];
   setShellBridgeHooks(shell, {
     onSubmit: (text, kind) => sent.push({ text, kind }),
-    onInterrupt: () => {},
+    onInterrupt: () => undefined,
     exclusive: true,
   });
   return sent;
@@ -724,15 +725,15 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
     const host = await mountRunnerHost({
       title: "keybindings",
       eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      deliver: () => {},
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
       providers: {},
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
       commands: [],
-      onCommand: () => {},
+      onCommand: () => undefined,
       chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
+      subscribeChrome: () => () => undefined,
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     });
@@ -836,7 +837,8 @@ describe("helpItems", () => {
   test("lists every catalog row then Close help", () => {
     const items = helpItems();
     expect(items).toHaveLength(SHELL_SHORTCUTS.length + 1);
-    expect(items[0]).toBe(`${SHELL_SHORTCUTS[0]!.keys} — ${SHELL_SHORTCUTS[0]!.description}`);
+    const first = defined(SHELL_SHORTCUTS[0]);
+    expect(items[0]).toBe(`${first.keys} — ${first.description}`);
     expect(items[items.length - 1]).toBe("Close help");
   });
 });

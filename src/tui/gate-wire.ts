@@ -211,8 +211,8 @@ export interface GateLifecycleHooks {
 }
 
 const NOOP_GATE_HOOKS: GateLifecycleHooks = {
-  onGateOpened: () => {},
-  onGateClosed: () => {},
+  onGateOpened: () => undefined,
+  onGateClosed: () => undefined,
 };
 
 /**

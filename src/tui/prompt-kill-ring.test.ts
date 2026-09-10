@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   beginYank,
   breakKillSequence,
@@ -14,21 +15,21 @@ describe("recordKill / beginYank", () => {
     const ring = recordKill(emptyKillRing, "world", "forward");
     const yank = beginYank(ring, 5);
     expect(yank).not.toBeNull();
-    expect(yank!.text).toBe("world");
+    expect(defined(yank).text).toBe("world");
   });
 
   test("consecutive forward kills accumulate in order", () => {
     let ring = recordKill(emptyKillRing, "foo", "forward");
     ring = recordKill(ring, "bar", "forward");
     const yank = beginYank(ring, 0);
-    expect(yank!.text).toBe("foobar");
+    expect(defined(yank).text).toBe("foobar");
   });
 
   test("consecutive backward kills prepend so original order survives", () => {
     let ring = recordKill(emptyKillRing, "bar", "backward");
     ring = recordKill(ring, "foo", "backward");
     const yank = beginYank(ring, 0);
-    expect(yank!.text).toBe("foobar");
+    expect(defined(yank).text).toBe("foobar");
   });
 
   test("a non-kill breaks accumulation: a later kill starts a fresh entry", () => {
@@ -49,12 +50,12 @@ describe("rotateYank", () => {
   test("rotates to the next-older entry after a yank", () => {
     let ring = recordKill(emptyKillRing, "second", "forward");
     ring = recordKill(breakKillSequence(ring), "first", "forward");
-    const yank = beginYank(ring, 0)!;
+    const yank = defined(beginYank(ring, 0));
     expect(yank.text).toBe("first");
     const rotated = rotateYank(yank.ring);
     expect(rotated).not.toBeNull();
-    expect(rotated!.text).toBe("second");
-    expect(rotated!.span).toEqual({ start: 0, end: 5 });
+    expect(defined(rotated).text).toBe("second");
+    expect(defined(rotated).span).toEqual({ start: 0, end: 5 });
   });
 
   test("returns null when the previous command was not a yank", () => {
@@ -69,10 +70,10 @@ describe("rotateYank", () => {
   test("wraps back to the first entry after cycling through all of them", () => {
     let ring = recordKill(emptyKillRing, "b", "forward");
     ring = recordKill(breakKillSequence(ring), "a", "forward");
-    const yank = beginYank(ring, 0)!;
-    const once = rotateYank(yank.ring)!;
+    const yank = defined(beginYank(ring, 0));
+    const once = defined(rotateYank(yank.ring));
     expect(once.text).toBe("b");
-    const twice = rotateYank(once.ring)!;
+    const twice = defined(rotateYank(once.ring));
     expect(twice.text).toBe("a");
   });
 });

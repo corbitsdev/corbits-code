@@ -9,7 +9,7 @@ import type { WelcomeConfig } from "./welcome.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 let testHome = "";
-let setup: (config: ProviderSetupConfig) => Promise<void> = async () => {};
+let setup: (config: ProviderSetupConfig) => Promise<void> = async () => undefined;
 let welcome: (config: WelcomeConfig) => Promise<boolean> = async () => true;
 let tuiConfig: Config | undefined;
 const callOrder: string[] = [];
@@ -91,7 +91,7 @@ async function writeXAIAuthProfile(home: string, profile: string): Promise<void>
 }
 
 afterEach(() => {
-  setup = async () => {};
+  setup = async () => undefined;
   welcome = async () => true;
   tuiConfig = undefined;
   callOrder.length = 0;
@@ -116,7 +116,7 @@ describe("runOnboarding welcome gate", () => {
             model: "test-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -152,7 +152,7 @@ describe("runOnboarding welcome gate", () => {
             model: "test-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -208,7 +208,7 @@ describe("runOnboarding settings source", () => {
             model: "grok-4",
             oauthProfile: "work",
           },
-          () => {},
+          () => undefined,
           {
             skipValidation: true,
             oauth: {
@@ -259,7 +259,7 @@ describe("runOnboarding settings source", () => {
             model: "test-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -304,7 +304,7 @@ describe("runOnboarding settings source", () => {
             model: "isolated-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };
@@ -337,7 +337,7 @@ describe("runOnboarding settings source", () => {
             model: "isolated-model",
             oauthProfile: "",
           },
-          () => {},
+          () => undefined,
           { skipValidation: true },
         );
       };

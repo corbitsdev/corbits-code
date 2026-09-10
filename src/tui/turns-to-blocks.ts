@@ -244,7 +244,9 @@ export function turnsToContentBlocks(
   const collected: ContentBlockData[][] = [];
   let total = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
-    const blocks = turnToContentBlocks(turns[i]!);
+    const turn = turns[i];
+    if (turn == null) continue;
+    const blocks = turnToContentBlocks(turn);
     if (blocks.length === 0) continue;
     collected.push(blocks);
     total += blocks.length;
@@ -253,7 +255,9 @@ export function turnsToContentBlocks(
 
   const out: ContentBlockData[] = [];
   for (let i = collected.length - 1; i >= 0; i--) {
-    out.push(...collected[i]!);
+    const group = collected[i];
+    if (group == null) continue;
+    out.push(...group);
   }
   if (out.length > maxBlocks) out.splice(0, out.length - maxBlocks);
 

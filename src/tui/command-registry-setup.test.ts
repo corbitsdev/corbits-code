@@ -59,7 +59,7 @@ describe("session command registry setup", () => {
     );
 
     expect(getCommand("live-config-command")?.description).toBe("enabled");
-    expect(getCommand("live-config-command")?.handler("", { signalClear: () => {} })).toEqual({
+    expect(getCommand("live-config-command")?.handler("", { signalClear: () => undefined })).toEqual({
       type: "message",
       text: "enabled",
     });

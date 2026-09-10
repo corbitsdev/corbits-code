@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { toolCallRow } from "./diff";
 import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
@@ -47,7 +48,7 @@ describe("a call and its answer", () => {
     // The subject stays the call; the answer adds only a certain count.
     expect(rows[0]?.verb).toBe("Linear: List Issues");
     expect(rows[0]?.stat).toBe("2 results");
-    expect(painted(rows[0]!)).not.toContain("└");
+    expect(painted(defined(rows[0]))).not.toContain("└");
   });
 
   test("keep the call as the subject, never the payload", () => {
@@ -82,7 +83,7 @@ describe("a call and its answer", () => {
     pushToolResult(rows, { name: "fetch", content: "connection refused", isError: true });
     expect(rows.length).toBe(1);
     expect(rows[0]?.failed).toBe(true);
-    expect(painted(rows[0]!)).toContain("×");
+    expect(painted(defined(rows[0]))).toContain("×");
     expect(rows[0]?.detail?.length).toBeGreaterThan(0);
   });
 
@@ -92,7 +93,7 @@ describe("a call and its answer", () => {
       name: "spawn_agent",
       arguments: JSON.stringify({ description: "Review mouse/paste" }),
     });
-    rows[0] = { ...rows[0]!, agentWorking: true, stat: "0:42 · bash" };
+    rows[0] = { ...defined(rows[0]), agentWorking: true, stat: "0:42 · bash" };
 
     pushToolResult(rows, { name: "spawn_agent", content: "8 lines" });
     expect(rows[0]?.pending).toBeUndefined();
@@ -218,7 +219,7 @@ describe("parallel calls to the same tool", () => {
       callId: "c1",
     });
     expect(rows[0]?.failed).toBe(true);
-    expect(isCollapsibleRow(rows[0]!)).toBe(true);
+    expect(isCollapsibleRow(defined(rows[0]))).toBe(true);
     expect(rows[0]?.detail?.[0]?.[0]?.text).toContain("boom");
   });
 });
@@ -234,7 +235,7 @@ describe("a long subject", () => {
     });
     const lines = toolSentenceLines(row, 40);
     expect(lines.length).toBe(1);
-    const text = lines[0]!.map((segment) => segment.text).join("");
+    const text = defined(lines[0]).map((segment) => segment.text).join("");
     expect(text.length).toBeLessThanOrEqual(40);
     expect(text).toContain("…");
   });

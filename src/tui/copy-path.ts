@@ -170,7 +170,7 @@ export function copyStreamRow(
   if (!row) return null;
   const payload = formatCopyText(row);
   writeClipboard(port, payload.text, {
-    onSuccess: () => {},
+    onSuccess: () => undefined,
   });
   return payload;
 }

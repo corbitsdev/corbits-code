@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { rgbToHex, type KeyEvent } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR, OVERLAY_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import {
@@ -83,7 +84,7 @@ describe("permissions overlay", () => {
           expect(shell.overlayKind).toBe("permissions");
           expect(shell.overlayList).not.toBeNull();
           expect(shell.overlayItems.length).toBe(30);
-          expect(shell.overlayList!.activeIndex).toBe(0);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(0);
           expect(focusOwner(shell.focus)).toBe("overlay");
           expect(scrollLease(shell.focus)).toBe("overlay");
           expect(shell.layout.overlayMode).toBe("inset");
@@ -100,18 +101,18 @@ describe("permissions overlay", () => {
           expect(frame).toContain("Esc cancel · Enter choose · /yolo skip prompts");
 
           // Navigate deep enough that window must scroll (keep-active-visible).
-          const listH = shell.overlayList!.height;
+          const listH = defined(shell.overlayList, "overlayList").height;
           for (let i = 0; i < listH + 5; i++) {
             moveOverlaySelection(shell, 1);
           }
-          expect(shell.overlayList!.activeIndex).toBe(listH + 5);
-          const slice = shell.overlayList!.visibleRange();
-          expect(shell.overlayList!.activeIndex).toBeGreaterThanOrEqual(slice.start);
-          expect(shell.overlayList!.activeIndex).toBeLessThan(slice.end);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBe(listH + 5);
+          const slice = defined(shell.overlayList, "overlayList").visibleRange();
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBeGreaterThanOrEqual(slice.start);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBeLessThan(slice.end);
 
           await h.renderOnce();
           frame = h.captureCharFrame();
-          const activeLabel = shell.overlayItems[shell.overlayList!.activeIndex] ?? "";
+          const activeLabel = shell.overlayItems[defined(shell.overlayList, "overlayList").activeIndex] ?? "";
           expect(frame).toContain(activeLabel.slice(0, 20));
 
           h.pressKey("Escape");
@@ -185,12 +186,12 @@ describe("permissions overlay", () => {
         });
         try {
           openPermissionsOverlay(shell, { items: makePermissionItems(30) });
-          const before = shell.overlayList!.activeIndex;
+          const before = defined(shell.overlayList, "overlayList").activeIndex;
           pageOverlaySelection(shell, 1);
-          expect(shell.overlayList!.activeIndex).toBeGreaterThan(before);
-          const slice = shell.overlayList!.visibleRange();
-          expect(shell.overlayList!.activeIndex).toBeGreaterThanOrEqual(slice.start);
-          expect(shell.overlayList!.activeIndex).toBeLessThan(slice.end);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBeGreaterThan(before);
+          const slice = defined(shell.overlayList, "overlayList").visibleRange();
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBeGreaterThanOrEqual(slice.start);
+          expect(defined(shell.overlayList, "overlayList").activeIndex).toBeLessThan(slice.end);
         } finally {
           shell.dispose();
         }

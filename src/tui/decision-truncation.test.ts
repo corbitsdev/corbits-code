@@ -92,7 +92,7 @@ describe("decision choice rendering", () => {
       emitter.emit("permission.gate", {
         id: "req-1",
         request: hintRequest,
-        resolve: () => {},
+        resolve: () => undefined,
       });
 
       try {

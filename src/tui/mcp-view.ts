@@ -271,7 +271,9 @@ const DETAIL_TEXT_MAX = 72;
 const TOOL_SEARCH_TOOL = "tool_search";
 
 function titleCase(word: string): string {
-  return word.length === 0 ? word : `${word[0]!.toUpperCase()}${word.slice(1)}`;
+  const first = word[0];
+  if (first == null) return word;
+  return `${first.toUpperCase()}${word.slice(1)}`;
 }
 
 function singular(noun: string): string {

@@ -25,8 +25,8 @@ test("failed reset releases publication without flushing partially cancelled wor
     store.registerAsk("old", {
       question: "Old question?",
       questionId: "old-question",
-      resolve: () => {},
-      reject: () => {},
+      resolve: () => undefined,
+      reject: () => undefined,
     });
     events.length = 0;
     const error = new Error("reset failed");
@@ -88,7 +88,7 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
               scheduled.push(text);
               deliver(text);
             },
-            interrupt: () => {},
+            interrupt: () => undefined,
           }),
         );
         let resetting = false;
@@ -113,8 +113,8 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
           store.registerAsk(id, {
             question: `question ${id}`,
             questionId: `question-${id}`,
-            resolve: () => {},
-            reject: () => {},
+            resolve: () => undefined,
+            reject: () => undefined,
           });
         };
         try {
@@ -181,7 +181,7 @@ for (const removal of ["answer", "cancel", "terminal", "remove", "replace"] as c
         };
         const bridge = attachSessionBridge(
           shell,
-          createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+          createLiveSessionPort({ send, deliver: send, interrupt: () => undefined }),
         );
         const store = createSubAgentSessionStore();
         const emitter = new EventEmitter();
@@ -204,8 +204,8 @@ for (const removal of ["answer", "cancel", "terminal", "remove", "replace"] as c
           store.registerAsk(worker.id, {
             question: "Which port?",
             questionId: "q1",
-            resolve: () => {},
-            reject: () => {},
+            resolve: () => undefined,
+            reject: () => undefined,
           });
           if (removal === "answer") {
             const mailbox = createFleetMailbox(store);
@@ -264,7 +264,7 @@ test("same catalog workers answer by session, reconcile one resolution and repla
       };
       const bridge = attachSessionBridge(
         shell,
-        createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+        createLiveSessionPort({ send, deliver: send, interrupt: () => undefined }),
       );
       const store = createSubAgentSessionStore();
       const emitter = new EventEmitter();
@@ -279,7 +279,7 @@ test("same catalog workers answer by session, reconcile one resolution and repla
           resolve: (answer) => {
             answers.push(`${id}:${answer}`);
           },
-          reject: () => {},
+          reject: () => undefined,
         });
       try {
         bridge.handle({ type: "inference.start", data: {} });

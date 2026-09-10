@@ -126,7 +126,9 @@ function parseSegments(text: string): StyledSegment[] {
 
     // A marker character that did not start a token (e.g. a lone `[`): emit it
     // as plain text and move on.
-    segments.push({ text: remaining[0]! });
+    const ch = remaining[0];
+    if (ch == null) break;
+    segments.push({ text: ch });
     remaining = remaining.slice(1);
     offset += 1;
   }
@@ -149,7 +151,9 @@ function parseLine(line: string): StyledSegment[] {
   // Headings h1–h6. The marker is stripped; inline markdown still applies.
   const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
   if (headingMatch) {
-    const level = headingMatch[1]!.length;
+    const hashes = headingMatch[1];
+    if (hashes == null) throw new Error("heading marker missing");
+    const level = hashes.length;
     return applyFlag(parseSegments(headingMatch[2] || ""), { heading: level });
   }
 
@@ -219,20 +223,25 @@ function fencedFoot(): StyledSegment[] {
 // unclosed while it streams; in that case a nascent closing fence is dropped so
 // the trailing block re-highlights cleanly rather than flickering.
 function parseFencedBlock(input: string[], start: number, width: number): FencedBlock {
-  const language = input[start]!.match(/^\s*(?:```+|~~~+)\s*([^\s`]*)/)?.[1] || undefined;
+  const openerLine = input[start];
+  if (openerLine == null) throw new Error("fence opener missing");
+  const language = openerLine.match(/^\s*(?:```+|~~~+)\s*([^\s`]*)/)?.[1] || undefined;
   const body: string[] = [];
   let i = start + 1;
   let closed = false;
   for (; i < input.length; i++) {
-    if (FENCE_CLOSE_RE.test(input[i]!)) {
+    const line = input[i];
+    if (line == null) throw new Error("fence line missing");
+    if (FENCE_CLOSE_RE.test(line)) {
       closed = true;
       break;
     }
-    body.push(input[i]!);
+    body.push(line);
   }
   const consumed = closed ? i - start + 1 : i - start;
 
-  if (!closed && body.length > 0 && PARTIAL_FENCE_RE.test(body[body.length - 1]!)) {
+  const last = body[body.length - 1];
+  if (!closed && last != null && PARTIAL_FENCE_RE.test(last)) {
     body.pop();
   }
 
@@ -249,7 +258,9 @@ function parseIndentedCodeBlock(input: string[], start: number, width: number): 
   const body: string[] = [];
   let i = start;
   for (; i < input.length; i++) {
-    const match = input[i]!.match(INDENTED_CODE_RE);
+    const line = input[i];
+    if (line == null) throw new Error("indented code line missing");
+    const match = line.match(INDENTED_CODE_RE);
     if (!match) break;
     body.push(match[1] ?? "");
   }
@@ -310,7 +321,8 @@ export function parseMarkdown(text: string, width = Infinity): StyledSegment[][]
   const input = text.split("\n");
 
   for (let i = 0; i < input.length; i++) {
-    const line = input[i]!;
+    const line = input[i];
+    if (line == null) throw new Error("markdown line missing");
 
     // Fenced code block (``` or ~~~). The whole block is collected so its body
     // can be syntax-highlighted by the fence's language token; the delimiter
@@ -480,7 +492,9 @@ function fitColumnWidths(naturalWidths: number[], targetContent: number): number
       }
     }
     if (widest < 0) break;
-    widths[widest]!--;
+    const width = widths[widest];
+    if (width == null) break;
+    widths[widest] = width - 1;
     overflow--;
   }
 
@@ -668,17 +682,24 @@ function fencedLineMask(lines: readonly string[]): boolean[] {
   const inside = new Array<boolean>(lines.length).fill(false);
   let opener: { char: string; length: number } | null = null;
   for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line == null) throw new Error("fence mask line missing");
     if (opener === null) {
-      const match = lines[i]!.match(COMMONMARK_FENCE_OPEN_RE);
+      const match = line.match(COMMONMARK_FENCE_OPEN_RE);
       if (match) {
         inside[i] = true;
-        opener = { char: match[1]![0]!, length: match[1]!.length };
+        const run = match[1];
+        const char = run?.[0];
+        if (run == null || char == null) throw new Error("fence opener capture missing");
+        opener = { char, length: run.length };
       }
       continue;
     }
     inside[i] = true;
-    const close = lines[i]!.match(COMMONMARK_FENCE_CLOSE_RE);
-    if (close && close[1]![0] === opener.char && close[1]!.length >= opener.length) {
+    const close = line.match(COMMONMARK_FENCE_CLOSE_RE);
+    const closeRun = close?.[1];
+    const closeChar = closeRun?.[0];
+    if (closeRun != null && closeChar === opener.char && closeRun.length >= opener.length) {
       opener = null;
     }
   }
@@ -712,7 +733,9 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
   const insideFence = fencedLineMask(lines);
   let boundary = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    if (!insideFence[i] && ATX_HEADING_LINE_RE.test(lines[i]!)) boundary = i;
+    const line = lines[i];
+    if (line == null) continue;
+    if (!insideFence[i] && ATX_HEADING_LINE_RE.test(line)) boundary = i;
   }
   // No heading, or the last one is still the open tail: nothing to freeze.
   if (boundary === -1 || boundary >= lines.length - 1) return null;

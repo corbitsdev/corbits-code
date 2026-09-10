@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   buildCopyTargets,
   classifyCopy,
@@ -65,7 +66,7 @@ describe("writeClipboard", () => {
   });
 
   test("async resolve defers onSuccess", async () => {
-    let resolveWrite!: () => void;
+    let resolveWrite: () => void = () => undefined;
     const writeP = new Promise<void>((r) => {
       resolveWrite = r;
     });
@@ -97,19 +98,18 @@ describe("writeClipboard", () => {
 describe("formatCopyText / copyStreamRow", () => {
   test("writes plain text and summary", () => {
     const port = createRecordingClipboard();
-    const payload = copyStreamRow({ role: "assistant", text: "hello world" }, port);
-    expect(payload).not.toBeNull();
-    expect(payload!.kind).toBe("message");
-    expect(payload!.text).toBe("hello world");
+    const payload = defined(copyStreamRow({ role: "assistant", text: "hello world" }, port));
+    expect(payload.kind).toBe("message");
+    expect(payload.text).toBe("hello world");
     expect(port.writes).toEqual(["hello world"]);
-    expect(payload!.summary).toContain("copied message");
+    expect(payload.summary).toContain("copied message");
   });
 
   test("tool includes meta", () => {
     const port = createRecordingClipboard();
-    const payload = copyStreamRow({ role: "tool", text: "ok", meta: "bash" }, port);
-    expect(payload!.text).toBe("[bash] ok");
-    expect(payload!.kind).toBe("tool");
+    const payload = defined(copyStreamRow({ role: "tool", text: "ok", meta: "bash" }, port));
+    expect(payload.text).toBe("[bash] ok");
+    expect(payload.kind).toBe("tool");
   });
 
   test("null when no row", () => {

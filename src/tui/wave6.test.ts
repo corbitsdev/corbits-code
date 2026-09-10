@@ -2,6 +2,7 @@
  * Wave 6: command palette, long-log windowing, chrome zones, keyboard copy.
  */
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -66,10 +67,10 @@ describe("Wave 6: command list", () => {
           expect(frame).not.toMatch(/│\s*>\s*│/);
           expect(frame).toContain("/compact");
           // List labels live in overlayItems (frame may clip first row under tight height).
-          expect(shell.overlayItems[0]).toBe(CATALOG[0]!.label);
+          expect(shell.overlayItems[0]).toBe(defined(CATALOG[0]).label);
 
           moveOverlaySelection(shell, 1);
-          expect(shell.overlayList!.activeIndex).toBe(1);
+          expect(defined(shell.overlayList).activeIndex).toBe(1);
 
           closeInsetOverlay(shell);
           expect(shell.overlayList).toBeNull();
@@ -99,7 +100,9 @@ describe("Wave 6: command list", () => {
           const helpIdx = shell.paletteCommands.findIndex((c) => c.id === "help");
           expect(helpIdx).toBeGreaterThanOrEqual(0);
           for (let i = 0; i < helpIdx; i++) moveOverlaySelection(shell, 1);
-          expect(shell.paletteCommands[shell.overlayList!.activeIndex]!.id).toBe("help");
+          expect(defined(shell.paletteCommands[defined(shell.overlayList).activeIndex]).id).toBe(
+            "help",
+          );
 
           acceptOverlaySelection(shell);
           expect(dispatched).toEqual(["help"]);
@@ -420,7 +423,7 @@ describe("Wave 6: chrome zones", () => {
           const frame = h.captureCharFrame();
           const agentLine = frame.split("\n").find((line) => line.includes("· 0:42 · grep"));
           expect(agentLine).toBeDefined();
-          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(
+          expect(stringWidth(defined(agentLine).trimEnd())).toBeLessThanOrEqual(
             shell.layout.sideMargin + shell.layout.contentWidth,
           );
           expect(agentLine).toContain("…");
@@ -714,8 +717,8 @@ describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {
           expect(taskLine).toBeDefined();
           expect(agentLine).toBeDefined();
           const maxPainted = shell.layout.sideMargin + shell.layout.contentWidth;
-          expect(stringWidth(taskLine!.trimEnd())).toBeLessThanOrEqual(maxPainted);
-          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(maxPainted);
+          expect(stringWidth(defined(taskLine).trimEnd())).toBeLessThanOrEqual(maxPainted);
+          expect(stringWidth(defined(agentLine).trimEnd())).toBeLessThanOrEqual(maxPainted);
           expect(taskLine).toContain("[ ]");
           expect(agentLine).toContain("· 0:42 · grep");
           expect(narrowFrame).not.toContain(uniqueTaskPhrase);
@@ -965,7 +968,7 @@ describe("reasoning effort flash TTL", () => {
           flashSchedule: (fn, ms) => {
             expect(ms).toBe(RUNTIME_FLASH_MS);
             lapse.push(fn);
-            return () => {};
+            return () => undefined;
           },
         });
         try {

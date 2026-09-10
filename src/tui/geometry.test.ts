@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   AGENTS_PANEL_MAX_VISIBLE,
   COLLAPSE_ORDER,
@@ -84,13 +85,12 @@ describe("resolveGeometry — 80×24 idle floor", () => {
     expect(layout.contentWidth).toBe(80 - SIDE_MARGIN * 2);
     let y = 0;
     for (const id of order) {
-      const r = layout.regions[id];
-      expect(r).toBeDefined();
-      expect(r!.x).toBe(layout.sideMargin);
-      expect(r!.width).toBe(layout.contentWidth);
-      expect(r!.y).toBe(y);
-      expect(r!.height).toBeGreaterThan(0);
-      y += r!.height;
+      const r = defined(layout.regions[id], id);
+      expect(r.x).toBe(layout.sideMargin);
+      expect(r.width).toBe(layout.contentWidth);
+      expect(r.y).toBe(y);
+      expect(r.height).toBeGreaterThan(0);
+      y += r.height;
     }
     expect(y).toBe(24);
   });
@@ -148,7 +148,7 @@ describe("resolveGeometry — agents panel", () => {
     expect(tall.heights.agents).toBe(requested);
     expect(tall.regions.agents?.width).toBe(tall.contentWidth);
     // Stack: agents sit below transcript and consume vertical chrome.
-    expect(tall.regions.agents!.y).toBeGreaterThan(tall.regions.transcript!.y);
+    expect(defined(tall.regions.agents).y).toBeGreaterThan(defined(tall.regions.transcript).y);
   });
 
   test("with a fleet running the agents zone stacks under the transcript", () => {
@@ -226,17 +226,13 @@ describe("resolveGeometry — task panel", () => {
     const layout = idle80x24({
       visibility: { task: 3, agents: 1 },
     });
-    const transcript = layout.regions.transcript;
-    const agents = layout.regions.agents;
-    const task = layout.regions.task;
-    const prompt = layout.regions.prompt;
-    expect(transcript).toBeDefined();
-    expect(agents).toBeDefined();
-    expect(task).toBeDefined();
-    expect(prompt).toBeDefined();
-    expect(transcript!.y).toBeLessThan(agents!.y);
-    expect(agents!.y).toBeLessThan(task!.y);
-    expect(task!.y).toBeLessThan(prompt!.y);
+    const transcript = defined(layout.regions.transcript);
+    const agents = defined(layout.regions.agents);
+    const task = defined(layout.regions.task);
+    const prompt = defined(layout.regions.prompt);
+    expect(transcript.y).toBeLessThan(agents.y);
+    expect(agents.y).toBeLessThan(task.y);
+    expect(task.y).toBeLessThan(prompt.y);
   });
 
   test("under pressure the task panel shrinks one row at a time rather than vanishing in one step", () => {
@@ -481,20 +477,17 @@ describe("resolveGeometry — stack-only layout", () => {
     expect(layout.railGutter).toBe(0);
     expect(layout.chatWidth).toBe(layout.contentWidth);
 
-    const transcript = layout.regions.transcript;
-    const agents = layout.regions.agents;
-    const prompt = layout.regions.prompt;
-    expect(transcript).toBeDefined();
-    expect(agents).toBeDefined();
-    expect(prompt).toBeDefined();
+    const transcript = defined(layout.regions.transcript);
+    const agents = defined(layout.regions.agents);
+    const prompt = defined(layout.regions.prompt);
 
     // Agents strip sits below transcript, full content width.
-    expect(agents!.y).toBeGreaterThan(transcript!.y);
-    expect(transcript!.width).toBe(layout.contentWidth);
-    expect(agents!.width).toBe(layout.contentWidth);
-    expect(agents!.height).toBe(layout.heights.agents);
-    expect(prompt!.width).toBe(layout.contentWidth);
-    expect(prompt!.x).toBe(layout.sideMargin);
+    expect(agents.y).toBeGreaterThan(transcript.y);
+    expect(transcript.width).toBe(layout.contentWidth);
+    expect(agents.width).toBe(layout.contentWidth);
+    expect(agents.height).toBe(layout.heights.agents);
+    expect(prompt.width).toBe(layout.contentWidth);
+    expect(prompt.x).toBe(layout.sideMargin);
   });
 
   test("agents height reduces transcript vs idle baseline (stack chrome)", () => {
@@ -524,7 +517,7 @@ describe("resolveGeometry — stack-only layout", () => {
     expect(layout.chatWidth).toBe(layout.contentWidth);
     expect(layout.regions.transcript?.width).toBe(layout.contentWidth);
     expect(layout.regions.agents?.width).toBe(layout.contentWidth);
-    expect(layout.regions.agents!.y).toBeGreaterThan(layout.regions.transcript!.y);
+    expect(defined(layout.regions.agents).y).toBeGreaterThan(defined(layout.regions.transcript).y);
     expect(layout.chromeHeight).toBeGreaterThan(PROMPT_IDLE_ROWS);
   });
 

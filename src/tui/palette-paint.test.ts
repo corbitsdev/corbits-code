@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { KeyEvent } from "@opentui/core";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import { createAppShell } from "./shell/index";
@@ -222,8 +223,7 @@ function zoneAfterList(
 function expectNameOnlyRows(lines: readonly string[], labels: readonly string[]): void {
   for (const label of labels) {
     const row = lines.find((r) => r.includes(label));
-    expect(row).toBeDefined();
-    expect(row!.trim()).toBe(label);
+    expect(defined(row, "row").trim()).toBe(label);
   }
 }
 
@@ -238,8 +238,7 @@ function expectDescriptionUnderListRule(
     expect(row).not.toContain(description);
   }
   const zone = zoneAfterList(lines, labels);
-  expect(zone).toBeDefined();
-  expect(zone!.some((r) => r.includes(description))).toBe(true);
+  expect(defined(zone, "zone").some((r) => r.includes(description))).toBe(true);
 }
 
 describe("command list description zone", () => {
@@ -313,8 +312,7 @@ describe("command list description zone", () => {
         const blank = stripFrameLines(h.captureCharFrame());
         expectNameOnlyRows(blank, labels);
         const zone = zoneAfterList(blank, labels);
-        expect(zone).toBeDefined();
-        expect(zone!.every((r) => r.trim() === "")).toBe(true);
+        expect(defined(zone, "zone").every((r) => r.trim() === "")).toBe(true);
         expect(blank.join("\n")).not.toContain(HELP_DESC);
         expect(shell.layout.heights.overlay_host).toBe(reserved);
       },
@@ -367,15 +365,21 @@ describe("command list selection colour", () => {
         const groundLine = frame.lines.find((line) =>
           line.spans.some((s) => s.text.includes("/model")),
         );
-        expect(activeLine).toBeDefined();
-        expect(groundLine).toBeDefined();
-        const activeBg = activeLine!.spans[0]!.bg;
-        const groundBg = groundLine!.spans[0]!.bg;
+        const active = defined(activeLine, "activeLine");
+        const ground = defined(groundLine, "groundLine");
+        const activeBg = defined(active.spans[0], "activeLine.spans[0]").bg;
+        const groundBg = defined(ground.spans[0], "groundLine.spans[0]").bg;
         // Same background either way — selection reads through text colour
         // (fg), not a filled band behind the row.
         expect(activeBg).toEqual(groundBg);
-        const activeFg = activeLine!.spans.find((s) => s.text.includes("/help"))!.fg;
-        const groundFg = groundLine!.spans.find((s) => s.text.includes("/model"))!.fg;
+        const activeFg = defined(
+          active.spans.find((s) => s.text.includes("/help")),
+          "help span",
+        ).fg;
+        const groundFg = defined(
+          ground.spans.find((s) => s.text.includes("/model")),
+          "model span",
+        ).fg;
         expect(activeFg).not.toEqual(groundFg);
       },
       { width: 100, height: 32 },

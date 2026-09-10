@@ -52,7 +52,7 @@ describe("runtime-bridge stream row coalescing", () => {
           const clock = { ms: 1000 };
           const bridge = attachSessionBridge(shell, createRecordingPort(), {
             now: () => clock.ms,
-            schedule: () => () => {},
+            schedule: () => () => undefined,
           });
           try {
             const tokens = ["The ", "quick ", "brown ", "fox ", "jumps."];
@@ -101,7 +101,7 @@ describe("runtime-bridge stream row coalescing", () => {
           const clock = { ms: 1000 };
           const bridge = attachSessionBridge(shell, createRecordingPort(), {
             now: () => clock.ms,
-            schedule: () => () => {},
+            schedule: () => () => undefined,
           });
           try {
             const tokens = ["reason ", "one ", "two ", "three."];

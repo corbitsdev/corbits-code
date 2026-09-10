@@ -236,10 +236,10 @@ export interface SessionBridge {
 }
 
 const NOOP_PORT: SessionPort = {
-  sendImmediate: () => {},
-  enqueue: () => {},
-  interrupt: () => {},
-  deliver: () => {},
+  sendImmediate: () => undefined,
+  enqueue: () => undefined,
+  interrupt: () => undefined,
+  deliver: () => undefined,
 };
 
 export type PortCall =

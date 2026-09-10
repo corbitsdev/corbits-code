@@ -83,11 +83,11 @@ export function createTUICrashGuard(getLiveSession: () => TUILiveSession): TUICr
   let finalized = false;
   // Bound after the cycle recorder exists (it needs the session workdir); the
   // crash guard is declared first so it covers every fallible step below.
-  let flushPartialOnCrash: () => Promise<void> = async () => {};
+  let flushPartialOnCrash: () => Promise<void> = async () => undefined;
   // Bound once the host is mounted. Without this the crash path leaves the
   // renderer alive, so the alternate screen, mouse reporting and raw mode are
   // never disabled and the operator's terminal is left wedged.
-  let disposeHost: () => void | Promise<void> = () => {};
+  let disposeHost: () => void | Promise<void> = () => undefined;
   let getSession = getLiveSession;
 
   const finalizeOnCrash = async (err: unknown): Promise<void> => {

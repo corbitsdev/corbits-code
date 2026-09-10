@@ -235,7 +235,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
     await withShell(async ({ shell, press }) => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
-      const disposeClosedSpy = onOverlayClosed(shell, () => {});
+      const disposeClosedSpy = onOverlayClosed(shell, () => undefined);
       try {
         press("/");
         press("m");

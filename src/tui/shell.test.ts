@@ -3,6 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -168,7 +169,7 @@ describe("createAppShell", () => {
           // would pass even if the renderer never routed the event here.
           const rows = h.captureCharFrame().split("\n");
           const borderRow = rows.findIndex((r) => r.includes("╭"));
-          const promptX = rows[borderRow]!.indexOf("╭") + 2;
+          const promptX = defined(rows[borderRow]).indexOf("╭") + 2;
           const promptY = borderRow + 1;
 
           for (let i = 0; i < 5; i++) {
@@ -252,20 +253,20 @@ describe("createAppShell", () => {
 
         h.pressKey("Enter");
         await h.renderOnce();
-        const enter = captured.at(-1)!;
+        const enter = defined(captured.at(-1));
         expect(enter.name === "return" || enter.name === "enter").toBe(true);
         expect(enter.ctrl).toBe(false);
         expect(enter.meta).toBe(false);
 
         h.pressKey("Alt+Enter");
         await h.renderOnce();
-        const alt = captured.at(-1)!;
+        const alt = defined(captured.at(-1));
         expect(alt.name === "return" || alt.name === "enter").toBe(true);
         expect(alt.meta === true || alt.option === true).toBe(true);
 
         h.pressKey("Ctrl+C");
         await h.renderOnce();
-        const ctrlC = captured.at(-1)!;
+        const ctrlC = defined(captured.at(-1));
         expect(ctrlC.name).toBe("c");
         expect(ctrlC.ctrl).toBe(true);
       } finally {
@@ -395,7 +396,7 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "queue me";
           submitPrompt(shell, "queue");
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("queue");
+          expect(defined(shell.session.items[0]).kind).toBe("queue");
           expect(shell.prompt.value).toBe("");
           await h.renderOnce();
           expect(h.captureCharFrame()).toContain("follow-up 1");
@@ -419,7 +420,7 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "steer me";
           submitPrompt(shell, "steer");
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("steer");
+          expect(defined(shell.session.items[0]).kind).toBe("steer");
           await h.renderOnce();
           await h.renderOnce();
           const frame = h.captureCharFrame();
@@ -498,7 +499,7 @@ describe("product skin: stream + queue + overlay", () => {
           applyShellCancelLast(shell);
 
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.text).toBe("keep this one");
+          expect(defined(shell.session.items[0]).text).toBe("keep this one");
 
           const after = shell.streamLog.map((row) => ({
             text: row.text,
@@ -539,7 +540,7 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "steer me now";
           submitPrompt(shell, "steer");
           expect(shell.pendingQueue).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("steer");
+          expect(defined(shell.session.items[0]).kind).toBe("steer");
 
           applyShellCancelLast(shell);
 

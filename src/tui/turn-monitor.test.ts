@@ -290,7 +290,7 @@ describe("quota auto-retry", () => {
         flashSchedule: (fn, ms) => {
           expect(ms).toBe(RUNTIME_FLASH_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       const port = createRecordingPort();

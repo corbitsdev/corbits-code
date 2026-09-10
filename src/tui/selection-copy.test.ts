@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { createRecordingClipboard } from "./copy-path.js";
 import { copyFinishedSelection, type SelectionCopyHost } from "./selection-copy.js";
 
@@ -71,7 +72,7 @@ describe("copyFinishedSelection", () => {
     });
     expect(h.clipboard.writes).toEqual([long]);
     expect(h.flashes[0]).toContain("…");
-    expect(h.flashes[0]!.length).toBeLessThan(long.length + 40);
+    expect(defined(h.flashes[0]).length).toBeLessThan(long.length + 40);
   });
 
   test("collapses multi-line selections in the flash preview", () => {
@@ -87,7 +88,7 @@ describe("copyFinishedSelection", () => {
   });
 
   test("clears highlight immediately while write is still pending", async () => {
-    let resolveWrite!: () => void;
+    let resolveWrite: () => void = () => undefined;
     const writeP = new Promise<void>((r) => {
       resolveWrite = r;
     });

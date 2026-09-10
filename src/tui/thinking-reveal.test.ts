@@ -107,7 +107,8 @@ describe("thinkingLivePreviewLines with a reveal position", () => {
         const chars = advanceRevealChars(0, sample.length, ms, rate);
         return thinkingLivePreviewLines(sample, 30, chars);
       });
-      console.log(`rate=${rate}/s`, frames);
+      expect(frames).toHaveLength(4);
+      expect(frames.every((row) => row.length > 0)).toBe(true);
     }
     expect(true).toBe(true);
   });

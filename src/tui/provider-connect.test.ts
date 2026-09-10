@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { connectProviderInline } from "./provider/connect.js";
 import { loadSettings } from "../config/settings.js";
@@ -29,7 +30,7 @@ describe("connectProviderInline", () => {
         settingsPath,
         localSettingsPath: join(dir, "local.json"),
         existing: null,
-        createRenderer: async () => harness!.renderer,
+        createRenderer: async () => defined(harness, "harness").renderer,
       });
       await harness.renderOnce();
 

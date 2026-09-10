@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import {
   BORDER,
   MCP_ATTENTION_LABEL,
@@ -156,7 +157,7 @@ describe("composeRule", () => {
     const parts = composeRule({
       width: 48,
       corners: TOP,
-      attention: attention!,
+      attention: defined(attention),
       label: "xai · grok",
     });
     expect(ruleText(parts)).toContain("mcp ! · plugin !");
@@ -211,22 +212,25 @@ describe("composeCostContextMeter", () => {
   });
 
   test("carries the percent and cost", () => {
-    const meter = composeCostContextMeter({
-      contextPercentUsed: 68,
-      costLabel: "$0.42",
-      contextIsEstimate: false,
-    });
-    expect(meter).not.toBeNull();
-    expect(meter!.percentLabel).toBe("68%");
-    expect(meter!.costLabel).toBe("$0.42");
+    const meter = defined(
+      composeCostContextMeter({
+        contextPercentUsed: 68,
+        costLabel: "$0.42",
+        contextIsEstimate: false,
+      }),
+    );
+    expect(meter.percentLabel).toBe("68%");
+    expect(meter.costLabel).toBe("$0.42");
   });
 
   test("drops the cost suffix when told to, keeping the percent", () => {
-    const meter = composeCostContextMeter({
-      contextPercentUsed: 68,
-      costLabel: "$0.42",
-      contextIsEstimate: false,
-    })!;
+    const meter = defined(
+      composeCostContextMeter({
+        contextPercentUsed: 68,
+        costLabel: "$0.42",
+        contextIsEstimate: false,
+      }),
+    );
     expect(costContextText(meter, true)).toContain("$0.42");
     expect(costContextText(meter, false)).not.toContain("$0.42");
     expect(costContextText(meter, false)).toContain("68%");
@@ -234,7 +238,8 @@ describe("composeCostContextMeter", () => {
 
   test("bands from the percent: 60 quiet, 80 warning, 81 danger", () => {
     const bandAt = (percent: number) =>
-      composeCostContextMeter({ contextPercentUsed: percent, contextIsEstimate: false })!.band;
+      defined(composeCostContextMeter({ contextPercentUsed: percent, contextIsEstimate: false }))
+        .band;
     expect(bandAt(0)).toBe("quiet");
     expect(bandAt(60)).toBe("quiet");
     expect(bandAt(61)).toBe("warning");
@@ -244,7 +249,9 @@ describe("composeCostContextMeter", () => {
   });
 
   test("flags an estimated percent with a tilde", () => {
-    const meter = composeCostContextMeter({ contextPercentUsed: 68, contextIsEstimate: true })!;
+    const meter = defined(
+      composeCostContextMeter({ contextPercentUsed: 68, contextIsEstimate: true }),
+    );
     expect(meter.percentLabel).toBe("~68%");
   });
 });

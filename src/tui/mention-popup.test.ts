@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { KeyEvent } from "@opentui/core";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { wireGates } from "./gate-wire";
 import { withTestRenderer } from "./harness";
 import { createAppShell } from "./shell/index";
@@ -106,7 +107,7 @@ function hangableSource(): {
   };
 }
 
-const ROOT = TREE[""]!;
+const ROOT = defined(TREE[""]);
 
 describe("@ popup narrows as you type", () => {
   test("printable keys filter the list and land in the prompt", async () => {
@@ -313,7 +314,7 @@ describe("@ popup narrows as you type", () => {
             subject: "bun test",
             scopes: [],
           },
-          resolve: () => {},
+          resolve: () => undefined,
         });
         expect(shell.overlayKind).toBe("permissions");
 

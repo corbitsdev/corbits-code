@@ -38,8 +38,8 @@ describe("mcp auth copy failure", () => {
       const clip = { writeText: () => Promise.reject(new Error("both legs failed")) };
       (shell as unknown as { clipboard: typeof clip }).clipboard = clip;
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       moveOverlaySelection(shell, 0);
       acceptOverlaySelection(shell);
@@ -57,8 +57,8 @@ describe("mcp auth copy failure", () => {
       const clip = { writeText: () => Promise.resolve() };
       (shell as unknown as { clipboard: typeof clip }).clipboard = clip;
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       moveOverlaySelection(shell, 0);
       acceptOverlaySelection(shell);

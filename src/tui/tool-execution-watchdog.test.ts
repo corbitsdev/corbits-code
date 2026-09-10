@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
+import { defined } from "../../tests/helpers/defined.js";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
   DEFAULT_MCP_TOOL_TIMEOUT_MS,
@@ -274,7 +275,7 @@ describe("tool execution watchdog", () => {
       [
         stringTool(
           "mcp__linear__get_issue",
-          () => new Promise<string>(() => {}), // never resolves — wedged server
+          () => new Promise<string>(() => undefined), // never resolves — wedged server
         ),
       ],
       { mcpTimeoutMs: 30 },
@@ -291,7 +292,7 @@ describe("tool execution watchdog", () => {
   test("concurrent mcp tool calls each time out independently", async () => {
     const runner = createDynamicToolRunner(
       [
-        stringTool("mcp__linear__get_issue", () => new Promise<string>(() => {})),
+        stringTool("mcp__linear__get_issue", () => new Promise<string>(() => undefined)),
         stringTool("mcp__linear__list_issues", async () => "ok"),
       ],
       { mcpTimeoutMs: 30 },
@@ -393,7 +394,7 @@ describe("tool execution watchdog", () => {
       5_000,
       async () => {
         // Never resolve within grace.
-        await new Promise(() => {});
+        await new Promise(() => undefined);
         return { callId: "5", content: "ok" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
@@ -434,7 +435,7 @@ describe("tool execution watchdog", () => {
       parent.signal,
       undefined,
       async () => {
-        await new Promise(() => {});
+        await new Promise(() => undefined);
         return { callId: "unbounded-hang", content: "ok" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
@@ -502,10 +503,10 @@ describe("tool execution watchdog", () => {
       async () => {
         const budget = getToolApprovalBudget();
         expect(budget).toBeDefined();
-        const token = budget!.pause();
+        const token = defined(budget).pause();
         // Longer than the budget — would time out if not paused.
         await new Promise((r) => setTimeout(r, 120));
-        budget!.resume(token);
+        defined(budget).resume(token);
         return { callId: "pause", content: "approved-late" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
@@ -524,11 +525,11 @@ describe("tool execution watchdog", () => {
       async () => {
         const budget = getToolApprovalBudget();
         expect(budget).toBeDefined();
-        const token = budget!.pause();
+        const token = defined(budget).pause();
         // Simulate UI thread: resume via captured methods outside this ALS tick.
         await new Promise<void>((resolve) => {
           setTimeout(() => {
-            budget!.resume(token);
+            defined(budget).resume(token);
             resolve();
           }, 120);
         });
@@ -620,10 +621,10 @@ describe("tool execution watchdog", () => {
           async () => {
             const budget = getToolApprovalBudget();
             expect(budget).toBeDefined();
-            const token = budget!.pause();
+            const token = defined(budget).pause();
             // Longer than the outer budget — outer must be frozen too.
             await new Promise((r) => setTimeout(r, 120));
-            budget!.resume(token);
+            defined(budget).resume(token);
             return { callId: "inner", content: "child-ok" };
           },
           { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },

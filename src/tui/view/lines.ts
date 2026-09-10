@@ -140,20 +140,29 @@ export function viewToLines(
         widths.pop();
         cols = cols.slice(0, widths.length);
       }
-      if (widths.length === 1 && widths[0]! > available) widths[0] = available;
+      const firstWidth = widths[0];
+      if (widths.length === 1 && firstWidth != null && firstWidth > available)
+        widths[0] = available;
       const leftover = available - total();
-      if (leftover > 0 && widths.length > 0)
-        widths[widths.length - 1] = widths[widths.length - 1]! + leftover;
+      if (leftover > 0 && widths.length > 0) {
+        const lastIndex = widths.length - 1;
+        const last = widths[lastIndex];
+        if (last == null) throw new Error("grid column width missing");
+        widths[lastIndex] = last + leftover;
+      }
 
       const lines: StyledLine[] = [];
       for (const r of allRows) {
         const cells = r.slice(0, widths.length);
         const segs: StyledLine = [];
         for (let i = 0; i < cells.length; i++) {
-          const cellNode = cells[i]!;
-          const cellLine = renderCell(cellNode, widths[i]!, palette);
+          const cellNode = cells[i];
+          if (cellNode == null) throw new Error("grid cell missing");
+          const colWidth = widths[i];
+          if (colWidth == null) throw new Error("grid column width missing");
+          const cellLine = renderCell(cellNode, colWidth, palette);
           const align = (cols[i]?.align ?? "left") as "left" | "right" | "center";
-          const padded = padSegments(cellLine, widths[i]!, align);
+          const padded = padSegments(cellLine, colWidth, align);
           segs.push(...padded);
           if (i < cells.length - 1) segs.push({ text: " ".repeat(GAP) });
         }

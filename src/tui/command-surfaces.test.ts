@@ -5,6 +5,8 @@ import { describe, expect, test } from "bun:test";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { defined } from "../../tests/helpers/defined.js";
+
 import {
   grantRowLabel,
   openCommandSurface,
@@ -151,7 +153,7 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
     showPromptCost: [] as boolean[],
   };
   const deps: CommandSurfaceDeps = {
-    notify: () => {},
+    notify: () => undefined,
     settings: {
       read: () => state,
       setCompactionMode: (mode) => {
@@ -259,7 +261,7 @@ describe("settings surface", () => {
   test("arrow navigation still moves the cursor in a non-cycling overlay", async () => {
     await withShell(async (shell) => {
       const deps: CommandSurfaceDeps = {
-        notify: () => {},
+        notify: () => undefined,
         // Only the fields this test exercises; the rest of PluginsSurfaceDeps
         // (credentials, verify, web providers) belongs to the plugins surface,
         // not to this arrow-navigation scoping test.
@@ -291,7 +293,7 @@ describe("permissions surface", () => {
       ];
       const revoked: string[] = [];
       const deps: CommandSurfaceDeps = {
-        notify: () => {},
+        notify: () => undefined,
         permissions: {
           list: () => Promise.resolve(grants),
           revoke: (id) => {
@@ -316,7 +318,7 @@ describe("permissions surface", () => {
   test("empty grant list still opens with a hint row", async () => {
     await withShell(async (shell) => {
       const deps: CommandSurfaceDeps = {
-        notify: () => {},
+        notify: () => undefined,
         permissions: { list: () => Promise.resolve([]), revoke: () => Promise.resolve() },
       };
       openCommandSurface(shell, "permissions", deps);
@@ -343,7 +345,7 @@ describe("plugins surface", () => {
         ["exa", true],
       ]);
       const deps: CommandSurfaceDeps = {
-        notify: () => {},
+        notify: () => undefined,
         // Same partial-mock rationale as the arrow-navigation test above.
         plugins: {
           list: () =>
@@ -481,7 +483,7 @@ describe("plugins surface admin actions", () => {
         agentProfiles: [{ id: "a" }],
       });
       // pluginActionDeps builds PluginsSurfaceDeps without loadWarnings; splice it in.
-      const plugins = deps.plugins!;
+      const plugins = defined(deps.plugins, "plugins");
       const withWarnings: CommandSurfaceDeps = {
         ...deps,
         plugins: {
@@ -691,7 +693,7 @@ describe("plugins surface admin actions", () => {
   test("empty plugin list Alt+A still opens add-path", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps();
-      const plugins = deps.plugins!;
+      const plugins = defined(deps.plugins, "plugins");
       const empty: CommandSurfaceDeps = {
         ...deps,
         plugins: { ...plugins, list: () => [] },
@@ -708,7 +710,7 @@ describe("plugins surface admin actions", () => {
   test("Alt+A on warnings/Close still opens add-path", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps();
-      const plugins = deps.plugins!;
+      const plugins = defined(deps.plugins, "plugins");
       const withWarnings: CommandSurfaceDeps = {
         ...deps,
         plugins: {
@@ -730,7 +732,7 @@ describe("plugins surface admin actions", () => {
   test("empty plugin list Alt+W still opens web chooser", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps();
-      const plugins = deps.plugins!;
+      const plugins = defined(deps.plugins, "plugins");
       const empty: CommandSurfaceDeps = {
         ...deps,
         plugins: { ...plugins, list: () => [] },
@@ -748,7 +750,7 @@ describe("plugins surface admin actions", () => {
   test("Alt+X on warnings/Close is a no-op", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps();
-      const plugins = deps.plugins!;
+      const plugins = defined(deps.plugins, "plugins");
       const withWarnings: CommandSurfaceDeps = {
         ...deps,
         plugins: {
@@ -800,7 +802,7 @@ describe("plugins surface admin actions", () => {
 
   test("description zone names disable-only for bundled and Claude plugins", () => {
     const { deps } = pluginActionDeps();
-    const plugins = deps.plugins!;
+    const plugins = defined(deps.plugins, "plugins");
     const bundled = pluginDescription(
       {
         id: "corbits-skills",
@@ -849,7 +851,7 @@ describe("hooks surface", () => {
     await withShell(async (shell) => {
       const state = new Map<string, boolean>([["/hooks/a.ts", true]]);
       const deps: CommandSurfaceDeps = {
-        notify: () => {},
+        notify: () => undefined,
         hooks: {
           list: () =>
             [...state].map(([id, enabled]) => ({
@@ -888,8 +890,8 @@ describe("mcp surface", () => {
   test("lists every configured server with its live state", async () => {
     await withShell((shell) => {
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       expect(shell.overlayItems.slice(0, 3)).toEqual([
         "linear — connected · 12 tools",
@@ -903,10 +905,10 @@ describe("mcp surface", () => {
   test("hides the add row while local MCP settings shadow global", async () => {
     await withShell((shell) => {
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           mcpServersSource: "local",
           addServer: async () => ({ ok: true, message: "should not run" }),
         },
@@ -920,8 +922,8 @@ describe("mcp surface", () => {
   test("empty MCP list uses a placeholder distinct from close", async () => {
     await withShell((shell) => {
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => [], openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => [], openAuthURL: () => undefined },
       });
       expect(shell.overlayItems).toEqual([
         "No MCP servers configured",
@@ -934,8 +936,8 @@ describe("mcp surface", () => {
   test("the visible add row opens the same add-server flow", async () => {
     await withShell((shell) => {
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       moveOverlaySelection(shell, entries.length);
       acceptOverlaySelection(shell);
@@ -947,10 +949,10 @@ describe("mcp surface", () => {
     await withShell((shell) => {
       const listeners = new Set<() => void>();
       const deps: CommandSurfaceDeps = {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           subscribe: (listener) => {
             listeners.add(listener);
             return () => listeners.delete(listener);
@@ -980,10 +982,10 @@ describe("mcp surface", () => {
       });
       const listeners = new Set<() => void>();
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           subscribe: (listener) => {
             listeners.add(listener);
             return () => listeners.delete(listener);
@@ -1012,13 +1014,13 @@ describe("mcp surface", () => {
         for (const listener of [...listeners]) listener();
       };
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => {
             listCalls += 1;
             return entries;
           },
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           subscribe: (listener) => {
             listeners.add(listener);
             return () => {
@@ -1047,10 +1049,10 @@ describe("mcp surface", () => {
       let liveEntries: readonly McpEntry[] = [{ name: "linear", state: "connecting" }];
       const listeners = new Set<() => void>();
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           subscribe: (listener) => {
             listeners.add(listener);
             return () => listeners.delete(listener);
@@ -1089,7 +1091,7 @@ describe("mcp surface", () => {
       const listeners = new Set<() => void>();
       const opened: string[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => liveEntries,
           openAuthURL: (url) => opened.push(url),
@@ -1121,7 +1123,7 @@ describe("mcp surface", () => {
       const opened: string[] = [];
       const retried: string[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
           openAuthURL: (url) => opened.push(url),
@@ -1155,7 +1157,7 @@ describe("mcp surface", () => {
         const opened: string[] = [];
         const retried: string[] = [];
         openCommandSurface(shell, "mcp", {
-          notify: () => {},
+          notify: () => undefined,
           mcp: {
             list: () => [entry],
             openAuthURL: (url) => opened.push(url),
@@ -1226,10 +1228,10 @@ describe("mcp surface", () => {
       let unsubscribeCalls = 0;
       const added: { name: string; url: string }[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => [{ name: "sentry", state: "failed", error: "offline" }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return { ok: true, message: "should not add" };
@@ -1261,7 +1263,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => [{ name: "sentry", state: "failed" as const, error: "offline" }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return {
@@ -1295,10 +1297,10 @@ describe("mcp surface", () => {
       const added: { name: string; url: string }[] = [];
       let liveEntries: readonly McpEntry[] = entries;
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             liveEntries = [...liveEntries, { name, state: "connecting" }];
@@ -1324,10 +1326,10 @@ describe("mcp surface", () => {
     await withWiredShell(async (shell, harness) => {
       const added: { name: string; url: string }[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return { ok: true, message: "added" };
@@ -1360,10 +1362,10 @@ describe("mcp surface", () => {
     await withWiredShell(async (shell, harness) => {
       const added: { name: string; url: string }[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return { ok: true, message: "added" };
@@ -1392,10 +1394,10 @@ describe("mcp surface", () => {
       });
       let gateCancellations = 0;
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: () => deferredAdd,
         },
       });
@@ -1448,7 +1450,7 @@ describe("mcp surface", () => {
           },
           mcp: {
             list: () => entries,
-            openAuthURL: () => {},
+            openAuthURL: () => undefined,
             subscribe: (listener) => {
               subscribeCalls += 1;
               listeners.add(listener);
@@ -1505,7 +1507,7 @@ describe("mcp surface", () => {
           },
           mcp: {
             list: () => entries,
-            openAuthURL: () => {},
+            openAuthURL: () => undefined,
             subscribe: (listener) => {
               subscribeCalls += 1;
               listeners.add(listener);
@@ -1548,7 +1550,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return { ok: true, message: "added" };
@@ -1584,7 +1586,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return { ok: true, message: "added" };
@@ -1616,10 +1618,10 @@ describe("mcp surface", () => {
     await withShell((shell) => {
       const added: { name: string; url: string }[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
             return { ok: true, message: "added" };
@@ -1637,8 +1639,8 @@ describe("mcp surface", () => {
   test("the mcp title advertises Alt+D and Alt+R, including when add is hidden", async () => {
     await withWiredShell(async (shell, harness) => {
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
-        mcp: { list: () => entries, openAuthURL: () => {} },
+        notify: () => undefined,
+        mcp: { list: () => entries, openAuthURL: () => undefined },
       });
       await harness.renderOnce();
       const withAdd = harness.captureCharFrame();
@@ -1647,10 +1649,10 @@ describe("mcp surface", () => {
       expect(withAdd).toContain("Alt+A");
 
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => entries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           mcpServersSource: "local",
         },
       });
@@ -1673,7 +1675,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             toggled.push({ name, enabled });
             liveEntries = [{ name, state: enabled ? "connecting" : "disabled" }];
@@ -1703,7 +1705,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             toggled.push({ name, enabled });
             liveEntries = [{ name, state: enabled ? "connecting" : "disabled" }];
@@ -1731,10 +1733,10 @@ describe("mcp surface", () => {
         { name: "notion", state: "connected", toolCount: 3 },
       ];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             liveEntries = liveEntries.map((entry) =>
               entry.name === name ? { name, state: enabled ? "connecting" : "disabled" } : entry,
@@ -1772,10 +1774,10 @@ describe("mcp surface", () => {
         { name: "notion", state: "connected", toolCount: 3 },
       ];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           removeServer: async (name) => {
             liveEntries = liveEntries.filter((entry) => entry.name !== name);
             return { ok: true, message: `Removed ${name}.` };
@@ -1801,7 +1803,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => [{ name: "linear", state: "connected", toolCount: 12 }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           setEnabled: async () => {
             throw new Error("disk is full");
           },
@@ -1820,10 +1822,10 @@ describe("mcp surface", () => {
   test("disabled builtin Exa copy does not say Alt+D disables it", async () => {
     await withWiredShell(async (shell, harness) => {
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => [{ name: "exa", state: "disabled", builtin: true }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
         },
       });
       await harness.renderOnce();
@@ -1845,7 +1847,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => liveEntries,
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           removeServer: async (name) => {
             removed.push(name);
             liveEntries = [];
@@ -1873,10 +1875,10 @@ describe("mcp surface", () => {
     await withShell((shell) => {
       const removed: string[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => [{ name: "linear", state: "connected", toolCount: 12 }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           removeServer: async (name) => {
             removed.push(name);
             return { ok: true, message: `Removed ${name}.` };
@@ -1900,7 +1902,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => [{ name: "exa", state: "connected", toolCount: 1, builtin: true }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           removeServer: async (name) => {
             removed.push(name);
             return { ok: true, message: `Removed ${name}.` };
@@ -1921,7 +1923,7 @@ describe("mcp surface", () => {
         notify: (note) => notes.push(note),
         mcp: {
           list: () => [{ name: "exa", state: "disabled", builtin: true }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
         },
       });
       expect(runOverlayAction(shell, altKey("r"))).toBe(true);
@@ -1936,10 +1938,10 @@ describe("mcp surface", () => {
       const toggled: { name: string; enabled: boolean }[] = [];
       const removed: string[] = [];
       openCommandSurface(shell, "mcp", {
-        notify: () => {},
+        notify: () => undefined,
         mcp: {
           list: () => [{ name: "linear", state: "connected", toolCount: 1 }],
-          openAuthURL: () => {},
+          openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             toggled.push({ name, enabled });
             return { ok: true, message: "should not run" };
@@ -1977,10 +1979,10 @@ describe("model surface", () => {
     await withShell((shell) => {
       let opened = 0;
       expect(
-        openCommandSurface(shell, "models", { notify: () => {}, openModels: () => opened++ }),
+        openCommandSurface(shell, "models", { notify: () => undefined, openModels: () => opened++ }),
       ).toBe(true);
       expect(opened).toBe(1);
-      expect(openCommandSurface(shell, "models", { notify: () => {} })).toBe(false);
+      expect(openCommandSurface(shell, "models", { notify: () => undefined })).toBe(false);
     });
   });
 });
@@ -1991,12 +1993,12 @@ describe("add-provider surface", () => {
       let opened = 0;
       expect(
         openCommandSurface(shell, "add-provider", {
-          notify: () => {},
+          notify: () => undefined,
           openAddProvider: () => opened++,
         }),
       ).toBe(true);
       expect(opened).toBe(1);
-      expect(openCommandSurface(shell, "add-provider", { notify: () => {} })).toBe(false);
+      expect(openCommandSurface(shell, "add-provider", { notify: () => undefined })).toBe(false);
     });
   });
 });
@@ -2004,7 +2006,7 @@ describe("add-provider surface", () => {
 describe("help surface", () => {
   test("opens the keymap overlay", async () => {
     await withShell((shell) => {
-      expect(openCommandSurface(shell, "help", { notify: () => {} })).toBe(true);
+      expect(openCommandSurface(shell, "help", { notify: () => undefined })).toBe(true);
       expect(shell.overlayKind).toBe("help");
     });
   });

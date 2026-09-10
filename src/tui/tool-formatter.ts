@@ -68,7 +68,11 @@ export function humanizeToolName(toolName: string): string {
   return toolName
     .split(/[_\s]+/)
     .filter((word) => word.length > 0)
-    .map((word) => word[0]!.toUpperCase() + word.slice(1))
+    .map((word) => {
+      const first = word[0];
+      if (first == null) return word;
+      return first.toUpperCase() + word.slice(1);
+    })
     .join(" ");
 }
 
@@ -136,9 +140,10 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       // subject so the row never falls through to raw argument JSON.
       const prompt = (taskParsed.prompt ?? "").trim();
       const subject = description.length > 0 ? description : prompt;
+      const first = agentName?.[0];
       const display =
-        agentName !== undefined && agentName.length > 0
-          ? agentName[0]!.toUpperCase() + agentName.slice(1)
+        first != null && agentName !== undefined
+          ? first.toUpperCase() + agentName.slice(1)
           : "Worker";
       // Collapsed row uses the abbreviated subject; Alt+E expands to the full text.
       return {
@@ -453,11 +458,14 @@ function summarizeTaskResultPreview(content: string): string {
   const body = (reported?.[2] ?? trimmed).trim();
   const summarySection = body.match(/^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\s*$)/im);
   if (summarySection) {
-    const first = summarySection[1]!
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0);
-    if (first !== undefined && first.length > 0) return abbreviate(first, 64);
+    const section = summarySection[1];
+    if (section != null) {
+      const first = section
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.length > 0);
+      if (first !== undefined && first.length > 0) return abbreviate(first, 64);
+    }
   }
   const withoutHeadings = body
     .split("\n")

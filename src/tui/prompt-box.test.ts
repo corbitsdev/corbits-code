@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input";
 import { withTestRenderer, type Harness } from "./harness";
 import { PROMPT_BASE_ROWS, PROMPT_CAP_FRACTION, PROMPT_IDLE_ROWS } from "./geometry/index.js";
@@ -128,9 +129,8 @@ describe("prompt box height", () => {
     // the version badge reserves the terminal's last row.
     await withShell({ columns: 80, rows: 31 }, async (shell, h) => {
       await compose(shell, h, lines(5));
-      const box = shell.layout.regions.prompt;
-      expect(box).toBeDefined();
-      expect(box!.y + box!.height).toBe(30);
+      const box = defined(shell.layout.regions.prompt);
+      expect(box.y + box.height).toBe(30);
     });
   });
 });

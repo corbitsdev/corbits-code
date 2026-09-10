@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   badgeCount,
   cancelLast,
@@ -28,7 +29,7 @@ describe("session-queue", () => {
     s = enqueue(s, "world");
     expect(badgeCount(s)).toBe(2);
     expect(s.items.map((i) => i.kind)).toEqual(["queue", "queue"]);
-    expect(s.items[0]!.text).toBe("hello");
+    expect(defined(s.items[0]).text).toBe("hello");
   });
 
   test("steer and follow-up counts are distinct", () => {
@@ -38,7 +39,7 @@ describe("session-queue", () => {
     expect(badgeCount(s)).toBe(2);
     expect(steerCount(s)).toBe(1);
     expect(queueCount(s)).toBe(1);
-    expect(s.items[1]!.kind).toBe("steer");
+    expect(defined(s.items[1]).kind).toBe("steer");
   });
 
   test("drain order: steers before queue", () => {
@@ -99,7 +100,7 @@ describe("session-queue", () => {
     const { state, item } = cancelLast(s);
     expect(item?.text).toBe("drop");
     expect(badgeCount(state)).toBe(1);
-    expect(state.items[0]!.text).toBe("keep");
+    expect(defined(state.items[0]).text).toBe("keep");
   });
 
   test("cancelLast retracts the newest steer item, same as queue", () => {
@@ -110,7 +111,7 @@ describe("session-queue", () => {
     expect(item?.kind).toBe("steer");
     expect(item?.text).toBe("steered");
     expect(badgeCount(state)).toBe(1);
-    expect(state.items[0]!.kind).toBe("queue");
+    expect(defined(state.items[0]).kind).toBe("queue");
   });
 
   test("cancelLast on an empty queue is a no-op", () => {

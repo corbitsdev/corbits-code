@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import { createHarness } from "./harness.js";
 import { mountProductHost, type ProductHostConfig } from "./product-host.js";
 import { isLanding } from "./shell/internals.js";
@@ -26,9 +27,9 @@ async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promis
   const host = await mountProductHost({
     title: "test-session",
     eventEmitter: emitter,
-    send: () => {},
-    interrupt: () => {},
-    deliver: () => {},
+    send: () => undefined,
+    interrupt: () => undefined,
+    deliver: () => undefined,
     createRenderer: async () => harness.renderer,
     ...overrides,
   });
@@ -362,7 +363,9 @@ describe("every emitted runtime channel has a subscriber", () => {
     .join("\n");
 
   const emitted = new Set(
-    [...runnerSources.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) => m[1]!),
+    [...runnerSources.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) =>
+      defined(m[1], "emit channel"),
+    ),
   );
   // Progress pings are store-mirrored chrome, not a host paint path.
   emitted.delete("subagent.progress");

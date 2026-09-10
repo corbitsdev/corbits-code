@@ -216,7 +216,7 @@ describe("mountProductHost", () => {
         id: "ask-1",
         question: "Proceed?",
         options: ["Cancel", "Continue"],
-        resolve: (_result: unknown) => {},
+        resolve: (_result: unknown) => undefined,
       });
       expect(host.shell.overlayKind).toBe("operator");
       expect(host.shell.overlayItems).toEqual(["Cancel", "Continue"]);
@@ -442,7 +442,7 @@ describe("flat type-to-filter model picker", () => {
       createRenderer: async () => harness.renderer,
       models: catalog,
       activeModelId: () => modelOptionId("xai/thegreataxios", "grok-4.5"),
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
     });
     try {
       host.openModels?.();
@@ -475,7 +475,7 @@ describe("flat type-to-filter model picker", () => {
       createRenderer: async () => harness.renderer,
       models: catalog,
       activeModelId: () => modelOptionId("codex/abk-labs", "gpt-5.5"),
-      onModelSelect: () => {},
+      onModelSelect: () => undefined,
     });
     try {
       host.openModels?.();
@@ -502,7 +502,7 @@ describe("flat type-to-filter model picker", () => {
         deliver: port.deliver,
         createRenderer: async () => harness.renderer,
         models: catalog,
-        onModelSelect: () => {},
+        onModelSelect: () => undefined,
       });
       try {
         host.openModels?.();
@@ -627,7 +627,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("the model picker footer advertises Alt+D when onSetDefault is wired", async () => {
     const { harness, host } = await mountPicker({
-      onSetDefault: () => {},
+      onSetDefault: () => undefined,
     });
     try {
       host.openModels?.();
@@ -657,7 +657,7 @@ describe("flat type-to-filter model picker", () => {
     const { harness, host } = await mountPicker({
       // The hint requires the full wiring — choices AND the connect handler —
       // because that is exactly when the key actually works.
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -674,7 +674,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("Alt+A opens the add-provider selector listing every provider kind and its account count", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [
         { id: "codex", label: "Codex", hint: "ChatGPT subscription", accountCount: 2 },
         { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
@@ -701,7 +701,7 @@ describe("flat type-to-filter model picker", () => {
   test("composed Option+A (å) opens add-provider and is not claimed by type-to-filter", async () => {
     // Terminals may deliver Option+A as å/Å without meta/option.
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -725,7 +725,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("composed Option+A (Å) opens add-provider and is not claimed by type-to-filter", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -749,7 +749,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("composed å through the key path opens add-provider", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -766,7 +766,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("closed-prompt å stays in the prompt and does not open add-provider", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -783,7 +783,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("other composed glyphs still type-to-filter in the model picker", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -810,7 +810,7 @@ describe("flat type-to-filter model picker", () => {
     // Terminals can report Option+A as sequence å while name stays ASCII a
     // and option/meta stay false (#482).
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -854,7 +854,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("bare ASCII a still type-to-filters when add-provider is wired", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -877,7 +877,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("ordinary letters still type-to-filter when add-provider is wired", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -924,7 +924,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("Esc from the add-provider selector returns to the model list", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
     });
     try {
@@ -947,7 +947,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("Esc after openAddProvider from a closed prompt does not reopen the model list", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
     });
     try {
@@ -969,7 +969,7 @@ describe("flat type-to-filter model picker", () => {
   test("typed /connect then Enter opens add-provider and Esc leaves overlay null", async () => {
     const queued: { open?: () => void } = {};
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
       commands: [
         {
@@ -1049,7 +1049,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("openAddProvider opens the add-provider selector when choices are wired", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {
@@ -1137,7 +1137,7 @@ describe("flat type-to-filter model picker", () => {
 
   test("setModels does not steal an open add-provider overlay", async () => {
     const { harness, host } = await mountPicker({
-      onConnectProvider: () => {},
+      onConnectProvider: () => undefined,
       addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
     });
     try {

@@ -3,6 +3,7 @@ import { deflateSync } from "node:zlib";
 import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   findDuplicateAttachment,
   findImagePathMentions,
@@ -29,7 +30,7 @@ const CRC_TABLE = (() => {
 
 function crc32(buf: Buffer): number {
   let c = 0xffffffff;
-  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff]! ^ (c >>> 8);
+  for (const byte of buf) c = defined(CRC_TABLE[(c ^ byte) & 0xff]) ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
 

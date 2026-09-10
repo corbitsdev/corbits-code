@@ -218,7 +218,7 @@ describe("Ctrl+C exit", () => {
         schedule: (fn, ms) => {
           expect(ms).toBe(CTRL_C_EXIT_WINDOW_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       expect(shell.statusFlash).toBe("press ctrl+c again to exit");
@@ -237,7 +237,7 @@ describe("Ctrl+C exit", () => {
       handleCtrlC(shell, 0, {
         schedule: (fn) => {
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       setStatusFlash(shell, "copied 3 lines", {

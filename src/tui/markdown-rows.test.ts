@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { MarkdownRenderable, BoxRenderable, type CapturedSpan } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer, type Harness } from "./harness";
 import { appendStreamRow, createStreamRowRenderable, replaceStreamRowAt } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
@@ -331,9 +332,9 @@ describe("markdown transcript rows", () => {
         await h.renderOnce();
         const span = headingSpan(h);
         expect(span).not.toBeNull();
-        expect(span!.text).toBe(baseline!.text);
-        expect(span!.fg).toEqual(baseline!.fg);
-        expect(span!.attributes).toBe(baseline!.attributes);
+        expect(defined(span).text).toBe(defined(baseline).text);
+        expect(defined(span).fg).toEqual(defined(baseline).fg);
+        expect(defined(span).attributes).toBe(defined(baseline).attributes);
       }
     }, WIDE);
   });
@@ -367,9 +368,9 @@ describe("markdown transcript rows", () => {
       const split = splitAtSettledHeading(text);
       expect(split).not.toBeNull();
       // The fence opens and closes on the same side of the split.
-      expect(split!.frozen).toBe("### Title");
-      expect(split!.live).toContain("```bash");
-      expect(split!.live).toContain("```\n");
+      expect(defined(split).frozen).toBe("### Title");
+      expect(defined(split).live).toContain("```bash");
+      expect(defined(split).live).toContain("```\n");
     });
 
     test("a fence opened before a heading keeps the heading out of the boundary search until it closes", () => {
@@ -384,9 +385,9 @@ describe("markdown transcript rows", () => {
       ].join("\n");
       const split = splitAtSettledHeading(text);
       expect(split).not.toBeNull();
-      expect(split!.frozen).toContain("### Real Title");
-      expect(split!.frozen).not.toContain("body text");
-      expect(split!.live).toBe("body text");
+      expect(defined(split).frozen).toContain("### Real Title");
+      expect(defined(split).frozen).not.toContain("body text");
+      expect(defined(split).live).toBe("body text");
     });
 
     test("a fenced `#` comment renders inside a matched fence, not split across two renderers", async () => {
@@ -434,10 +435,10 @@ describe("markdown transcript rows", () => {
       ].join("\n");
       const split = splitAtSettledHeading(text);
       expect(split).not.toBeNull();
-      expect(split!.frozen).toContain("### Title");
-      expect(split!.frozen).toContain("```stillcode");
-      expect(split!.frozen).toContain("# should still be inside fence per CommonMark");
-      expect(split!.live).toBe("body");
+      expect(defined(split).frozen).toContain("### Title");
+      expect(defined(split).frozen).toContain("```stillcode");
+      expect(defined(split).frozen).toContain("# should still be inside fence per CommonMark");
+      expect(defined(split).live).toBe("body");
     });
 
     test("adversarial fence pairings: length and character must both match, indentation is bounded", () => {
@@ -450,37 +451,45 @@ describe("markdown transcript rows", () => {
       ).toBeNull();
       // The same shape, properly closed by a run of 4+: now it is a heading.
       expect(
-        splitAtSettledHeading(
-          [
-            "````",
-            "# not a heading",
-            "```",
-            "### not a heading either",
-            "````",
-            "",
-            "### Title",
-            "",
-            "body",
-          ].join("\n"),
-        )!.frozen,
+        defined(
+          splitAtSettledHeading(
+            [
+              "````",
+              "# not a heading",
+              "```",
+              "### not a heading either",
+              "````",
+              "",
+              "### Title",
+              "",
+              "body",
+            ].join("\n"),
+          ),
+        ).frozen,
       ).toContain("### Title");
       // Three backticks are closed by four (a longer run of the same char).
       expect(
-        splitAtSettledHeading(
-          ["```", "# not a heading", "````", "", "### Title", "", "body"].join("\n"),
-        )!.frozen,
+        defined(
+          splitAtSettledHeading(
+            ["```", "# not a heading", "````", "", "### Title", "", "body"].join("\n"),
+          ),
+        ).frozen,
       ).toContain("### Title");
       // A tilde run never closes a backtick fence, or vice versa.
       expect(
-        splitAtSettledHeading(
-          ["```", "~~~", "# not a heading", "```", "### Title", "", "body"].join("\n"),
-        )!.frozen,
+        defined(
+          splitAtSettledHeading(
+            ["```", "~~~", "# not a heading", "```", "### Title", "", "body"].join("\n"),
+          ),
+        ).frozen,
       ).toContain("### Title");
       // Up to 3 spaces of indent still opens/closes a fence.
       expect(
-        splitAtSettledHeading(
-          ["   ```", "# not a heading", "   ```", "### Title", "", "body"].join("\n"),
-        )!.frozen,
+        defined(
+          splitAtSettledHeading(
+            ["   ```", "# not a heading", "   ```", "### Title", "", "body"].join("\n"),
+          ),
+        ).frozen,
       ).toContain("### Title");
       // 4 spaces is indented code, not a fence — the `#` line is still inside
       // it as indented code, never a heading boundary on its own.
@@ -500,7 +509,7 @@ describe("markdown transcript rows", () => {
   test("an indented heading (CommonMark allows up to 3 leading spaces) still closes the split", () => {
     const split = splitAtSettledHeading(["  ### Title", "", "body"].join("\n"));
     expect(split).not.toBeNull();
-    expect(split!.frozen).toBe("  ### Title");
-    expect(split!.live).toBe("body");
+    expect(defined(split).frozen).toBe("  ### Title");
+    expect(defined(split).live).toBe("body");
   });
 });

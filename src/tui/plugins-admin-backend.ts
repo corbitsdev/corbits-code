@@ -381,7 +381,7 @@ export function createPluginsAdmin(args: {
         otherLivePluginPaths: state.modules.flatMap((m) =>
           m.manifest?.id !== id && m.pluginPath !== undefined ? [m.pluginPath] : [],
         ),
-        expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => {} }),
+        expandMembers: (abs) => expandPluginPath(abs, { onSkip: () => undefined }),
         revokePathPlugin: async (path) => {
           state.pathTrust = await revokePathPlugin(path);
         },

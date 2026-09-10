@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import {
   diffLines,
   diffPlainText,
@@ -76,8 +77,8 @@ describe("renderDiff", () => {
 
   test("word-level LCS keeps shared tokens as context and paints only the delta", () => {
     const lines = renderDiff("const foo = bar(x, y);", "const foo = baz(x, y);", 80);
-    const delBody = lines[0]!.slice(2);
-    const addBody = lines[1]!.slice(2);
+    const delBody = defined(lines[0]).slice(2);
+    const addBody = defined(lines[1]).slice(2);
     const delChanged = delBody
       .filter((s) => s.fg === DIFF_FG.del)
       .map((s) => s.text)
@@ -95,14 +96,14 @@ describe("renderDiff", () => {
 
   test("changed intra-line tokens are bold; shared tokens are not", () => {
     const lines = renderDiff("a b c", "a x c", 40);
-    const delBody = lines[0]!.slice(2);
+    const delBody = defined(lines[0]).slice(2);
     expect(delBody.find((s) => s.text === "b")?.bold).toBe(true);
     expect(delBody.find((s) => s.text === "a")?.bold).toBeUndefined();
   });
 
   test("word-level LCS is not positional — reordered shared words stay context", () => {
     const lines = renderDiff("a b c", "a x c", 40);
-    const changed = lines[0]!
+    const changed = defined(lines[0])
       .slice(2)
       .filter((s) => s.fg === DIFF_FG.del)
       .map((s) => s.text.trim())
@@ -113,18 +114,18 @@ describe("renderDiff", () => {
   test("unpaired adds and removals take the add/remove tone whole-line", () => {
     const [removed] = renderDiff("old line", "", 40);
     const [added] = renderDiff("", "new line", 40);
-    expect(removed!.slice(1).every((s) => s.fg === DIFF_FG.del)).toBe(true);
-    expect(added!.slice(1).every((s) => s.fg === DIFF_FG.add)).toBe(true);
+    expect(defined(removed).slice(1).every((s) => s.fg === DIFF_FG.del)).toBe(true);
+    expect(defined(added).slice(1).every((s) => s.fg === DIFF_FG.add)).toBe(true);
   });
 
   test("context rows take the muted context tone", () => {
     const lines = renderDiff("a\nb", "a\nB", 40);
-    expect(lines[0]!.every((s) => s.fg === DIFF_FG.context)).toBe(true);
+    expect(defined(lines[0]).every((s) => s.fg === DIFF_FG.context)).toBe(true);
   });
 
   test("line-number column always uses the muted context tone", () => {
     const lines = renderDiff("a\nb", "a\nB", 40);
-    expect(lines.map((line) => line[0]!.fg)).toEqual([
+    expect(lines.map((line) => defined(line[0]).fg)).toEqual([
       DIFF_FG.context,
       DIFF_FG.context,
       DIFF_FG.context,
@@ -135,25 +136,25 @@ describe("renderDiff", () => {
     const long = Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ");
     const lines = renderDiff("", long, 30, { lineNumbers: false });
     expect(lines.length).toBeGreaterThan(1);
-    expect(lines[0]![0]!.text).toBe("+ ");
+    expect(defined(defined(lines[0])[0]).text).toBe("+ ");
     // Continuation rows blank the sign column rather than repeating it.
-    expect(lines[1]![0]!.text).toBe("  ");
+    expect(defined(defined(lines[1])[0]).text).toBe("  ");
   });
 });
 
 describe("renderDiff line numbers", () => {
   test("context rows carry both old and new line numbers", () => {
     const lines = renderDiff("a\nb\nc", "a\nB\nc", 40);
-    expect(textOf(lines[0]!)).toContain("1 1");
-    expect(textOf(lines[1]!)).toContain("2  ");
-    expect(textOf(lines[2]!)).toContain(" 2");
-    expect(textOf(lines[3]!)).toContain("3 3");
+    expect(textOf(defined(lines[0]))).toContain("1 1");
+    expect(textOf(defined(lines[1]))).toContain("2  ");
+    expect(textOf(defined(lines[2]))).toContain(" 2");
+    expect(textOf(defined(lines[3]))).toContain("3 3");
   });
 
   test("del rows show only the old number, add rows show only the new number", () => {
     const lines = renderDiff("old", "new", 40);
-    expect(lines[0]![0]!.text).toBe("1   ");
-    expect(lines[1]![0]!.text).toBe("  1 ");
+    expect(defined(defined(lines[0])[0]).text).toBe("1   ");
+    expect(defined(defined(lines[1])[0]).text).toBe("  1 ");
   });
 
   test("lineNumbers: false omits the number gutter entirely", () => {
@@ -164,7 +165,7 @@ describe("renderDiff line numbers", () => {
   test("line numbers stay right-aligned as the file grows past one digit", () => {
     const oldText = Array.from({ length: 12 }, (_, i) => `line ${i}`).join("\n");
     const newText = oldText.replace("line 0", "CHANGED");
-    const widths = new Set(renderDiff(oldText, newText, 80).map((line) => line[0]!.text.length));
+    const widths = new Set(renderDiff(oldText, newText, 80).map((line) => defined(line[0]).text.length));
     expect(widths.size).toBe(1);
   });
 
@@ -174,7 +175,7 @@ describe("renderDiff line numbers", () => {
     const lines = renderDiff(oldText, newText, 40, { contextLines: 2 });
     const marker = lines.find((line) => textOf(line).includes("unchanged line"));
     expect(marker).toBeDefined();
-    expect(marker![0]!.text.trim()).toBe("");
+    expect(defined(defined(marker)[0]).text.trim()).toBe("");
   });
 });
 
@@ -186,13 +187,12 @@ describe("editDiffView", () => {
   });
 
   test("builds a numberless diff with stats and path for edit_file", () => {
-    const view = editDiffView("edit_file", EDIT_ARGS);
-    expect(view).not.toBeNull();
-    expect(view!.added).toBe(1);
-    expect(view!.removed).toBe(1);
-    expect(view!.path).toBe("src/x.ts");
+    const view = defined(editDiffView("edit_file", EDIT_ARGS));
+    expect(view.added).toBe(1);
+    expect(view.removed).toBe(1);
+    expect(view.path).toBe("src/x.ts");
     // Snippet-relative numbers would be misleading, so they are suppressed.
-    expect(view!.lines.map(textOf)).toEqual(["- const a = 1", "+ const a = 2"]);
+    expect(view.lines.map(textOf)).toEqual(["- const a = 1", "+ const a = 2"]);
   });
 
   test("returns null for non-edit tools and no-op edits", () => {
@@ -204,10 +204,10 @@ describe("editDiffView", () => {
 
   test("caps a huge write_file body with a truncation marker", () => {
     const content = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
-    const view = editDiffView("write_file", JSON.stringify({ content }));
-    expect(view!.added).toBe(200);
-    expect(view!.lines.length).toBeLessThan(200);
-    expect(textOf(view!.lines.at(-1)!)).toContain("more diff lines");
+    const view = defined(editDiffView("write_file", JSON.stringify({ content })));
+    expect(view.added).toBe(200);
+    expect(view.lines.length).toBeLessThan(200);
+    expect(textOf(defined(view.lines.at(-1)))).toContain("more diff lines");
   });
 });
 
@@ -246,6 +246,6 @@ describe("toolCallRow", () => {
 describe("diffPlainText", () => {
   test("joins segment text back into a copyable body", () => {
     const view = editDiffView("edit_file", JSON.stringify({ old_string: "a", new_string: "b" }));
-    expect(diffPlainText(view!)).toBe("- a\n+ b");
+    expect(diffPlainText(defined(view))).toBe("- a\n+ b");
   });
 });

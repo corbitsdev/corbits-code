@@ -103,7 +103,8 @@ export function popFocus(state: FocusState): FocusState {
   if (state.frames.length > 1) {
     const next = state.frames.slice(0, -1);
     // Left observe (or last stacked surface): shell is sole frame → prompt + transcript.
-    if (next.length === 1 && next[0]!.id === SHELL_ID) {
+    const frame = next[0];
+    if (next.length === 1 && frame != null && frame.id === SHELL_ID) {
       return { frames: [shellFrame("prompt", "transcript")] };
     }
     // Popped overlay/palette above observe (or another overlay): restore as recorded.

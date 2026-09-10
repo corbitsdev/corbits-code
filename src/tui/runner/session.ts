@@ -198,8 +198,9 @@ export async function assembleTUISession(
   // Attach agent profiles to their descriptors so the /plugins UI can show
   // which sub-agents a plugin contributes.
   for (const mod of pluginState.modules) {
-    if (mod.manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
-    const desc = pluginState.descriptors.find((d) => d.id === mod.manifest!.id);
+    const manifest = mod.manifest;
+    if (manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
+    const desc = pluginState.descriptors.find((d) => d.id === manifest.id);
     if (desc === undefined) continue;
     const agents = Array.isArray(mod.agentPlugin.agents) ? mod.agentPlugin.agents : [];
     desc.agentProfiles = agents

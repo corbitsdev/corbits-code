@@ -923,8 +923,9 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
  * mis-truncating the tail that replaced it.
  */
 export function truncateStreamRows(shell: AppShell, length: number): void {
-  const observing = shell.observe !== null && shell.parentStreamLog !== null;
-  const log = observing ? shell.parentStreamLog! : shell.streamLog;
+  const parentLog = shell.parentStreamLog;
+  const observing = shell.observe !== null && parentLog !== null;
+  const log = observing ? parentLog : shell.streamLog;
   const base = observing ? (shell.parentStreamLogBase ?? 0) : shell.streamLogBase;
   const local = length - base;
   if (local < 0 || local >= log.length) return;

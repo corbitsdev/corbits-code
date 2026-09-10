@@ -50,7 +50,7 @@ describe("bare exit / quit at the prompt", () => {
         let exits = 0;
         setShellBridgeHooks(shell, {
           onSubmit: (text) => sent.push(text),
-          onInterrupt: () => {},
+          onInterrupt: () => undefined,
           exclusive: true,
         });
         setShellExitHandler(shell, () => {
@@ -71,7 +71,7 @@ describe("bare exit / quit at the prompt", () => {
       let exits = 0;
       setShellBridgeHooks(shell, {
         onSubmit: (text) => sent.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       setShellExitHandler(shell, () => {
@@ -89,7 +89,7 @@ describe("bare exit / quit at the prompt", () => {
       const sent: string[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (text) => sent.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       shell.prompt.value = "exit";
@@ -303,7 +303,7 @@ describe("no permanent hint strip", () => {
         schedule: (fn, ms) => {
           expect(ms).toBe(RUNTIME_FLASH_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       expect(noticeText(shell)).toContain("copied 3 lines");
@@ -329,7 +329,7 @@ describe("no permanent hint strip", () => {
         flashSchedule: (fn, ms) => {
           expect(ms).toBe(RUNTIME_FLASH_MS);
           lapse.push(fn);
-          return () => {};
+          return () => undefined;
         },
       });
       setStatusFlash(shell, "copied 3 lines", { ttlMs: RUNTIME_FLASH_MS });

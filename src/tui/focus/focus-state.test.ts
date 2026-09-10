@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../../tests/helpers/defined.js";
 import {
   canPopFocus,
   createFocusState,
@@ -17,7 +18,7 @@ describe("createFocusState", () => {
     expect(focusOwner(s)).toBe("prompt");
     expect(scrollLease(s)).toBe("transcript");
     expect(s.frames).toHaveLength(1);
-    expect(s.frames[0]!.id).toBe("shell");
+    expect(defined(s.frames[0]).id).toBe("shell");
   });
 });
 
@@ -39,7 +40,7 @@ describe("one focus owner + one scroll lease", () => {
       expect(scrollLease(s)).not.toBeNull();
       // Single top frame owns both; stack never empty.
       expect(s.frames.length).toBeGreaterThanOrEqual(1);
-      expect(scrollLease(s)).toBe(s.frames[s.frames.length - 1]!.scrollOwner);
+      expect(scrollLease(s)).toBe(defined(s.frames[s.frames.length - 1]).scrollOwner);
     }
   });
 

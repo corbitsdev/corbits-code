@@ -60,7 +60,7 @@ export async function runListModal(config: ListModalConfig): Promise<string | nu
   const { items, itemIds } = residualListFromCatalog(config.options);
 
   let settled = false;
-  let resolveChoice: (value: string | null) => void = () => {};
+  let resolveChoice: (value: string | null) => void = () => undefined;
   const choice = new Promise<string | null>((resolve) => {
     resolveChoice = resolve;
   });

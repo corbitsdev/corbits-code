@@ -18,7 +18,7 @@ function lastHopPort(bridgeRef: { current: SessionBridge | undefined }) {
     send: (text) => {
       sends.push(text);
     },
-    interrupt: () => {},
+    interrupt: () => undefined,
     deliver: routeQueuedDelivery({
       send: (text) => {
         sends.push(text);
@@ -72,7 +72,7 @@ describe("queued delivery last hop", () => {
         const sends: string[] = [];
         const delivered: string[] = [];
         const { enqueue, awaitTail } = createSessionOperationQueue();
-        let resolveSlow!: () => void;
+        let resolveSlow: () => void = () => undefined;
         const slow = new Promise<void>((resolve) => {
           resolveSlow = resolve;
         });
@@ -80,7 +80,7 @@ describe("queued delivery last hop", () => {
           send: (text) => {
             sends.push(text);
           },
-          interrupt: () => {},
+          interrupt: () => undefined,
           deliver: routeQueuedDelivery({
             send: (text) => {
               sends.push(text);

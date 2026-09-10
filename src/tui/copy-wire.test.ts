@@ -26,12 +26,12 @@ function capturingSchedule(lapse: (() => void)[], expectedMs = RUNTIME_FLASH_MS)
   return (fn, ms) => {
     expect(ms).toBe(expectedMs);
     lapse.push(fn);
-    return () => {};
+    return () => undefined;
   };
 }
 
 /** Do not arm a real timer: bun test runs files in one process. */
-const ignoreExpiry: FlashSchedule = () => () => {};
+const ignoreExpiry: FlashSchedule = () => () => undefined;
 
 describe("Alt+C reaches the injected clipboard", () => {
   test("confirming a copy target writes its text", () => {

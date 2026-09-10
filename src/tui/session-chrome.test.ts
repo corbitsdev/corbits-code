@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { defined } from "../../tests/helpers/defined.js";
 import {
   ACTIVITY_STATES,
   classifyAgentSendFailure,
@@ -50,7 +51,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
         null,
       );
       expect(label).not.toBe(currentToolName);
-      expect(ACTIVITY_STATES).toContain(label!);
+      expect(ACTIVITY_STATES).toContain(defined(label));
     });
   }
 
@@ -67,7 +68,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
     );
     // Recovery is silent — never paint "stalled" in the ticker.
     expect(label).toBe("building");
-    expect(ACTIVITY_STATES).toContain(label!);
+    expect(ACTIVITY_STATES).toContain(defined(label));
   });
 
   test("waiting on the operator is distinguishable from working", () => {
@@ -83,7 +84,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
     );
     expect(label).toBe("waiting");
     expect(label).not.toBe("working");
-    expect(ACTIVITY_STATES).toContain(label!);
+    expect(ACTIVITY_STATES).toContain(defined(label));
   });
 });
 
@@ -286,7 +287,7 @@ describe("fleet state in the top-level indicator", () => {
   test("a healthy fleet reads as working, not the parent's own tool", () => {
     const label = resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 0));
     expect(label).toBe("working");
-    expect(ACTIVITY_STATES).toContain(label!);
+    expect(ACTIVITY_STATES).toContain(defined(label));
   });
 
   test("a quiet fleet still reads working at the top level", () => {

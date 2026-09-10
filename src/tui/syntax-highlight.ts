@@ -99,7 +99,9 @@ function tokensToLines(tokens: Token[]): StyledSegment[][] {
       if (part.length === 0) return;
       const seg: StyledSegment = { text: part, code: true };
       if (token.role !== undefined) seg.color = color(token.role);
-      lines[lines.length - 1]!.push(seg);
+      const line = lines[lines.length - 1];
+      if (line == null) throw new Error("highlight line missing");
+      line.push(seg);
     });
   }
   return lines;

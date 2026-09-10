@@ -10,7 +10,7 @@ import {
 import type { CommandContext } from "./registry.js";
 
 const ctx: CommandContext = {
-  signalClear: () => {},
+  signalClear: () => undefined,
 };
 
 afterEach(() => {

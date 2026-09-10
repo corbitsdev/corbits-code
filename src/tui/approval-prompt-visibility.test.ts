@@ -5,6 +5,7 @@
  * the prompt box's growth and over the overlay's own context text.
  */
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { makePermissionItems, withTestRenderer } from "./harness.js";
 import { appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
@@ -122,7 +123,7 @@ describe("approval overlay keeps the prompt box on screen (CL-5750)", () => {
           expect(lines.some((l) => l.includes("╭"))).toBe(true);
           expect(lines.some((l) => l.includes("╰"))).toBe(true);
           expect(shell.overlayList).not.toBeNull();
-          expect(shell.overlayList!.height).toBeGreaterThanOrEqual(1);
+          expect(defined(shell.overlayList).height).toBeGreaterThanOrEqual(1);
         } finally {
           shell.dispose();
         }

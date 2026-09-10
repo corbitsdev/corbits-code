@@ -140,7 +140,7 @@ describe("row update perf gates (J3)", () => {
             now: () => nowMs,
             schedule: (fn: () => void) => {
               tick = fn;
-              return () => {};
+              return () => undefined;
             },
           });
           try {

@@ -40,7 +40,7 @@ const { loadLocalSettings, loadSettings, localSettingsPath, resolveLocalSettings
   await import("../config/settings.js");
 import type { OAuthResult, ProviderFormValues, SubmitPhase } from "./provider/types.js";
 
-const noopSetPhase = (_phase: SubmitPhase): void => {};
+const noopSetPhase = (_phase: SubmitPhase): void => undefined;
 const stagedCodexTokens = {
   access: "staged-access",
   refresh: "staged-refresh",
@@ -48,7 +48,7 @@ const stagedCodexTokens = {
   accountId: "staged-account",
 };
 
-function stagedCodexOAuth(commit: () => Promise<void> = async () => {}): OAuthResult {
+function stagedCodexOAuth(commit: () => Promise<void> = async () => undefined): OAuthResult {
   return {
     kind: "codex",
     providerName: "codex/work",

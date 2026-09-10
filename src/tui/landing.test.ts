@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { makePermissionItems, withTestRenderer, type Harness } from "./harness";
 import {
   appendStreamRow,
@@ -219,8 +220,8 @@ describe("landing screen", () => {
           const row = painted.find((line) => line.includes(hint.rest));
           expect(row).toBeDefined();
           expect(row).toContain(hint.key);
-          expect(row!.indexOf(hint.key)).toBeGreaterThan(0);
-          descriptionColumns.add(row!.indexOf(hint.rest));
+          expect(defined(row).indexOf(hint.key)).toBeGreaterThan(0);
+          descriptionColumns.add(defined(row).indexOf(hint.rest));
         }
         expect(descriptionColumns.size).toBe(1);
         // The version is chrome, not part of the hero: it never shares a row
@@ -235,7 +236,7 @@ describe("landing screen", () => {
         // Bottom-right: on the terminal's last content row, hugging the right
         // edge rather than sitting under the hints.
         expect(versionRow).toBeGreaterThanOrEqual(SIZE.height - 2);
-        const versionCol = painted[versionRow]!.lastIndexOf(LANDING_VERSION);
+        const versionCol = defined(painted[versionRow]).lastIndexOf(LANDING_VERSION);
         expect(versionCol + LANDING_VERSION.length).toBeGreaterThan(SIZE.width - 4);
         const noticeRow = painted.findIndex((row) => row.includes("telemetry"));
         expect(noticeRow).toBeGreaterThan(bottom);
@@ -432,13 +433,12 @@ describe("landing screen", () => {
       });
       try {
         await settle(h);
-        const first = LANDING_SUGGESTIONS[0];
-        expect(first).toBeDefined();
-        expect(applyLandingSuggestion(shell, first!.key)).toBe(true);
-        expect(shell.prompt.value).toBe(first!.prompt);
+        const first = defined(LANDING_SUGGESTIONS[0]);
+        expect(applyLandingSuggestion(shell, first.key)).toBe(true);
+        expect(shell.prompt.value).toBe(first.prompt);
 
         // Already typed: the key is a character, not a shortcut.
-        expect(applyLandingSuggestion(shell, first!.key)).toBe(false);
+        expect(applyLandingSuggestion(shell, first.key)).toBe(false);
       } finally {
         shell.dispose();
       }
@@ -454,7 +454,7 @@ describe("landing screen", () => {
       });
       try {
         await settle(h);
-        const first = LANDING_SUGGESTIONS[0]!;
+        const first = defined(LANDING_SUGGESTIONS[0]);
         expect(h.captureCharFrame()).toContain(first.label);
 
         shell.prompt.value = "wri";
@@ -500,7 +500,7 @@ describe("landing screen", () => {
         // box sits one row above the terminal's last line — the optical
         // bottom pad (`BOTTOM_MARGIN_ROWS`) keeps it off the frame edge.
         expect(ruleRow).toBe(SIZE.height - 2);
-        const row = painted[ruleRow]!;
+        const row = defined(painted[ruleRow]);
         // Left end of the rule, inside the shell gutter, costing no row.
         expect(row.startsWith(" ╰─ ")).toBe(true);
         expect(row.trimEnd().endsWith("╯")).toBe(true);
@@ -545,7 +545,7 @@ describe("landing screen", () => {
         try {
           await settle(h);
           const before = rows(h);
-          const anchors = ["message", "telemetry", LANDING_SUGGESTIONS[0]!.label];
+          const anchors = ["message", "telemetry", defined(LANDING_SUGGESTIONS[0]).label];
           const was = anchors.map((text) => before.findIndex((row) => row.includes(text)));
           expect(was.every((index) => index > 0)).toBe(true);
           // The anchors are listed top to bottom, so their positions climb
@@ -651,7 +651,7 @@ describe("landing screen", () => {
           expect(field).toBeGreaterThan(0);
           expect(field).toBeLessThan(size.height);
           expect(markRows(h).length).toBeLessThan(field);
-          expect(h.captureCharFrame()).toContain(LANDING_HINTS[0]!.rest);
+          expect(h.captureCharFrame()).toContain(defined(LANDING_HINTS[0]).rest);
         } finally {
           shell.dispose();
         }
@@ -939,9 +939,8 @@ describe("landing screen", () => {
         // the combination of the task row and the version row.
         const promptRow = painted.findIndex((row) => row.includes("message"));
         expect(promptRow).toBeGreaterThan(0);
-        const box = shell.layout.regions.prompt;
-        expect(box).toBeDefined();
-        expect(box!.y + box!.height).toBeLessThanOrEqual(size.height);
+        const box = defined(shell.layout.regions.prompt);
+        expect(box.y + box.height).toBeLessThanOrEqual(size.height);
       } finally {
         shell.dispose();
       }

@@ -52,14 +52,32 @@ type NumberedRow = DiffRow & {
   collapsed?: boolean;
 };
 
+function lcsCell(table: number[][], i: number, j: number): number {
+  const row = table[i];
+  if (row == null) throw new Error("lcs table row missing");
+  const value = row[j];
+  if (value == null) throw new Error("lcs table cell missing");
+  return value;
+}
+
+function requireDiffLine(lines: readonly string[], index: number): string {
+  const line = lines[index];
+  if (line == null) throw new Error("diff line missing");
+  return line;
+}
+
 function lcsTable(a: readonly string[], b: readonly string[]): number[][] {
   const n = a.length;
   const m = b.length;
   const table: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      table[i]![j] =
-        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+      const row = table[i];
+      if (row == null) throw new Error("lcs table row missing");
+      row[j] =
+        a[i] === b[j]
+          ? lcsCell(table, i + 1, j + 1) + 1
+          : Math.max(lcsCell(table, i + 1, j), lcsCell(table, i, j + 1));
     }
   }
   return table;
@@ -83,19 +101,19 @@ export function diffLines(oldText: string, newText: string): DiffRow[] {
   let j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) {
-      rows.push({ kind: "context", text: a[i]! });
+      rows.push({ kind: "context", text: requireDiffLine(a, i) });
       i++;
       j++;
-    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
-      rows.push({ kind: "del", text: a[i]! });
+    } else if (lcsCell(lcs, i + 1, j) >= lcsCell(lcs, i, j + 1)) {
+      rows.push({ kind: "del", text: requireDiffLine(a, i) });
       i++;
     } else {
-      rows.push({ kind: "add", text: b[j]! });
+      rows.push({ kind: "add", text: requireDiffLine(b, j) });
       j++;
     }
   }
-  while (i < n) rows.push({ kind: "del", text: a[i++]! });
-  while (j < m) rows.push({ kind: "add", text: b[j++]! });
+  while (i < n) rows.push({ kind: "del", text: requireDiffLine(a, i++) });
+  while (j < m) rows.push({ kind: "add", text: requireDiffLine(b, j++) });
   return rows;
 }
 
@@ -197,17 +215,17 @@ export function wordDiffSegments(line: string, kind: "add" | "del", paired: stri
   const m = other.length;
   while (i < n && j < m) {
     if (self[i] === other[j]) {
-      out.push({ text: self[i]!, fg: DIFF_FG.context });
+      out.push({ text: requireDiffLine(self, i), fg: DIFF_FG.context });
       i++;
       j++;
-    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
-      out.push(changed(self[i]!));
+    } else if (lcsCell(lcs, i + 1, j) >= lcsCell(lcs, i, j + 1)) {
+      out.push(changed(requireDiffLine(self, i)));
       i++;
     } else {
       j++;
     }
   }
-  while (i < n) out.push(changed(self[i++]!));
+  while (i < n) out.push(changed(requireDiffLine(self, i++)));
   return out.length > 0 ? out : [changed(line)];
 }
 
@@ -272,17 +290,20 @@ export function renderDiff(
   const lines: DiffLine[] = [];
   const bodyWidth = Math.max(1, width - numColWidth - 2);
   for (let r = 0; r < rows.length; r++) {
-    const row = rows[r]!;
+    const row = rows[r];
+    if (row == null) throw new Error("diff row missing");
     const numCol =
       row.collapsed === true
         ? " ".repeat(numColWidth)
         : `${padNum(row.oldNum, numWidth)} ${padNum(row.newNum, numWidth)} `;
     const sign = GUTTER[row.kind];
+    const next = rows[r + 1];
+    const prev = rows[r - 1];
     const paired =
-      row.kind === "del" && rows[r + 1]?.kind === "add"
-        ? rows[r + 1]!.text
-        : row.kind === "add" && rows[r - 1]?.kind === "del"
-          ? rows[r - 1]!.text
+      row.kind === "del" && next?.kind === "add"
+        ? next.text
+        : row.kind === "add" && prev?.kind === "del"
+          ? prev.text
           : undefined;
     const segFg = rowColor(row.kind);
     const bodySegs: DiffSegment[] =
@@ -292,7 +313,8 @@ export function renderDiff(
 
     const ranges = row.text.length === 0 ? [{ start: 0, end: 0 }] : wrapRanges(row.text, bodyWidth);
     for (let idx = 0; idx < ranges.length; idx++) {
-      const range = ranges[idx]!;
+      const range = ranges[idx];
+      if (range == null) throw new Error("diff wrap range missing");
       const piece = sliceSegments(bodySegs, range.start, range.end);
       lines.push([
         ...(showNumbers

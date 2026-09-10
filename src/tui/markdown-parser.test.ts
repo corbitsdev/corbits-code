@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   createMemoizedParseMarkdown,
   parseMarkdown,
@@ -153,7 +154,7 @@ describe("block elements", () => {
     const steps = [base, `${base}\``, `${base}\`\``, `${base}\`\`\``];
     const lineCounts = steps.map((content) => parseMarkdown(content).length);
     for (let i = 1; i < lineCounts.length; i++) {
-      expect(lineCounts[i]).toBeGreaterThanOrEqual(lineCounts[i - 1]!);
+      expect(lineCounts[i]).toBeGreaterThanOrEqual(defined(lineCounts[i - 1]));
     }
   });
 

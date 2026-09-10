@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { defined } from "../../../tests/helpers/defined.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 import { registerBuiltInCommands } from "./built-in.js";
@@ -7,7 +8,7 @@ import { buildCostSummary } from "../../cost/cost-summary.js";
 registerBuiltInCommands();
 
 const makeCtx = (): CommandContext => ({
-  signalClear: () => {},
+  signalClear: () => undefined,
 });
 
 describe("/help command", () => {
@@ -17,7 +18,7 @@ describe("/help command", () => {
 
   it("requests the help overlay", () => {
     const ctx = makeCtx();
-    const result = getCommand("help")!.handler("", ctx);
+    const result = defined(getCommand("help"), "help").handler("", ctx);
     expect(result).toEqual({ type: "overlay", overlay: "help" });
   });
 });
@@ -47,7 +48,7 @@ describe("/connect command", () => {
   });
 
   it("requests the add-provider overlay", () => {
-    expect(getCommand("connect")!.handler("", makeCtx())).toEqual({
+    expect(defined(getCommand("connect"), "connect").handler("", makeCtx())).toEqual({
       type: "overlay",
       overlay: "add-provider",
     });
@@ -64,17 +65,17 @@ describe("MCP commands", () => {
 describe("/status command", () => {
   it("answers from the live fleet without sending anything to the model", () => {
     const ctx: CommandContext = {
-      signalClear: () => {},
+      signalClear: () => undefined,
       getFleetStatus: () => "2 running (api 1:20, docs 0:04) · 1 done",
     };
-    expect(getCommand("status")!.handler("", ctx)).toEqual({
+    expect(defined(getCommand("status"), "status").handler("", ctx)).toEqual({
       type: "message",
       text: "2 running (api 1:20, docs 0:04) · 1 done",
     });
   });
 
   it("says so rather than throwing when no fleet source is wired", () => {
-    expect(getCommand("status")!.handler("", makeCtx())).toEqual({
+    expect(defined(getCommand("status"), "status").handler("", makeCtx())).toEqual({
       type: "message",
       text: "Fleet status is not available in this session.",
     });
@@ -95,23 +96,23 @@ describe("/yolo command", () => {
   it("toggles skip-permissions when invoked bare", () => {
     let skip = false;
     const ctx: CommandContext = {
-      signalClear: () => {},
+      signalClear: () => undefined,
       getSkipPermissions: () => skip,
       setSkipPermissions: (value) => {
         skip = value;
       },
     };
-    expect(getCommand("yolo")!.handler("", ctx)).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("", ctx)).toEqual({
       type: "message",
       text: "Yolo mode on — permission prompts skipped. Saved as the default.",
     });
     expect(skip).toBe(true);
-    expect(getCommand("yolo")!.handler("", ctx)).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("", ctx)).toEqual({
       type: "message",
       text: "Yolo mode off — permission prompts restored. Saved as the default.",
     });
     expect(skip).toBe(false);
-    expect(getCommand("yolo")!.handler("toggle", ctx)).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("toggle", ctx)).toEqual({
       type: "message",
       text: "Yolo mode on — permission prompts skipped. Saved as the default.",
     });
@@ -121,18 +122,18 @@ describe("/yolo command", () => {
   it("turns skip-permissions on and off explicitly", () => {
     let skip = false;
     const ctx: CommandContext = {
-      signalClear: () => {},
+      signalClear: () => undefined,
       getSkipPermissions: () => skip,
       setSkipPermissions: (value) => {
         skip = value;
       },
     };
-    expect(getCommand("yolo")!.handler("on", ctx)).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("on", ctx)).toEqual({
       type: "message",
       text: "Yolo mode on — permission prompts skipped. Saved as the default.",
     });
     expect(skip).toBe(true);
-    expect(getCommand("yolo")!.handler("off", ctx)).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("off", ctx)).toEqual({
       type: "message",
       text: "Yolo mode off — permission prompts restored. Saved as the default.",
     });
@@ -141,18 +142,18 @@ describe("/yolo command", () => {
 
   it("rejects unknown arguments with usage", () => {
     const ctx: CommandContext = {
-      signalClear: () => {},
+      signalClear: () => undefined,
       getSkipPermissions: () => false,
-      setSkipPermissions: () => {},
+      setSkipPermissions: () => undefined,
     };
-    expect(getCommand("yolo")!.handler("maybe", ctx)).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("maybe", ctx)).toEqual({
       type: "message",
       text: "Usage: /yolo [on|off|toggle]",
     });
   });
 
   it("says so when skip-permissions is not wired", () => {
-    expect(getCommand("yolo")!.handler("", makeCtx())).toEqual({
+    expect(defined(getCommand("yolo"), "yolo").handler("", makeCtx())).toEqual({
       type: "message",
       text: "Yolo mode is not available in this mode.",
     });
@@ -165,7 +166,7 @@ describe("/model command", () => {
   });
 
   it("opens the agent configuration modal", () => {
-    expect(getCommand("model")!.handler("", makeCtx())).toEqual({ type: "modal", modal: "agent" });
+    expect(defined(getCommand("model"), "model").handler("", makeCtx())).toEqual({ type: "modal", modal: "agent" });
   });
 
   it("/agent alias is not registered", () => {
@@ -176,7 +177,7 @@ describe("/model command", () => {
 describe("/clear command", () => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
-    const result = getCommand("clear")!.handler("", ctx);
+    const result = defined(getCommand("clear"), "clear").handler("", ctx);
     expect(result).toEqual({ type: "message", text: "Started a fresh session." });
   });
 
@@ -186,7 +187,7 @@ describe("/clear command", () => {
     ctx.signalClear = () => {
       called = true;
     };
-    getCommand("clear")!.handler("", ctx);
+    defined(getCommand("clear"), "clear").handler("", ctx);
     expect(called).toBe(true);
   });
 });
@@ -194,7 +195,7 @@ describe("/clear command", () => {
 describe("/new command", () => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
-    const result = getCommand("new")!.handler("", ctx);
+    const result = defined(getCommand("new"), "new").handler("", ctx);
     expect(result).toEqual({ type: "message", text: "Started a fresh session." });
   });
 
@@ -204,7 +205,7 @@ describe("/new command", () => {
     ctx.signalClear = () => {
       called = true;
     };
-    getCommand("new")!.handler("", ctx);
+    defined(getCommand("new"), "new").handler("", ctx);
     expect(called).toBe(true);
   });
 });
@@ -219,7 +220,7 @@ describe("removed tier commands", () => {
 
 describe("/cost command", () => {
   it("reports unavailable when the session supplies no summary", () => {
-    const result = getCommand("cost")!.handler("", makeCtx());
+    const result = defined(getCommand("cost"), "cost").handler("", makeCtx());
     expect(result).toEqual({
       type: "message",
       text: "Cost tracking is not available in this session.",
@@ -240,7 +241,7 @@ describe("/cost command", () => {
         contextTokens: 160,
         contextIsEstimate: false,
       });
-    const result = getCommand("cost")!.handler("", ctx);
+    const result = defined(getCommand("cost"), "cost").handler("", ctx);
     expect(result.type).toBe("message");
     expect((result as { text: string }).text).toContain("Model: claude-x");
     expect((result as { text: string }).text).toContain("Cost: $0.4200");
@@ -255,12 +256,12 @@ describe("/feedback command", () => {
   it("arms multi-turn capture when invoked bare", () => {
     let armed = false;
     const ctx: CommandContext = {
-      signalClear: () => {},
+      signalClear: () => undefined,
       beginFeedbackCapture: () => {
         armed = true;
       },
     };
-    expect(getCommand("feedback")!.handler("", ctx)).toEqual({
+    expect(defined(getCommand("feedback"), "feedback").handler("", ctx)).toEqual({
       type: "message",
       text: "Please share your feedback. When done please hit enter. (Empty Enter cancels.)",
     });
@@ -270,13 +271,13 @@ describe("/feedback command", () => {
   it("submits inline text immediately", () => {
     const sent: string[] = [];
     const ctx: CommandContext = {
-      signalClear: () => {},
+      signalClear: () => undefined,
       submitFeedback: (text) => {
         sent.push(text);
         return "Thanks — feedback sent.";
       },
     };
-    expect(getCommand("feedback")!.handler("love the TUI", ctx)).toEqual({
+    expect(defined(getCommand("feedback"), "feedback").handler("love the TUI", ctx)).toEqual({
       type: "message",
       text: "Thanks — feedback sent.",
     });
@@ -284,14 +285,14 @@ describe("/feedback command", () => {
   });
 
   it("fails closed for bare /feedback when capture is not wired", () => {
-    expect(getCommand("feedback")!.handler("", makeCtx())).toEqual({
+    expect(defined(getCommand("feedback"), "feedback").handler("", makeCtx())).toEqual({
       type: "message",
       text: "Feedback is not available in this mode.",
     });
   });
 
   it("explains when the feedback path is not wired", () => {
-    expect(getCommand("feedback")!.handler("x", makeCtx())).toEqual({
+    expect(defined(getCommand("feedback"), "feedback").handler("x", makeCtx())).toEqual({
       type: "message",
       text: "Feedback is not available in this mode.",
     });

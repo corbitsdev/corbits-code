@@ -3,6 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { defined } from "../../tests/helpers/defined.js";
+
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
 import { OPENCODE_GO_MODEL_IDS } from "../../packages/opencode-go/src/index.js";
 import { resetGoModelDiscoveryForTests } from "../provider/opencode-go-models.js";
@@ -70,7 +72,7 @@ function stagedLogin(profile: string): LoginCompletion {
       tokens: { access: "test-access", refresh: "test-refresh", expiresAt: 10_000 },
       createdAt: 1,
     },
-    commit: async () => {},
+    commit: async () => undefined,
   };
 }
 
@@ -86,7 +88,7 @@ async function createHarness(opts: { width: number; height: number }): Promise<H
 
 afterEach(() => {
   resetGoModelDiscoveryForTests();
-  while (activeHarnesses.length > 0) activeHarnesses.pop()!.destroy();
+  while (activeHarnesses.length > 0) defined(activeHarnesses.pop(), "harness").destroy();
 });
 
 beforeEach(() => {
@@ -327,7 +329,7 @@ describe("provider setup pure helpers", () => {
 });
 
 async function mountSetup(
-  onSubmit: ProviderSetupSubmit = async () => {},
+  onSubmit: ProviderSetupSubmit = async () => undefined,
   showTelemetryNotice = false,
   existingProviderNames: readonly string[] = [],
 ): Promise<{ done: Promise<boolean>; harness: Harness }> {
@@ -430,7 +432,7 @@ async function mountLogin(opts: {
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
   const harness = await createHarness({ width: 80, height: 30 });
   const done = runProviderSetup({
-    onSubmit: opts.onSubmit ?? (async () => {}),
+    onSubmit: opts.onSubmit ?? (async () => undefined),
     showTelemetryNotice: false,
     createRenderer: async () => harness.renderer,
     startLogin: opts.start,
@@ -780,7 +782,7 @@ describe("runProviderSetup sign-in", () => {
   test("a subscription provider signs in in place and persists the selection", async () => {
     const seen: ProviderFormValues[] = [];
     const opts: SubmitOpts[] = [];
-    let complete: (result: LoginCompletion) => void = () => {};
+    let complete: (result: LoginCompletion) => void = () => undefined;
     const { done, harness } = await mountLogin({
       start: async ({ kind, profile }) => {
         expect(kind).toBe("codex");
@@ -790,7 +792,7 @@ describe("runProviderSetup sign-in", () => {
           completed: new Promise<LoginCompletion>((resolve) => {
             complete = resolve;
           }),
-          cancel: () => {},
+          cancel: () => undefined,
         };
       },
       onSubmit: async (values, _setPhase, o) => {
@@ -830,14 +832,14 @@ describe("runProviderSetup sign-in", () => {
       const settingsPath = join(dir, "settings.json");
       const localPath = localSettingsPath(dir);
       let commits = 0;
-      let complete: (result: LoginCompletion) => void = () => {};
+      let complete: (result: LoginCompletion) => void = () => undefined;
       const { done, harness } = await mountLogin({
         start: async () => ({
           authorizeUrl: AUTHORIZE_URL,
           completed: new Promise<LoginCompletion>((resolve) => {
             complete = resolve;
           }),
-          cancel: () => {},
+          cancel: () => undefined,
         }),
         onSubmit: async (values, _setPhase, opts) => {
           if (opts.oauth === undefined) throw new Error("expected staged OAuth credentials");
@@ -888,8 +890,8 @@ describe("runProviderSetup sign-in", () => {
         seenProfiles.push(profile);
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+          completed: new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -908,8 +910,8 @@ describe("runProviderSetup sign-in", () => {
         seenProfiles.push(profile);
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+          completed: new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -933,8 +935,8 @@ describe("runProviderSetup sign-in", () => {
         seenProfiles.push(profile);
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+          completed: new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -967,8 +969,8 @@ describe("runProviderSetup sign-in", () => {
         starts += 1;
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+          completed: new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -998,8 +1000,8 @@ describe("runProviderSetup sign-in", () => {
         starts += 1;
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+          completed: new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -1025,8 +1027,8 @@ describe("runProviderSetup sign-in", () => {
           completed:
             starts === 1
               ? Promise.reject(new Error("access denied by the user"))
-              : new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+              : new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -1050,7 +1052,7 @@ describe("runProviderSetup sign-in", () => {
       loginTimeoutMs: 5,
       start: async () => ({
         authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<LoginCompletion>(() => {}),
+        completed: new Promise<LoginCompletion>(() => undefined),
         cancel: () => {
           cancelled += 1;
         },
@@ -1078,7 +1080,7 @@ describe("runProviderSetup sign-in", () => {
         });
         return {
           authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => {}),
+          completed: new Promise<LoginCompletion>(() => undefined),
           cancel: () => {
             cancelled += 1;
           },
@@ -1108,8 +1110,8 @@ describe("runProviderSetup sign-in", () => {
           completed:
             seenProfiles.length === 1
               ? Promise.reject(new Error("access denied by the user"))
-              : new Promise<LoginCompletion>(() => {}),
-          cancel: () => {},
+              : new Promise<LoginCompletion>(() => undefined),
+          cancel: () => undefined,
         };
       },
     });
@@ -1130,14 +1132,14 @@ describe("runProviderSetup sign-in", () => {
   });
 
   test("a late resolution from an abandoned attempt cannot move the screen", async () => {
-    let complete: (result: LoginCompletion) => void = () => {};
+    let complete: (result: LoginCompletion) => void = () => undefined;
     const { done, harness } = await mountLogin({
       start: async () => ({
         authorizeUrl: AUTHORIZE_URL,
         completed: new Promise<LoginCompletion>((resolve) => {
           complete = resolve;
         }),
-        cancel: () => {},
+        cancel: () => undefined,
       }),
     });
     await pickRow(harness, PROVIDER_IDS, "codex");
@@ -1254,7 +1256,7 @@ describe("runProviderSetup", () => {
   });
 
   test("shows the telemetry notice only when asked to", async () => {
-    const shown = await mountSetup(async () => {}, true);
+    const shown = await mountSetup(async () => undefined, true);
     await shown.harness.renderOnce();
     expect(shown.harness.captureCharFrame()).toContain("telemetry");
     shown.harness.pressKey("Ctrl+C");
@@ -1322,8 +1324,8 @@ describe("runProviderSetup", () => {
   });
 
   test("reports the submit phase while onSubmit runs", async () => {
-    let advance: (phase: "testing" | "saving") => void = () => {};
-    let finish: () => void = () => {};
+    let advance: (phase: "testing" | "saving") => void = () => undefined;
+    let finish: () => void = () => undefined;
     const { done, harness } = await mountSetup((_values, setPhase) => {
       advance = setPhase;
       return new Promise<void>((resolve) => {
@@ -1377,7 +1379,7 @@ describe("runProviderSetup", () => {
     const { done, harness } = await mountLogin({
       start: async () => ({
         authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<LoginCompletion>(() => {}),
+        completed: new Promise<LoginCompletion>(() => undefined),
         cancel: () => {
           cancelled += 1;
         },
@@ -1520,7 +1522,7 @@ describe("runProviderSetup pick-list height cap", () => {
     test(`stays within a ${height}-row terminal with no overlapping chrome`, async () => {
       const harness = await createHarness({ width: 80, height });
       runProviderSetup({
-        onSubmit: async () => {},
+        onSubmit: async () => undefined,
         showTelemetryNotice: false,
         createRenderer: async () => harness.renderer,
       });
@@ -1541,7 +1543,7 @@ describe("runProviderSetup pick-list height cap", () => {
   test("keyboard navigation scrolls a long provider list and keeps the active row visible", async () => {
     const harness = await createHarness({ width: 80, height: 16 });
     runProviderSetup({
-      onSubmit: async () => {},
+      onSubmit: async () => undefined,
       showTelemetryNotice: false,
       createRenderer: async () => harness.renderer,
     });
@@ -1553,7 +1555,7 @@ describe("runProviderSetup pick-list height cap", () => {
     const frame = harness.captureCharFrame();
     const last = providerChoiceRows(providerChoices()).at(-1);
     expect(last).toBeDefined();
-    expect(frame).toContain(last!.label.slice(0, 20));
+    expect(frame).toContain(defined(last, "last").label.slice(0, 20));
   });
 
   // statusLine and guidance are both blank on the first screen these tests

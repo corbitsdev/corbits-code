@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { rgbToHex, type CapturedSpan } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 
 import { toolCallRow } from "./diff";
 import { withTestRenderer, type Harness } from "./harness";
@@ -97,7 +98,7 @@ describe("diff transcript rows", () => {
       expect(changedRemoved?.fg).toBe(DIFF_FG.del);
       expect(changedAdded?.fg).toBe(DIFF_FG.add);
       // Bold attribute distinguishes the changed tokens inside the line.
-      expect(changedRemoved!.attributes).toBeGreaterThan(0);
+      expect(defined(changedRemoved).attributes).toBeGreaterThan(0);
       // "const" is shared by both sides, so it stays in the context tone.
       expect(shared.length).toBeGreaterThan(0);
       expect(shared.every((s) => s.fg === DIFF_FG.context)).toBe(true);
@@ -166,7 +167,7 @@ describe("diff transcript rows", () => {
     });
     const row = toolCallRow({ name: "spawn_agent", arguments: args });
     expect(row.summary).toBeDefined();
-    expect(row.summary!.length).toBeGreaterThan(0);
+    expect(defined(row.summary).length).toBeGreaterThan(0);
     expect(row.summary).not.toContain("success_criteria");
     expect(row.summary).not.toContain('"intent"');
     // Paint layer must not fall through to raw text.

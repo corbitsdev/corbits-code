@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BoxRenderable, TextRenderable, type KeyEvent } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 import { createHarness, withTestRenderer } from "./harness.js";
 
 describe("withTestRenderer", () => {
@@ -35,25 +36,22 @@ describe("withTestRenderer", () => {
 
       h.pressKey("Enter");
       await h.renderOnce();
-      const enter = captured.at(-1);
-      expect(enter).toBeDefined();
-      expect(enter!.name === "return" || enter!.name === "enter").toBe(true);
-      expect(enter!.ctrl).toBe(false);
-      expect(enter!.meta).toBe(false);
+      const enter = defined(captured.at(-1), "enter");
+      expect(enter.name === "return" || enter.name === "enter").toBe(true);
+      expect(enter.ctrl).toBe(false);
+      expect(enter.meta).toBe(false);
 
       h.pressKey("Alt+Enter");
       await h.renderOnce();
-      const altEnter = captured.at(-1);
-      expect(altEnter).toBeDefined();
-      expect(altEnter!.name === "return" || altEnter!.name === "enter").toBe(true);
-      expect(altEnter!.meta === true || altEnter!.option === true).toBe(true);
+      const altEnter = defined(captured.at(-1), "altEnter");
+      expect(altEnter.name === "return" || altEnter.name === "enter").toBe(true);
+      expect(altEnter.meta === true || altEnter.option === true).toBe(true);
 
       h.pressKey("Ctrl+C");
       await h.renderOnce();
-      const ctrlC = captured.at(-1);
-      expect(ctrlC).toBeDefined();
-      expect(ctrlC!.name).toBe("c");
-      expect(ctrlC!.ctrl).toBe(true);
+      const ctrlC = defined(captured.at(-1), "ctrlC");
+      expect(ctrlC.name).toBe("c");
+      expect(ctrlC.ctrl).toBe(true);
     });
   });
 });

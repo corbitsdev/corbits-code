@@ -232,7 +232,7 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
   fit();
   paint();
 
-  let resolveDone: (value: boolean) => void = () => {};
+  let resolveDone: (value: boolean) => void = () => undefined;
   const done = new Promise<boolean>((resolve) => {
     resolveDone = resolve;
   });

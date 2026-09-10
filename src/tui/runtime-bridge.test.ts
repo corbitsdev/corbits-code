@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   FIXTURE_BUSY_SESSION,
   attachSessionBridge,
@@ -270,7 +271,7 @@ describe("attachSessionBridge", () => {
           });
           // Soft steer drained; follow-up still pending.
           expect(badgeCount(shell.session)).toBe(1);
-          expect(shell.session.items[0]!.kind).toBe("queue");
+          expect(defined(shell.session.items[0], "queued item").kind).toBe("queue");
           const deliver = port.calls.find((c) => c.op === "deliver");
           expect(deliver).toEqual({
             op: "deliver",
@@ -331,7 +332,7 @@ describe("attachSessionBridge", () => {
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port, {
           now: () => clock,
-          schedule: () => () => {},
+          schedule: () => () => undefined,
         });
         try {
           bridge.handle({
@@ -1820,7 +1821,7 @@ describe("syncAgentProgress", () => {
           expect(streamRowCount(shell)).toBe(rowCountBefore);
           expect(removeSpy.mock.calls.length).toBeLessThanOrEqual(2);
 
-          const row = shell.streamLog[rowCountBefore - 1]!;
+          const row = defined(shell.streamLog[rowCountBefore - 1], "progress row");
           expect(row.pending).toBe(true);
           expect(row.agentWorking).toBe(true);
           expect(row.stat).toContain("grep");
@@ -1830,7 +1831,7 @@ describe("syncAgentProgress", () => {
             taskSession({ currentToolName: "grep", lastActivityAt: 42_000 }),
           ]);
           await h.renderOnce();
-          const stalledRow = shell.streamLog[rowCountBefore - 1]!;
+          const stalledRow = defined(shell.streamLog[rowCountBefore - 1], "stalled row");
           expect(stalledRow.agentWorking).toBe(false);
 
           removeSpy.mockRestore();
@@ -1869,8 +1870,8 @@ describe("syncAgentProgress", () => {
           });
           const index = shell.streamLog.length - 1;
           bridge.syncAgentProgress([taskSession({ status: "done" })]);
-          expect(shell.streamLog[index]!.pending).not.toBe(true);
-          expect(shell.streamLog[index]!.agentWorking).toBeUndefined();
+          expect(defined(shell.streamLog[index], "finished row").pending).not.toBe(true);
+          expect(defined(shell.streamLog[index], "finished row").agentWorking).toBeUndefined();
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1916,7 +1917,7 @@ describe("syncAgentProgress", () => {
           nowMs = 42_000;
           bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })]);
           await h.renderOnce();
-          const row = shell.streamLog[index]!;
+          const row = defined(shell.streamLog[index], "live progress row");
           expect(row.agentWorking).toBe(true);
           expect(row.stat).toContain("grep");
         } finally {
@@ -1956,12 +1957,12 @@ describe("in-flight tool row elapsed time", () => {
             data: { name: "run_shell", callId: "c1", arguments: "sleep 30" },
           });
           const index = streamRowCount(shell) - 1;
-          expect(shell.streamLog[index]!.stat).toBeUndefined();
+          expect(defined(shell.streamLog[index], "tool row").stat).toBeUndefined();
 
           nowMs = 65_000;
           tick?.();
           await h.renderOnce();
-          expect(shell.streamLog[index]!.stat).toBe("1:05");
+          expect(defined(shell.streamLog[index], "tool row").stat).toBe("1:05");
 
           bridge.handle({
             type: "tool.done",
@@ -1969,7 +1970,7 @@ describe("in-flight tool row elapsed time", () => {
           });
           // The elapsed clock was scaffolding for the wait, not a fact worth
           // keeping — the answer's own addendum takes the row over.
-          expect(shell.streamLog[index]!.stat).not.toBe("1:05");
+          expect(defined(shell.streamLog[index], "tool row").stat).not.toBe("1:05");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -2009,12 +2010,12 @@ describe("in-flight tool row elapsed time", () => {
             },
           });
           const index = streamRowCount(shell) - 1;
-          const before = shell.streamLog[index]!.stat;
+          const before = defined(shell.streamLog[index], "diff row").stat;
           expect(before).toContain("+");
 
           nowMs = 65_000;
           tick?.();
-          expect(shell.streamLog[index]!.stat).toBe(before);
+          expect(defined(shell.streamLog[index], "diff row").stat).toBe(before);
         } finally {
           bridge.dispose();
           shell.dispose();

@@ -4,6 +4,7 @@
  * pending must dim its gutter on the same node, not keep the live bronze.
  */
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   BoxRenderable,
   TextRenderable,
@@ -47,7 +48,7 @@ describe("retext gutter voice", () => {
             name: "fetch",
             arguments: JSON.stringify({ url: "https://x.dev" }),
           });
-          const pending = rows[0]!;
+          const pending = defined(rows[0]);
           expect(pending.pending).toBe(true);
           appendStreamRow(shell, pending);
           await h.renderOnce();
@@ -58,7 +59,7 @@ describe("retext gutter voice", () => {
           expect(fgIs(gutter, UI.textDim)).toBe(false);
 
           pushToolResult(rows, { name: "fetch", content: "", isError: true });
-          const failed = rows[0]!;
+          const failed = defined(rows[0]);
           expect(failed.failed).toBe(true);
           replaceStreamRowAt(shell, 0, failed);
           // Same paint node, same shape: the flip retexted rather than rebuilt.

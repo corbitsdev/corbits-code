@@ -101,7 +101,7 @@ describe("image attachments", () => {
     const flashSchedule: FlashSchedule = (fn, ms) => {
       expect(ms).toBe(RUNTIME_FLASH_MS);
       lapse.push(fn);
-      return () => {};
+      return () => undefined;
     };
 
     await withShell(
@@ -145,7 +145,7 @@ describe("image attachments", () => {
           wireKeys: true,
           run: "idle",
         });
-        let resolveRead: (r: { ok: true; attachment: PendingImageAttachment }) => void = () => {};
+        let resolveRead: (r: { ok: true; attachment: PendingImageAttachment }) => void = () => undefined;
         setPromptImageSource(
           shell,
           () =>
@@ -183,7 +183,7 @@ describe("image attachments", () => {
             run: "idle",
           });
           try {
-            let resolveAttached: () => void = () => {};
+            let resolveAttached: () => void = () => undefined;
             const attached = new Promise<void>((r) => {
               resolveAttached = r;
             });
@@ -252,7 +252,7 @@ describe("image attachments", () => {
       const seen: (readonly PendingImageAttachment[] | undefined)[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (_text, _kind, attachments) => seen.push(attachments),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
@@ -270,7 +270,7 @@ describe("image attachments", () => {
       const texts: string[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (text) => texts.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
@@ -285,7 +285,7 @@ describe("image attachments", () => {
       const submitted: string[] = [];
       setShellBridgeHooks(shell, {
         onSubmit: (text) => submitted.push(text),
-        onInterrupt: () => {},
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       shell.prompt.value = "   ";
@@ -315,7 +315,7 @@ describe("text paste", () => {
             const submitted: string[] = [];
             setShellBridgeHooks(shell, {
               onSubmit: (text) => submitted.push(text),
-              onInterrupt: () => {},
+              onInterrupt: () => undefined,
               exclusive: true,
             });
             setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
@@ -385,7 +385,7 @@ describe("un-bracketed paste vs. deliberate Enter", () => {
           const submitted: string[] = [];
           setShellBridgeHooks(shell, {
             onSubmit: (text) => submitted.push(text),
-            onInterrupt: () => {},
+            onInterrupt: () => undefined,
             exclusive: true,
           });
           shell.prompt.focus();
@@ -426,7 +426,7 @@ describe("un-bracketed paste vs. deliberate Enter", () => {
           const submitted: string[] = [];
           setShellBridgeHooks(shell, {
             onSubmit: (text) => submitted.push(text),
-            onInterrupt: () => {},
+            onInterrupt: () => undefined,
             exclusive: true,
           });
           shell.prompt.focus();
@@ -488,8 +488,8 @@ describe("sent-message recall", () => {
   test("submitting records the message for later recall", async () => {
     await withShell(async (shell) => {
       setShellBridgeHooks(shell, {
-        onSubmit: () => {},
-        onInterrupt: () => {},
+        onSubmit: () => undefined,
+        onInterrupt: () => undefined,
         exclusive: true,
       });
       shell.prompt.value = "remember me";
@@ -550,7 +550,7 @@ describe("@-mention suggestions", () => {
           run: "idle",
         });
         try {
-          let resolveOpened: () => void = () => {};
+          let resolveOpened: () => void = () => undefined;
           const opened = new Promise<void>((r) => {
             resolveOpened = r;
           });

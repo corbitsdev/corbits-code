@@ -128,7 +128,7 @@ describe("createLiveSteerDeliver", () => {
   test("slow first ingest does not let a later steer deliver first", async () => {
     const delivered: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
-    let resolveSlow!: () => void;
+    let resolveSlow: () => void = () => undefined;
     const slow = new Promise<void>((resolve) => {
       resolveSlow = resolve;
     });
@@ -162,7 +162,7 @@ describe("createLiveSteerDeliver", () => {
     const delivered: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
     const generation = createDeliveryGeneration();
-    let resolveSlow!: () => void;
+    let resolveSlow: () => void = () => undefined;
     const slow = new Promise<void>((resolve) => {
       resolveSlow = resolve;
     });
@@ -196,7 +196,7 @@ describe("createLeftoverSend", () => {
     const recorded: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
     const generation = createDeliveryGeneration();
-    let resolveSlow!: () => void;
+    let resolveSlow: () => void = () => undefined;
     const slow = new Promise<void>((resolve) => {
       resolveSlow = resolve;
     });
@@ -285,7 +285,7 @@ describe("createLeftoverSend", () => {
     const enterSent: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
     const generation = createDeliveryGeneration();
-    let resolveSlow!: () => void;
+    let resolveSlow: () => void = () => undefined;
     const slow = new Promise<void>((resolve) => {
       resolveSlow = resolve;
     });

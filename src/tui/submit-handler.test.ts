@@ -225,7 +225,7 @@ describe("image attachment submits", () => {
   function attachmentHarness() {
     const sends: { text: string; attachments?: readonly PendingImageAttachment[] }[] = [];
     const submit = createSubmitHandler({
-      dispatchCommand: () => {},
+      dispatchCommand: () => undefined,
       sendPrompt: (text, attachments) =>
         sends.push({ text, ...(attachments ? { attachments } : {}) }),
     });

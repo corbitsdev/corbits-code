@@ -177,7 +177,7 @@ function withParentAbort(signal: AbortSignal): PauseableTimeout {
       signal.removeEventListener("abort", onParentAbort);
     },
     pause: (): PauseToken => 0,
-    resume: (_token: PauseToken) => {},
+    resume: (_token: PauseToken) => undefined,
   };
 }
 
@@ -407,7 +407,7 @@ export async function runWithToolExecutionWatchdog(
         : {
             ...withTimeout(parentSignal, timeoutMs),
             pause: (): PauseToken => 0,
-            resume: (_token: PauseToken) => {},
+            resume: (_token: PauseToken) => undefined,
           };
   // Nested runs (wait_agents → child tool call) shadow the parent store: the
   // gate captures the innermost budget, so pause/resume must chain outward or
@@ -437,7 +437,7 @@ export async function runWithToolExecutionWatchdog(
         const salvaged = await preferExecuteSalvageAfterAbort(executePromise, salvageGraceMs);
         if (salvaged !== undefined) return salvaged;
         // Avoid unhandled rejection if execute later fails after we move on.
-        void executePromise.catch(() => {});
+        void executePromise.catch(() => undefined);
         const content =
           timeoutMs !== undefined && !parentSignal.aborted
             ? formatTimeoutMessage(call.name, timeoutMs)

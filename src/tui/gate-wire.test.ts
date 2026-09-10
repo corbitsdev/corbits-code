@@ -352,7 +352,7 @@ describe("wireGates", () => {
         };
         try {
           const dispose = wireGates(emitter, shell);
-          emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
+          emitter.emit("permission.gate", { id: "req-1", request, resolve: () => undefined });
 
           const collapsed = shell.overlayBodyLines.join("\n");
           expect(collapsed).toContain("1) echo start");
@@ -729,7 +729,7 @@ describe("wireGates", () => {
       };
       try {
         const dispose = wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
+        emitter.emit("permission.gate", { id: "req-1", request, resolve: () => undefined });
 
         expect(shell.streamLog.filter((r) => r.meta === "permission")).toHaveLength(0);
 
@@ -755,7 +755,7 @@ describe("gate decisions stay out of the transcript", () => {
       const emitter = new EventEmitter();
       try {
         wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request: baseRequest(), resolve: () => {} });
+        emitter.emit("permission.gate", { id: "req-1", request: baseRequest(), resolve: () => undefined });
 
         const before = shell.streamLog.length;
         acceptOverlaySelection(shell);
@@ -775,7 +775,7 @@ describe("gate decisions stay out of the transcript", () => {
       const emitter = new EventEmitter();
       try {
         wireGates(emitter, shell);
-        emitter.emit("permission.gate", { id: "req-1", request: baseRequest(), resolve: () => {} });
+        emitter.emit("permission.gate", { id: "req-1", request: baseRequest(), resolve: () => undefined });
 
         const before = shell.streamLog.length;
         closeInsetOverlay(shell);
@@ -799,7 +799,7 @@ describe("gate decisions stay out of the transcript", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Cancel", "Continue"],
-          resolve: () => {},
+          resolve: () => undefined,
         });
 
         const before = shell.streamLog.length;
@@ -824,7 +824,7 @@ describe("gate decisions stay out of the transcript", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Cancel", "Continue"],
-          resolve: () => {},
+          resolve: () => undefined,
         });
 
         const before = shell.streamLog.length;
@@ -849,7 +849,7 @@ describe("gate decisions stay out of the transcript", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Cancel", "Continue"],
-          resolve: () => {},
+          resolve: () => undefined,
         });
 
         setOverlayAnswerActive(shell, true);
@@ -890,7 +890,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
           timeoutMs: 5,
         });
         await new Promise((r) => setTimeout(r, 20));
@@ -915,7 +915,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
           signal: controller.signal,
         });
         controller.abort();
@@ -979,7 +979,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
         });
         const before = shell.streamLog.length;
         emitter.emit("permission.gate", {
@@ -1028,7 +1028,7 @@ describe("gate decisions stay out of the transcript", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
         });
         const before = shell.streamLog.length;
         emitter.emit("permission.gate", {
@@ -1411,7 +1411,7 @@ describe("operator.gate auto-cancel", () => {
         emitter.emit("permission.gate", {
           id: "req-1",
           request: baseRequest(),
-          resolve: () => {},
+          resolve: () => undefined,
         });
         emitter.emit("operator.gate", {
           id: "ask-1",
@@ -1530,7 +1530,7 @@ describe("operator.gate auto-cancel", () => {
           id: "ask-1",
           question: "Proceed?",
           options: ["Yes", "No"],
-          resolve: () => {},
+          resolve: () => undefined,
           timeoutMs: 5,
         });
         await new Promise((r) => setTimeout(r, 20));
@@ -1669,7 +1669,7 @@ describe("permission overlay height", () => {
           pattern: `p${i}`,
         })),
       },
-      resolve: () => {},
+      resolve: () => undefined,
     });
   };
 

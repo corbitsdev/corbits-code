@@ -129,7 +129,7 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       items: providerListHeight(renderer),
     }),
     settled: false,
-    resolveDone: () => {},
+    resolveDone: () => undefined,
   };
 
   if (config.initialProviderId !== undefined) {

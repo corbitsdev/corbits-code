@@ -45,7 +45,7 @@ async function withWakeBridge(
       };
       const bridge = attachSessionBridge(
         shell,
-        createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+        createLiveSessionPort({ send, deliver: send, interrupt: () => undefined }),
       );
       try {
         run(bridge, sends);
@@ -72,9 +72,9 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
         const feedback: string[] = [];
         let cancellations = 0;
         let nowMs = 0;
-        let tick = () => {};
+        let tick: () => void = () => undefined;
         const submit = createSubmitHandler({
-          dispatchCommand: () => {},
+          dispatchCommand: () => undefined,
           sendPrompt: (text) => {
             composerSends.push(text);
             sends.push(text);
@@ -97,7 +97,7 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
               feedbackPending: isFeedbackCapturePending(),
               feedbackCaptureEnabled: true,
             }),
-          interrupt: () => {},
+          interrupt: () => undefined,
           deliver: routeQueuedDelivery({
             send: (text) => {
               sends.push(text);
@@ -113,7 +113,7 @@ for (const action of ["retry", "interrupt", "reset", "dispose", "composer", "ord
           schedule: (fn) => {
             tick = fn;
             // Retain the callback to exercise even a stale timer after disposal.
-            return () => {};
+            return () => undefined;
           },
         });
         try {
@@ -190,7 +190,7 @@ describe("agent ask wake delivery", () => {
         const feedback: string[] = [];
         let cancellations = 0;
         const submit = createSubmitHandler({
-          dispatchCommand: () => {},
+          dispatchCommand: () => undefined,
           sendPrompt: (text) => {
             sends.push(text);
           },
@@ -212,7 +212,7 @@ describe("agent ask wake delivery", () => {
               feedbackPending: isFeedbackCapturePending(),
               feedbackCaptureEnabled: true,
             }),
-          interrupt: () => {},
+          interrupt: () => undefined,
           deliver: routeQueuedDelivery({
             send: (text) => {
               sends.push(text);
@@ -396,7 +396,7 @@ describe("agent ask wake delivery", () => {
           });
           const sends: string[] = [];
           let nowMs = 0;
-          let tick = () => {};
+          let tick: () => void = () => undefined;
           const bridge = attachSessionBridge(
             shell,
             createLiveSessionPort({
@@ -406,7 +406,7 @@ describe("agent ask wake delivery", () => {
               deliver: (text) => {
                 sends.push(text);
               },
-              interrupt: () => {},
+              interrupt: () => undefined,
             }),
             {
               now: () => nowMs,
@@ -414,7 +414,7 @@ describe("agent ask wake delivery", () => {
               stallNoticeMs: 400,
               schedule: (fn) => {
                 tick = fn;
-                return () => {};
+                return () => undefined;
               },
             },
           );
@@ -456,7 +456,7 @@ describe("agent ask wake delivery", () => {
         };
         const bridge = attachSessionBridge(
           shell,
-          createLiveSessionPort({ send, deliver: send, interrupt: () => {} }),
+          createLiveSessionPort({ send, deliver: send, interrupt: () => undefined }),
         );
         try {
           const ask = {
@@ -537,7 +537,7 @@ describe("agent ask wake delivery", () => {
               },
               parentCycleLive: () => bridge.parentCycleLive,
             }),
-            interrupt: () => {},
+            interrupt: () => undefined,
           }),
         );
         try {
