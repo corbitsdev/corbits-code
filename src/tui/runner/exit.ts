@@ -5,7 +5,11 @@
  * proxy), the stream sink, and the quit-time finalization tail.
  */
 
-import { AgentContextLockError, type Agent } from "@intx/agent";
+import {
+  AgentClosedError,
+  AgentContextLockError,
+  type Agent,
+} from "@intx/agent";
 import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 import { consumeStream } from "../../session/stream-consumer.js";
@@ -300,7 +304,8 @@ export async function createRunLifecycle(
 
   // Serial operation queue. Rotation (reload, interrupt, newSession), compaction
   // continuation, and proxy deliver enqueue async tasks; they run one at a time.
-  // `send` awaits the tail before dispatching so it never races a concurrent rebuild.
+  // `send` awaits the tail, then drops if /clear|/new bumped delivery generation
+  // during the wait or token refresh so the prompt cannot land on the rebuilt agent.
   const enqueueOp = services.sessionOps.enqueue;
 
   const reloadIfIdle = (): void => {
@@ -407,7 +412,14 @@ export async function createRunLifecycle(
   // Host mounts later; stampProvider.fn is wired once the bridge exists.
   const agentProxy: Agent = {
     send: async (content, opts) => {
+      const stillCurrent = services.deliveryGeneration.capture();
+      const dropIfRotated = (): void => {
+        if (stillCurrent()) return;
+        state.sendAborted = true;
+        throw new AgentClosedError();
+      };
       await services.sessionOps.awaitTail();
+      dropIfRotated();
       if (state.fatalBuildError !== null) throw state.fatalBuildError;
       const trimmed = typeof content === "string" ? content.trim() : "";
       if (trimmed.length > 0 && state.runTaskTitle.trim().length === 0) {
@@ -422,6 +434,7 @@ export async function createRunLifecycle(
       return await runWhileAgentBusy(state, async () => {
         await refreshCodexBeforeSend();
         await refreshXaiBeforeSend();
+        dropIfRotated();
         return await liveAgent(state).send(content, opts);
       });
     },
