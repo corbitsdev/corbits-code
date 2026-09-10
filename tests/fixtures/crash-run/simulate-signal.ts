@@ -36,7 +36,7 @@ await saveState(cwd, sessionId, {
   model,
 });
 
-setActiveRun({ sessionId, cwd, task, startedAt, model });
+setActiveRun({ sessionId, cwd, task, startedAt, turnsUsed: 3, model });
 installSignalHandlers();
 
 let releaseGate: () => void;

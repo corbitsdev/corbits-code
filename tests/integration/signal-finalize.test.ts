@@ -74,6 +74,7 @@ describe("integration — signal finalizes run.json", () => {
         expect(state.finishedAt).toBeGreaterThan(0);
         expect(state.error).toBe(`terminated by ${signal}`);
         expect(state.task).toBe("simulated signal task");
+        expect(state.turnsUsed).toBe(3);
       } finally {
         rmSync(cwd, { recursive: true, force: true });
         rmSync(home, { recursive: true, force: true });

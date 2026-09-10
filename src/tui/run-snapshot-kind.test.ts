@@ -69,7 +69,13 @@ describe("a snapshot write dispatched by kind", () => {
   });
 
   test("a rotation still records the outgoing session but leaves the run crash-coverable", async () => {
-    setActiveRun({ sessionId: "old", cwd, task: "task", startedAt: 1 });
+    setActiveRun({
+      sessionId: "old",
+      cwd,
+      task: "task",
+      startedAt: 1,
+      turnsUsed: 0,
+    });
 
     await write(
       "old",
@@ -87,7 +93,13 @@ describe("a snapshot write dispatched by kind", () => {
   });
 
   test("the run-ending write records the session and disarms the handle", async () => {
-    setActiveRun({ sessionId: "last", cwd, task: "task", startedAt: 1 });
+    setActiveRun({
+      sessionId: "last",
+      cwd,
+      task: "task",
+      startedAt: 1,
+      turnsUsed: 0,
+    });
 
     await write(
       "last",

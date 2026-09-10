@@ -53,6 +53,7 @@ describe("integration — crash finalizes run.json", () => {
       expect(state.error).toContain("simulated crash");
       expect(state.task).toBe("simulated crash task");
       expect(state.model).toBe("test-provider:test-model");
+      expect(state.turnsUsed).toBe(3);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });

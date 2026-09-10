@@ -29,6 +29,7 @@ import {
   truncateSessionLabel,
 } from "../../session/session-label.js";
 import { clearActiveDisposeHost } from "../../session/active-host.js";
+import { syncRunStateHandle } from "../../session/active-run.js";
 import { getValidCodexToken } from "../../auth/codex/session.js";
 import { getValidXaiToken } from "../../auth/xai/session.js";
 import { suppressProviderFailurePresentation } from "../provider/failure-attempt.js";
@@ -185,12 +186,16 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
     const model = `${state.liveSource.id}:${state.liveSource.model}`;
     // Kept in step with every persisted snapshot so the crash handler's copy
     // (activeRunHandle, read by index.ts) never lags what's actually on disk.
-    services.activeRunHandle.task = task;
-    services.activeRunHandle.startedAt = state.startedAt;
-    services.activeRunHandle.model = model;
+    const turnsUsed = services.runSink.getTurnCount();
+    syncRunStateHandle(services.activeRunHandle, {
+      turnsUsed,
+      task,
+      startedAt: state.startedAt,
+      model,
+    });
     const persisted: RunState = {
       status,
-      turnsUsed: services.runSink.getTurnCount(),
+      turnsUsed,
       task,
       startedAt: state.startedAt,
       model,

@@ -4,8 +4,8 @@
 // consulted from the crash path and from signal handlers: a run that never
 // crashes and is never signaled never has this read.
 //
-// Carries enough of the live run state (task, startedAt, model) that the
-// crash handler can build a full RunState record itself. It must not read
+// Carries enough of the live run state (task, startedAt, model, turnsUsed) that
+// the crash handler can build a full RunState record itself. It must not read
 // run.json back off disk to fill these in — an unbounded readFile on the
 // crash path has the exact failure mode primeCrashReporting (src/crash/
 // report.ts) exists to avoid for git: a stalled disk or network mount would
@@ -20,7 +20,28 @@ export interface RunStateHandle {
   cwd: string;
   task: string;
   startedAt: number;
+  turnsUsed: number;
   model?: string;
+}
+
+// Keep the crash/signal handle in step with every persisted snapshot so a
+// terminal write never falls back to turnsUsed: 0 when the live run has
+// already advanced past that.
+export function syncRunStateHandle(
+  handle: RunStateHandle,
+  snapshot: {
+    turnsUsed: number;
+    task: string;
+    startedAt: number;
+    model?: string;
+  },
+): void {
+  handle.turnsUsed = snapshot.turnsUsed;
+  handle.task = snapshot.task;
+  handle.startedAt = snapshot.startedAt;
+  if (snapshot.model !== undefined) {
+    handle.model = snapshot.model;
+  }
 }
 
 let activeRun: RunStateHandle | null = null;
