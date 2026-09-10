@@ -328,13 +328,13 @@ class FleetMailbox {
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
     if (overlay.frozenStatus !== undefined) return overlay.frozenStatus;
     if (this.sessions.hasPendingAsk(id)) return "awaiting_director";
+    if (overlay.forceInterrupted === true) return "interrupted";
     const live = this.sessionWaitStatus(id);
     if (live !== undefined && !isLiveWaitStatus(live)) {
       overlay.lastWaitStatus = live;
       return live;
     }
     if (overlay.forceQueued === true) return "queued";
-    if (overlay.forceInterrupted === true) return "interrupted";
     if (live !== undefined) {
       overlay.lastWaitStatus = live;
       return live;

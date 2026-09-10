@@ -1198,7 +1198,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
   test("close_agent overlay survives a send_input followup completing in the close window", async () => {
     const gate = deferred<RunSubAgentResult>();
     const followupGate = deferred<string>();
-    const closeHold = deferred<void>();
+    const closeHold = deferred<undefined>();
     const deps = makeDeps(async (params) => {
       params.onAgentReady?.({
         close: async () => closeHold.promise,
@@ -1244,8 +1244,88 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(results[0]!.status).toBe("interrupted");
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
 
-    closeHold.resolve();
+    closeHold.resolve(undefined);
     await closing;
+  });
+
+  test("close overlay without in-flight wait stays interrupted after followup complete", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const followupGate = deferred<string>();
+    const closeHold = deferred<undefined>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => closeHold.promise,
+        interrupt: () => {},
+        followup: async () => followupGate.promise,
+        deliver: () => {},
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const close = createCloseAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "looping",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    if (close.kind !== "full") throw new Error("expected full tool");
+    const closing = close.handler(
+      { id: "close-held-then-followup", name: "close_agent", arguments: { target: id } },
+      new AbortController().signal,
+    );
+
+    followupGate.resolve("followup after close overlay");
+    await new Promise<void>((resolve) => {
+      const done = (): boolean => deps.sessions.get(id)?.lifecycle.state === "completed";
+      if (done()) {
+        resolve();
+        return;
+      }
+      const unsub = deps.sessions.subscribe(() => {
+        if (done()) {
+          unsub();
+          resolve();
+        }
+      });
+      if (done()) {
+        unsub();
+        resolve();
+      }
+    });
+
+    expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
+    const listed = await callTool(list, {});
+    const entry = (listed.agents as { agent_id: string; status: string }[]).find(
+      (a) => a.agent_id === id,
+    );
+    expect(entry?.status).toBe("interrupted");
+
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const results = waited.results as { status: string }[];
+    expect(results[0]!.status).toBe("interrupted");
+
+    closeHold.resolve(undefined);
+    await closing;
+    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
   });
 
   test("completeAfterInterrupt does not clear a close overlay", () => {
