@@ -160,6 +160,37 @@ describe("createOAuthProvider", () => {
     expect(disk.tokens).toBeUndefined();
   });
 
+  test("resetAuthorization does not delete a sibling's just-saved tokens", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+
+    await a.saveTokens({
+      access_token: "fresh",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "fresh-refresh",
+    });
+    expect((await syncValue(a.tokens()))?.access_token).toBe("fresh");
+
+    await b.resetAuthorization();
+
+    expect((await syncValue(a.tokens()))?.access_token).toBe("fresh");
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe("fresh");
+  });
+
   test("isolates same-name providers by endpoint and persists the same identity", async () => {
     const home = await tempHome();
     const customURL = "https://custom.example/mcp";

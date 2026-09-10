@@ -59,6 +59,69 @@ describe("mcp auth-store", () => {
     ).toBe(true);
   });
 
+  test("overlapping updateAuthState from two processes keeps tokens and PKCE", async () => {
+    const home = await tempHome();
+    await saveAuthState(
+      linear,
+      {
+        clientInformation: {
+          client_id: "c1",
+          redirect_uris: ["http://127.0.0.1:1/callback"],
+          client_id_issued_at: 1,
+        },
+      },
+      home,
+    );
+
+    const storePath = join(import.meta.dirname, "auth-store.ts");
+    const barrier = join(home, "start");
+    const script = `
+      import { updateAuthState } from ${JSON.stringify(storePath)};
+      const home = process.argv[1];
+      const field = process.argv[2];
+      const barrier = process.argv[3];
+      const identity = { serverName: "linear", serverURL: "https://mcp.linear.app/mcp" };
+      while (!(await Bun.file(barrier).exists())) await Bun.sleep(5);
+      await updateAuthState(
+        identity,
+        (state) => {
+          Bun.sleepSync(150);
+          if (field === "tokens") {
+            state.tokens = {
+              access_token: "tok",
+              token_type: "bearer",
+              expires_in: 3600,
+              refresh_token: "ref",
+            };
+          } else {
+            state.codeVerifier = "verifier-from-other-session";
+          }
+        },
+        home,
+      );
+    `;
+    const processes = [
+      Bun.spawn([process.execPath, "-e", script, "--", home, "tokens", barrier], {
+        stdout: "ignore",
+        stderr: "pipe",
+      }),
+      Bun.spawn([process.execPath, "-e", script, "--", home, "verifier", barrier], {
+        stdout: "ignore",
+        stderr: "pipe",
+      }),
+    ];
+    await Bun.sleep(50);
+    await writeFile(barrier, "go");
+    const exitCodes = await Promise.all(processes.map((child) => child.exited));
+    const errors = await Promise.all(processes.map((child) => new Response(child.stderr).text()));
+    expect(exitCodes, errors.join("\n")).toEqual([0, 0]);
+
+    const final = await loadAuthState(linear, home);
+    expect(final.tokens?.access_token).toBe("tok");
+    expect(final.codeVerifier).toBe("verifier-from-other-session");
+    expect(final.clientInformation?.client_id).toBe("c1");
+  });
+
   test("concurrent saveAuthState calls do not throw ENOENT on temp rename", async () => {
     const home = await tempHome();
     await Promise.all(
