@@ -511,6 +511,48 @@ describe("disposeExecRuntime", () => {
       }),
     ).rejects.toThrow("plugin dispose failed");
   });
+
+  test("cancels every live worker with the close reason after toolset dispose", async () => {
+    const store = createSubAgentSessionStore();
+    const first = store.start({ description: "a", agentId: "w1", brief: "b" });
+    const second = store.start({ description: "b", agentId: "w2", brief: "b" });
+    const calls: string[] = [];
+    store.registerCancel(first.id, () => calls.push("cancel:first"));
+    store.registerCancel(second.id, () => calls.push("cancel:second"));
+
+    await disposeExecRuntime({
+      agent: { close: async () => void calls.push("agent") },
+      toolset: { dispose: async () => void calls.push("toolset") },
+      subAgentSessions: store,
+    });
+
+    // Posix/toolset first so a hung close cannot skip reap; then cancel, then close.
+    expect(calls).toEqual(["toolset", "cancel:first", "cancel:second", "agent"]);
+    expect(store.get(first.id)?.status).toBe("cancelled");
+    expect(store.get(second.id)?.status).toBe("cancelled");
+    expect(store.get(first.id)?.stopReason).toBe("cancelled — Session closed");
+    expect(store.get(second.id)?.stopReason).toBe("cancelled — Session closed");
+  });
+
+  test("a failing agent close still disposes the toolset and rejects", async () => {
+    const store = createSubAgentSessionStore();
+    const worker = store.start({ description: "bg", agentId: "w", brief: "b" });
+    store.registerCancel(worker.id, () => undefined);
+
+    let disposed = 0;
+    await expect(
+      disposeExecRuntime({
+        agent: {
+          close: () => Promise.reject(new Error("close exploded")),
+        },
+        toolset: { dispose: async () => void (disposed += 1) },
+        subAgentSessions: store,
+      }),
+    ).rejects.toThrow("close exploded");
+
+    expect(store.get(worker.id)?.status).toBe("cancelled");
+    expect(disposed).toBe(1);
+  });
 });
 
 describe("resolveExecDirectorOverlay", () => {

@@ -28,15 +28,46 @@ async function tmpCwd(): Promise<string> {
   return mkdtemp(join(tmpdir(), "cl6941-run-authority-"));
 }
 
-function baseParams(cwd: string, workdirBase: string): Omit<RunSubAgentParams, "orchestrator"> {
+function baseParams(
+  cwd: string,
+  workdirBase: string,
+  baseURL = "http://localhost",
+): Omit<RunSubAgentParams, "orchestrator"> {
   return {
     cwd,
     workdirBase,
     permissionGate: testPermissionGate,
-    provider: { providerName: "test", baseURL: "http://localhost", model: "test-model" },
+    provider: { providerName: "test", baseURL, model: "test-model" },
     description: "gate probe",
     prompt: "no-op",
   };
+}
+
+// Each mount-gate probe awaits a full runSubAgent cycle whose inference send
+// fails after the mount decisions have run. The send used to target an
+// unreachable host, whose connection-refused failure classifies as retryable
+// — the client burned its full backoff schedule (three attempts with 500ms +
+// 1000ms of fixed sleep) per test, enough to cross bun:test's 5s timeout
+// whenever the randomized suite loaded the machine. A local server answering
+// 401 fails the send as credential_failure, which is never retried, so the
+// cycle costs one local round trip and no timing-sensitive waiting. The 15s
+// per-test timeouts below only absorb machine-load spikes during the
+// full-runtime construction these probes perform; assertions are
+// timing-independent.
+async function runWithFailingInference(run: (baseURL: string) => Promise<unknown>): Promise<void> {
+  const server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      new Response(JSON.stringify({ error: { message: "mount-gate probe provider" } }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+  });
+  try {
+    await run(server.url.origin);
+  } finally {
+    server.stop(true);
+  }
 }
 
 describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
@@ -89,84 +120,76 @@ describe("runSubAgent search_agents mount gate (CL-7051, Tier-1 only)", () => {
     const cwd = await tmpCwd();
     let searchAgentsMounts = 0;
 
-    await withMockedModuleDuring(
-      import.meta.resolve("../agent/agent-search.js"),
-      (real: typeof import("../agent/agent-search.js")) => ({
-        ...real,
-        createSearchAgentsTool: (getProfiles: () => never) => {
-          searchAgentsMounts++;
-          return real.createSearchAgentsTool(getProfiles);
-        },
-      }),
-      async () => {
-        // Re-import so the mock is visible to runSubAgent's binding.
-        const { runSubAgent: run } = await import("./run.js");
-        try {
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("../agent/agent-search.js"),
+        (real: typeof import("../agent/agent-search.js")) => ({
+          ...real,
+          createSearchAgentsTool: (getProfiles: () => never) => {
+            searchAgentsMounts++;
+            return real.createSearchAgentsTool(getProfiles);
+          },
+        }),
+        async () => {
+          // Re-import so the mock is visible to runSubAgent's binding.
+          const { runSubAgent: run } = await import("./run.js");
           await run({
-            ...baseParams(cwd, join(cwd, ".ctx")),
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
             id: "greybeard-session",
             orchestrator: true,
             orchestratorTier: "nested-orchestrator",
             nestedDispatch: {
               permissionGate: testPermissionGate,
               getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
+              provider: { providerName: "test", baseURL, model: "test-model" },
               profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
             },
+          }).catch(() => {
+            // Inference/agent construction may fail; mount decisions run first.
           });
-        } catch {
-          // Inference/agent construction may fail; mount decisions run first.
-        }
-      },
+        },
+      ),
     );
 
     expect(searchAgentsMounts).toBe(0);
-  });
+  }, 15_000);
 
   test("Tier-1 orchestrator mounts search_agents when profiles exist", async () => {
     const cwd = await tmpCwd();
     let searchAgentsMounts = 0;
 
-    await withMockedModuleDuring(
-      import.meta.resolve("../agent/agent-search.js"),
-      (real: typeof import("../agent/agent-search.js")) => ({
-        ...real,
-        createSearchAgentsTool: (getProfiles: () => never) => {
-          searchAgentsMounts++;
-          return real.createSearchAgentsTool(getProfiles);
-        },
-      }),
-      async () => {
-        const { runSubAgent: run } = await import("./run.js");
-        try {
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("../agent/agent-search.js"),
+        (real: typeof import("../agent/agent-search.js")) => ({
+          ...real,
+          createSearchAgentsTool: (getProfiles: () => never) => {
+            searchAgentsMounts++;
+            return real.createSearchAgentsTool(getProfiles);
+          },
+        }),
+        async () => {
+          const { runSubAgent: run } = await import("./run.js");
           await run({
-            ...baseParams(cwd, join(cwd, ".ctx")),
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
             id: "skywalker-session",
             orchestrator: true,
             orchestratorTier: "orchestrator",
             nestedDispatch: {
               permissionGate: testPermissionGate,
               getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
+              provider: { providerName: "test", baseURL, model: "test-model" },
               profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
             },
+          }).catch(() => {
+            // Inference/agent construction may fail; mount decisions run first.
           });
-        } catch {
-          // Inference/agent construction may fail; mount decisions run first.
-        }
-      },
+        },
+      ),
     );
 
     expect(searchAgentsMounts).toBe(1);
-  });
+  }, 15_000);
 });
 
 describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
@@ -175,44 +198,40 @@ describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
     let capturedParentSessionId: string | undefined;
     let spawnMounts = 0;
 
-    await withMockedModuleDuring(
-      import.meta.resolve("./agent-fleet.js"),
-      (real: typeof import("./agent-fleet.js")) => ({
-        ...real,
-        createSpawnAgentTool: (deps: Parameters<typeof real.createSpawnAgentTool>[0]) => {
-          spawnMounts++;
-          capturedParentSessionId = deps.parentSessionId;
-          return real.createSpawnAgentTool(deps);
-        },
-      }),
-      async () => {
-        const { runSubAgent: run } = await import("./run.js");
-        try {
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("./agent-fleet.js"),
+        (real: typeof import("./agent-fleet.js")) => ({
+          ...real,
+          createSpawnAgentTool: (deps: Parameters<typeof real.createSpawnAgentTool>[0]) => {
+            spawnMounts++;
+            capturedParentSessionId = deps.parentSessionId;
+            return real.createSpawnAgentTool(deps);
+          },
+        }),
+        async () => {
+          const { runSubAgent: run } = await import("./run.js");
           await run({
-            ...baseParams(cwd, join(cwd, ".ctx")),
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
             id: "greybeard-session",
             orchestrator: true,
             orchestratorTier: "nested-orchestrator",
             nestedDispatch: {
               permissionGate: testPermissionGate,
               getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
+              provider: { providerName: "test", baseURL, model: "test-model" },
               profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
             },
+          }).catch(() => {
+            // Inference/agent construction may fail; mount decisions run first.
           });
-        } catch {
-          // Inference/agent construction may fail; mount decisions run first.
-        }
-      },
+        },
+      ),
     );
 
     expect(spawnMounts).toBe(1);
     expect(capturedParentSessionId).toBe("greybeard-session");
-  });
+  }, 15_000);
 });
 
 describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
@@ -220,39 +239,35 @@ describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
     const cwd = await tmpCwd();
     let listAgentsMounts = 0;
 
-    await withMockedModuleDuring(
-      import.meta.resolve("./agent-fleet.js"),
-      (real: typeof import("./agent-fleet.js")) => ({
-        ...real,
-        createListAgentsTool: (deps: never) => {
-          listAgentsMounts++;
-          return real.createListAgentsTool(deps);
-        },
-      }),
-      async () => {
-        const { runSubAgent: run } = await import("./run.js");
-        try {
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("./agent-fleet.js"),
+        (real: typeof import("./agent-fleet.js")) => ({
+          ...real,
+          createListAgentsTool: (deps: never) => {
+            listAgentsMounts++;
+            return real.createListAgentsTool(deps);
+          },
+        }),
+        async () => {
+          const { runSubAgent: run } = await import("./run.js");
           await run({
-            ...baseParams(cwd, join(cwd, ".ctx")),
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
             id: "greybeard-session",
             orchestrator: true,
             orchestratorTier: "nested-orchestrator",
             nestedDispatch: {
               permissionGate: testPermissionGate,
               getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
+              provider: { providerName: "test", baseURL, model: "test-model" },
             },
+          }).catch(() => {
+            // Inference/agent construction may fail; mount decisions run first.
           });
-        } catch {
-          // Inference/agent construction may fail; mount decisions run first.
-        }
-      },
+        },
+      ),
     );
 
     expect(listAgentsMounts).toBe(1);
-  });
+  }, 15_000);
 });

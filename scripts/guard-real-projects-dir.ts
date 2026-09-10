@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
-// Runs the test suite (`bun run test` — the same seeded, randomized command
-// CI runs) and fails the run if any test wrote into the real
-// ~/.corbits/projects directory. Tests must sandbox state under a temp
-// `home` (see src/session/index.ts's `home` overrides); nothing running
-// under this wrapper is allowed to fall back to the developer's own
-// session history.
+// Runs the test suite (`bun run test` — the seeded, randomized one-process
+// command whose path union CI shards via `test:paths`) and fails the run if
+// any test wrote into the real ~/.corbits/projects directory. Tests must
+// sandbox state under a temp `home` (see src/session/index.ts's `home`
+// overrides); nothing running under this wrapper is allowed to fall back to
+// the developer's own session history.
 //
 // This is a backstop, not a substitute for threading `home` correctly: a
 // leak is only caught after it already wrote into a real directory once,
@@ -45,7 +45,18 @@ async function main(): Promise<void> {
   const runTmpDir = join(tmpdir(), `corbits-test-guard-${runId}`);
   await mkdir(runTmpDir, { recursive: true });
 
-  const child = spawn("bun", ["run", "test"], {
+  // CI test shards pass bun-test path filters here (e.g. ./src) so each
+  // shard runs only its slice of the suite and still runs sandboxed. bun
+  // test filters are additive, so filters cannot be appended to
+  // `bun run test` (its own filters would widen the run back to the full
+  // suite), so a sharded run goes through test:paths, which carries the
+  // same seeded flags as `test` and takes the shard's filters. With no
+  // arguments the full default suite runs via `bun run test`, so `bun run
+  // check` behavior is unchanged.
+  const shardArgs = process.argv.slice(2);
+  const testCommand = shardArgs.length > 0 ? ["run", "test:paths", ...shardArgs] : ["run", "test"];
+
+  const child = spawn("bun", testCommand, {
     stdio: "inherit",
     env: { ...process.env, TMPDIR: runTmpDir, TMP: runTmpDir, TEMP: runTmpDir },
   });

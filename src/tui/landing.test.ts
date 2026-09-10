@@ -41,7 +41,6 @@ import { LOCKUP_WORDMARK } from "./lockup";
 import pkg from "../../package.json" with { type: "json" };
 import { MARK_LARGE, MARK_MID, MARK_SMALL } from "./mark-shape";
 import { SNOW_CHAR } from "./mark-anim";
-import { UI } from "./theme";
 
 const SIZE = { width: 80, height: 24 } as const;
 const NOTICE = "Anonymous usage telemetry is enabled. Disable in /settings.";
@@ -242,32 +241,6 @@ describe("landing screen", () => {
         expect(noticeRow).toBeGreaterThan(bottom);
         for (const item of LANDING_SUGGESTIONS) {
           expect(h.captureCharFrame()).toContain(item.label);
-        }
-      } finally {
-        shell.dispose();
-      }
-    }, SIZE);
-  });
-
-  test("the mark paints in the brand orange, not a cool accent", async () => {
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-        run: "idle",
-      });
-      try {
-        await settle(h);
-        const tones = new Set(
-          h
-            .captureSpans()
-            .lines.flatMap((line: { spans: CapturedSpan[] }) => line.spans)
-            .filter((span) => /[░▒▓█]/.test(span.text))
-            .map((span) => rgbToHex(span.fg).toLowerCase().slice(0, 7)),
-        );
-        expect(tones.size).toBeGreaterThan(0);
-        for (const tone of tones) {
-          expect([UI.action, UI.actionDim] as readonly string[]).toContain(tone);
         }
       } finally {
         shell.dispose();

@@ -30,7 +30,9 @@ bun run build
 bun run test
 ```
 
-These match the CI workflow in `.github/workflows/ci.yml`. Run `bun run check`
+These match the local development loop. CI shards the same path union via
+`test:paths` rather than running the one-process `bun run test` suite.
+Run `bun run check`
 (lint, typecheck, build, and the guarded test suite) before opening a PR —
 `bun run test` alone skips the projects-dir sandbox guard, which only runs
 under `bun run check` and CI. Do

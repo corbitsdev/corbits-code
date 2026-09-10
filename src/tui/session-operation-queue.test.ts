@@ -62,3 +62,19 @@ test("deliver targets agent at execution time when enqueued before rotation", as
   await awaitTail();
   expect(log).toEqual(["deliver:A", "rotate"]);
 });
+
+test("a failed delivery does not block a rotation queued behind it", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+
+  enqueue(async () => {
+    log.push("deliver:start");
+    throw new Error("send failed");
+  });
+  enqueue(async () => {
+    log.push("rotate");
+  });
+
+  await awaitTail();
+  expect(log).toEqual(["deliver:start", "rotate"]);
+});
