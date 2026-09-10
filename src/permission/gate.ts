@@ -17,11 +17,12 @@ import {
 } from "./classify.js";
 import { autoShellRuleForCall, safeWorktreeCommand } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { looksLikePath } from "../plugins/path-escape-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
 import { splitChainedCommand, isShellCommentOnly, stripCommentLines } from "./command.js";
-import { createPathRestriction } from "./path-restriction.js";
+import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import { OPERATOR_DECLINED_PREFIX } from "./decline-markers.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
@@ -378,6 +379,25 @@ function canSafelyMintPerSegment(pattern: string): boolean {
   return true;
 }
 
+// posix pathEscapePlugin rewrites path-like args to resolveWorkspacePath before
+// gateToolCall. Cache identity must use that same resolution so an authorizeCall
+// allow is not treated as a different call (and re-decided) at execution.
+function identityArguments(
+  args: ToolCall["arguments"],
+  cwd: string,
+  rootsProvider: RootsProvider,
+): string {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value === "string" && looksLikePath(key)) {
+      normalized[key] = resolveWorkspacePath(cwd, value, rootsProvider) ?? value;
+    } else {
+      normalized[key] = value;
+    }
+  }
+  return JSON.stringify(normalized);
+}
+
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, providerName, model, cwd } = options;
   const reactorGated = options.reactorGated;
@@ -496,11 +516,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // inner posix op, so a lasting set would mute later JSONL records. A hit
   // still requires matching name and arguments so a reused id cannot apply an
   // outer allow to a different inner tool. Nested posix with the same id still
-  // consume-once when identity matches. reset() clears leftovers (outer tools
-  // that never hit posix middleware).
+  // consume-once when identity matches. Path-like arguments are compared after
+  // the same workspace resolve pathEscapePlugin applies, so a Darwin
+  // /var/folders vs /private/var/folders rewrite is still the same call.
+  // reset() clears leftovers (outer tools that never hit posix middleware).
   const authorizedByCallId = new Map<
     string,
-    { name: string; arguments: ToolCall["arguments"]; verdict: AuthorizeVerdict }
+    { name: string; arguments: string; verdict: AuthorizeVerdict }
   >();
 
   // Non-blocking policy decision for one tool call: everything the gate owns —
@@ -775,9 +797,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const authorizeCall = async (call: ToolCall): Promise<AuthorizeVerdict> => {
     const verdict = mapAuthorizeVerdict(await decide(call));
+    const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
     authorizedByCallId.set(call.id, {
       name: call.name,
-      arguments: call.arguments,
+      arguments: identityArguments(call.arguments, identityCwd, rootsProvider),
       verdict,
     });
     return verdict;
@@ -785,10 +808,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const executionVerdict = async (call: ToolCall): Promise<AuthorizeVerdict> => {
     const cached = authorizedByCallId.get(call.id);
+    const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
     if (
       cached !== undefined &&
       cached.name === call.name &&
-      JSON.stringify(cached.arguments) === JSON.stringify(call.arguments)
+      cached.arguments === identityArguments(call.arguments, identityCwd, rootsProvider)
     ) {
       authorizedByCallId.delete(call.id);
       return cached.verdict;

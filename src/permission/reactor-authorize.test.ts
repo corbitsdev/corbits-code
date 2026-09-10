@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPermissionGate } from "./gate.js";
@@ -69,6 +69,47 @@ test("worker grant after a denied write allows a later call id through gateToolC
     called = true;
     return { callId: second.id, content: "executed", isError: false };
   });
+  expect(result.isError).toBe(false);
+  expect(called).toBe(true);
+});
+
+test("worker grant survives pathEscape realpath rewrite through gateToolCall", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "worker-grant-realpath-"));
+  const lexical = join(cwd, "probe.txt");
+  const escaped = join(realpathSync(cwd), "probe.txt");
+  const policy = createPermissionGate({
+    cwd,
+    approvals: [{ tool: "write_file", pattern: lexical }],
+    interactive: false,
+    auto: false,
+    skipPermissions: false,
+    reactorGated: true,
+    requestApproval: async () => {
+      throw new Error("worker must never ask");
+    },
+  });
+  const workerGate = workerPermissionGate(policy);
+  const authorized: ToolCall = {
+    id: "call_auto_0",
+    name: "write_file",
+    arguments: { path: lexical, content: "unauthorized" },
+  };
+  const executed: ToolCall = {
+    id: "call_auto_0",
+    name: "write_file",
+    arguments: { path: escaped, content: "unauthorized" },
+  };
+  expect((await workerGate.authorizeCall(authorized)).effect).toBe("allow");
+  let called = false;
+  const result = await gateToolCall(
+    workerGate,
+    executed,
+    new AbortController().signal,
+    async () => {
+      called = true;
+      return { callId: executed.id, content: "executed", isError: false };
+    },
+  );
   expect(result.isError).toBe(false);
   expect(called).toBe(true);
 });
