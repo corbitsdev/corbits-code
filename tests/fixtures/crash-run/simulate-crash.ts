@@ -34,7 +34,14 @@ await saveState(cwd, sessionId, {
 // replaced — matching runner.ts's activeRunHandle, so a rotation that (on
 // buggy code) clears the module-level slot behind this object is not
 // papered over by re-registering a fresh handle afterward.
-const activeRunHandle = { sessionId, cwd, task, startedAt, model };
+const activeRunHandle = {
+  sessionId,
+  cwd,
+  task,
+  startedAt,
+  turnsUsed: 3,
+  model,
+};
 setActiveRun(activeRunHandle);
 installCrashHandlers();
 

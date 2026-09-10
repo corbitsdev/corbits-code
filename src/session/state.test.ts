@@ -80,7 +80,7 @@ test("a straggler snapshot started before a terminal write does not overwrite it
 
 test("a persisted terminal status agrees with the active-run handle without a second call site", async () => {
   const sessionId = "sess-terminal";
-  setActiveRun({ sessionId, cwd, task: "task", startedAt: 1 });
+  setActiveRun({ sessionId, cwd, task: "task", startedAt: 1, turnsUsed: 0 });
 
   await finalizeRunState(
     cwd,

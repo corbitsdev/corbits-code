@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { setActiveRun, clearActiveRun } from "../session/active-run.js";
 import type { RunState } from "../session/state.js";
 
 describe("createTUICrashGuard", () => {
@@ -20,6 +21,15 @@ describe("createTUICrashGuard", () => {
         },
       }),
       async () => {
+        clearActiveRun();
+        setActiveRun({
+          sessionId: "live-session",
+          cwd: "/live-cwd",
+          task: "live task",
+          startedAt: 99,
+          turnsUsed: 4,
+          model: "live-provider:live-model",
+        });
         const { createTUICrashGuard } = await import("./session-start.js");
         const guard = createTUICrashGuard(() => ({
           cwd: "/boot-cwd",
@@ -64,6 +74,8 @@ describe("createTUICrashGuard", () => {
         expect(captured[0]?.state.startedAt).toBe(99);
         expect(captured[0]?.state.error).toBe("boom");
         expect(captured[0]?.state.model).toBe("live-provider:live-model");
+        expect(captured[0]?.state.turnsUsed).toBe(4);
+        clearActiveRun();
       },
     );
   });

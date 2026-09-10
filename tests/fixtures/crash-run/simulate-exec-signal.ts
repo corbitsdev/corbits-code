@@ -18,6 +18,7 @@ if (sessionId === undefined) {
 const task = "headless exec signal task";
 const runDir = sessionDir(cwd, sessionId);
 const runJsonPath = join(runDir, "run.json");
+const turnsUsed = Number(process.env["SIGNAL_TEST_TURNS_USED"] ?? "5");
 
 async function waitForRunningRunJson(): Promise<void> {
   for (;;) {
@@ -46,6 +47,8 @@ await withMockedModuleDuring(
   async () => {
     const { installSignalHandlers } = await import("../../../src/index.js");
     const { runExec } = await import("../../../src/exec/runner.js");
+    const { getActiveRun, syncRunStateHandle } =
+      await import("../../../src/session/active-run.js");
     installSignalHandlers();
     const config = {
       command: "exec",
@@ -62,6 +65,18 @@ await withMockedModuleDuring(
     } as unknown as Config;
     void runExec(config);
     await waitForRunningRunJson();
+    const handle = getActiveRun();
+    if (handle === null) {
+      throw new Error("runExec did not register an active-run handle");
+    }
+    // Advance the live counter the way a mid-run snapshot would, without
+    // reading run.json on the signal path under test.
+    syncRunStateHandle(handle, {
+      turnsUsed,
+      task: handle.task,
+      startedAt: handle.startedAt,
+      ...(handle.model !== undefined ? { model: handle.model } : {}),
+    });
     process.stdout.write(`${runDir}\n`);
     await new Promise<never>(() => undefined);
   },

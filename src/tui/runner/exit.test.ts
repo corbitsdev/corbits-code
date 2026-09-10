@@ -49,7 +49,7 @@ function stubQuit(args: {
       getToolCallCount: () => 0,
     },
     crashGuard: { markFinalized: () => undefined, isFinalized: () => false },
-    activeRunHandle: { task: "", startedAt: 0, model: "" },
+    activeRunHandle: { task: "", startedAt: 0, turnsUsed: 0, model: "" },
     hookManager: { dispatchPostRun: async () => undefined },
     liveSessionMode: "orchestrator",
   } as unknown as RunnerServices;
