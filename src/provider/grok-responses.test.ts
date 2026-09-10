@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
-import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
+import { createGrokResponsesAdapter } from "./grok-responses.js";
 
 const source: LastCycleSource = {
   sourceId: "xai/test",
@@ -195,5 +195,31 @@ describe("createGrokResponsesAdapter", () => {
       adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" })),
     ).toBe(1_500);
     expect(adapter.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
+  });
+
+  test("treats Responses completed, incomplete, and done events as stream-terminal", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    const isStreamTerminal = adapter.isStreamTerminal;
+    expect(typeof isStreamTerminal).toBe("function");
+    if (typeof isStreamTerminal !== "function") {
+      throw new Error("expected isStreamTerminal to be a function");
+    }
+    for (const type of [
+      "response.completed",
+      "response.incomplete",
+      "response.done",
+    ]) {
+      expect(isStreamTerminal(JSON.stringify({ type }))).toBe(true);
+    }
+    for (const type of [
+      "response.output_text.delta",
+      "response.created",
+      "response.in_progress",
+    ]) {
+      expect(isStreamTerminal(JSON.stringify({ type }))).toBe(false);
+    }
+    expect(isStreamTerminal("{not json")).toBe(false);
+    expect(isStreamTerminal("null")).toBe(false);
+    expect(isStreamTerminal('"just a string"')).toBe(false);
   });
 });

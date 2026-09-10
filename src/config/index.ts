@@ -46,15 +46,15 @@ import {
   GROK_RESPONSES_PROVIDER,
   GROK_SESSION_ID_OPTION,
   GROK_USER_ID_OPTION,
-} from "../provider/grok-responses-adapter.js";
+} from "../provider/grok-responses.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
 import { selectableGoModelIds } from "../provider/opencode-go-models.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,
-  OPENCODE_SESSION_ID_OPTION,
-} from "../provider/openai-responses-adapter.js";
+} from "../provider/openai-responses.js";
+import { OPENCODE_SESSION_ID_OPTION } from "../provider/opencode-session.js";
 import { OPENCODE_GO_MESSAGES_PROVIDER } from "../provider/opencode-go-anthropic-adapter.js";
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
