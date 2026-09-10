@@ -19,7 +19,7 @@ import {
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { createGlobalSettingsWriter, createLocalSettingsWriter } from "../../mcp/add-server.js";
 import { getProcessAdmissionQueue } from "../../subagent/admission.js";
-import { createSubAgentSessionStore } from "../../subagent/index.js";
+import { createSubAgentSessionStore, liveFleetCount } from "../../subagent/index.js";
 import {
   buildPluginDescriptor,
   createPluginsAdmin,
@@ -418,6 +418,7 @@ export async function assembleTUISession(
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
     onTasksChange: (tasks) => emitter.emit("tasks", tasks),
+    getLiveFleetCount: () => liveFleetCount(subAgentSessions.list()),
     requestContinuation: () => {
       state.enqueueAgentDeliver?.(() =>
         liveAgent(state).deliver(buildCompactionContinuationMessage()),

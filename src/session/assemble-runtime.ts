@@ -335,6 +335,11 @@ export interface ChatAgentWiring {
   inactivityTimeoutMs: number;
   totalTimeoutMs?: number | undefined;
   onTasksChange: (tasks: Task[]) => void;
+  /**
+   * Live running-lane count for ChatDirector idle-with-fleet. Omitted in exec
+   * (treated as 0).
+   */
+  getLiveFleetCount?: () => number;
   /** Compaction governor re-entry (the reactor emits no event after compact). */
   requestContinuation: () => void;
   getProvider: () => { providerName: string; model: string };
@@ -392,6 +397,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           requestContinuation: wiring.requestContinuation,
           provider: { ...wiring.getProvider() },
           getProviderId: wiring.getProviderId,
+          getLiveFleetCount: wiring.getLiveFleetCount,
         },
       );
       directorHolder.instance = d;

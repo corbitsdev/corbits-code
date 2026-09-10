@@ -17,6 +17,7 @@ import { loadSentMessages } from "../../session/sent-messages.js";
 import { setActiveDisposeHost } from "../../session/active-host.js";
 import {
   createFleetWatch,
+  driveOpenTasksAfterFleetDry,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   liveFleetCount,
@@ -49,6 +50,7 @@ import { resumeTranscriptLoadErrorBlock } from "./exit.js";
 import { userInboundMessage } from "./submit.js";
 import { hostOf, liveAgent, type RunnerServices, type RunnerState } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { buildFleetDryContinuationMessage } from "../../session/runtime-assembly.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -58,17 +60,19 @@ export function createFleetWakePublisher(
 ) {
   let lastLiveFleet = 0;
   let suspended = false;
-  const publish = (): void => {
-    if (suspended) return;
+  const publish = (): { previousRunning: number; running: number } => {
+    if (suspended) return { previousRunning: lastLiveFleet, running: lastLiveFleet };
     const lanes = sessions.list();
     // Reconcile even an empty snapshot before a fleet drop can settle the parent.
     const asks = pendingAskSnapshot(lanes, (id) => sessions.peekAsk(id));
     emitter.emit("event", { type: "agent-ask", asks });
+    const previousRunning = lastLiveFleet;
     const fleet = liveFleetCount(lanes);
     if (fleet !== lastLiveFleet) {
       lastLiveFleet = fleet;
       emitter.emit("event", { type: "fleet", running: fleet });
     }
+    return { previousRunning, running: fleet };
   };
   const withSuspended = (reset: () => void): void => {
     suspended = true;
@@ -153,6 +157,7 @@ export function wirePostStartup(
   // boundary. The settle timer coalesces a parallel burst into one observation;
   // the stall poll re-runs so a lane that goes quiet with no further store
   // event is still announced once. `observeFleet` decides what is worth saying.
+  const sessionBridge = hostOf(state).bridge;
   let fleetWatch = createFleetWatch();
   const reportFleet = (): void => {
     const observation = observeFleet(fleetWatch, services.subAgentSessions.list(), Date.now());
@@ -162,6 +167,24 @@ export function wirePostStartup(
   let fleetSettle: ReturnType<typeof setTimeout> | null = null;
   const fleetWakePublisher = createFleetWakePublisher(services.subAgentSessions, services.emitter);
   state.withFleetPublicationSuspended = fleetWakePublisher.withSuspended;
+  sessionBridge.setDryOpenTaskDriver(() => {
+    const send = state.sendWithAttemptIdentity;
+    if (send === undefined) return false;
+    return driveOpenTasksAfterFleetDry({
+      deferredDryEdge: true,
+      openTasks: services.directorHolder.instance?.getTasks() ?? [],
+      parentProcessing: false,
+      mailbox: services.toolset.fleetRecords,
+      lanes: services.subAgentSessions.list(),
+      beginSystemContinuation: (prompt) => {
+        sessionBridge.beginSystemContinuation(prompt);
+      },
+      send: (prompt) => send(buildFleetDryContinuationMessage(prompt)),
+      onSendFailure: () => {
+        sessionBridge.abortSystemContinuation();
+      },
+    });
+  });
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
     fleetWakePublisher.publish();
     if (fleetSettle !== null) return;
@@ -177,6 +200,7 @@ export function wirePostStartup(
     clearInterval(fleetStallPoll);
     if (fleetSettle !== null) clearTimeout(fleetSettle);
     unsubscribeFleetReport();
+    sessionBridge.setDryOpenTaskDriver(undefined);
   };
 
   // Registered slash-command names only — bare skill/agent words stay unstyled.

@@ -213,6 +213,26 @@ export interface SessionBridge {
    * when the harness event omits `providerId`.
    */
   setInferenceProviderId: (id: string | undefined, displayLabel?: string) => void;
+  /**
+   * Mark the run busy for a system-originated continuation (fleet-dry open-task
+   * drive). Pushes `text` onto pendingEchoes so the inbound `message.received`
+   * is not painted as a user row. Does not send — the caller uses
+   * sendWithAttemptIdentity with a system mailbox message.
+   */
+  beginSystemContinuation: (text: string) => void;
+  /**
+   * Occupancy send failed after beginSystemContinuation. Drop the occupancy
+   * echo so a later matching inbound is not swallowed, re-arm the dry-open
+   * latch, drop the continuation hold, and idle so follow-ups can drain and a
+   * later settle can take another occupancy shot.
+   */
+  abortSystemContinuation: () => void;
+  /**
+   * Occupancy owner for dry+open continuation. Called once from
+   * settleRunToIdle when a latched fleet-dry edge is still dry. Return true
+   * if a continuation was sent (run stays busy).
+   */
+  setDryOpenTaskDriver: (driver: (() => boolean) | undefined) => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -368,6 +388,20 @@ export interface BridgeBag {
    * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
    */
   flushPendingAskWake: (() => void) | null;
+  /**
+   * One deferred occupancy shot for the last live-fleet → 0 edge. Consumed on
+   * settle so a missed wentDry while the parent was processing still drives
+   * once, and a later settle cannot loop.
+   */
+  pendingDryOpenDrive: boolean;
+  /**
+   * beginSystemContinuation re-armed the turn during the previous cycle's
+   * settle. Late connector.reply from that cycle must not settle this one
+   * until its own inference.start arrives.
+   */
+  awaitingContinuationInference: boolean;
+  /** Occupancy driver: collect+send when settle takes the deferred dry shot. */
+  dryOpenTaskDriver: (() => boolean) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
   lastSentOrigin: "composer" | "internal" | null;
@@ -901,7 +935,9 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
  * session-idle. A live fleet holds the run busy after the parent turn settles
  * (idle-with-fleet): Enter upgrades to a new primary turn during the hold and
  * follow-ups keep waiting; the fleet event landing at zero re-enters here to
- * release the hold.
+ * release the hold. A latched dry edge with open tasks takes one occupancy
+ * shot here instead of idling, so a wentDry missed while processing cannot
+ * disagree with settle.
  */
 function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   if (shell.session.run !== "busy") return;
@@ -919,7 +955,18 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     bag.flushPendingAskWake?.();
     return;
   }
+  if (bag.pendingDryOpenDrive) {
+    bag.pendingDryOpenDrive = false;
+    let driven = false;
+    try {
+      driven = bag.dryOpenTaskDriver?.() === true;
+    } catch {
+      driven = false;
+    }
+    if (driven) return;
+  }
   shell.session = setRunState(shell.session, "idle");
+  bag.awaitingContinuationInference = false;
   // Full drain: soft steers first, then follow-ups (drainOrder).
   drainAtBoundary(shell, bag);
   bag.flushPendingAskWake?.();
@@ -937,7 +984,13 @@ function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent
     // queued follow-ups drain now. While the parent is still working the
     // count just updates — the ordinary turn settle does the draining.
     if (event.type === "fleet") {
+      const previous = bag.liveFleet;
       bag.liveFleet = event.running;
+      if (event.running > 0) {
+        bag.pendingDryOpenDrive = false;
+      } else if (previous > 0) {
+        bag.pendingDryOpenDrive = true;
+      }
       if (event.running === 0 && !bag.turn.isProcessing) {
         settleRunToIdle(shell, bag);
       }
@@ -1042,6 +1095,9 @@ export function attachSessionBridge(
     pendingAskWake: new Map(),
     deliveredAskWake: new Map(),
     flushPendingAskWake: null,
+    pendingDryOpenDrive: false,
+    awaitingContinuationInference: false,
+    dryOpenTaskDriver: undefined,
     lastSentMessage: "",
     lastSentOrigin: null,
     quotaFired: false,
@@ -1213,7 +1269,12 @@ export function attachSessionBridge(
 
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return;
-    const settled = noteEvent(event);
+    if (event.type === "inference.start") {
+      bag.awaitingContinuationInference = false;
+    }
+    const staleContinuationReply =
+      event.type === "connector.reply" && bag.awaitingContinuationInference;
+    const settled = staleContinuationReply ? false : noteEvent(event);
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
       if (consumePendingEchoEvent(bag, event)) {
@@ -1387,6 +1448,7 @@ export function attachSessionBridge(
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
     recordLastSent(null);
+    bag.awaitingContinuationInference = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
     flushPendingAskWake();
@@ -1399,6 +1461,8 @@ export function attachSessionBridge(
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
+    bag.pendingDryOpenDrive = false;
+    bag.awaitingContinuationInference = false;
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
   };
@@ -1539,6 +1603,46 @@ export function attachSessionBridge(
           bag.mapCtx.providerLabel = displayLabel;
         }
       }
+    },
+    beginSystemContinuation: (text) => {
+      if (bag.disposed) return;
+      const t = text.trim();
+      if (t.length === 0) return;
+      bag.pendingEchoes.push(t);
+      bag.lastSentMessage = t;
+      bag.awaitingContinuationInference = true;
+      shell.session = setRunState(shell.session, "busy");
+      bag.turn = turnStateOnSubmit(bag.turn, now());
+      paintChrome(shell);
+      paintPhase();
+    },
+    abortSystemContinuation: () => {
+      if (bag.disposed) return;
+      if (bag.awaitingContinuationInference) {
+        const occupancy = bag.lastSentMessage;
+        if (occupancy.length > 0) {
+          const last = bag.pendingEchoes.length - 1;
+          if (last >= 0 && bag.pendingEchoes[last] === occupancy) {
+            bag.pendingEchoes.pop();
+          } else {
+            const index = bag.pendingEchoes.lastIndexOf(occupancy);
+            if (index !== -1) bag.pendingEchoes.splice(index, 1);
+          }
+        }
+      }
+      bag.awaitingContinuationInference = false;
+      bag.pendingDryOpenDrive = true;
+      bag.lastSentMessage = "";
+      flushOpenRow(shell, bag);
+      bag.turnThinking = null;
+      shell.inFlightTool = null;
+      shell.session = setRunState(shell.session, "idle");
+      drainAtBoundary(shell, bag);
+      bag.turn = turnStateOnInterrupt(bag.turn, now());
+      paintPhase();
+    },
+    setDryOpenTaskDriver: (driver) => {
+      bag.dryOpenTaskDriver = driver;
     },
     dispose: () => {
       flushOpenRow(shell, bag);

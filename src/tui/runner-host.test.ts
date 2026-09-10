@@ -133,6 +133,38 @@ describe("observeSessionFromSubAgents", () => {
   });
 });
 
+describe("mountRunnerHost session bridge", () => {
+  test("exposes the live session bridge so a system continuation can mark the run busy", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      deliver: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    });
+    try {
+      expect(typeof host.bridge.beginSystemContinuation).toBe("function");
+      expect(host.shell.session.run).toBe("idle");
+      host.bridge.beginSystemContinuation(
+        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)",
+      );
+      expect(host.shell.session.run).toBe("busy");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+});
+
 describe("mountRunnerHost chrome wiring", () => {
   test("reads the current command catalog on every palette access", async () => {
     const harness = await createHarness({ width: 80, height: 24 });

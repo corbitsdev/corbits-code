@@ -1399,6 +1399,376 @@ describe("idle-with-fleet (CL-7057)", () => {
   });
 });
 
+describe("fleet-dry open-task drive (CL-7540)", () => {
+  function settleToollessTurn(bridge: ReturnType<typeof attachSessionBridge>): void {
+    bridge.handle({ type: "inference.start", data: {} });
+    bridge.handle({ type: "inference.done", data: {} });
+  }
+
+  test("dry+open: fleet-0 settle drives once, keeps the run busy, and swallows the prompt", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+          port.clear();
+          const userRowsBefore = shell.streamLog.filter((r) => r.role === "user").length;
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: prompt } },
+          });
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(userRowsBefore);
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("wentDry during processing then settle drives after settle, not idle", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          expect(shell.session.run).toBe("busy");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(0);
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          bridge.submit("when it finishes, summarize", "queue");
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          bridge.handle({ type: "connector.reply", data: { content: "" } });
+          expect(shell.session.run).toBe("busy");
+          expect(badgeCount(shell.session)).toBe(1);
+          expect(port.calls.some((c) => c.op === "deliver")).toBe(false);
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("idle");
+          expect(badgeCount(shell.session)).toBe(0);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("dry+terminal: fleet 1→0 without continuation idles and drains a queued follow-up", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+          bridge.submit("when it finishes, summarize", "queue");
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(shell.session.run).toBe("idle");
+          expect(badgeCount(shell.session)).toBe(0);
+          const deliver = port.calls.find((c) => c.op === "deliver");
+          expect(deliver).toEqual({
+            op: "deliver",
+            item: expect.objectContaining({
+              text: "when it finishes, summarize",
+              kind: "queue",
+            }),
+          });
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("live+open: fleet running 2 without continuation holds busy; Enter still sendImmediate", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.handle({ type: "fleet", running: 2 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+          bridge.submit("follow up later", "queue");
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          shell.prompt.value = "also update the docs";
+          shell.prompt.submit();
+          expect(port.calls.some((c) => c.op === "enqueue")).toBe(false);
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(true);
+          expect(badgeCount(shell.session)).toBe(1);
+          expect(shell.session.run).toBe("busy");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("occupancy send failure re-arms, clears continuation hold, and drains follow-ups", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            if (drives === 1) {
+              void Promise.resolve().then(() => {
+                bridge.abortSystemContinuation();
+              });
+            }
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          bridge.submit("when it finishes, summarize", "queue");
+          expect(badgeCount(shell.session)).toBe(1);
+          port.clear();
+          await Promise.resolve();
+          expect(shell.session.run).toBe("idle");
+          expect(badgeCount(shell.session)).toBe(0);
+          const deliver = port.calls.find((c) => c.op === "deliver");
+          expect(deliver).toEqual({
+            op: "deliver",
+            item: expect.objectContaining({
+              text: "when it finishes, summarize",
+              kind: "queue",
+            }),
+          });
+          bridge.handle({ type: "connector.reply", data: { content: "" } });
+          expect(shell.session.run).toBe("idle");
+          bridge.submit("continue the remaining work", "immediate");
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(2);
+          expect(shell.session.run).toBe("busy");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("occupancy send abort drops the continuation echo so a later matching inbound paints", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const occupancy =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          const operator = "dispatch workers";
+          bridge.submit(operator, "immediate");
+          const userRowsAfterSubmit = shell.streamLog.filter((r) => r.role === "user").length;
+          bridge.beginSystemContinuation(occupancy);
+          bridge.abortSystemContinuation();
+          expect(shell.session.run).toBe("idle");
+
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: operator } },
+          });
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(userRowsAfterSubmit);
+
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: occupancy } },
+          });
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
+            userRowsAfterSubmit + 1,
+          );
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("occupancy send abort resets the turn without a following reply", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const nowMs = 0;
+        let tick: (() => void) | undefined;
+        const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+        const bridge = attachSessionBridge(shell, port, {
+          now: () => nowMs,
+          stallNoticeMs: 400,
+          stallTimeoutMs: 1_000,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.setDryOpenTaskDriver(() => {
+            bridge.beginSystemContinuation(prompt);
+            void Promise.resolve().then(() => {
+              bridge.abortSystemContinuation();
+            });
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(bridge.turn.isProcessing).toBe(true);
+          expect(tick).toBeDefined();
+          await Promise.resolve();
+          expect(bridge.turn.isProcessing).toBe(false);
+          expect(bridge.turn.awaitingResponse).toBe(false);
+          expect(bridge.turn.status).not.toBe("running");
+          expect(shell.lockupPhase).toBeNull();
+          expect(tick).toBeUndefined();
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("occupancy continuation is what quota auto-retry resubmits", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const continuation =
+          "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+        const bridge = attachSessionBridge(shell, port, {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.setDryOpenTaskDriver(() => {
+            bridge.beginSystemContinuation(continuation);
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          bridge.handle({ type: "fleet", running: 0 });
+          port.clear();
+          bridge.handle({
+            type: "inference.error",
+            data: { error: { category: "quota_exhausted", retryAfterMs: 1_000 } },
+          });
+          nowMs += 10_000;
+          tick?.();
+          expect(port.calls).toEqual([{ op: "sendImmediate", text: continuation.trim() }]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
 describe("syncAgentProgress", () => {
   function taskSession(over: Partial<TaskProgressSession>): TaskProgressSession {
     return {

@@ -25,6 +25,7 @@ export {
   type FleetWatch,
   type PendingAskWake,
 } from "./fleet-report.js";
+export { driveOpenTasksAfterFleetDry } from "./fleet-dry-drive.js";
 export {
   EMPTY_THRASH_STATE,
   nextThrashState,

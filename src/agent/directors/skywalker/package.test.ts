@@ -117,6 +117,8 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("task()");
     expect(p).toContain('mode="all"');
     expect(p).toContain("uncollected spawns");
+    expect(p).toContain("When the fleet goes dry the runtime re-enters with collected reports");
+    expect(p).toContain("do not tight-loop wait_agents");
     expect(p).not.toContain("Present the plan when the change is large or ambiguous");
   });
 

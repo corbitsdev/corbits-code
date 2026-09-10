@@ -379,3 +379,25 @@ export function buildCompactionContinuationMessage(): InboundMessage {
     signatureStatus: "missing",
   };
 }
+
+/**
+ * System-originated inbound that re-enters the parent after the fleet goes dry
+ * with todo/doing tasks still open. Not operator input, so no
+ * OPERATOR_ORIGINATED_FLAG. ChatDirector still resets idle and tool-only
+ * nudge counters on any message.received — occupancy therefore fires one
+ * deferred shot per dry edge rather than re-driving on every settle.
+ */
+export function buildFleetDryContinuationMessage(text: string): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `fleet-dry-continue-${Date.now()}@local`,
+    },
+    flags: [],
+    content: text,
+    signatureStatus: "missing",
+  };
+}
