@@ -1012,9 +1012,8 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   }
 }
 
-function occupancyHold(bag: BridgeBag, runBusy: boolean): boolean {
-  if (bag.liveFleet > 0 || bag.awaitingContinuationInference) return true;
-  return runBusy && bag.pendingDryOpenDrive;
+function occupancyHold(bag: BridgeBag): boolean {
+  return bag.liveFleet > 0 || bag.awaitingContinuationInference;
 }
 
 /**
@@ -1293,7 +1292,7 @@ export function attachSessionBridge(
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
       nowMs,
-      sessionActive: occupancyHold(bag, shell.session.run === "busy"),
+      sessionActive: occupancyHold(bag),
     };
     const fleet = fleetProgress(bag.agentSessions, nowMs);
     const label = resolveTurnLabel(input, isStalled, fleet);
