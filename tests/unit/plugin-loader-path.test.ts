@@ -1,12 +1,12 @@
 import { test, expect } from "bun:test";
 import { loadPluginEntry, loadPluginsFromPaths } from "../../src/plugins/loader.js";
+import { defined } from "../helpers/defined.js";
 
 test("loadPluginEntry loads a plugin directory by path and reads its manifest", async () => {
-  const mod = await loadPluginEntry("tests/fixtures/plugins/exa");
-  expect(mod).not.toBeNull();
-  expect(mod!.manifest?.id).toBe("exa");
-  expect(mod!.manifest?.kind).toBe("web");
-  expect(typeof mod!.createWebProvider).toBe("function");
+  const mod = defined(await loadPluginEntry("tests/fixtures/plugins/exa"), "plugin module");
+  expect(mod.manifest?.id).toBe("exa");
+  expect(mod.manifest?.kind).toBe("web");
+  expect(typeof mod.createWebProvider).toBe("function");
 });
 
 test("loadPluginEntry returns null for a non-existent path", async () => {

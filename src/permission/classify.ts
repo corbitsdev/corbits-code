@@ -143,7 +143,8 @@ function isBoundedDirectoryListing(program: string, args: readonly string[]): bo
   if (program === "tree") {
     if (args.some((arg) => TREE_FILE_IO_FLAG.test(arg))) return false;
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
+      const arg = args[i];
+      if (arg === undefined) continue;
       const depth = parseTreeDepth(arg, args[i + 1]);
       if (depth === undefined) continue;
       // `-L` / `--max-depth` consume the next token when separate.

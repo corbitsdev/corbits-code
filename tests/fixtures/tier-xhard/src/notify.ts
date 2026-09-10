@@ -3,7 +3,7 @@ import { declareTable, put, all } from "./store.ts";
 export const MAX_ATTEMPTS = 3;
 
 /** Delivery sink. Tests replace this to simulate failures. */
-export let deliver: (orderId: string) => Promise<void> = async () => {};
+export let deliver: (orderId: string) => Promise<void> = async () => undefined;
 export function setDeliver(fn: (orderId: string) => Promise<void>): void {
   deliver = fn;
 }

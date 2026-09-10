@@ -55,7 +55,7 @@ export const commandPlugin = { commands: [] };
       await writeFile(
         join(pluginDir, "index.ts"),
         `export const manifest = { id: "ok-plugin", name: "OK", kind: "command" };
-export const commandPlugin = { commands: [{ name: "ping", description: "ping", run: async () => {} }] };
+export const commandPlugin = { commands: [{ name: "ping", description: "ping", run: async () => undefined }] };
 `,
         "utf8",
       );

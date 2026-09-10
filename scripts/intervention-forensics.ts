@@ -61,7 +61,9 @@ function findAll(dir: string, name: string, out: string[]): void {
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
   const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[index]!;
+  const value = sorted[index];
+  if (value === undefined) return 0;
+  return value;
 }
 
 interface Bucket {
@@ -172,10 +174,11 @@ const rows = [...buckets.entries()].sort((a, b) => b[1].count - a[1].count);
 console.log("\nintervention                       n   value p50/p90/max   threshold  edited");
 for (const [key, bucket] of rows) {
   const sorted = [...bucket.values].sort((a, b) => a - b);
+  const last = sorted[sorted.length - 1];
   const dist =
-    sorted.length === 0
+    sorted.length === 0 || last === undefined
       ? "-"
-      : `${percentile(sorted, 50)}/${percentile(sorted, 90)}/${sorted[sorted.length - 1]!}`;
+      : `${percentile(sorted, 50)}/${percentile(sorted, 90)}/${last}`;
   const thresholds = bucket.thresholds.size === 0 ? "-" : [...bucket.thresholds].join(",");
   console.log(
     `${key.padEnd(33)} ${String(bucket.count).padStart(3)}   ${dist.padEnd(16)} ${thresholds.padEnd(10)} ${String(bucket.editedWork).padStart(5)}`,

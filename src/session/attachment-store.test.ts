@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
 import {
@@ -34,8 +35,8 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
     const aged = await ageImageBlocks(turn);
     expect(JSON.stringify(aged.turn)).not.toContain(PNG_B64);
     expect(aged.blobs).toHaveLength(1);
-    expect(aged.blobs[0]!.contentType).toBe("image/png");
-    expect(new TextDecoder().decode(aged.blobs[0]!.bytes)).toBe(PNG_B64);
+    expect(defined(aged.blobs[0]).contentType).toBe("image/png");
+    expect(new TextDecoder().decode(defined(aged.blobs[0]).bytes)).toBe(PNG_B64);
 
     const markerText = aged.turn.content.find(
       (b) => b.type === "text" && b.text.includes("attachment:///"),
@@ -48,7 +49,7 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
       if (bytes === undefined) throw new Error(`Blob not found for key: ${key}`);
       return bytes;
     });
-    const image = rehydrated[0]!.content.find((b) => b.type === "image");
+    const image = defined(rehydrated[0]).content.find((b) => b.type === "image");
     expect(image).toEqual({
       type: "image",
       source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
@@ -77,7 +78,7 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
       state: {} as never,
       trigger: "test",
     });
-    expect(result.output[0]!.content.some((b) => b.type === "image")).toBe(true);
+    expect(defined(result.output[0]).content.some((b) => b.type === "image")).toBe(true);
     expect(JSON.stringify(result.output)).toContain(PNG_B64);
     expect(result.record.decisions.restoredImageCount).toBe(1);
     // Input turn is not mutated — durable history keeps the marker.
@@ -101,7 +102,7 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
       state: {} as never,
       trigger: "test",
     });
-    expect(result.output[0]!.content).toEqual([{ type: "text", text }]);
+    expect(defined(result.output[0]).content).toEqual([{ type: "text", text }]);
     expect(result.record.decisions.restoredImageCount).toBe(0);
   });
 });

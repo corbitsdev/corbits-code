@@ -14,6 +14,7 @@ import {
   runUntilSuspended,
   toolDoneEvents,
 } from "./harness.js";
+import { defined } from "../helpers/defined.js";
 
 const CURL_CALL = { name: "run_shell", args: { command: "curl -sS https://example.com" } };
 
@@ -201,8 +202,9 @@ describe("integration — reactor approval suspend/resume", () => {
         await turn.reply();
         const dones = toolDoneEvents(turn.events);
         expect(dones.length).toBeGreaterThanOrEqual(1);
-        expect(dones[0]!.data.result.isError).toBe(true);
-        expect(dones[0]!.data.result.content).toContain("Denied by policy: tool:run_shell/invoke");
+        const denied = defined(dones[0], "tool done event");
+        expect(denied.data.result.isError).toBe(true);
+        expect(denied.data.result.content).toContain("Denied by policy: tool:run_shell/invoke");
       } finally {
         await closeIntegrationSession(session);
       }
@@ -222,10 +224,11 @@ describe("integration — reactor approval suspend/resume", () => {
       await turn.reply();
       const dones = toolDoneEvents(turn.events);
       expect(dones.length).toBeGreaterThanOrEqual(1);
-      expect(dones[0]!.data.result.isError).toBe(true);
+      const denied = defined(dones[0], "tool done event");
+      expect(denied.data.result.isError).toBe(true);
       // Assert the block text: this deny is a policy deny, not an operator
       // decline, so the director's classification must leave it unmatched.
-      expect(dones[0]!.data.result.content).toContain("Denied by policy:");
+      expect(denied.data.result.content).toContain("Denied by policy:");
       // Stricter-than-authz command deny is preserved as a block effect; the
       // approval surface was never raised.
       expect(ctx.asks.length).toBe(0);
@@ -286,7 +289,7 @@ describe("authz seam carries the ToolCall context", () => {
       name: "run_shell",
       arguments: { command: "ls" },
     });
-    expect(seen[0]!.arguments).toEqual({ command: "ls" });
+    expect(defined(seen[0], "seen tool call").arguments).toEqual({ command: "ls" });
   });
 
   test("parallel batch keeps per-call attribution", async () => {
@@ -301,7 +304,7 @@ describe("authz seam carries the ToolCall context", () => {
   });
 
   test("non-ToolCall context fails loud", async () => {
-    const authorize = extWith(() => {});
+    const authorize = extWith(() => undefined);
     await expect(authorize("tool:run_shell", "invoke", { nope: true })).rejects.toThrow(
       /not a ToolCall/,
     );

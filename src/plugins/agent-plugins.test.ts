@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { resolveAgentPluginProfiles } from "./agent-plugins.js";
 import type { PluginModule } from "./loader.js";
@@ -29,7 +30,7 @@ describe("resolveAgentPluginProfiles", () => {
     const { mod, config } = agentModule("p1", [validProfile]);
     const profiles = await resolveAgentPluginProfiles([mod], config);
     expect(profiles.length).toBe(1);
-    expect(profiles[0]!.id).toBe("scout");
+    expect(defined(profiles[0]).id).toBe("scout");
   });
 
   test("skips profiles from disabled plugins", async () => {
@@ -60,7 +61,7 @@ describe("resolveAgentPluginProfiles", () => {
     ]);
     const profiles = await resolveAgentPluginProfiles([mod], config);
     expect(profiles.length).toBe(1);
-    expect(profiles[0]!.id).toBe("scout");
+    expect(defined(profiles[0]).id).toBe("scout");
   });
 
   test("collects from multiple plugins and flattens", async () => {
@@ -83,14 +84,14 @@ describe("resolveAgentPluginProfiles", () => {
   test("stamps plugin:<id> source for ordinary plugins", async () => {
     const { mod, config } = agentModule("p1", [validProfile]);
     const profiles = await resolveAgentPluginProfiles([mod], config);
-    expect(profiles[0]!.source).toBe("plugin:p1");
+    expect(defined(profiles[0]).source).toBe("plugin:p1");
   });
 
   test("preserves mod.source when set (claude marketplace)", async () => {
     const { mod, config } = agentModule("p1", [validProfile]);
     mod.source = "claude";
     const profiles = await resolveAgentPluginProfiles([mod], config);
-    expect(profiles[0]!.source).toBe("claude");
+    expect(defined(profiles[0]).source).toBe("claude");
   });
 
   // Gating uses isPluginModuleEnabled (same as skills), not the bare

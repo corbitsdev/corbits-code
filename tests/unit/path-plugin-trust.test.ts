@@ -9,6 +9,7 @@ import {
   loadPluginsFromPaths,
   type ExpandPluginPathSkip,
 } from "../../src/plugins/loader.js";
+import { defined } from "../helpers/defined.js";
 import {
   isPathPluginTrusted,
   loadPathTrust,
@@ -39,7 +40,7 @@ async function writeCommandPlugin(dir: string, id: string, marker?: string): Pro
   await writeFile(
     join(dir, "index.ts"),
     `${sideEffect}export const manifest = { id: ${JSON.stringify(id)}, name: ${JSON.stringify(id)}, kind: "command" };
-export const commandPlugin = { commands: [{ name: "ping", description: "ping", run: async () => {} }] };
+export const commandPlugin = { commands: [{ name: "ping", description: "ping", run: async () => undefined }] };
 `,
     "utf8",
   );
@@ -253,8 +254,9 @@ describe("path plugin trust across working directories", () => {
         isPluginTrusted: (p) => isPathPluginTrusted(pathTrust, p),
       });
       expect(mods.map((m) => m.manifest?.id)).toEqual(["gamma"]);
-      expect(mods[0]!.metadataOnly).toBeUndefined();
-      expect(mods[0]!.pluginPath).toBe(sibling);
+      const mod = defined(mods[0], "plugin module");
+      expect(mod.metadataOnly).toBeUndefined();
+      expect(mod.pluginPath).toBe(sibling);
     } finally {
       await rm(base, { recursive: true, force: true });
     }

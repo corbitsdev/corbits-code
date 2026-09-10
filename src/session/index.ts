@@ -36,10 +36,15 @@ export function generateSessionId(): string {
   bytes[5] = ts & 0xff;
 
   // Set version to 7 (byte 6, high nibble)
-  bytes[6] = (bytes[6]! & 0x0f) | 0x70;
+  const versionByte = bytes[6];
+  const variantByte = bytes[8];
+  if (versionByte === undefined || variantByte === undefined) {
+    throw new Error("uuid v7 bytes missing");
+  }
+  bytes[6] = (versionByte & 0x0f) | 0x70;
 
   // Set variant to 10xx (byte 8, high nibble)
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  bytes[8] = (variantByte & 0x3f) | 0x80;
 
   // Format as hex string with dashes
   const hex = Array.from(bytes)

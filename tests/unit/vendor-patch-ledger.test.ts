@@ -11,6 +11,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { describe, expect, test } from "bun:test";
+import { defined } from "../helpers/defined.js";
 
 const repoRoot = join(import.meta.dirname, "../..");
 const vendorRoot = join(repoRoot, "vendor");
@@ -74,7 +75,7 @@ async function collectMarkers(pkgDir: string): Promise<Marker[]> {
     while ((match = MARKER_RE.exec(text)) !== null) {
       const before = text.slice(0, match.index);
       const line = before.split("\n").length;
-      markers.push({ file: rel, anchor: match[2]!, line });
+      markers.push({ file: rel, anchor: defined(match[2], "marker anchor"), line });
     }
   }
   return markers;
@@ -86,7 +87,7 @@ async function collectHeadings(ledgerPath: string): Promise<string[]> {
   let match: RegExpExecArray | null;
   HEADING_RE.lastIndex = 0;
   while ((match = HEADING_RE.exec(text)) !== null) {
-    headings.push(match[1]!);
+    headings.push(defined(match[1], "ledger heading"));
   }
   return headings;
 }

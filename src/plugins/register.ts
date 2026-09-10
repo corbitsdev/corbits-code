@@ -98,8 +98,11 @@ export function registerWorkflowPlugins(
   const registered: string[] = [];
   for (const mod of modules) {
     if (!isEnabledWorkflowPlugin(mod, config)) continue;
-    registerWorkflowPlugin(mod.workflowPlugin!);
-    registered.push(mod.manifest!.id);
+    const workflowPlugin = mod.workflowPlugin;
+    const id = mod.manifest?.id;
+    if (workflowPlugin === undefined || id === undefined) continue;
+    registerWorkflowPlugin(workflowPlugin);
+    registered.push(id);
   }
   return registered;
 }

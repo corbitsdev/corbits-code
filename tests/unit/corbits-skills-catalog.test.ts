@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { loadSkillCommands } from "../../src/plugins/skill-commands.js";
+import { defined } from "../helpers/defined.js";
 
 const pluginRoot = join(import.meta.dirname, "../../plugins/corbits-skills");
 
@@ -201,7 +202,7 @@ test("Corbits-only skills do not contain GaaS tool names", async () => {
 
 test("loadSkillCommands lists exactly the nine slash actions", async () => {
   const cmds = await loadSkillCommands(join(import.meta.dirname, "../../plugins/corbits-skills"));
-  expect(cmds!.map((c) => c.name).sort()).toEqual([
+  expect(defined(cmds, "skill commands").map((c) => c.name).sort()).toEqual([
     "ast-grep",
     "create-issue",
     "implement",

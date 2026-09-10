@@ -30,14 +30,29 @@ interface DiffOp {
 function lcsDiff(oldLines: string[], newLines: string[]): DiffOp[] {
   const n = oldLines.length;
   const m = newLines.length;
-  const dp: Uint32Array[] = new Array(n + 1);
-  for (let i = 0; i <= n; i++) dp[i] = new Uint32Array(m + 1);
+  const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
+    const row = dp[i];
+    const nextRow = dp[i + 1];
+    if (row === undefined || nextRow === undefined) {
+      throw new Error("lcs dp row missing");
+    }
     for (let j = m - 1; j >= 0; j--) {
-      dp[i]![j] =
-        oldLines[i] === newLines[j]
-          ? dp[i + 1]![j + 1]! + 1
-          : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+      const oldLine = oldLines[i];
+      const newLine = newLines[j];
+      const diag = nextRow[j + 1];
+      const down = nextRow[j];
+      const right = row[j + 1];
+      if (
+        oldLine === undefined ||
+        newLine === undefined ||
+        diag === undefined ||
+        down === undefined ||
+        right === undefined
+      ) {
+        throw new Error("lcs dp cell missing");
+      }
+      row[j] = oldLine === newLine ? diag + 1 : Math.max(down, right);
     }
   }
 
@@ -45,24 +60,35 @@ function lcsDiff(oldLines: string[], newLines: string[]): DiffOp[] {
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
-    if (oldLines[i] === newLines[j]) {
-      ops.push({ kind: "same", text: oldLines[i]! });
+    const oldLine = oldLines[i];
+    const newLine = newLines[j];
+    if (oldLine === undefined || newLine === undefined) break;
+    const nextRow = dp[i + 1];
+    const row = dp[i];
+    const down = nextRow?.[j];
+    const right = row?.[j + 1];
+    if (oldLine === newLine) {
+      ops.push({ kind: "same", text: oldLine });
       i++;
       j++;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      ops.push({ kind: "del", text: oldLines[i]! });
+    } else if (down !== undefined && right !== undefined && down >= right) {
+      ops.push({ kind: "del", text: oldLine });
       i++;
     } else {
-      ops.push({ kind: "add", text: newLines[j]! });
+      ops.push({ kind: "add", text: newLine });
       j++;
     }
   }
   while (i < n) {
-    ops.push({ kind: "del", text: oldLines[i]! });
+    const oldLine = oldLines[i];
+    if (oldLine === undefined) break;
+    ops.push({ kind: "del", text: oldLine });
     i++;
   }
   while (j < m) {
-    ops.push({ kind: "add", text: newLines[j]! });
+    const newLine = newLines[j];
+    if (newLine === undefined) break;
+    ops.push({ kind: "add", text: newLine });
     j++;
   }
   return ops;
@@ -90,7 +116,8 @@ function toHunks(ops: DiffOp[]): Hunk[] {
   };
 
   for (let idx = 0; idx < ops.length; idx++) {
-    const op = ops[idx]!;
+    const op = ops[idx];
+    if (op === undefined) continue;
     if (op.kind === "same") {
       sameRun++;
       if (cur !== undefined) {

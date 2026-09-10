@@ -137,8 +137,10 @@ function segmentWords(segment: string): string[] {
 export function segmentHasEnvAssignment(segment: string): boolean {
   const words = segmentWords(segment);
   if (words.length === 0) return false;
-  if (words[0] === "export") return true;
-  return ENV_ASSIGNMENT.test(words[0]!);
+  const first = words[0];
+  if (first === undefined) return false;
+  if (first === "export") return true;
+  return ENV_ASSIGNMENT.test(first);
 }
 
 /** Command word of a segment, skipping env-var prefixes. */
@@ -166,7 +168,8 @@ export function segmentIsShellEdit(segment: string): boolean {
   let inSingle = false;
   let inDouble = false;
   for (let i = 0; i < segment.length; i++) {
-    const ch = segment[i]!;
+    const ch = segment[i];
+    if (ch === undefined) break;
     if (ch === "'" && !inDouble) inSingle = !inSingle;
     else if (ch === '"' && !inSingle) inDouble = !inDouble;
     else if (

@@ -585,16 +585,30 @@ function parseMatrixCell(
     // provider:model or provider:model:effort — the last segment is treated
     // as effort only when it parses as a real reasoning-effort literal, so a
     // model id that happens to contain a colon still falls through cleanly.
-    if (parts.length >= 3 && isReasoningEffort(parts.at(-1)!.trim())) {
-      effort = parts.at(-1)!.trim() as ReasoningEffort;
-      parts.pop();
+    const last = parts.at(-1);
+    if (parts.length >= 3 && last !== undefined) {
+      const trimmedLast = last.trim();
+      if (isReasoningEffort(trimmedLast)) {
+        effort = trimmedLast;
+        parts.pop();
+      }
     }
     const [p, ...mParts] = parts;
-    provider = p!.trim() || undefined;
+    if (p === undefined) {
+      throw new Error(
+        `matrix cell ${index + 1} "${cell}" must be provider:model or label=provider:model`,
+      );
+    }
+    provider = p.trim() || undefined;
     model = mParts.join(":").trim() || undefined;
   } else if (rest.includes("/")) {
     const [p, ...mParts] = rest.split("/");
-    provider = p!.trim() || undefined;
+    if (p === undefined) {
+      throw new Error(
+        `matrix cell ${index + 1} "${cell}" must be provider:model or label=provider:model`,
+      );
+    }
+    provider = p.trim() || undefined;
     model = mParts.join("/").trim() || undefined;
   } else {
     throw new Error(
@@ -751,7 +765,16 @@ function parseProviderFallback(raw: unknown): ProviderFallbackInfo | null {
 function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  const midVal = sorted[mid];
+  if (midVal === undefined) {
+    throw new Error("median of empty list");
+  }
+  if (sorted.length % 2 === 1) return midVal;
+  const prev = sorted[mid - 1];
+  if (prev === undefined) {
+    throw new Error("median of empty list");
+  }
+  return (prev + midVal) / 2;
 }
 
 function metricStats(values: readonly number[]): MetricStats {
@@ -776,7 +799,8 @@ export function computeCellAggregates(results: readonly CaseResult[]): CellAggre
   }
   const aggregates: CellAggregate[] = [];
   for (const [resultKey, group] of groups) {
-    const first = group[0]!;
+    const first = group[0];
+    if (first === undefined) continue;
     const passCount = group.filter((r) => r.passed).length;
     const behaviorStats: Partial<Record<NumericBehaviorMetric, MetricStats>> = {};
     for (const metric of NUMERIC_BEHAVIOR_METRICS) {

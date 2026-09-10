@@ -900,7 +900,10 @@ export async function loadConfig(
     resumePicker = true;
     skipInitialTask = true;
   } else if (resumeMode === "id") {
-    const id = resumeSessionId!;
+    const id = resumeSessionId;
+    if (id === undefined) {
+      throw new Error("resume by id requires a session id");
+    }
     await migrateLegacySessionIfNeeded(cwd, id, options.home);
     const loaded = await loadState(cwd, id, options.home);
     if (loaded.kind === "unreadable") {

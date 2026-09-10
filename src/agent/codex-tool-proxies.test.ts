@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { createToolRunner } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
@@ -128,7 +129,7 @@ describe("createCodexToolProxies", () => {
     });
     expect(tools.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
     expect(tools.every((t) => t.kind === "string")).toBe(true);
-    expect(tools[0]!.definition.inputSchema).toMatchObject({
+    expect(defined(tools[0]).definition.inputSchema).toMatchObject({
       required: ["input"],
     });
   });
@@ -288,7 +289,7 @@ print("bye")
     );
     expect(result.isError).toBeFalsy();
     expect(calls.map((c) => c.name)).toEqual(["write_file"]);
-    expect(calls[0]!.args.path).toBe("src/app.py");
+    expect(defined(calls[0]).args.path).toBe("src/app.py");
     expect(files.get("src/app.py")).toBe(`def greet():
 print("Hello, world!")
 print("bye")
@@ -319,11 +320,11 @@ print("Hi")
     );
     expect(result.isError).toBeFalsy();
     expect(calls.map((c) => c.name)).toEqual(["write_file", "delete_file"]);
-    expect(calls[0]!.args.path).toBe("src/main.py");
-    expect(calls[0]!.args.content).toBe(`def greet():
+    expect(defined(calls[0]).args.path).toBe("src/main.py");
+    expect(defined(calls[0]).args.content).toBe(`def greet():
 print("Hello, world!")
 `);
-    expect(calls[1]!.args).toEqual({ path: "src/app.py" });
+    expect(defined(calls[1]).args).toEqual({ path: "src/app.py" });
     expect(files.has("src/app.py")).toBe(false);
     expect(files.get("src/main.py")).toBe(`def greet():
 print("Hello, world!")

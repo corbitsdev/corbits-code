@@ -159,7 +159,9 @@ export async function mapPool<T, R>(
       const index = nextIndex;
       nextIndex += 1;
       if (index >= items.length) return;
-      results[index] = await mapper(items[index]!, index);
+      const item = items[index];
+      if (item === undefined) return;
+      results[index] = await mapper(item, index);
     }
   };
   const workerCount = Math.min(concurrency, items.length);
@@ -180,7 +182,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
   };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    if (a === undefined) continue;
     const next = (): string => {
       const v = argv[++i];
       if (v === undefined) throw new Error(`${a} requires a value`);
@@ -942,7 +945,10 @@ async function main(): Promise<number> {
 
   const finishedAt = new Date().toISOString();
   const totals = summarizeRun(results);
-  const primary = variants[0]!;
+  const primary = variants[0];
+  if (primary === undefined) {
+    throw new Error("matrix produced no variants");
+  }
   const labels = await resolveVariantLabels(primary, opts);
 
   const aggregates = computeCellAggregates(results);

@@ -34,8 +34,8 @@ function fakeTelemetry(): {
       captured.push({ event, properties });
     },
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   };
   return { telemetry, captured };
 }

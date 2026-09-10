@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { ProtocolMismatchError } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions } from "@intx/types/runtime";
@@ -117,7 +118,7 @@ describe("openai-compatible adapter reasoning_content handling", () => {
   test("strips reasoning_content from input messages for DeepSeek models", () => {
     const assistant = messagesFor("deepseek-v4").find((m) => m["role"] === "assistant");
     expect(assistant).toBeDefined();
-    expect("reasoning_content" in assistant!).toBe(false);
+    expect("reasoning_content" in defined(assistant)).toBe(false);
   });
 
   test("keeps reasoning_content for non-DeepSeek models", () => {

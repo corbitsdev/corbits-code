@@ -283,7 +283,7 @@ describe("createSubAgentSessionStore", () => {
     const store = createSubAgentSessionStore({ createId: () => "s-int" });
     store.start({ description: "loop", agentId: "worker", brief: "b", retained: true });
     store.markRunning("s-int");
-    store.registerInterrupt("s-int", () => {});
+    store.registerInterrupt("s-int", () => undefined);
     store.registerFollowup("s-int", async () => "next");
     expect(store.interruptOne("s-int").ok).toBe(true);
     const session = store.get("s-int");

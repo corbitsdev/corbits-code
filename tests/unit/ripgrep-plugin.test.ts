@@ -10,6 +10,7 @@ import { ripgrepPlugin } from "../../src/plugins/ripgrep-plugin.js";
 import { MAX_RESULT_CHARS } from "../../src/plugins/result-truncation-plugin.js";
 import { buildCorePosixToolPlugins } from "../../src/agent/posix-tool-plugins.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
+import { defined } from "../helpers/defined.js";
 import type { RgChild, SpawnRg } from "../../src/plugins/rg-run.js";
 
 // Repo root derived from this file, not process.cwd(): these cases search real
@@ -26,7 +27,9 @@ function run(
   limits: { timeoutMs?: number; maxOutputBytes?: number } = {},
   spawnChild?: SpawnRg,
 ): Promise<ToolResult> {
-  const handler = ripgrepPlugin(cwd, limits, spawnChild).middleware!(fallback);
+  const handler = defined(ripgrepPlugin(cwd, limits, spawnChild).middleware, "ripgrep middleware")(
+    fallback,
+  );
   return handler(call, new AbortController().signal);
 }
 

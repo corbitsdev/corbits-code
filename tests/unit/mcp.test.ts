@@ -10,6 +10,7 @@ import { createOAuthProvider } from "../../src/mcp/oauth-provider.js";
 import { createDynamicToolRunner } from "../../src/tui/dynamic-tool-runner.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { MCPClient } from "../../src/mcp/client.js";
+import { defined } from "../helpers/defined.js";
 import { DuplicateToolError, type AgentTool } from "@intx/agent";
 
 describe("isLocalSettings with mcpServers", () => {
@@ -119,7 +120,9 @@ function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
     async call() {
       return "result";
     },
-    async close() {},
+    async close() {
+      return undefined;
+    },
   };
 }
 
@@ -149,7 +152,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       reactorGated: false,
     });
     const tools = mcpClientToAgentTools(client, gate);
-    expect(tools[0]!.definition.description).toBe("[github] search_repos tool");
+    expect(defined(tools[0], "mcp tool").definition.description).toBe("[github] search_repos tool");
   });
 
   test("tool handler returns call result", async () => {
@@ -164,7 +167,9 @@ describe("mcpClientToAgentTools (production gated path)", () => {
         capturedArgs = args;
         return "done";
       },
-      async close() {},
+      async close() {
+        return undefined;
+      },
     };
 
     const gate = createPermissionGate({
@@ -173,7 +178,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       skipPermissions: true,
       reactorGated: false,
     });
-    const tool = mcpClientToAgentTools(client, gate)[0]!;
+    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
     const result = await tool.handler(
       { id: "c1", name: "mcp__myserver__do_thing", arguments: { x: 1 } },
       new AbortController().signal,
@@ -193,7 +198,9 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       async call() {
         throw new Error("server error");
       },
-      async close() {},
+      async close() {
+        return undefined;
+      },
     };
 
     const gate = createPermissionGate({
@@ -202,7 +209,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       skipPermissions: true,
       reactorGated: false,
     });
-    const tool = mcpClientToAgentTools(client, gate)[0]!;
+    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
     const result = await tool.handler(
       { id: "c1", name: "mcp__srv__fail", arguments: {} },
       new AbortController().signal,
@@ -227,7 +234,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
     });
     const client = makeFakeClient("acme", ["save_issue"]);
     gate.registerMcpClient(client);
-    const tool = mcpClientToAgentTools(client, gate)[0]!;
+    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
     const result = await tool.handler(
       { id: "c1", name: "mcp__acme__save_issue", arguments: { id: "X-1" } },
       new AbortController().signal,
@@ -374,7 +381,7 @@ describe("OAuth provider", () => {
         serverName: "acme",
         serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
-        onAuthURL: () => {},
+        onAuthURL: () => undefined,
         home,
       });
       const first = await provider.state?.();
@@ -392,7 +399,7 @@ describe("OAuth provider", () => {
         serverName: "acme",
         serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
-        onAuthURL: () => {},
+        onAuthURL: () => undefined,
         home,
       });
       await first.saveTokens({ access_token: "abc", token_type: "Bearer" });
@@ -400,7 +407,7 @@ describe("OAuth provider", () => {
         serverName: "acme",
         serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
-        onAuthURL: () => {},
+        onAuthURL: () => undefined,
         home,
       });
       expect(second.tokens()).toEqual({ access_token: "abc", token_type: "Bearer" });
@@ -416,7 +423,7 @@ describe("OAuth provider", () => {
         serverName: "acme",
         serverURL: acmeAuthIdentity.serverURL,
         redirectUrl: "http://127.0.0.1:0/cb",
-        onAuthURL: () => {},
+        onAuthURL: () => undefined,
         home,
       });
       await provider.saveTokens({

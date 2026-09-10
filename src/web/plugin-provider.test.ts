@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import {
   collectWebPlugins,
@@ -38,7 +39,7 @@ describe("collectWebPlugins", () => {
     ];
     const candidates = collectWebPlugins(modules);
     expect(candidates.map((c) => c.id)).toEqual(["exa"]);
-    expect(candidates[0]!.credentials[0]!.key).toBe("apiKey");
+    expect(defined(defined(candidates[0]).credentials[0]).key).toBe("apiKey");
   });
 });
 

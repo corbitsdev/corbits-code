@@ -16,6 +16,7 @@
  * - full observer pipeline → snapshot → rollup → assertions
  */
 
+import { defined } from "../../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import {
@@ -155,8 +156,8 @@ describe("assertLessThan", () => {
 describe("assertTurnHasInferenceAndTools", () => {
   test("passes on multi-tool golden rollup", () => {
     const turns = rollupByTurn(multiToolTurnFixture());
-    assertTurnHasInferenceAndTools(turns[0]!);
-    assertTurnHasInferenceAndTools(turns[0]!, { minToolCount: 2 });
+    assertTurnHasInferenceAndTools(defined(turns[0]));
+    assertTurnHasInferenceAndTools(defined(turns[0]), { minToolCount: 2 });
   });
 
   test("throws when inferenceNs is not positive", () => {
@@ -188,7 +189,7 @@ describe("assertTurnHasInferenceAndTools", () => {
   test("fails when tools are filtered out of the golden fixture", () => {
     const spans: PerfSpan[] = multiToolTurnFixture().filter((s) => s.name !== "tool");
     const turns = rollupByTurn(spans);
-    expect(() => assertTurnHasInferenceAndTools(turns[0]!)).toThrow(/toolCount/);
+    expect(() => assertTurnHasInferenceAndTools(defined(turns[0]))).toThrow(/toolCount/);
   });
 });
 
@@ -209,7 +210,7 @@ describe("golden multi-tool turn fixture", () => {
   });
 
   test("TTFT is strictly less than stream on the golden fixture", () => {
-    const turn = rollupByTurn(multiToolTurnFixture())[0]!;
+    const turn = defined(rollupByTurn(multiToolTurnFixture())[0]);
     assertLessThan(turn.ttftNs, turn.streamNs, "ttft vs stream");
   });
 });
@@ -246,8 +247,8 @@ describe("observer pipeline → snapshot → rollup → assertions", () => {
 
     const turns = rollupByTurn(spans);
     expect(turns).toHaveLength(1);
-    assertTurnHasInferenceAndTools(turns[0]!, { minToolCount: 2 });
-    expect(turns[0]!.toolCount).toBe(2);
+    assertTurnHasInferenceAndTools(defined(turns[0]), { minToolCount: 2 });
+    expect(defined(turns[0]).toolCount).toBe(2);
 
     // Live clock: duration magnitudes are non-deterministic under sync hrtime
     // (ttftNs can exceed streamNs). Assert wall ordering instead of a no-op
@@ -256,8 +257,11 @@ describe("observer pipeline → snapshot → rollup → assertions", () => {
     const stream = spans.find((s) => s.name === "inference.stream");
     expect(ttft?.endNs).toBeDefined();
     expect(stream?.startNs).toBeDefined();
-    if (ttft!.endNs !== undefined && stream !== undefined) {
-      expect(ttft!.endNs <= stream.startNs).toBe(true);
+    if (stream !== undefined) {
+      const ttftEndNs = defined(ttft, "ttft").endNs;
+      if (ttftEndNs !== undefined) {
+        expect(ttftEndNs <= stream.startNs).toBe(true);
+      }
     }
 
     const phases = rollupByPhase(spans);

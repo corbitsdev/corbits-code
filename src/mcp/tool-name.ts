@@ -29,7 +29,8 @@ export function parseMcpToolName(name: string): { server: string; tool: string }
 }
 
 function titleCase(word: string): string {
-  return word.length === 0 ? word : word[0]!.toUpperCase() + word.slice(1);
+  const first = word[0];
+  return first === undefined ? word : first.toUpperCase() + word.slice(1);
 }
 
 // Some servers suffix (or prefix) every tool name with their own name, a
@@ -38,9 +39,11 @@ function titleCase(word: string): string {
 // that matches the server, case-insensitively, so it is not said twice.
 export function mcpToolWords(server: string, tool: string): string[] {
   const words = tool.split("_").filter((word) => word.length > 0);
-  if (words.length > 1 && words[words.length - 1]!.toLowerCase() === server.toLowerCase()) {
+  const last = words[words.length - 1];
+  const first = words[0];
+  if (words.length > 1 && last !== undefined && last.toLowerCase() === server.toLowerCase()) {
     words.pop();
-  } else if (words.length > 1 && words[0]!.toLowerCase() === server.toLowerCase()) {
+  } else if (words.length > 1 && first !== undefined && first.toLowerCase() === server.toLowerCase()) {
     words.shift();
   }
   return words;

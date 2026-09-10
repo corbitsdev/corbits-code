@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { createPruningCompactor, buildTurnSummary } from "../../src/session/compactor.js";
 import { assertWellFormedToolSequence } from "@intx/inference";
+import { defined } from "../helpers/defined.js";
 
 // The runtime puts a tool_call on an assistant turn and its tool_result on the
 // FOLLOWING user turn, so the two halves of a pair can land on opposite sides of
@@ -239,7 +240,7 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     expect(older).toMatch(/read_file/);
     expect(older).toMatch(/src\/hot\.ts/);
     expect(older).toMatch(/omitted|chars/);
-    expect(older!.length).toBeLessThan(oldBody.length);
+    expect(defined(older, "older body").length).toBeLessThan(oldBody.length);
   });
 
   test("preserves error read results verbatim even when a later success supersedes the path", async () => {

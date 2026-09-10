@@ -191,7 +191,8 @@ export function findWhitespaceNearMiss(fileText: string, oldString: string): Nea
     return null;
   }
 
-  const hit = hits[0]!;
+  const hit = hits[0];
+  if (hit === undefined) return null;
   // Reconstruct original span with "\n" join — matches how edit_file treats content.
   const text = fileLines.slice(hit.start, hit.end + 1).join("\n");
 

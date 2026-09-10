@@ -25,7 +25,7 @@ function resolveAgentProfileWarningHandler(
   if (typeof opts === "function") return opts;
   if (opts.diagnostics !== undefined) return pluginWarningSink(opts.diagnostics);
   if (opts.onWarning !== undefined) return opts.onWarning;
-  return () => {};
+  return () => undefined;
 }
 
 // Collect agent profiles from every enabled agent-kind plugin. Each profile is

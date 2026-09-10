@@ -33,7 +33,7 @@ describe("Codex tool proxy mount", () => {
     spyOn(posixModule, "createPosixTools").mockReturnValue({
       definitions: [],
       run: async () => ({ id: "x", content: "" }),
-      dispose: async () => {},
+      dispose: async () => undefined,
     } as unknown as ReturnType<typeof posixModule.createPosixTools>);
 
     const { createAgentToolset } = await import("./tools.js");

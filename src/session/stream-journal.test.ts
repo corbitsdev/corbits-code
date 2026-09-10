@@ -155,7 +155,7 @@ describe("createCycleTextRecorder", () => {
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("buffered text"));
 
-    let resolveDrain: () => void = () => {};
+    let resolveDrain: () => void = () => undefined;
     const drain = new Promise<void>((resolve) => {
       resolveDrain = resolve;
     });

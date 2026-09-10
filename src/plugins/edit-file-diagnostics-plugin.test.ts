@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,9 +52,9 @@ describe("normalizeLine / near-miss helpers", () => {
     const old = ["const bareKey = 1;", "  const entry = 2;"].join("\n");
     const miss = findWhitespaceNearMiss(file, old);
     expect(miss).not.toBeNull();
-    expect(miss!.text).toBe("  const bareKey = 1;\n    const entry = 2;");
-    expect(miss!.startLine).toBe(2);
-    expect(miss!.endLine).toBe(3);
+    expect(defined(miss).text).toBe("  const bareKey = 1;\n    const entry = 2;");
+    expect(defined(miss).startLine).toBe(2);
+    expect(defined(miss).endLine).toBe(3);
   });
 
   test("findWhitespaceNearMiss ignores trailing and leading newlines on the needle", () => {
@@ -63,7 +64,7 @@ describe("normalizeLine / near-miss helpers", () => {
     for (const old of [trailing, leading]) {
       const miss = findWhitespaceNearMiss(file, old);
       expect(miss).not.toBeNull();
-      expect(miss!.text).toBe("  const bareKey = 1;\n    const entry = 2;");
+      expect(defined(miss).text).toBe("  const bareKey = 1;\n    const entry = 2;");
     }
   });
 
@@ -78,8 +79,8 @@ describe("normalizeLine / near-miss helpers", () => {
     const miss = findWhitespaceNearMiss(file, old);
     expect(miss).not.toBeNull();
     // Original span uses the split-on-\n form; trailing \r may remain on the line body.
-    expect(normalizeLine(miss!.text)).toBe("const x = 1;");
-    expect(miss!.startLine).toBe(2);
+    expect(normalizeLine(defined(miss).text)).toBe("const x = 1;");
+    expect(defined(miss).startLine).toBe(2);
   });
 
   test("stripLineNumberPrefixes detects read_file decoration", () => {
@@ -138,9 +139,9 @@ describe("editFileDiagnosticsPlugin", () => {
     extra: Middleware[] = [],
   ) {
     const mws: Middleware[] = [
-      pathEscapePlugin(cwd).middleware!,
-      verifyPlugin().middleware!,
-      editFileDiagnosticsPlugin().middleware!,
+      defined(pathEscapePlugin(cwd).middleware),
+      defined(verifyPlugin().middleware),
+      defined(editFileDiagnosticsPlugin().middleware),
       ...extra,
     ];
     return composeMiddleware(mws, next);

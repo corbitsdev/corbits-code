@@ -349,12 +349,17 @@ function shellQuote(arg: string): string {
  */
 function normalizeShellCommand(command: string | string[]): string {
   if (typeof command === "string") return command;
+  const wrapper = command[0];
+  const flag = command[1];
+  const script = command[2];
   if (
     command.length === 3 &&
-    SHELL_WRAPPERS.has(command[0]!.replace(/^.*\//, "")) &&
-    (command[1] === "-lc" || command[1] === "-c")
+    wrapper !== undefined &&
+    script !== undefined &&
+    SHELL_WRAPPERS.has(wrapper.replace(/^.*\//, "")) &&
+    (flag === "-lc" || flag === "-c")
   ) {
-    return command[2]!;
+    return script;
   }
   return command.map(shellQuote).join(" ");
 }

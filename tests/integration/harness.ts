@@ -79,7 +79,7 @@ export async function openIntegrationSession(
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], {
-        onTasksChange: () => {},
+        onTasksChange: () => undefined,
         inactivityTimeoutMs: 750_000,
       }),
   });
@@ -202,7 +202,7 @@ export async function runUntilSuspended(
   message: string,
 ): Promise<SuspendedTurn> {
   const events: ReactorEmittedEvent[] = [];
-  let resolveReply: (text: string) => void = () => {};
+  let resolveReply: (text: string) => void = () => undefined;
   const replyPromise = new Promise<string>((resolve) => {
     resolveReply = resolve;
   });

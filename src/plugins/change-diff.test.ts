@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { formatChangeDiff, MAX_DIFF_CHARS } from "./change-diff.js";
 
 describe("formatChangeDiff", () => {
@@ -30,7 +31,7 @@ describe("formatChangeDiff", () => {
     expect(diff).toBeDefined();
     // The cap must hold exactly — the truncation note is reserved WITHIN
     // maxChars, not appended after it.
-    expect(diff!.length).toBeLessThanOrEqual(MAX_DIFF_CHARS);
+    expect(defined(diff).length).toBeLessThanOrEqual(MAX_DIFF_CHARS);
     expect(diff).toContain("truncated");
   });
 
@@ -44,7 +45,7 @@ describe("formatChangeDiff", () => {
     for (const maxChars of [50, 80, 120, 200]) {
       const diff = formatChangeDiff("a.txt", before, after, maxChars);
       expect(diff).toBeDefined();
-      expect(diff!.length).toBeLessThanOrEqual(maxChars);
+      expect(defined(diff).length).toBeLessThanOrEqual(maxChars);
     }
   });
 
@@ -57,7 +58,7 @@ describe("formatChangeDiff", () => {
     expect(diff).toBeDefined();
     expect(diff).toContain("large change");
     expect(diff).toContain("exceeds");
-    expect(diff!.length).toBeLessThanOrEqual(MAX_DIFF_CHARS);
+    expect(defined(diff).length).toBeLessThanOrEqual(MAX_DIFF_CHARS);
   });
 
   test("deletion (after is empty) shows removed lines", () => {

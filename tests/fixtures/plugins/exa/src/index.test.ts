@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import createWebProvider from "./index.js";
+import { defined } from "../../../../helpers/defined.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -45,10 +46,11 @@ describe("search", () => {
     const results = await provider.search("test", new AbortController().signal);
 
     expect(results.length).toBe(1);
-    expect(results[0]!.title).toBe("Result One");
-    expect(results[0]!.url).toBe("https://example.com/1");
-    expect(results[0]!.snippet).toBe("Snippet one");
-    expect(results[0]!.extra).toEqual({
+    const first = defined(results[0], "search result");
+    expect(first.title).toBe("Result One");
+    expect(first.url).toBe("https://example.com/1");
+    expect(first.snippet).toBe("Snippet one");
+    expect(first.extra).toEqual({
       publishedDate: "2024-01-01",
       author: "Author A",
       score: 0.9,
@@ -65,7 +67,7 @@ describe("search", () => {
     const results = await provider.search("test", new AbortController().signal);
 
     expect(results.length).toBe(1);
-    expect(results[0]!.snippet).toBe("");
+    expect(defined(results[0], "search result").snippet).toBe("");
   });
 
   test("throws on non-ok response", async () => {

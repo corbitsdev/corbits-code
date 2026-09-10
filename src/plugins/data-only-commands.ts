@@ -111,7 +111,7 @@ export async function loadDataOnlyCommands(
   pluginDir: string,
   opts: { onWarning?: (msg: string) => void } = {},
 ): Promise<{ commandPlugin: CommandPlugin } | null> {
-  const warn = opts.onWarning ?? (() => {});
+  const warn = opts.onWarning ?? (() => undefined);
 
   // Accept both `commands/` (Claude Code) and `command/` (OpenCode) roots.
   let root: string | null = null;

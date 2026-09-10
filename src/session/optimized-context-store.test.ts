@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -69,7 +70,7 @@ describe("createOptimizedContextStore load", () => {
 
     const loaded = await store.load();
     expect(loaded.turns).toHaveLength(1);
-    expect((loaded.turns[0]!.content[0] as { text: string }).text).toBe("only");
+    expect((defined(loaded.turns[0]).content[0] as { text: string }).text).toBe("only");
   });
 
   test("recovers from a torn final line in the active segment", async () => {
@@ -213,7 +214,7 @@ describe("createOptimizedContextStore load", () => {
 
     const loaded = await store.load();
     expect(loaded.turns).toHaveLength(1);
-    expect((loaded.turns[0]!.content[0] as { text: string }).text).toBe("kept");
+    expect((defined(loaded.turns[0]).content[0] as { text: string }).text).toBe("kept");
     expect(loaded.pendingOperations).toEqual([]);
     expect(loaded.connectorState).toBeNull();
   });
@@ -369,8 +370,8 @@ describe("createOptimizedContextStore load", () => {
         content: [{ type: "text", text: "[Compacted prior context]\nsummary" }],
         timestamp: 1,
       },
-      history[history.length - 2]!,
-      history[history.length - 1]!,
+      defined(history[history.length - 2]),
+      defined(history[history.length - 1]),
     ];
     await store2.writeTurns(compacted);
     await store2.writeMetadata({
@@ -543,7 +544,7 @@ describe("createOptimizedContextStore checkpoint", () => {
     const loaded = await reloaded.load();
     expect(loaded.turns).toHaveLength(total);
 
-    const head = (await store.log(1))[0]!;
+    const head = defined((await store.log(1))[0]);
     const atHead = await store.readAt(head.hash);
     expect(atHead).toHaveLength(total);
   }, 20_000);

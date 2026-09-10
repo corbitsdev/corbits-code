@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadAgentContextExtensions } from "../../src/agent/context-extensions.js";
+import { defined } from "../helpers/defined.js";
 
 let dir: string;
 
@@ -22,7 +23,7 @@ test("AGENTS.md present and non-empty returns content framed as reference", asyn
   expect(result[0]).toContain("AGENTS.md");
   // Framed as reference so the agent does not execute its onboarding steps.
   expect(result[0]).toContain("Do not execute");
-  expect(result[0]!.endsWith(content)).toBe(true);
+  expect(defined(result[0], "AGENTS.md content").endsWith(content)).toBe(true);
 });
 
 test("AGENTS.md absent returns empty array without throwing", async () => {

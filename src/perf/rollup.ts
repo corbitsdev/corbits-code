@@ -65,7 +65,9 @@ function percentileNearestRank(sortedAsc: readonly number[], p: number): number 
   // Nearest-rank: ceil(p * n), 1-indexed → 0-indexed clamp.
   const rank = Math.ceil(p * sortedAsc.length) - 1;
   const idx = Math.min(sortedAsc.length - 1, Math.max(0, rank));
-  return sortedAsc[idx]!;
+  const value = sortedAsc[idx];
+  if (value === undefined) return 0;
+  return value;
 }
 
 /**
@@ -140,7 +142,8 @@ export function walkDescendants(
   // Copy so callers can mutate freely; walk iteratively to avoid deep recursion.
   const work: PerfSpan[] = stack.slice();
   while (work.length > 0) {
-    const span = work.pop()!;
+    const span = work.pop();
+    if (span === undefined) break;
     visit(span);
     const kids = byParent.get(span.id);
     if (kids !== undefined) {

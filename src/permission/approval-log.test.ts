@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,16 +47,16 @@ describe("createApprovalLog", () => {
 
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.tool).toBe("run_shell");
-    expect(record!.mode).toBe("interactive");
-    expect(record!.segments).toBe(3);
-    expect(record!.outcome).toBe("allow-with-scope");
-    expect(record!.durationMs).toBe(150);
-    expect(record!.displayDelayMs).toBe(50);
+    expect(defined(record).tool).toBe("run_shell");
+    expect(defined(record).mode).toBe("interactive");
+    expect(defined(record).segments).toBe(3);
+    expect(defined(record).outcome).toBe("allow-with-scope");
+    expect(defined(record).durationMs).toBe(150);
+    expect(defined(record).displayDelayMs).toBe(50);
     // No command text, path, or subject of any kind is ever recorded.
-    expect(Object.keys(record!)).not.toContain("subject");
-    expect(Object.keys(record!)).not.toContain("command");
-    expect(Object.keys(record!)).not.toContain("arguments");
+    expect(Object.keys(defined(record))).not.toContain("subject");
+    expect(Object.keys(defined(record))).not.toContain("command");
+    expect(Object.keys(defined(record))).not.toContain("arguments");
   });
 
   test("settle is idempotent — a second call does not append twice", async () => {
@@ -94,9 +95,9 @@ describe("approval-log wiring through the permission gate", () => {
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.mode).toBe("auto");
-    expect(record!.outcome).toBe("auto-deny");
-    expect(record!.rule).toBe("file-mutation");
+    expect(defined(record).mode).toBe("auto");
+    expect(defined(record).outcome).toBe("auto-deny");
+    expect(defined(record).rule).toBe("file-mutation");
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain("hunter2");
     expect(serialized).not.toContain("leaked-secret-file");
@@ -123,9 +124,9 @@ describe("approval-log wiring through the permission gate", () => {
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.mode).toBe("interactive");
-    expect(record!.outcome).toBe("allow-once");
-    expect(typeof record!.displayDelayMs).toBe("number");
+    expect(defined(record).mode).toBe("interactive");
+    expect(defined(record).outcome).toBe("allow-once");
+    expect(typeof defined(record).displayDelayMs).toBe("number");
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain("super-secret-token");
     expect(serialized).not.toContain("curl");
@@ -148,8 +149,8 @@ describe("approval-log wiring through the permission gate", () => {
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(record!.outcome).toBe("deny");
-    expect(record!.rule).toBe("non-interactive");
+    expect(defined(record).outcome).toBe("deny");
+    expect(defined(record).rule).toBe("non-interactive");
   });
 
   // A sub-agent's `spawn_agent` dispatch `description` is model-authored free text
@@ -185,7 +186,7 @@ describe("approval-log wiring through the permission gate", () => {
     await new Promise((r) => setTimeout(r, 10));
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
-    expect(Object.keys(record!)).not.toContain("agentLabel");
+    expect(Object.keys(defined(record))).not.toContain("agentLabel");
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain("vault");

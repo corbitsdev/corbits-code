@@ -41,8 +41,9 @@ function redactPattern(text: string, pattern: RegExp): string {
 
     // "key":"value" has at least 4 quotes (open/close for key, open/close for value).
     if (quotes.length >= 4) {
-      const valueOpen = quotes[2]!;
-      const valueClose = quotes[quotes.length - 1]!;
+      const valueOpen = quotes[2];
+      const valueClose = quotes[quotes.length - 1];
+      if (valueOpen === undefined || valueClose === undefined) return "[REDACTED]";
       return match.slice(0, valueOpen + 1) + "[REDACTED]" + match.slice(valueClose);
     }
 

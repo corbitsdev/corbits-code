@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
@@ -551,7 +552,7 @@ describe("buildRequests", () => {
   test("MCP tools are presented by a human label, not the raw identifier", () => {
     const reqs = buildRequests({ id: "c", name: "mcp__acme__list_projects", arguments: {} });
     expect(reqs).toHaveLength(1);
-    const req = reqs[0]!;
+    const req = defined(reqs[0]);
     expect(req.action).not.toContain("mcp__");
     expect(req.scopes[0]?.label).toBe("Always allow Acme: List Projects");
     expect(req.scopes[0]?.hint).toBe("Acme: List Projects");
@@ -3300,7 +3301,7 @@ describe("listWorktreeRoots", () => {
     const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const plugin = pathEscapePlugin(repo, () => roots);
-    const handler = plugin.middleware!((call) =>
+    const handler = defined(plugin.middleware)((call) =>
       Promise.resolve({ callId: call.id, content: "ok" }),
     );
     const result = await handler(
@@ -3316,7 +3317,7 @@ describe("listWorktreeRoots", () => {
     const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-plugin-"));
     const relativeToOutside = relative(repo, join(outside, "payload.ts"));
     const plugin = pathEscapePlugin(repo, () => roots);
-    const handler = plugin.middleware!((call) =>
+    const handler = defined(plugin.middleware)((call) =>
       Promise.resolve({ callId: call.id, content: "ok" }),
     );
     const result = await handler(

@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -339,7 +340,7 @@ describe("scheduleUpgradeNotice", () => {
           method: "unknown",
         },
       });
-      resolveFetch!("0.2.0");
+      defined(resolveFetch)("0.2.0");
       await fetchP;
       await Promise.resolve();
       await Promise.resolve();

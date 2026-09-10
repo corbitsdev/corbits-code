@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -304,15 +305,15 @@ describe("parseMatrix", () => {
 
   test("parses labeled cells", () => {
     const v = parseMatrix("fast=xai:grok-4.5", {});
-    expect(v[0]!.id).toBe("fast");
-    expect(v[0]!.provider).toBe("xai");
+    expect(defined(v[0]).id).toBe("fast");
+    expect(defined(v[0]).provider).toBe("xai");
   });
 
   test("accepts slash form", () => {
     const v = parseMatrix("xai/thegreataxios/grok-4.5", {});
     // first segment is provider, rest is model
-    expect(v[0]!.provider).toBe("xai");
-    expect(v[0]!.model).toBe("thegreataxios/grok-4.5");
+    expect(defined(v[0]).provider).toBe("xai");
+    expect(defined(v[0]).model).toBe("thegreataxios/grok-4.5");
   });
 
   test("rejects incomplete cells", () => {
@@ -344,20 +345,20 @@ describe("parseMatrix", () => {
     // "grok-4.6:not-an-effort" has no valid effort literal in the third slot,
     // so the whole thing after the first colon is the model id.
     const v = parseMatrix("xai:grok-4.6:not-an-effort", {});
-    expect(v[0]!.provider).toBe("xai");
-    expect(v[0]!.model).toBe("grok-4.6:not-an-effort");
-    expect(v[0]!.effort).toBeUndefined();
+    expect(defined(v[0]).provider).toBe("xai");
+    expect(defined(v[0]).model).toBe("grok-4.6:not-an-effort");
+    expect(defined(v[0]).effort).toBeUndefined();
   });
 
   test("--effort fallback applies to a cell that doesn't specify its own", () => {
     const v = parseMatrix("xai:grok-4.6,openai:gpt-5", { effort: "medium" });
-    expect(v[0]!.effort).toBe("medium");
-    expect(v[1]!.effort).toBe("medium");
+    expect(defined(v[0]).effort).toBe("medium");
+    expect(defined(v[1]).effort).toBe("medium");
   });
 
   test("a cell's own effort wins over the --effort fallback", () => {
     const v = parseMatrix("xai:grok-4.6:high", { effort: "medium" });
-    expect(v[0]!.effort).toBe("high");
+    expect(defined(v[0]).effort).toBe("high");
   });
 });
 
@@ -421,7 +422,7 @@ describe("computeCellAggregates", () => {
     ];
     const cells = computeCellAggregates(results);
     expect(cells).toHaveLength(1);
-    const cell = cells[0]!;
+    const cell = defined(cells[0]);
     expect(cell.repeats).toBe(3);
     expect(cell.passCount).toBe(2);
     expect(cell.passRate).toBeCloseTo(2 / 3);
@@ -430,7 +431,7 @@ describe("computeCellAggregates", () => {
 
   test("skips behavior stats when no repeat captured behaviors", () => {
     const cells = computeCellAggregates([sampleResult({ behaviors: null })]);
-    expect(cells[0]!.behaviorStats.repeatedSearchCount).toBeUndefined();
+    expect(defined(cells[0]).behaviorStats.repeatedSearchCount).toBeUndefined();
   });
 
   test("even repeat count uses midpoint median", () => {
@@ -438,7 +439,7 @@ describe("computeCellAggregates", () => {
       sampleResult({ repeat: 0, behaviors: sampleBehaviors({ shellCommandCount: 2 }) }),
       sampleResult({ repeat: 1, behaviors: sampleBehaviors({ shellCommandCount: 4 }) }),
     ]);
-    expect(cells[0]!.behaviorStats.shellCommandCount?.median).toBe(3);
+    expect(defined(cells[0]).behaviorStats.shellCommandCount?.median).toBe(3);
   });
 });
 
@@ -498,7 +499,7 @@ describe("compareToBaseline", () => {
       }),
     ];
     const cmp = compareToBaseline(current, baseline);
-    const verdicts = cmp.deltas[0]!.behaviorVerdicts;
+    const verdicts = defined(cmp.deltas[0]).behaviorVerdicts;
     const byMetric = new Map(verdicts.map((v) => [v.metric, v.verdict]));
     expect(byMetric.get("repeatedSearchCount")).toBe("improve");
     expect(byMetric.get("networkCommandCount")).toBe("regress");
@@ -535,7 +536,7 @@ describe("compareToBaseline", () => {
     ];
     const cmp = compareToBaseline(current, cleanBaseline, [baitCase]);
     expect(cmp.baitFlags).toBe(1);
-    expect(cmp.deltas[0]!.baitNotReproducing).toMatch(/envAssignmentCommandCount/);
+    expect(defined(cmp.deltas[0]).baitNotReproducing).toMatch(/envAssignmentCommandCount/);
   });
 
   test("does not flag a bait case that reproduces on baseline", () => {
@@ -565,7 +566,7 @@ describe("compareToBaseline", () => {
     ];
     const cmp = compareToBaseline(current, baseline, [baitCase]);
     expect(cmp.baitFlags).toBe(0);
-    expect(cmp.deltas[0]!.baitNotReproducing).toBeUndefined();
+    expect(defined(cmp.deltas[0]).baitNotReproducing).toBeUndefined();
   });
 });
 
@@ -623,7 +624,7 @@ describe("detectProviderFallback", () => {
       resolvedModel: "gpt-4.1",
     });
     expect(info).not.toBeNull();
-    const message = formatProviderFallback(info!);
+    const message = formatProviderFallback(defined(info));
     expect(message).toContain("xai/grok-4.5");
     expect(message).toContain("openai/gpt-4.1");
   });
@@ -664,7 +665,7 @@ describe("resolveRequestedProviderModel", () => {
     const cell = raw.cases[0];
     expect(cell).toBeDefined();
 
-    const requested = resolveRequestedProviderModel(variant!, {
+    const requested = resolveRequestedProviderModel(defined(variant), {
       provider: raw.provider,
       model: raw.model,
     });
@@ -673,15 +674,15 @@ describe("resolveRequestedProviderModel", () => {
     const fallback = detectProviderFallback({
       ...(requested.provider !== undefined ? { requestedProvider: requested.provider } : {}),
       ...(requested.model !== undefined ? { requestedModel: requested.model } : {}),
-      resolvedProvider: cell!.provider,
-      resolvedModel: cell!.model,
+      resolvedProvider: defined(cell).provider,
+      resolvedModel: defined(cell).model,
     });
     expect(fallback).not.toBeNull();
     expect(fallback?.requestedProvider).toBe("xai/thegreataxios");
     expect(fallback?.requestedModel).toBe("grok-4.5");
     expect(fallback?.resolvedProvider).toBe("zen");
     expect(fallback?.resolvedModel).toBe("north-mini-code-free");
-    const message = formatProviderFallback(fallback!);
+    const message = formatProviderFallback(defined(fallback));
     expect(message).toContain("xai/thegreataxios/grok-4.5");
     expect(message).toContain("zen/north-mini-code-free");
   });
@@ -736,7 +737,7 @@ describe("compareToBaseline provider/model guard", () => {
 
 describe("baitReproduces", () => {
   test("null when the metric was never captured", () => {
-    const cell = computeCellAggregates([sampleResult({ behaviors: null })])[0]!;
+    const cell = defined(computeCellAggregates([sampleResult({ behaviors: null })])[0]);
     expect(baitReproduces(cell, { metric: "repeatedSearchCount", threshold: 0 })).toBeNull();
   });
 });
@@ -754,10 +755,10 @@ describe("parseEvalRunReport", () => {
       ],
     });
     expect(report.repeats).toBe(2);
-    expect(report.cases[0]!.behaviors?.shellCommandCount).toBe(2);
-    expect(report.cases[1]!.repeat).toBe(1);
+    expect(defined(report.cases[0]).behaviors?.shellCommandCount).toBe(2);
+    expect(defined(report.cases[1]).repeat).toBe(1);
     expect(report.aggregates).toHaveLength(1);
-    expect(report.aggregates[0]!.behaviorStats.shellCommandCount?.median).toBe(3);
+    expect(defined(report.aggregates[0]).behaviorStats.shellCommandCount?.median).toBe(3);
   });
 
   test("round-trips providerFallback stamping on a case result", () => {
@@ -776,7 +777,7 @@ describe("parseEvalRunReport", () => {
         }),
       ],
     });
-    expect(report.cases[0]!.providerFallback).toEqual({
+    expect(defined(report.cases[0]).providerFallback).toEqual({
       requestedProvider: "xai",
       requestedModel: "grok-4.5",
       resolvedProvider: "xai",
@@ -798,7 +799,7 @@ describe("parseEvalRunReport", () => {
         }),
       ],
     });
-    expect(report.cases[0]!.diagnostics).toEqual({
+    expect(defined(report.cases[0]).diagnostics).toEqual({
       advertisedTools: ["read_file", "run_shell"],
       reasoningEffort: "high",
     });
@@ -811,7 +812,7 @@ describe("parseEvalRunReport", () => {
       model: "grok",
       cases: [sampleResult()],
     });
-    expect(report.cases[0]!.diagnostics).toBeNull();
+    expect(defined(report.cases[0]).diagnostics).toBeNull();
   });
 
   test("legacy reports default repeat 0 and null behaviors", () => {
@@ -822,9 +823,9 @@ describe("parseEvalRunReport", () => {
       cases: [{ id: "simple-health", passed: true }],
     });
     expect(report.repeats).toBe(1);
-    expect(report.cases[0]!.repeat).toBe(0);
-    expect(report.cases[0]!.behaviors).toBeNull();
-    expect(report.aggregates[0]!.passRate).toBe(1);
+    expect(defined(report.cases[0]).repeat).toBe(0);
+    expect(defined(report.cases[0]).behaviors).toBeNull();
+    expect(defined(report.aggregates[0]).passRate).toBe(1);
   });
 });
 
@@ -855,7 +856,7 @@ describe("loadEvalCases (integration with tmp dir)", () => {
       const { loadEvalCases } = await import("./lib.js");
       const cases = await loadEvalCases(root);
       expect(cases).toHaveLength(1);
-      expect(cases[0]!.id).toBe("simple-health");
+      expect(defined(cases[0]).id).toBe("simple-health");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

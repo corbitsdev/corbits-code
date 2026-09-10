@@ -174,7 +174,8 @@ export class BoundedShellOutput {
     this.tailChunks.push(buf);
     this.tailBytes += buf.length;
     while (this.tailBytes > this.tailMax && this.tailChunks.length > 0) {
-      const first = this.tailChunks[0]!;
+      const first = this.tailChunks[0];
+      if (first === undefined) break;
       if (this.tailBytes - first.length >= this.tailMax) {
         this.tailBytes -= first.length;
         this.tailChunks.shift();

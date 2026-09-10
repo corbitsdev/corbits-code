@@ -313,10 +313,10 @@ export interface Telemetry {
 export const NOOP_TELEMETRY: Telemetry = {
   enabled: false,
   installationId: "",
-  capture: () => {},
+  capture: () => undefined,
   captureIntentional: () => false,
-  flush: async () => {},
-  discard: () => {},
+  flush: async () => undefined,
+  discard: () => undefined,
 };
 
 // Fire-and-forget PostHog batch client. Never throws, never blocks the

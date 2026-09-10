@@ -31,7 +31,7 @@ function observeOneTurnWithToolResult(
 
 describe("createTurnContextCollector tool result truncation", () => {
   test("retains oversized tool result content within the hook-payload budget", () => {
-    const collector = createTurnContextCollector(() => {});
+    const collector = createTurnContextCollector(() => undefined);
     const hugeOutput = "x".repeat(HOOK_PAYLOAD_TOOL_RESULT_CHARS * 4);
 
     observeOneTurnWithToolResult(collector, hugeOutput);
@@ -44,7 +44,7 @@ describe("createTurnContextCollector tool result truncation", () => {
   });
 
   test("leaves tool result content under the budget untouched", () => {
-    const collector = createTurnContextCollector(() => {});
+    const collector = createTurnContextCollector(() => undefined);
     const smallOutput = "exit code 0";
 
     observeOneTurnWithToolResult(collector, smallOutput);

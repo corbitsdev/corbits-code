@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
 import { discoverSkills, resolveSkillBody } from "../../src/extensions/skills.js";
+import { defined } from "../helpers/defined.js";
 
 const fixtureCwd = join(import.meta.dirname, "../fixtures/skill-workspace");
 const exampleAgentPlugin = join(import.meta.dirname, "../fixtures/plugins/example-agent");
@@ -14,7 +15,7 @@ describe("skill discovery", () => {
     const skills = await discoverSkills(fixtureCwd, pluginDirs);
     const scribe = skills.find((s) => s.name === "scribe");
     expect(scribe).toBeDefined();
-    expect(scribe!.description.length).toBeGreaterThan(0);
+    expect(defined(scribe, "scribe skill").description.length).toBeGreaterThan(0);
   });
 
   test("dedupes by name", async () => {
@@ -78,7 +79,7 @@ describe("skill resolution", () => {
   test("resolves plugin skill body with frontmatter stripped", async () => {
     const body = await resolveSkillBody(fixtureCwd, "scribe", pluginDirs);
     expect(body).toBeDefined();
-    expect(body!.startsWith("---")).toBe(false);
+    expect(defined(body, "skill body").startsWith("---")).toBe(false);
     expect(body).toContain("Scribe");
   });
 
@@ -103,7 +104,7 @@ describe("skill resolution", () => {
       const body = await resolveSkillBody(plugin, "git-worktrees", [plugin]);
       expect(body).toBeDefined();
       expect(body).toContain("Create worktree recipe.");
-      expect(body!.startsWith("---")).toBe(false);
+      expect(defined(body, "skill body").startsWith("---")).toBe(false);
     } finally {
       await rm(plugin, { recursive: true, force: true });
     }
@@ -133,7 +134,7 @@ describe("path-like skill refs", () => {
     });
     expect(body).toBeDefined();
     expect(body).toContain("Be clean and direct.");
-    expect(body!.startsWith("---")).toBe(false);
+    expect(defined(body, "skill body").startsWith("---")).toBe(false);
   });
 
   test("resolves relative SKILL.md file ref under pluginRoot", async () => {

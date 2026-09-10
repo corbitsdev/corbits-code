@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
@@ -302,7 +303,7 @@ describe("HTTP MCP auth policy", () => {
       }
     ).fetch;
     expect(fetchFn).toBeTypeOf("function");
-    await expect(fetchFn!("https://auth.test/token")).rejects.toThrow();
+    await expect(defined(fetchFn)("https://auth.test/token")).rejects.toThrow();
   });
 
   test("ordinary HTTP creates endpoint-scoped OAuth and passes it to transport", async () => {

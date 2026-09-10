@@ -23,7 +23,7 @@ const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
 test("buildChatSystemPrompt wires into createChatDirector without error", () => {
   const prompt = buildChatSystemPrompt();
   expect(() =>
-    createChatDirector(prompt, minimalToolDefinitions, { onTasksChange: () => {} }),
+    createChatDirector(prompt, minimalToolDefinitions, { onTasksChange: () => undefined }),
   ).not.toThrow();
 });
 

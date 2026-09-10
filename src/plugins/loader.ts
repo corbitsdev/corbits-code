@@ -303,7 +303,7 @@ export interface ExpandPluginPathOptions {
    * into a compile error until it picks a handler on purpose:
    * `expandSkipDiagnosticsHandler(diagnostics)` for a batching caller,
    * an explicit stderr writer for a headless caller where that is correct
-   * and visible (see `src/exec/runner.ts`), or `() => {}` to state on the
+   * and visible (see `src/exec/runner.ts`), or `() => undefined` to state on the
    * record that a caller is deliberately ignoring skips.
    */
   onSkip: (skip: ExpandPluginPathSkip) => void;
@@ -433,7 +433,8 @@ export async function expandPluginPath(
       const existing = await Promise.all(candidates.map((c) => pathExists(c.resolved)));
       const surviving: string[] = [];
       for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i]!;
+        const c = candidates[i];
+        if (c === undefined) continue;
         if (existing[i]) {
           surviving.push(c.resolved);
         } else {
@@ -606,7 +607,8 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
     }
     const existing = indexById.get(id);
     if (existing !== undefined) {
-      const prev = result[existing]!;
+      const prev = result[existing];
+      if (prev === undefined) continue;
       const wasRepoDefaultEnabled =
         prev.shadowedRepoDefaultEnabled === true ||
         (prev.origin === "repo" && prev.manifest?.defaultEnabled === true);

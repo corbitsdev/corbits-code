@@ -39,12 +39,20 @@ export function parseChangelogText(content: string): ChangelogEntry[] {
       flush();
       const versionMatch = line.match(/##\s+\[?(\d+)\.(\d+)\.(\d+)\]?/);
       if (versionMatch !== null) {
-        currentVersion = {
-          major: Number.parseInt(versionMatch[1]!, 10),
-          minor: Number.parseInt(versionMatch[2]!, 10),
-          patch: Number.parseInt(versionMatch[3]!, 10),
-        };
-        currentLines = [line];
+        const major = versionMatch[1];
+        const minor = versionMatch[2];
+        const patch = versionMatch[3];
+        if (major === undefined || minor === undefined || patch === undefined) {
+          currentVersion = null;
+          currentLines = [];
+        } else {
+          currentVersion = {
+            major: Number.parseInt(major, 10),
+            minor: Number.parseInt(minor, 10),
+            patch: Number.parseInt(patch, 10),
+          };
+          currentLines = [line];
+        }
       } else {
         currentVersion = null;
         currentLines = [];
@@ -79,10 +87,14 @@ export function parseVersionString(version: string): ChangelogEntry | null {
     .replace(/^v/i, "")
     .match(/^(\d+)\.(\d+)\.(\d+)/);
   if (match === null) return null;
+  const major = match[1];
+  const minor = match[2];
+  const patch = match[3];
+  if (major === undefined || minor === undefined || patch === undefined) return null;
   return {
-    major: Number.parseInt(match[1]!, 10),
-    minor: Number.parseInt(match[2]!, 10),
-    patch: Number.parseInt(match[3]!, 10),
+    major: Number.parseInt(major, 10),
+    minor: Number.parseInt(minor, 10),
+    patch: Number.parseInt(patch, 10),
     content: "",
   };
 }

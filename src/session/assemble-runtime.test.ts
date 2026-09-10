@@ -119,7 +119,7 @@ describe("assembleChatAgent", () => {
     const fakeStorage = {
       readBlob: async () => new Uint8Array(),
     } as unknown as ContextStore & AuditStore;
-    const fakeAgent = { close: async () => {} } as unknown as Agent;
+    const fakeAgent = { close: async () => undefined } as unknown as Agent;
 
     await withMockedModuleDuring(
       import.meta.resolve("./optimized-context-store.js"),
@@ -173,8 +173,8 @@ describe("assembleChatAgent", () => {
               computeAdvertised: () => [],
               activateTools: () => false,
               inactivityTimeoutMs: 1_000,
-              onTasksChange: () => {},
-              requestContinuation: () => {},
+              onTasksChange: () => undefined,
+              requestContinuation: () => undefined,
               getProvider: () => ({ providerName: "test", model: "m" }),
               getWorkdir: () => {
                 workdirCalls.push(liveDir);
@@ -199,7 +199,7 @@ describe("assembleChatAgent", () => {
                 compactorCalls.push(liveCompactor.name);
                 return liveCompactor;
               },
-              onBuilt: () => {},
+              onBuilt: () => undefined,
             });
 
             expect(workdirCalls).toEqual([]);

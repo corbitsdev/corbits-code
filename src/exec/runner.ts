@@ -474,6 +474,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const overlay = resolveExecDirectorOverlay(config.director);
     const workflowHostHolder: { instance?: WorkflowHost } = {};
+    const subAgentSettings = config.settings;
 
     const agentToolset = await createAgentToolset({
       cwd: config.cwd,
@@ -526,7 +527,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
               sessions: fleetSessions,
               getWorkdirBase: () => sessionDir(config.cwd, sessionId),
               onProgress: () => undefined,
-              ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
+              ...(subAgentSettings !== undefined ? { settings: () => subAgentSettings } : {}),
               catalog: () => config.providers,
               profiles: () => liveAgentProfiles,
             },
@@ -975,7 +976,10 @@ async function promptPermission(
     if (!Number.isInteger(n) || n < 1 || n > scopes.length) {
       return { allow: false };
     }
-    const chosen = scopes[n - 1]!;
+    const chosen = scopes[n - 1];
+    if (chosen === undefined) {
+      return { allow: false };
+    }
     return {
       allow: true,
       ...(chosen.pattern !== null ? { persist: chosen } : {}),

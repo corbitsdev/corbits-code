@@ -10,6 +10,7 @@ import {
 import { createTUIEventEmitter, getTUIRunSummaryStatus } from "../../../src/tui/runner/index.js";
 import { loadLocalSettingsWriteBase } from "../../../src/tui/runner/settings.js";
 import { tuiSendFailureMessage } from "../../../src/tui/runner/send-failure-message.js";
+import { defined } from "../../helpers/defined.js";
 import { createSessionOperationQueue } from "../../../src/tui/session-operation-queue.js";
 import { createRunSink } from "../../../src/session/run-sink.js";
 
@@ -123,7 +124,7 @@ test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async ()
 test("rotation resets run-sink so a new session starts from a clean state", () => {
   const emitter = new EventEmitter();
   const hookManager = {
-    dispatchPostTurn: () => {},
+    dispatchPostTurn: () => undefined,
     getStatuses: () => [
       {
         id: "h1",
@@ -146,7 +147,7 @@ test("rotation resets run-sink so a new session starts from a clean state", () =
 
   // The new collector is a fresh instance — not the same object as before.
   // hooks are configured above, so the collector is non-null here
-  const collectorAfterReset = runSink.getTurnCollector()!;
+  const collectorAfterReset = defined(runSink.getTurnCollector(), "turn collector");
   expect(collectorAfterReset).not.toBe(collectorBeforeReset);
 
   // Status is cancelled (no events received in new session yet).
@@ -215,7 +216,7 @@ test("a failed close followed by a lock error never surfaces as a raw AgentConte
   }
   expect(rebuildError).not.toBeNull();
   expect(rebuildError).not.toBeInstanceOf(AgentContextLockError);
-  expect(rebuildError!.message).toMatch(/restart/i);
+  expect(defined(rebuildError, "rebuild error").message).toMatch(/restart/i);
 });
 
 // reloadIfIdle itself is a closure captured inside runTUI's single ~2500-line
@@ -272,7 +273,7 @@ test("a rejecting reload op through the real session-operation-queue never trigg
   expect(unhandled).toBeNull();
   expect(fatalBuildError).not.toBeNull();
   expect(fatalBuildError).not.toBeInstanceOf(AgentContextLockError);
-  expect(fatalBuildError!.message).toMatch(/restart/i);
+  expect(defined<Error>(fatalBuildError, "fatal build error").message).toMatch(/restart/i);
 });
 
 // A true negative control (reproducing reloadIfIdle's pre-fix shape — no

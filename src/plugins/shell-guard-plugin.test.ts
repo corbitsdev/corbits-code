@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { expect, test, describe } from "bun:test";
 import { mkdtemp, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -205,9 +206,9 @@ describe("background run_shell (shellGuardPlugin)", () => {
   });
 
   function handlerWith(registry?: ReturnType<typeof createBackgroundShellRegistry>) {
-    return shellGuardPlugin(process.cwd(), undefined, undefined, {
+    return defined(shellGuardPlugin(process.cwd(), undefined, undefined, {
       ...(registry !== undefined ? { getBackgroundShellRegistry: () => registry } : {}),
-    }).middleware!(fallback);
+    }).middleware)(fallback);
   }
 
   function runWith(registry: ReturnType<typeof createBackgroundShellRegistry>, call: ToolCall) {
@@ -357,7 +358,7 @@ describe("shellGuardPlugin", () => {
   });
 
   function run(call: ToolCall): Promise<ToolResult> {
-    const handler = shellGuardPlugin(process.cwd()).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(fallback);
     return handler(call, neverAbort());
   }
 
@@ -372,9 +373,9 @@ describe("shellGuardPlugin", () => {
   });
 
   test("plugin-level env is applied to run_shell's spawn environment", async () => {
-    const handler = shellGuardPlugin(process.cwd(), undefined, {
+    const handler = defined(shellGuardPlugin(process.cwd(), undefined, {
       CORBITS_TEST_ENV_VAR: "plugin-env",
-    }).middleware!(fallback);
+    }).middleware)(fallback);
     const result = await handler(
       { id: "c-env", name: "run_shell", arguments: { command: "echo $CORBITS_TEST_ENV_VAR" } },
       neverAbort(),
@@ -394,7 +395,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("clamps a per-command timeout override to the configured max", async () => {
-    const handler = shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware)(fallback);
     const result = await handler(
       { id: "c2b", name: "run_shell", arguments: { command: "sleep 60", timeout: 900_000 } },
       neverAbort(),
@@ -403,7 +404,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("applies a configured default timeout when none is passed", async () => {
-    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware)(fallback);
     const result = await handler(
       { id: "c2c", name: "run_shell", arguments: { command: "sleep 60" } },
       neverAbort(),
@@ -412,7 +413,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("omitted timeout with no settings default does not time out", async () => {
-    const handler = shellGuardPlugin(process.cwd()).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(fallback);
     const result = await handler(
       { id: "c2d", name: "run_shell", arguments: { command: "sleep 0.2; echo ok" } },
       neverAbort(),
@@ -422,7 +423,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("maxMs alone does not invent a timeout when the model omits timeout", async () => {
-    const handler = shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware)(fallback);
     const result = await handler(
       { id: "c2e", name: "run_shell", arguments: { command: "sleep 0.2; echo ok" } },
       neverAbort(),
@@ -447,7 +448,7 @@ describe("shellGuardPlugin", () => {
         "     1\tpartial\n\nread_file [timed out before completing] for big.log — use a smaller offset/limit. This is not an empty file.",
       isError: true,
     });
-    const handler = shellGuardPlugin(process.cwd()).middleware!(stockTimeout);
+    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(stockTimeout);
     const result = await handler(
       { id: "c3b", name: "read_file", arguments: { path: "big.log" } },
       neverAbort(),
@@ -484,7 +485,7 @@ describe("shellGuardPlugin", () => {
     const plugin = shellGuardPlugin(process.cwd());
     // Inject a fast abort parent so the search budget settles quickly.
     const controller = new AbortController();
-    const handler = plugin.middleware!(slow);
+    const handler = defined(plugin.middleware)(slow);
     const promise = handler(
       { id: "c4", name: "grep", arguments: { pattern: "x" } },
       controller.signal,
@@ -498,7 +499,7 @@ describe("shellGuardPlugin", () => {
 
   test("rejects retaining cwd outside the session workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-escape-cwd-"));
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     const escaped = await handler(
       { id: "e1", name: "run_shell", arguments: { command: "cd .. && pwd" } },
       neverAbort(),
@@ -515,9 +516,9 @@ describe("shellGuardPlugin", () => {
   test("allowOutsideCwd getter allows retaining cwd outside the session workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-escape-cwd-yolo-"));
     let allow = false;
-    const handler = shellGuardPlugin(root, undefined, undefined, {
+    const handler = defined(shellGuardPlugin(root, undefined, undefined, {
       allowOutsideCwd: () => allow,
-    }).middleware!(fallback);
+    }).middleware)(fallback);
     const blocked = await handler(
       { id: "e1", name: "run_shell", arguments: { command: "cd .. && pwd" } },
       neverAbort(),
@@ -538,7 +539,7 @@ describe("shellGuardPlugin", () => {
     const root = await mkdtemp(join(tmpdir(), "ic-cd-fail-"));
     const nested = join(root, "nested");
     await mkdir(nested);
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     const fail = await handler(
       { id: "cf1", name: "run_shell", arguments: { command: "cd nested && false" } },
       neverAbort(),
@@ -555,7 +556,7 @@ describe("shellGuardPlugin", () => {
     const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
     const sub = join(root, "nested");
     await mkdir(sub);
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     const cdResult = await handler(
       { id: "cd1", name: "run_shell", arguments: { command: "cd nested" } },
       neverAbort(),
@@ -572,7 +573,7 @@ describe("shellGuardPlugin", () => {
     const root = await mkdtemp(join(tmpdir(), "ic-override-cwd-"));
     const sub = join(root, "other");
     await mkdir(sub);
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     await handler(
       { id: "o1", name: "run_shell", arguments: { command: "cd other" } },
       neverAbort(),
@@ -599,8 +600,8 @@ describe("shellGuardPlugin", () => {
     const b = join(root, "b");
     await mkdir(a);
     await mkdir(b);
-    const handlerA = shellGuardPlugin(root).middleware!(fallback);
-    const handlerB = shellGuardPlugin(root).middleware!(fallback);
+    const handlerA = defined(shellGuardPlugin(root).middleware)(fallback);
+    const handlerB = defined(shellGuardPlugin(root).middleware)(fallback);
     await handlerA({ id: "ia", name: "run_shell", arguments: { command: "cd a" } }, neverAbort());
     await handlerB({ id: "ib", name: "run_shell", arguments: { command: "cd b" } }, neverAbort());
     const pwdA = await handlerA(
@@ -619,7 +620,7 @@ describe("shellGuardPlugin", () => {
     const root = await mkdtemp(join(tmpdir(), "ic-serial-cwd-"));
     const nested = join(root, "nested");
     await mkdir(nested);
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     // Barrier: hold a non-cd command open while a cd is enqueued behind it.
     // Without serialization the waiter would finish after cd and clobber cwd.
     const release = join(root, "release");
@@ -651,7 +652,7 @@ describe("shellGuardPlugin", () => {
     const b = join(root, "b");
     await mkdir(a);
     await mkdir(b);
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     await Promise.all([
       handler(
         { id: "f1", name: "run_shell", arguments: { command: `cd ${JSON.stringify(a)}` } },
@@ -672,7 +673,7 @@ describe("shellGuardPlugin", () => {
 
   test("surfaces a clear error when retained cwd is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-missing-cwd-"));
-    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     const gone = join(root, "removed");
     await mkdir(gone);
     await handler(
@@ -704,7 +705,7 @@ describe("shellGuardPlugin", () => {
     const prev = process.cwd();
     try {
       await chdir(otherRoot);
-      const handler = shellGuardPlugin(root).middleware!(fallback);
+      const handler = defined(shellGuardPlugin(root).middleware)(fallback);
       const result = await handler(
         {
           id: "pc1",
@@ -721,7 +722,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("treats timeout 0 as the configured default", async () => {
-    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware!(
+    const handler = defined(shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware)(
       fallback,
     );
     const result = await handler(
@@ -735,10 +736,10 @@ describe("shellGuardPlugin", () => {
     // Reproduces the non-abortable fallback grep: next() never settles and never
     // observes the abort. The guard must stop waiting once the budget fires
     // instead of awaiting the walk forever.
-    const hangs = (): Promise<ToolResult> => new Promise<ToolResult>(() => {});
+    const hangs = (): Promise<ToolResult> => new Promise<ToolResult>(() => undefined);
     const plugin = shellGuardPlugin(process.cwd());
     const controller = new AbortController();
-    const handler = plugin.middleware!(hangs);
+    const handler = defined(plugin.middleware)(hangs);
     const promise = handler(
       { id: "c5", name: "grep", arguments: { pattern: "x" } },
       controller.signal,
@@ -752,7 +753,7 @@ describe("shellGuardPlugin", () => {
   test("dispose without abort kills tagged grandchildren and is idempotent", async () => {
     if (process.platform === "win32") return;
     const plugin = shellGuardPlugin(process.cwd());
-    const handler = plugin.middleware!(fallback);
+    const handler = defined(plugin.middleware)(fallback);
     const token = `ic_guard_dispose_${randomUUID()}`;
     const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
     const running = handler(
@@ -770,12 +771,12 @@ describe("shellGuardPlugin", () => {
         "",
       );
       expect(plugin.dispose).toBeDefined();
-      await plugin.dispose!();
+      await defined(plugin.dispose)();
       await new Promise((r) => setTimeout(r, 300));
       const after = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
       expect(after.stdout?.trim() ?? "").toBe("");
       expect(after.status).not.toBe(0);
-      await plugin.dispose!();
+      await defined(plugin.dispose)();
       await running;
     } finally {
       spawnSync("pkill", ["-9", "-f", token]);
@@ -785,7 +786,7 @@ describe("shellGuardPlugin", () => {
   test("dispose refuses a queued run_shell so it cannot stay running after reap", async () => {
     if (process.platform === "win32") return;
     const plugin = shellGuardPlugin(process.cwd());
-    const handler = plugin.middleware!(fallback);
+    const handler = defined(plugin.middleware)(fallback);
     const token1 = `ic_guard_queued1_${randomUUID()}`;
     const token2 = `ic_guard_queued2_${randomUUID()}`;
     const first = handler(
@@ -818,7 +819,7 @@ describe("shellGuardPlugin", () => {
 
       let disposeError: unknown;
       try {
-        await plugin.dispose!();
+        await defined(plugin.dispose)();
       } catch (err) {
         disposeError = err;
       }
@@ -852,7 +853,7 @@ describe("shellGuardPlugin", () => {
   test("overlapping dispose joins the in-flight reap", async () => {
     if (process.platform === "win32") return;
     const plugin = shellGuardPlugin(process.cwd());
-    const handler = plugin.middleware!(fallback);
+    const handler = defined(plugin.middleware)(fallback);
     const token = `ic_guard_join_${randomUUID()}`;
     const running = handler(
       {
@@ -870,8 +871,8 @@ describe("shellGuardPlugin", () => {
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(plugin.dispose).toBeDefined();
-      const first = plugin.dispose!();
-      const second = plugin.dispose!();
+      const first = defined(plugin.dispose)();
+      const second = defined(plugin.dispose)();
       expect(second).toBe(first);
       await Promise.all([first, second]);
       await running;

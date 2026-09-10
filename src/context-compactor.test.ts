@@ -1,3 +1,4 @@
+import { defined } from "../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import {
   createPruningCompactor,
@@ -45,7 +46,7 @@ function allText(turns: ConversationTurn[]): string {
 }
 
 function hasConsecutiveSameRole(turns: ConversationTurn[]): boolean {
-  return turns.some((t, i) => i > 0 && turns[i - 1]!.role === t.role);
+  return turns.some((t, i) => i > 0 && defined(turns[i - 1]).role === t.role);
 }
 
 describe("createPruningCompactor", () => {
@@ -98,7 +99,7 @@ describe("createPruningCompactor", () => {
     const result = await compactor.apply(turns, mockStrategyCtx);
 
     // Summary leads as a user turn (survives every adapter).
-    expect(result.output[0]!.role).toBe("user");
+    expect(defined(result.output[0]).role).toBe("user");
     expect(allText(result.output)).toContain("[Compacted prior context]");
     // The initiating user message and the recent turn both survive.
     expect(allText(result.output)).toContain("old message 1");
@@ -129,11 +130,11 @@ describe("createPruningCompactor", () => {
     const result = await compactor.apply(turns, mockStrategyCtx);
 
     expect(result.output.length).toBe(2);
-    const recentTurn = result.output[1]!;
+    const recentTurn = defined(result.output[1]);
     expect(recentTurn.role).toBe("assistant");
     const toolCalls = recentTurn.content.filter((b) => b.type === "tool_call");
     expect(toolCalls.length).toBe(1);
-    expect(toolCalls[0]!.name).toBe("read_file");
+    expect(defined(toolCalls[0]).name).toBe("read_file");
   });
 });
 
@@ -175,7 +176,7 @@ describe("createPruningCompactor — initiating task preservation", () => {
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(result.output[0]!.role).toBe("user");
+    expect(defined(result.output[0]).role).toBe("user");
     expect(result.output.every((t) => t.role !== "system")).toBe(true);
   });
 
@@ -274,10 +275,10 @@ describe("createPruningCompactor — image aging", () => {
       ),
     ).toBe(true);
     expect(result.blobs).toBeDefined();
-    expect(result.blobs!.length).toBeGreaterThanOrEqual(1);
-    expect(result.blobs![0]!.contentType).toBe("image/png");
+    expect(defined(result.blobs).length).toBeGreaterThanOrEqual(1);
+    expect(defined(defined(result.blobs)[0]).contentType).toBe("image/png");
     // Blob payload is the original base64 (UTF-8), not lost.
-    expect(new TextDecoder().decode(result.blobs![0]!.bytes)).toBe("iVBORw0KGgo=");
+    expect(new TextDecoder().decode(defined(defined(result.blobs)[0]).bytes)).toBe("iVBORw0KGgo=");
   });
 
   test("keeps an image intact when its turn is still within the recent window", async () => {
@@ -316,7 +317,7 @@ describe("createPruningCompactor — image aging", () => {
 
     expect(JSON.stringify(result.output)).not.toContain("iVBORw0KGgo=");
     expect(result.blobs).toBeDefined();
-    expect(result.blobs!.length).toBeGreaterThanOrEqual(1);
+    expect(defined(result.blobs).length).toBeGreaterThanOrEqual(1);
     expect(
       result.output.some((t) =>
         t.content.some(
@@ -615,15 +616,15 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     const compactor = createPruningCompactor({ keepRecentTurns: 2, summaryMaxChars: 500 });
     const turns = grow([], 16, "round1");
     const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
-    expect(firstText(output1[0]!)).toContain(COMPACTED_PREFIX);
+    expect(firstText(defined(output1[0]))).toContain(COMPACTED_PREFIX);
 
     const output2 = (await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)).output;
 
-    expect(firstText(output2[0]!)).toBe(firstText(output1[0]!));
+    expect(firstText(defined(output2[0]))).toBe(firstText(defined(output1[0])));
     expect(output2[0]).toBe(output1[0]);
     const summaries = compactedTurns(output2);
     expect(summaries.length).toBeGreaterThanOrEqual(2);
-    expect(output2.indexOf(summaries[1]!)).toBeGreaterThan(0);
+    expect(output2.indexOf(defined(summaries[1]))).toBeGreaterThan(0);
     expect(hasConsecutiveSameRole(output2)).toBe(false);
     expect(
       output2.some((t) => t.role === "assistant" && firstText(t) === COMPACT_SPACER_TEXT),
@@ -636,9 +637,9 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     const output2 = (await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)).output;
     const spacer = output2.find(isHarnessCompactSpacer);
     expect(spacer).toBeDefined();
-    expect(spacer!.model).toBe(HARNESS_COMPACT_SPACER_MODEL);
-    expect(firstText(spacer!)).toBe(COMPACT_SPACER_TEXT);
-    expect(firstText(spacer!)).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
+    expect(defined(spacer).model).toBe(HARNESS_COMPACT_SPACER_MODEL);
+    expect(firstText(defined(spacer))).toBe(COMPACT_SPACER_TEXT);
+    expect(firstText(defined(spacer))).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
     expect(COMPACT_SPACER_TEXT).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
   });
 
@@ -652,23 +653,23 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
       model: "omen-alpha",
       content: [{ type: "text", text: LEGACY_COMPACT_SPACER_TEXT }],
     });
-    const output2 = (await compactor.apply(grow([summary!, echo], 16, "round2"), mockStrategyCtx))
+    const output2 = (await compactor.apply(grow([defined(summary), echo], 16, "round2"), mockStrategyCtx))
       .output;
 
     let frozenLen = 0;
     while (
       frozenLen < output2.length &&
-      firstText(output2[frozenLen]!).startsWith(COMPACTED_PREFIX)
+      firstText(defined(output2[frozenLen])).startsWith(COMPACTED_PREFIX)
     ) {
       frozenLen++;
-      if (frozenLen < output2.length && isHarnessCompactSpacer(output2[frozenLen]!)) frozenLen++;
+      if (frozenLen < output2.length && isHarnessCompactSpacer(defined(output2[frozenLen]))) frozenLen++;
     }
     expect(output2.slice(0, frozenLen)).not.toContain(echo);
     expect(isHarnessCompactSpacer(echo)).toBe(false);
     const harness = output2.find(isHarnessCompactSpacer);
     expect(harness).toBeDefined();
-    expect(harness!.model).toBe(HARNESS_COMPACT_SPACER_MODEL);
-    expect(firstText(harness!)).toBe(COMPACT_SPACER_TEXT);
+    expect(defined(harness).model).toBe(HARNESS_COMPACT_SPACER_MODEL);
+    expect(firstText(defined(harness))).toBe(COMPACT_SPACER_TEXT);
     expect(harness).not.toBe(echo);
   });
 
@@ -682,23 +683,23 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
       model: "omen-alpha",
       content: [{ type: "text", text: COMPACT_SPACER_TEXT }],
     });
-    const output2 = (await compactor.apply(grow([summary!, echo], 16, "round2"), mockStrategyCtx))
+    const output2 = (await compactor.apply(grow([defined(summary), echo], 16, "round2"), mockStrategyCtx))
       .output;
 
     let frozenLen = 0;
     while (
       frozenLen < output2.length &&
-      firstText(output2[frozenLen]!).startsWith(COMPACTED_PREFIX)
+      firstText(defined(output2[frozenLen])).startsWith(COMPACTED_PREFIX)
     ) {
       frozenLen++;
-      if (frozenLen < output2.length && isHarnessCompactSpacer(output2[frozenLen]!)) frozenLen++;
+      if (frozenLen < output2.length && isHarnessCompactSpacer(defined(output2[frozenLen]))) frozenLen++;
     }
     expect(output2.slice(0, frozenLen)).not.toContain(echo);
     expect(isHarnessCompactSpacer(echo)).toBe(false);
     const harness = output2.find(isHarnessCompactSpacer);
     expect(harness).toBeDefined();
-    expect(harness!.model).toBe(HARNESS_COMPACT_SPACER_MODEL);
-    expect(firstText(harness!)).toBe(COMPACT_SPACER_TEXT);
+    expect(defined(harness).model).toBe(HARNESS_COMPACT_SPACER_MODEL);
+    expect(firstText(defined(harness))).toBe(COMPACT_SPACER_TEXT);
     expect(harness).not.toBe(echo);
   });
 
@@ -711,7 +712,7 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
       role: "assistant",
       content: [{ type: "text", text: LEGACY_COMPACT_SPACER_TEXT }],
     });
-    const grown = grow([summary!, legacySpacer], 16, "round2");
+    const grown = grow([defined(summary), legacySpacer], 16, "round2");
     const output2 = (await compactor.apply(grown, mockStrategyCtx)).output;
     expect(output2[0]).toBe(summary);
     expect(output2[1]).toBe(legacySpacer);
@@ -763,12 +764,12 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     });
     const turns = grow([], 16, "fail");
     const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
-    expect(firstText(output1[0]!)).toContain("Turns compacted:");
-    expect(firstText(output1[0]!)).not.toContain("UNIQUE_SUCCESS_SUMMARY");
-    expect(firstText(output1[0]!)).toContain("Model summary unavailable");
+    expect(firstText(defined(output1[0]))).toContain("Turns compacted:");
+    expect(firstText(defined(output1[0]))).not.toContain("UNIQUE_SUCCESS_SUMMARY");
+    expect(firstText(defined(output1[0]))).toContain("Model summary unavailable");
 
     const output2 = (await compactor.apply(grow(output1, 16, "ok"), mockStrategyCtx)).output;
-    expect(firstText(output2[0]!)).toBe(firstText(output1[0]!));
+    expect(firstText(defined(output2[0]))).toBe(firstText(defined(output1[0])));
     expect(allText(output2)).toContain("UNIQUE_SUCCESS_SUMMARY");
     expect(hasConsecutiveSameRole(output2)).toBe(false);
   });
@@ -969,7 +970,7 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     ];
 
     const result = await compactor.apply(turns, mockStrategyCtx);
-    const summaryText = (result.output[0]!.content[0]! as { text: string }).text;
+    const summaryText = (defined(defined(result.output[0]).content[0]) as { text: string }).text;
     expect(summaryText).toContain("read_file");
     expect(summaryText).toContain("Total tool calls: 1");
   });
@@ -984,7 +985,7 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     ];
 
     const result = await compactor.apply(turns, mockStrategyCtx);
-    const summaryBlock = result.output[0]!.content[0]! as { text: string };
+    const summaryBlock = defined(defined(result.output[0]).content[0]) as { text: string };
     // The summary portion of the block is extracted from after the header line.
     // The header itself is "---..." so we look at the full block text — the
     // embedded buildTurnSummary output must end with "..." when truncated.

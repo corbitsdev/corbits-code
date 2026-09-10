@@ -94,7 +94,7 @@ export async function saveState(
   // Swallow the error in the chain tail (not in `write`, which still rejects
   // for this caller) so one failed save doesn't permanently wedge later
   // saves for the same session.
-  const tail = write.catch(() => {});
+  const tail = write.catch(() => undefined);
   writeChains.set(sessionId, tail);
   // Once this is the last write for the session, drop the entry so a
   // long-lived process doesn't retain a chain per session forever.

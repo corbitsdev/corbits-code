@@ -409,8 +409,8 @@ function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Se
     const successes = reads.filter((r) => !r.isError);
     if (successes.length < 2) continue;
     // Newest success (highest order) stays whole; every earlier success stubs.
-    for (let i = 0; i < successes.length - 1; i++) {
-      superseded.add(successes[i]!.callId);
+    for (const read of successes.slice(0, -1)) {
+      superseded.add(read.callId);
     }
   }
   return superseded;
@@ -640,7 +640,8 @@ async function ageImagesOutsideRecentWindow(
   // Fast path: nothing outside the recent window needs aging.
   let needsAge = false;
   for (let i = 0; i < keepFrom; i++) {
-    if (turns[i]!.content.some((b) => b.type === "image")) {
+    const turn = turns[i];
+    if (turn !== undefined && turn.content.some((b) => b.type === "image")) {
       needsAge = true;
       break;
     }
@@ -654,7 +655,8 @@ async function ageImagesOutsideRecentWindow(
   const out: ConversationTurn[] = [];
 
   for (let i = 0; i < turns.length; i++) {
-    const turn = turns[i]!;
+    const turn = turns[i];
+    if (turn === undefined) continue;
     if (i < keepFrom && turn.content.some((b) => b.type === "image")) {
       const aged = await ageImageBlocks(turn);
       out.push(aged.turn);
@@ -751,9 +753,12 @@ export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
 // until the next compact inserts one.
 function frozenPrefixLength(turns: readonly ConversationTurn[]): number {
   let i = 0;
-  while (i < turns.length && isCompactedSummaryTurn(turns[i]!)) {
+  while (i < turns.length) {
+    const turn = turns[i];
+    if (turn === undefined || !isCompactedSummaryTurn(turn)) break;
     i++;
-    if (i < turns.length && isHarnessCompactSpacer(turns[i]!)) i++;
+    const spacer = turns[i];
+    if (spacer !== undefined && isHarnessCompactSpacer(spacer)) i++;
   }
   return i;
 }
@@ -869,7 +874,10 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
       // Ascending original order keeps the concatenated [anchors, recent]
       // sequence globally index-ordered, so every result still follows its call.
       const sortedAnchorIndices = [...anchorIndices].sort((a, b) => a - b);
-      const anchorTurns = sortedAnchorIndices.map((i) => olderTurns[i]!);
+      const anchorTurns = sortedAnchorIndices.flatMap((i) => {
+        const turn = olderTurns[i];
+        return turn === undefined ? [] : [turn];
+      });
       const summarizedTurns = olderTurns.filter((_, i) => !anchorIndices.has(i));
 
       // Keep-set covered the whole live suffix: nothing to fold. Leave the
@@ -931,13 +939,17 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
       if (frozenLen === 0) {
         output = liveOutput;
       } else {
-        const lastFrozen = frozen[frozen.length - 1]!;
-        const firstLive = liveOutput[0];
-        const spacer =
-          lastFrozen.role === "user" && firstLive?.role === "user"
-            ? [compactSpacerTurn(summaryTurn.timestamp)]
-            : [];
-        output = [...frozen, ...spacer, ...liveOutput];
+        const lastFrozen = frozen[frozen.length - 1];
+        if (lastFrozen === undefined) {
+          output = liveOutput;
+        } else {
+          const firstLive = liveOutput[0];
+          const spacer =
+            lastFrozen.role === "user" && firstLive?.role === "user"
+              ? [compactSpacerTurn(summaryTurn.timestamp)]
+              : [];
+          output = [...frozen, ...spacer, ...liveOutput];
+        }
       }
 
       return {

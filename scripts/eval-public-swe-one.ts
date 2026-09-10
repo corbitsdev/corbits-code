@@ -88,7 +88,8 @@ export function parseArgs(argv: string[]): CliOptions {
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    if (a === undefined) continue;
     const next = () => {
       const v = argv[++i];
       if (v === undefined) throw new Error(`missing value for ${a}`);

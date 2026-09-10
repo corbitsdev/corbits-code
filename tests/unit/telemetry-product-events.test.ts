@@ -9,6 +9,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defined } from "../helpers/defined.js";
 
 import { createUseSkillTool } from "../../src/agent/use-skill.js";
 import type { Settings } from "../../src/config/settings.js";
@@ -77,7 +78,7 @@ const tempDirs: string[] = [];
 afterEach(async () => {
   resetFeedbackStateForTests();
   while (tempDirs.length > 0) {
-    await rm(tempDirs.pop()!, { recursive: true, force: true });
+    await rm(defined(tempDirs.pop(), "temp dir"), { recursive: true, force: true });
   }
 });
 

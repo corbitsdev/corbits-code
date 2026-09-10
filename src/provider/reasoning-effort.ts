@@ -216,7 +216,9 @@ export function clampEffort(
   if (supported.length === 0) return undefined;
   if (supported.includes(desired)) return desired;
   const desiredIdx = REASONING_EFFORTS.indexOf(desired);
-  let best: ReasoningEffort = supported[0]!;
+  const first = supported[0];
+  if (first === undefined) return undefined;
+  let best: ReasoningEffort = first;
   let bestDist = Number.POSITIVE_INFINITY;
   for (const level of supported) {
     const dist = Math.abs(REASONING_EFFORTS.indexOf(level) - desiredIdx);

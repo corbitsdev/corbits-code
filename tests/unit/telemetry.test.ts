@@ -10,6 +10,7 @@ import {
 } from "../../src/telemetry/index.js";
 import { ensureTelemetrySettings } from "../../src/config/settings.js";
 import type { Settings } from "../../src/config/settings.js";
+import { defined } from "../helpers/defined.js";
 
 function settingsWith(installationId?: string, enabled?: boolean): Settings {
   return {
@@ -135,7 +136,7 @@ test("capture strips properties not in the event's allowlist", async () => {
   });
   await telemetry.flush();
   expect(events().length).toBe(1);
-  const body = events()[0]!;
+  const body = defined(events()[0], "telemetry event");
   expect(body.properties.status).toBe("ok");
   expect(body.properties.turn_count).toBe(3);
   expect(body.properties.duration_ms).toBe(100);
@@ -168,7 +169,7 @@ test("capture strips properties not in $ai_generation's allowlist", async () => 
   });
   await telemetry.flush();
   expect(events().length).toBe(1);
-  const body = events()[0]!;
+  const body = defined(events()[0], "telemetry event");
   expect(body.event).toBe("$ai_generation");
   expect(body.properties.$ai_trace_id).toBe("trace-1");
   expect(body.properties.$ai_provider).toBe("openai-compatible");
@@ -197,7 +198,7 @@ test("capture strips properties not in $ai_span's allowlist, including raw tool 
   });
   await telemetry.flush();
   expect(events().length).toBe(1);
-  const body = events()[0]!;
+  const body = defined(events()[0], "telemetry event");
   expect(body.event).toBe("$ai_span");
   expect(body.properties.$ai_trace_id).toBe("trace-1");
   expect(body.properties.$ai_span_id).toBe("span-1");
@@ -256,8 +257,8 @@ test("capture payload shape includes distinct_id and common props, with no clien
   telemetry.capture("cli_start");
   await telemetry.flush();
   expect(bodies.length).toBe(1);
-  expect(bodies[0]!.api_key).toBe("test-key");
-  const body = events()[0]!;
+  expect(defined(bodies[0], "telemetry body").api_key).toBe("test-key");
+  const body = defined(events()[0], "telemetry event");
   expect(body.event).toBe("cli_start");
   expect(body.properties.distinct_id).toBe("my-install-id");
   expect(typeof body.timestamp).toBe("string");
@@ -289,7 +290,7 @@ test("intentional survey capture omits anonymous person-processing flag", async 
     }),
   ).toBe(true);
   await telemetry.flush();
-  const body = events()[0]!;
+  const body = defined(events()[0], "telemetry event");
   expect(body.event).toBe("survey sent");
   expect(body.properties.$process_person_profile).toBeUndefined();
 });
@@ -321,7 +322,7 @@ test("flush resolves after pending captures settle", async () => {
 });
 
 test("flush gives up after its deadline when a request never settles", async () => {
-  const impl = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+  const impl = (() => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
   const telemetry = createTelemetry({
     settings: settingsWith("id"),
     env: {},
@@ -365,10 +366,10 @@ test("capture attaches the same session_id across multiple events in one process
   await telemetry.flush();
   const captured = events();
   expect(captured.length).toBe(2);
-  const sessionId = captured[0]!.properties.session_id;
+  const sessionId = defined(captured[0], "first event").properties.session_id;
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
-  expect(captured[1]!.properties.session_id).toBe(sessionId);
+  expect(defined(captured[1], "second event").properties.session_id).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });
 
@@ -378,7 +379,7 @@ test("ensureTelemetrySettings called twice keeps installationId and enabled flag
   try {
     const first = await ensureTelemetrySettings(path);
     expect(typeof first.telemetry?.installationId).toBe("string");
-    expect(first.telemetry?.installationId!.length).toBeGreaterThan(0);
+    expect(defined(first.telemetry?.installationId, "installationId").length).toBeGreaterThan(0);
 
     const second = await ensureTelemetrySettings(path);
     expect(second.telemetry?.installationId).toBe(first.telemetry?.installationId);
@@ -454,7 +455,7 @@ test("reaching the batch size sends one request holding every queued event", asy
   telemetry.capture("session_end", { turn_count: 3 });
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0]!)).toEqual([1, 2, 3]);
+  expect(turnCounts(defined(bodies[0], "telemetry body"))).toEqual([1, 2, 3]);
 });
 
 test("a partial batch is sent once the batch interval elapses", async () => {
@@ -471,7 +472,7 @@ test("a partial batch is sent once the batch interval elapses", async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 60));
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0]!)).toEqual([1]);
+  expect(turnCounts(defined(bodies[0], "telemetry body"))).toEqual([1]);
 });
 
 test("overflowing the queue drops the oldest events", async () => {
@@ -486,7 +487,7 @@ test("overflowing the queue drops the oldest events", async () => {
   for (let turn = 1; turn <= 5; turn++) telemetry.capture("session_end", { turn_count: turn });
   await telemetry.flush();
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0]!)).toEqual([3, 4, 5]);
+  expect(turnCounts(defined(bodies[0], "telemetry body"))).toEqual([3, 4, 5]);
 });
 
 test("captures during a request queue behind it instead of opening a second one", async () => {
@@ -525,7 +526,7 @@ test("flush drains a partially full queue within its deadline", async () => {
   await telemetry.flush();
   expect(Date.now() - start).toBeLessThan(500);
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0]!)).toEqual([1, 2]);
+  expect(turnCounts(defined(bodies[0], "telemetry body"))).toEqual([1, 2]);
 });
 
 test("a hung endpoint caps the queue and never opens a second request", async () => {
@@ -543,7 +544,7 @@ test("a hung endpoint caps the queue and never opens a second request", async ()
   }
   expect(gate.bodies.length).toBe(1);
   expect(gate.peak()).toBe(1);
-  expect(turnCounts(gate.bodies[0]!)).toEqual([1, 2]);
+  expect(turnCounts(defined(gate.bodies[0], "telemetry body"))).toEqual([1, 2]);
 
   gate.openGate();
   await telemetry.flush();

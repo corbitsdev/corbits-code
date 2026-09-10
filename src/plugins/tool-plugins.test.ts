@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   collectToolPlugins,
   isToolPluginActive,
@@ -61,7 +62,7 @@ describe("resolveToolPlugins", () => {
       },
     });
     expect(plugins.length).toBe(1);
-    expect(plugins[0]!.tools![0]!.definition.name).toBe("t1_tool");
+    expect(defined(defined(defined(plugins[0]).tools)[0]).definition.name).toBe("t1_tool");
   });
 
   test("a throwing factory is skipped, not fatal", async () => {

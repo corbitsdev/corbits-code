@@ -131,7 +131,8 @@ function parseSegmentTurns(
 
   const turns: ConversationTurn[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
+    const line = lines[i];
+    if (line === undefined) continue;
     if (line.length === 0) continue;
     const isLast = i === lines.length - 1;
     let raw: unknown;
@@ -287,7 +288,8 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
   const collectedNewestFirst: ConversationTurn[][] = [];
   let total = 0;
   for (let i = segments.length - 1; i >= 0; i--) {
-    const name = segments[i]!;
+    const name = segments[i];
+    if (name === undefined) continue;
     const text = await fs.promises.readFile(path.join(dir, name), "utf-8");
     // Only the active (last) segment can be mid-write; sealed ones are complete.
     // Display-only: skip lines that will not parse rather than losing the whole
@@ -301,8 +303,10 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
   }
 
   const turns: ConversationTurn[] = [];
-  for (let i = collectedNewestFirst.length - 1; i >= 0; i--)
-    turns.push(...collectedNewestFirst[i]!);
+  for (let i = collectedNewestFirst.length - 1; i >= 0; i--) {
+    const chunk = collectedNewestFirst[i];
+    if (chunk !== undefined) turns.push(...chunk);
+  }
   return turns;
 }
 

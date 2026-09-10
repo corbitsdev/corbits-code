@@ -26,7 +26,8 @@ export function parsePwdProbeOutput(raw: string): PwdProbeParse {
   let finalCwd: string | undefined;
   let markerIndex = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]!;
+    const line = lines[i];
+    if (line === undefined) continue;
     if (line.startsWith(SHELL_PWD_MARKER)) {
       markerIndex = i;
       const path = line.slice(SHELL_PWD_MARKER.length).trim();

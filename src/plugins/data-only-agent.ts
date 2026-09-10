@@ -320,7 +320,8 @@ function parseSkillReferencesFromBody(body: string): string[] {
   const re = /\bload\s+the\s+`([a-z0-9_-]+)`\s+skill\b/gi;
   let match: RegExpExecArray | null;
   while ((match = re.exec(body)) !== null) {
-    out.push(match[1]!);
+    const name = match[1];
+    if (name !== undefined) out.push(name);
   }
   return out;
 }

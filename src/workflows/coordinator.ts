@@ -12,7 +12,7 @@ export class WorkflowCoordinator {
     // Persist runtime state after every transition so a run can resume
     // mid-recipe. Failures are swallowed — losing the workflow checkpoint must
     // not crash the agent loop.
-    private readonly persist: () => void = () => {},
+    private readonly persist: () => void = () => undefined,
     // When true the workflow pauses after each step for user confirmation; the
     // directive tells the agent to gate via ask_operator before advancing.
     private readonly stepThrough = false,

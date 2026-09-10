@@ -1,3 +1,4 @@
+import { defined } from "../../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import {
   codexUsageLimitRetryAfterMs,
@@ -99,7 +100,7 @@ describe("formatCodexUsageLimitMessage", () => {
   test("names plan, reset ETA, and profile switch path", () => {
     const parsed = parseCodexUsageLimitError(LIVE_USAGE_LIMIT_BODY);
     expect(parsed).toBeDefined();
-    const line = formatCodexUsageLimitMessage(parsed!, { profile: "abk-labs" });
+    const line = formatCodexUsageLimitMessage(defined(parsed), { profile: "abk-labs" });
     expect(line).toContain('Codex profile "abk-labs"');
     expect(line).toContain("workspace member");
     expect(line).toMatch(/Resets in ~/);

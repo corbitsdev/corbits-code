@@ -13,7 +13,7 @@ test("createAgentToolset wires posix tools for a real cwd", async () => {
   spyOn(posixModule, "createPosixTools").mockReturnValue({
     definitions: [],
     run: async () => ({ output: "" }),
-    dispose: async () => {},
+    dispose: async () => undefined,
   } as unknown as ReturnType<typeof posixModule.createPosixTools>);
 
   const { createAgentToolset } = await import("../../src/agent/tools.js");

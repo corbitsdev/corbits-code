@@ -3,6 +3,20 @@
 
 import { splitChainedCommand, tokenize } from "../permission/command.js";
 
+function skipMatching(
+  tokens: readonly string[],
+  start: number,
+  pred: (token: string) => boolean,
+): number {
+  let i = start;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token === undefined || !pred(token)) break;
+    i++;
+  }
+  return i;
+}
+
 // A command-position anchor: the start of the command, or immediately after a
 // shell separator or subshell open, optionally preceded by a run of NAME=value
 // environment assignments (so `X=1 sudo …` is still recognised as `sudo` in
@@ -147,7 +161,8 @@ function pipelineHeads(command: string): string[] {
   };
 
   for (let i = 0; i < command.length; i++) {
-    const ch = command[i]!;
+    const ch = command[i];
+    if (ch === undefined) break;
     if (quote !== undefined) {
       if (ch === quote) quote = undefined;
       if (!headClosed) head += ch;
@@ -184,9 +199,8 @@ function pipelineHeads(command: string): string[] {
 // (e.g. `grep 'a b'` has one operand, not two).
 export function tokenizeSegment(segment: string): string[] {
   const tokens = tokenize(segment);
-  let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
-  while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  let i = skipMatching(tokens, 0, (t) => ENV_ASSIGNMENT.test(t));
+  i = skipMatching(tokens, i, (t) => RM_WRAPPER.test(t));
   return tokens.slice(i);
 }
 
@@ -196,7 +210,8 @@ export function tokenizeSegment(segment: string): string[] {
 function fileOperandCount(args: string[], valueFlags: Set<string>): number {
   let count = 0;
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = args[i];
+    if (arg === undefined) continue;
     if (arg === "--") continue;
     if (arg.startsWith("-")) {
       if (valueFlags.has(arg)) i++;
@@ -414,7 +429,8 @@ const SHELL_SEPARATE_VALUE_FLAGS = new Set(["-O", "-o"]);
 function peelShellDashC(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") {
       i++;
       break;
@@ -458,7 +474,8 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
 function peelXargs(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") {
       i++;
       break;
@@ -470,7 +487,10 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
     }
     if (XARGS_VALUE_FLAGS.has(t)) {
       i++;
-      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+      if (i < tokens.length) {
+        const next = tokens[i];
+        if (next !== undefined && !next.startsWith("-")) i++;
+      }
       continue;
     }
     // Clustered short options; -I/-i/-n/… with glued values are treated as one token.
@@ -519,7 +539,10 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
   if (t === undefined) return null;
   if (ENV_VALUE_FLAGS.has(t)) {
     let j = i + 1;
-    if (j < tokens.length && !tokens[j]!.startsWith("-")) j++;
+    if (j < tokens.length) {
+      const next = tokens[j];
+      if (next !== undefined && !next.startsWith("-")) j++;
+    }
     return j;
   }
   if (isEnvValueEqualsFlag(t)) return i + 1;
@@ -539,7 +562,8 @@ function expandEnvSplitSeparators(payload: string): string | null {
   let out = "";
   let quote: "'" | '"' | null = null;
   for (let i = 0; i < payload.length; i++) {
-    const c = payload[i]!;
+    const c = payload[i];
+    if (c === undefined) break;
     if (quote === "'") {
       out += c;
       if (c === "'") quote = null;
@@ -579,7 +603,7 @@ function peelEnvSplitUtility(command: string): PeelOutcome {
   if (expanded === null || isOpaquePayload(expanded)) return { kind: "opaque" };
   const tokens = tokenize(expanded);
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   i = skipEnvFlagsAndAssignments(tokens, i);
   if (i >= tokens.length) return { kind: "opaque" };
@@ -625,7 +649,8 @@ function finishEnvSplitPayload(payload: string, tokens: string[], restStart: num
 function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") return { kind: "none" };
 
     // --split-string=PAYLOAD
@@ -691,7 +716,8 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
 function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
   let i = start;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") return i + 1;
     if (ENV_ASSIGNMENT.test(t)) {
       i++;
@@ -716,11 +742,13 @@ function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
 function peelOnce(segment: string): PeelOutcome {
   const tokens = tokenize(segment);
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
 
   let strippedPrefix = false;
   while (i < tokens.length) {
-    const base = programBasename(tokens[i]!);
+    const current = tokens[i];
+    if (current === undefined) break;
+    const base = programBasename(current);
     if (base === "env") {
       // Prefer split-string peel: the whole payload is one quoted argument
       // that env re-splits itself, so the transparent-prefix path below
@@ -736,7 +764,8 @@ function peelOnce(segment: string): PeelOutcome {
       i++;
       // Optional duration (10, 30s, 1m, …) and common long/short flags.
       while (i < tokens.length) {
-        const t = tokens[i]!;
+        const t = tokens[i];
+        if (t === undefined) break;
         if (/^\d/.test(t)) {
           i++;
           continue;
@@ -752,7 +781,10 @@ function peelOnce(segment: string): PeelOutcome {
             t.startsWith("--signal=")
           ) {
             i++;
-            if (!t.includes("=") && i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+            if (!t.includes("=") && i < tokens.length) {
+              const next = tokens[i];
+              if (next !== undefined && !next.startsWith("-")) i++;
+            }
             continue;
           }
           i++;
@@ -772,7 +804,9 @@ function peelOnce(segment: string): PeelOutcome {
 
   if (i >= tokens.length) return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
 
-  const prog = programBasename(tokens[i]!);
+  const current = tokens[i];
+  if (current === undefined) return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
+  const prog = programBasename(current);
   if (SHELL_INTERPRETERS.has(prog)) {
     // A backtick or `$(` anywhere in the raw segment means the -c payload may
     // contain command substitution. tokenize() surfaces substitution content as
@@ -818,7 +852,7 @@ export interface ShellExpandResult {
 // Assignments before the marker are preserved (`FOO=1 -- find /` → `FOO=1 find /`).
 function dropLeadingEndOfOptionsTokens(tokens: string[]): string[] {
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
   const head = tokens.slice(0, i);
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   return head.concat(tokens.slice(i));
@@ -883,9 +917,9 @@ function segmentRmArgs(segment: string): string[] | undefined {
   // Quote-aware: env -S payloads often carry quoted flags (`rm '-rf' '/'`).
   const tokens = tokenize(segment);
   let i = 0;
-  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
-  while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  i = skipMatching(tokens, i, (t) => RM_WRAPPER.test(t));
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   if (programBasename(tokens[i] ?? "") !== "rm") return undefined;
   return tokens.slice(i + 1);
@@ -931,7 +965,8 @@ function skipQuotedSpans(command: string): string {
   };
 
   for (let i = 0; i < command.length; i++) {
-    const ch = command[i]!;
+    const ch = command[i];
+    if (ch === undefined) break;
     if (quote === "'") {
       if (ch === "'") {
         quote = undefined;

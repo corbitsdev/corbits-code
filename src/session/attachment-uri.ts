@@ -42,8 +42,9 @@ export function parseAgedImageMarker(text: string): AgedImageMarker | undefined 
     /^\[image attachment aged: (attachment:\/\/\/[^\s]+) mimeType=([^\s]+) —/,
   );
   if (match === null) return undefined;
-  const uri = match[1]!;
-  const mimeType = match[2]!;
+  const uri = match[1];
+  const mimeType = match[2];
+  if (uri === undefined || mimeType === undefined) return undefined;
   const id = parseAttachmentId(uri);
   if (id === undefined) return undefined;
   return { uri, id, mimeType };

@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -67,7 +68,7 @@ describe("writeCrashReport", () => {
     const entries = await readdir(dir);
     expect(entries).toHaveLength(1);
 
-    const body = await readFile(join(dir, entries[0]!), "utf8");
+    const body = await readFile(join(dir, defined(entries[0])), "utf8");
     expect(body).toContain("kind: uncaughtException");
     expect(body).toContain(`cwd: ${cwd}`);
     expect(body).toContain("boom");
@@ -76,7 +77,7 @@ describe("writeCrashReport", () => {
   test("returns null instead of throwing when the report cannot be written", async () => {
     // A path segment that is a file, not a directory, makes mkdir fail.
     home = await mkdtemp(join(tmpdir(), "corbits-crash-"));
-    primeCrashReporting("/Users/dev/some project!!", home, () => join(home!, "blocked-root"));
+    primeCrashReporting("/Users/dev/some project!!", home, () => join(defined(home), "blocked-root"));
     await Bun.write(join(home, "blocked-root"), "not a directory");
     const file = await writeCrashReport("unhandledRejection", "oops", "/whatever", home);
     expect(file).toBeNull();

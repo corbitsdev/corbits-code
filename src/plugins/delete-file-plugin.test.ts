@@ -30,7 +30,7 @@ describe("deleteFilePlugin", () => {
   });
 
   afterEach(async () => {
-    await chmod(cwd, 0o700).catch(() => {});
+    await chmod(cwd, 0o700).catch(() => undefined);
     await rm(cwd, { recursive: true, force: true });
   });
 

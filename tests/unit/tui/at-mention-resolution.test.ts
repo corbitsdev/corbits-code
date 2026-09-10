@@ -236,7 +236,7 @@ describe("resolveAtMentions", () => {
       expect(resolved).toContain(`\`${join(worktree, "shared.ts")}\`:`);
       expect(resolved).toContain("export const shared = true;");
     } finally {
-      await execFileAsync("git", ["worktree", "remove", "--force", worktree]).catch(() => {});
+      await execFileAsync("git", ["worktree", "remove", "--force", worktree]).catch(() => undefined);
       await rm(repo, { recursive: true, force: true });
       await rm(worktree, { recursive: true, force: true });
     }

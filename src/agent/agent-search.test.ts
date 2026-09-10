@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
 import {
@@ -42,7 +43,7 @@ describe("createAgentIndex", () => {
 
 describe("formatAgentSearchResults", () => {
   test("includes spawn hint and ids", () => {
-    const text = formatAgentSearchResults([fixtures[1]!]);
+    const text = formatAgentSearchResults([defined(fixtures[1])]);
     expect(text).toContain("critique");
     expect(text).toContain("spawn_agent(agent=");
   });

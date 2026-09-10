@@ -94,7 +94,7 @@ test("the active step directive is injected into the inferred system prompt", as
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE PROMPT", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
 
@@ -130,7 +130,7 @@ test("a submit_output tool call with the current step id advances the runtime th
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();
@@ -166,7 +166,7 @@ test("a stale submit_output does not skip ahead through the director", async () 
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();
@@ -250,7 +250,7 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();
@@ -311,7 +311,7 @@ test("a content-free workflow turn with open tasks nudges toward submit_output",
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();
@@ -337,7 +337,7 @@ test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", as
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();
@@ -358,7 +358,7 @@ test("auto-continuation falls back after 3 consecutive text-only turns", async (
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();
@@ -379,7 +379,7 @@ test("after spacer echo-cap a non-gate workflow step does not empty-settle", asy
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
-    onTasksChange: () => {},
+    onTasksChange: () => undefined,
     workflowCoordinator: coordinator,
   });
   const caps = makeCapabilities();

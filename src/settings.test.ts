@@ -717,7 +717,7 @@ describe("loaders", () => {
       expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
       expect(loaded?.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
     } finally {
-      await chmod(dir, 0o755).catch(() => {});
+      await chmod(dir, 0o755).catch(() => undefined);
       await rm(dir, { recursive: true, force: true });
     }
   });

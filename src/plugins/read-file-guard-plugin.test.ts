@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -180,7 +181,7 @@ describe("readFileGuardPlugin", () => {
     blobReader?: ReturnType<typeof createBlobReader>,
   ): Promise<ToolResult> {
     const plugin = readFileGuardPlugin(dir, blobReader !== undefined ? { blobReader } : {});
-    return plugin.middleware!(fallback)(call, neverAbort());
+    return defined(plugin.middleware)(fallback)(call, neverAbort());
   }
 
   test("intercepts read_file for real paths", async () => {
@@ -282,7 +283,7 @@ describe("readFileGuardPlugin", () => {
   test("a truncated read never asks the model to re-read the same path (CL-6961)", async () => {
     await fixture("many-lines.txt", Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"));
     const plugin = readFileGuardPlugin(dir, {});
-    const middleware = plugin.middleware!(fallback);
+    const middleware = defined(plugin.middleware)(fallback);
     const result = await middleware(
       { id: "c1", name: "read_file", arguments: { path: "many-lines.txt", limit: 4 } },
       neverAbort(),
@@ -297,7 +298,7 @@ describe("readFileGuardPlugin", () => {
     const lines = Array.from({ length: 9_000 }, (_, i) => `line-${i} payload`);
     await fixture("huge.txt", lines.join("\n"));
     const plugin = readFileGuardPlugin(dir, {});
-    const middleware = plugin.middleware!(fallback);
+    const middleware = defined(plugin.middleware)(fallback);
 
     const pathsRead: string[] = ["huge.txt"];
     let result = await middleware(
@@ -337,7 +338,7 @@ describe("readFileGuardPlugin", () => {
       Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
     );
     const plugin = readFileGuardPlugin(dir, {});
-    const middleware = plugin.middleware!(fallback);
+    const middleware = defined(plugin.middleware)(fallback);
     const first = await middleware(
       { id: "s1", name: "read_file", arguments: { path: "stale.txt", limit: 4 } },
       neverAbort(),
@@ -390,7 +391,7 @@ describe("readFileGuardPlugin", () => {
       },
     };
     const plugin = readFileGuardPlugin(dir, { blobReader });
-    const middleware = plugin.middleware!(fallback);
+    const middleware = defined(plugin.middleware)(fallback);
 
     const first = await middleware(
       { id: "b1", name: "read_file", arguments: { path: "tool-output:///spill-1", limit: 5 } },

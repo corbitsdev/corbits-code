@@ -6,10 +6,10 @@ const HTML_503 = `<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare<
 
 const silentAdmission: AdmissionQueue = {
   enqueue: () => "running",
-  release: () => {},
-  setCapacity: () => {},
-  notePressure: () => {},
-  cancel: () => {},
+  release: () => undefined,
+  setCapacity: () => undefined,
+  notePressure: () => undefined,
+  cancel: () => undefined,
   occupied: () => false,
 };
 
@@ -252,12 +252,12 @@ describe("createCorbitsRetryPolicy", () => {
     const notes: { provider: string; until: number }[] = [];
     const admission: AdmissionQueue = {
       enqueue: () => "running",
-      release: () => {},
-      setCapacity: () => {},
+      release: () => undefined,
+      setCapacity: () => undefined,
       notePressure: (provider: string, untilMs: number) => {
         notes.push({ provider, until: untilMs });
       },
-      cancel: () => {},
+      cancel: () => undefined,
       occupied: () => false,
     };
     const decide = policy({

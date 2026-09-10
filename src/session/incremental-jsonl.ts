@@ -170,16 +170,30 @@ export function createSegmentedJSONLWriter(
 
     let firstSeg = 0;
     for (let s = 0; s < prevSegStarts.length; s++) {
-      if (prevSegStarts[s]! <= prefix) firstSeg = s;
+      const start = prevSegStarts[s];
+      if (start === undefined) break;
+      if (start <= prefix) firstSeg = s;
       else break;
     }
 
-    const firstSegStartRecord = prevSegStarts[firstSeg]!;
+    const firstSegStartRecord = prevSegStarts[firstSeg];
+    if (firstSegStartRecord === undefined) {
+      throw new Error("jsonl first segment start missing");
+    }
     const firstSegEndRecord = prevSegStarts[firstSeg + 1] ?? state?.refs.length ?? 0;
-    const prevFirstSegBytes = prevOffsets[firstSegEndRecord]! - prevOffsets[firstSegStartRecord]!;
+    const firstSegEndOffset = prevOffsets[firstSegEndRecord];
+    const firstSegStartOffset = prevOffsets[firstSegStartRecord];
+    if (firstSegEndOffset === undefined || firstSegStartOffset === undefined) {
+      throw new Error("jsonl first segment offsets missing");
+    }
+    const prevFirstSegBytes = firstSegEndOffset - firstSegStartOffset;
 
     const offsets = prevOffsets.slice(0, prefix + 1);
-    const keepBytesInFirstSeg = offsets[prefix]! - prevOffsets[firstSegStartRecord]!;
+    const keepStart = offsets[prefix];
+    if (keepStart === undefined) {
+      throw new Error("jsonl keep offset missing");
+    }
+    const keepBytesInFirstSeg = keepStart - firstSegStartOffset;
 
     interface PlanEntry {
       index: number;
@@ -200,9 +214,17 @@ export function createSegmentedJSONLWriter(
         plan.push({ index: activeIndex, keepBytes: 0, text: "" });
         newSegStarts.push(i);
       }
-      plan[plan.length - 1]!.text += line;
+      const last = plan[plan.length - 1];
+      if (last === undefined) {
+        throw new Error("jsonl write plan empty");
+      }
+      last.text += line;
       currentSegBytes += lineBytes;
-      offsets.push(offsets[i]! + lineBytes);
+      const prevOffset = offsets[i];
+      if (prevOffset === undefined) {
+        throw new Error("jsonl offset missing");
+      }
+      offsets.push(prevOffset + lineBytes);
     }
 
     const modifiedPaths: string[] = [];

@@ -100,18 +100,24 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
   let i = 0;
 
   while (i < body.length) {
-    const line = body[i]!;
+    const line = body[i];
+    if (line === undefined) {
+      throw new CodexApplyPatchError("unexpected end of patch body");
+    }
     if (line.startsWith(ADD_FILE)) {
       const path = requireRelativePath(line.slice(ADD_FILE.length), "Add File");
       i += 1;
       const contentLines: string[] = [];
-      while (i < body.length && body[i]!.startsWith("+")) {
-        contentLines.push(body[i]!.slice(1));
+      while (i < body.length) {
+        const contentLine = body[i];
+        if (contentLine === undefined || !contentLine.startsWith("+")) break;
+        contentLines.push(contentLine.slice(1));
         i += 1;
       }
-      if (i < body.length && !isFileOpHeader(body[i]!)) {
+      const next = body[i];
+      if (next !== undefined && !isFileOpHeader(next)) {
         throw new CodexApplyPatchError(
-          `malformed Add File '${path}': expected '+' content lines or next file op, got: ${body[i]}`,
+          `malformed Add File '${path}': expected '+' content lines or next file op, got: ${next}`,
         );
       }
       // Codex-rs: each '+' line contributes text + "\n".
@@ -131,19 +137,23 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
       const path = requireRelativePath(line.slice(UPDATE_FILE.length), "Update File");
       i += 1;
       let moveTo: string | undefined;
-      if (i < body.length && body[i]!.startsWith(MOVE_TO)) {
-        moveTo = requireRelativePath(body[i]!.slice(MOVE_TO.length), "Move to");
+      const maybeMove = body[i];
+      if (maybeMove !== undefined && maybeMove.startsWith(MOVE_TO)) {
+        moveTo = requireRelativePath(maybeMove.slice(MOVE_TO.length), "Move to");
         i += 1;
       }
       const hunks: PatchHunk[] = [];
-      while (i < body.length && isHunkStart(body[i]!)) {
+      while (i < body.length) {
+        const hunkLine = body[i];
+        if (hunkLine === undefined || !isHunkStart(hunkLine)) break;
         const { hunk, next } = parseHunk(body, i);
         hunks.push(hunk);
         i = next;
       }
-      if (i < body.length && !isFileOpHeader(body[i]!)) {
+      const afterHunks = body[i];
+      if (afterHunks !== undefined && !isFileOpHeader(afterHunks)) {
         throw new CodexApplyPatchError(
-          `malformed Update File '${path}': expected hunk ('@@') or next file op, got: ${body[i]}`,
+          `malformed Update File '${path}': expected hunk ('@@') or next file op, got: ${afterHunks}`,
         );
       }
       ops.push(
@@ -247,7 +257,10 @@ export function contentFromAddOp(op: PatchAddOp): string {
 }
 
 function parseHunk(body: string[], start: number): { hunk: PatchHunk; next: number } {
-  const headerLine = body[start]!;
+  const headerLine = body[start];
+  if (headerLine === undefined) {
+    throw new CodexApplyPatchError("expected hunk start '@@'");
+  }
   let header: string | undefined;
   if (headerLine === "@@") {
     header = undefined;
@@ -262,7 +275,8 @@ function parseHunk(body: string[], start: number): { hunk: PatchHunk; next: numb
   let i = start + 1;
   const lines: PatchHunkLine[] = [];
   while (i < body.length) {
-    const raw = body[i]!;
+    const raw = body[i];
+    if (raw === undefined) break;
     if (raw === END_OF_FILE) {
       i += 1;
       return {
@@ -337,10 +351,12 @@ function findLineFrom(lines: string[], target: string, from: number): number {
   }
   // Soften header seek the same way as hunk body matching.
   for (let i = from; i < lines.length; i++) {
-    if (lines[i]!.trimEnd() === target.trimEnd()) return i;
+    const line = lines[i];
+    if (line !== undefined && line.trimEnd() === target.trimEnd()) return i;
   }
   for (let i = from; i < lines.length; i++) {
-    if (lines[i]!.trim() === target.trim()) return i;
+    const line = lines[i];
+    if (line !== undefined && line.trim() === target.trim()) return i;
   }
   return -1;
 }
@@ -365,7 +381,9 @@ function findSequence(
     for (let i = start; i <= lines.length - pattern.length; i++) {
       let ok = true;
       for (let j = 0; j < pattern.length; j++) {
-        if (!eq(lines[i + j]!, pattern[j]!)) {
+        const a = lines[i + j];
+        const b = pattern[j];
+        if (a === undefined || b === undefined || !eq(a, b)) {
           ok = false;
           break;
         }

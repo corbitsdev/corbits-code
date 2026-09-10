@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -83,9 +84,9 @@ describe("background shell registry", () => {
       await registry.collect(started.id, 5_000);
     }
     expect(ids).toHaveLength(MAX_COMPLETED_BACKGROUND_SHELLS + 1);
-    const evicted = await registry.collect(ids[0]!, 0);
+    const evicted = await registry.collect(defined(ids[0]), 0);
     expect(evicted.state).toBe("not-found");
-    const retained = await registry.collect(ids[ids.length - 1]!, 0);
+    const retained = await registry.collect(defined(ids[ids.length - 1]), 0);
     expect(retained.state).toBe("completed");
   });
 

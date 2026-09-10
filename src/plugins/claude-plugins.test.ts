@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -53,10 +54,10 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
-    expect(modules[0]!.source).toBe("claude");
-    expect(modules[0]!.origin).toBe("user");
-    expect(modules[0]!.manifest?.id).toBe("demo-agent");
-    expect(modules[0]!.agentPlugin?.agents.length).toBeGreaterThan(0);
+    expect(defined(modules[0]).source).toBe("claude");
+    expect(defined(modules[0]).origin).toBe("user");
+    expect(defined(modules[0]).manifest?.id).toBe("demo-agent");
+    expect(defined(modules[0]).agentPlugin?.agents.length).toBeGreaterThan(0);
 
     // Enable-gate still applies: disabled config yields no profiles.
     expect(await resolveAgentPluginProfiles(modules, {})).toEqual([]);
@@ -132,8 +133,8 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
-    expect(modules[0]!.manifest?.id).toBe("cmo");
-    expect(modules[0]!.source).toBe("claude");
+    expect(defined(modules[0]).manifest?.id).toBe("cmo");
+    expect(defined(modules[0]).source).toBe("claude");
   });
 
   test("rewrites version-dir basename ids using the registry key", async () => {
@@ -156,7 +157,7 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
-    expect(modules[0]!.manifest?.id).toBe("orphan");
+    expect(defined(modules[0]).manifest?.id).toBe("orphan");
   });
 
   test("rejects installPath outside ~/.claude/plugins and relative paths", async () => {
@@ -263,8 +264,8 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.map((m) => m.manifest?.id)).toEqual(["scout-agent"]);
-    expect(modules[0]!.source).toBe("claude");
-    expect(modules[0]!.pluginPath).toBe(agentDir);
+    expect(defined(modules[0]).source).toBe("claude");
+    expect(defined(modules[0]).pluginPath).toBe(agentDir);
   });
 
   test("rejects absolute marketplace sources and escapes outside ~/.claude/plugins", async () => {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import type { CommandContext } from "../../src/tui/commands/registry.js";
 import { loadDataOnlyCommands } from "../../src/plugins/data-only-commands.js";
 import { loadDataOnlyPlugin } from "../../src/plugins/data-only.js";
+import { defined } from "../helpers/defined.js";
 
 let root: string;
 
@@ -18,7 +19,7 @@ async function makePlugin(layout: Record<string, string>): Promise<string> {
   return dir;
 }
 
-const ctx: CommandContext = { signalClear: () => {} };
+const ctx: CommandContext = { signalClear: () => undefined };
 
 beforeEach(async () => {
   root = await mkdtemp();
@@ -49,12 +50,13 @@ describe("loadDataOnlyCommands", () => {
     const dir = await makePlugin({
       "commands/greet.md": "---\ndescription: Greet someone\n---\nHello $ARGUMENTS!",
     });
-    const plugin = await loadDataOnlyCommands(dir);
-    expect(plugin).not.toBeNull();
-    const cmd = plugin!.commandPlugin.commands.find((c) => c.name === "greet");
-    expect(cmd).toBeDefined();
-    expect(cmd!.description).toBe("Greet someone");
-    const res = cmd!.handler("world", ctx);
+    const plugin = defined(await loadDataOnlyCommands(dir), "plugin");
+    const cmd = defined(
+      plugin.commandPlugin.commands.find((c) => c.name === "greet"),
+      "greet command",
+    );
+    expect(cmd.description).toBe("Greet someone");
+    const res = cmd.handler("world", ctx);
     expect(res).toEqual({ type: "send", text: "Hello world!" });
   });
 
@@ -63,9 +65,12 @@ describe("loadDataOnlyCommands", () => {
       "commands/greet.md":
         "---\ndescription: Greet someone\nargument-hint: <name>\n---\nHello $ARGUMENTS!",
     });
-    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find(
-      (c) => c.name === "greet",
-    )!;
+    const cmd = defined(
+      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands.find(
+        (c) => c.name === "greet",
+      ),
+      "greet command",
+    );
     expect(cmd.argumentHint).toBe("<name>");
   });
 
@@ -73,13 +78,19 @@ describe("loadDataOnlyCommands", () => {
     const dir = await makePlugin({
       "commands/plain.md": "Summarize the working tree.\nMore detail.",
     });
-    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands[0]!;
+    const cmd = defined(
+      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands[0],
+      "command",
+    );
     expect(cmd.description).toBe("Summarize the working tree.");
   });
 
   test("drops $ARGUMENTS when the command is invoked with no args", async () => {
     const dir = await makePlugin({ "commands/echo.md": "Body [$ARGUMENTS] end" });
-    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands[0]!;
+    const cmd = defined(
+      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands[0],
+      "command",
+    );
     expect(cmd.handler("", ctx)).toEqual({ type: "send", text: "Body [] end" });
   });
 
@@ -88,16 +99,18 @@ describe("loadDataOnlyCommands", () => {
       "commands/repo/init.md": "---\ndescription: init a repo\n---\nInit $ARGUMENTS",
       "commands/repo/scan.md": "---\ndescription: scan a repo\n---\nScan it",
     });
-    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find(
-      (c) => c.name === "repo",
+    const cmd = defined(
+      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands.find(
+        (c) => c.name === "repo",
+      ),
+      "repo command",
     );
-    expect(cmd).toBeDefined();
-    expect(cmd!.subcommands?.map((s) => s.name).sort()).toEqual(["init", "scan"]);
+    expect(cmd.subcommands?.map((s) => s.name).sort()).toEqual(["init", "scan"]);
 
-    const ok = cmd!.handler("init acme", ctx);
+    const ok = cmd.handler("init acme", ctx);
     expect(ok).toEqual({ type: "send", text: "Init acme" });
 
-    const missing = cmd!.handler("nope", ctx);
+    const missing = cmd.handler("nope", ctx);
     expect(missing).toEqual({
       type: "message",
       text: 'Unknown repo subcommand "nope". Available: init, scan',
@@ -106,21 +119,19 @@ describe("loadDataOnlyCommands", () => {
 
   test("accepts the OpenCode command/ (singular) root", async () => {
     const dir = await makePlugin({ "command/greet.md": "Hi $ARGUMENTS" });
-    const plugin = await loadDataOnlyCommands(dir);
-    expect(plugin).not.toBeNull();
-    expect(plugin!.commandPlugin.commands[0]!.name).toBe("greet");
+    const plugin = defined(await loadDataOnlyCommands(dir), "plugin");
+    expect(defined(plugin.commandPlugin.commands[0], "command").name).toBe("greet");
   });
 });
 
 describe("loadDataOnlyPlugin command routing", () => {
   test("a commands-only directory infers kind command", async () => {
     const dir = await makePlugin({ "commands/greet.md": "Hi $ARGUMENTS" });
-    const plugin = await loadDataOnlyPlugin(dir);
-    expect(plugin).not.toBeNull();
-    expect(plugin!.manifest.kind).toBe("command");
-    expect(plugin!.manifest.id).toBe(dir.split("/").pop()!);
-    expect(plugin!.commandPlugin).toBeDefined();
-    expect(plugin!.agentPlugin).toBeUndefined();
+    const plugin = defined(await loadDataOnlyPlugin(dir), "plugin");
+    expect(plugin.manifest.kind).toBe("command");
+    expect(plugin.manifest.id).toBe(defined(dir.split("/").pop(), "plugin id"));
+    expect(plugin.commandPlugin).toBeDefined();
+    expect(plugin.agentPlugin).toBeUndefined();
   });
 
   test("an explicit manifest.json is authoritative", async () => {
@@ -133,8 +144,8 @@ describe("loadDataOnlyPlugin command routing", () => {
       }),
       "commands/greet.md": "Hi",
     });
-    const plugin = await loadDataOnlyPlugin(dir);
-    expect(plugin!.manifest).toEqual({
+    const plugin = defined(await loadDataOnlyPlugin(dir), "plugin");
+    expect(plugin.manifest).toEqual({
       id: "my-cmds",
       name: "My Commands",
       kind: "command",
@@ -154,11 +165,11 @@ describe("loadDataOnlyPlugin command routing", () => {
       "agents/karen.md": "You orchestrate.",
       "commands/greet.md": "Hi $ARGUMENTS",
     });
-    const plugin = await loadDataOnlyPlugin(dir);
-    expect(plugin!.manifest.kind).toBe("agent");
+    const plugin = defined(await loadDataOnlyPlugin(dir), "plugin");
+    expect(plugin.manifest.kind).toBe("agent");
     // Both exports are attached; commands wire as an added surface via the
     // agent-kind allowance in isEnabledCommandPlugin.
-    expect(plugin!.agentPlugin).toBeDefined();
-    expect(plugin!.commandPlugin).toBeDefined();
+    expect(plugin.agentPlugin).toBeDefined();
+    expect(plugin.commandPlugin).toBeDefined();
   });
 });

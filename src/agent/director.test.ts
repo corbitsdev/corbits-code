@@ -82,7 +82,7 @@ describe("ChatDirector tool-only loop protection", () => {
 
   test("nudges once at the family threshold, after pending tools execute", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -96,7 +96,7 @@ describe("ChatDirector tool-only loop protection", () => {
 
   test("the nudge is one-shot — it does not repeat on the next tool-only turn", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -113,7 +113,7 @@ describe("ChatDirector tool-only loop protection", () => {
   // well past any prior hard-pause threshold without ever pausing.
   test("a long productive tool-only streak continues without pausing", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -153,7 +153,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     "does not re-issue inference for a %s error already exhausted by the harness",
     async (category) => {
       const director = createChatDirector("system", [], {
-        onTasksChange: () => {},
+        onTasksChange: () => undefined,
         provider: providerlessPolicy,
       });
       const capabilities = makeCapabilities();
@@ -171,7 +171,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
 
   test("still recovers on internal-recovery abort, bounded by MAX_INFERENCE_RECOVERIES", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -193,7 +193,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
 
   test("an unrelated aborted error (not internal-recovery) is not recovered by the director", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -210,7 +210,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
 
   test("inference-recovery budget resets at the next turn boundary", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -246,7 +246,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
   // bounded, not open-ended, and never reaches 9.
   test("worst case: director-owned recovery path issues at most 1 + MAX_INFERENCE_RECOVERIES infer calls", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
@@ -263,7 +263,7 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
 
   test("timeout category produces the timeout preamble, not the fatal fallback", async () => {
     const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
+      onTasksChange: () => undefined,
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();

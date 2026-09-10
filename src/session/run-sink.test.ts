@@ -13,7 +13,7 @@ function event(type: string, data: unknown): ReactorEmittedEvent {
 function stubHookManager(statuses: LifecycleHookStatus[]) {
   return {
     getStatuses: () => statuses,
-    dispatchPostTurn: () => {},
+    dispatchPostTurn: () => undefined,
   };
 }
 
@@ -34,8 +34,8 @@ function attributionHarness(selectedSource = { provider: "provider-a", model: "m
       captured.push({ event: capturedEvent, properties });
     },
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   };
   const observer = createTurnObserver({
     telemetry: () => telemetry,

@@ -65,7 +65,13 @@ function parseSkillFrontmatter(raw: string): {
   for (const line of block.split("\n")) {
     const trimmed = line.trim();
     const match = /^(name|description):\s*(.+)$/.exec(trimmed);
-    if (match) out[match[1] as "name" | "description"] = match[2]!.trim();
+    if (match) {
+      const key = match[1];
+      const value = match[2];
+      if ((key === "name" || key === "description") && value !== undefined) {
+        out[key] = value.trim();
+      }
+    }
     if (/^disable-model-invocation:\s*true\s*$/.test(trimmed)) {
       out.disableModelInvocation = true;
     }

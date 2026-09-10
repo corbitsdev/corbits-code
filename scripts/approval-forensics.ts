@@ -45,7 +45,9 @@ function findAll(dir: string, name: string, out: string[]): void {
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
   const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[index]!;
+  const value = sorted[index];
+  if (value === undefined) return 0;
+  return value;
 }
 
 interface Bucket {
@@ -133,14 +135,16 @@ console.log(
 for (const [key, bucket] of rows) {
   const durations = [...bucket.durations].sort((a, b) => a - b);
   const delays = [...bucket.displayDelays].sort((a, b) => a - b);
+  const lastDur = durations[durations.length - 1];
+  const lastDelay = delays[delays.length - 1];
   const durDist =
-    durations.length === 0
+    durations.length === 0 || lastDur === undefined
       ? "-"
-      : `${percentile(durations, 50)}/${percentile(durations, 90)}/${durations[durations.length - 1]!}`;
+      : `${percentile(durations, 50)}/${percentile(durations, 90)}/${lastDur}`;
   const delayDist =
-    delays.length === 0
+    delays.length === 0 || lastDelay === undefined
       ? "-"
-      : `${percentile(delays, 50)}/${percentile(delays, 90)}/${delays[delays.length - 1]!}`;
+      : `${percentile(delays, 50)}/${percentile(delays, 90)}/${lastDelay}`;
   const autoCount = bucket.byMode.get("auto") ?? 0;
   const interactiveCount = bucket.byMode.get("interactive") ?? 0;
   console.log(

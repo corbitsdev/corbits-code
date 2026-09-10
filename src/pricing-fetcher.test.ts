@@ -1,3 +1,4 @@
+import { defined } from "../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -91,7 +92,7 @@ describe("parseModelsDevPricing", () => {
       output_cost_per_million: 20,
     };
     const result = parseModelsDevPricing(payload);
-    expect(result["model-x"]!.cacheReadPricePerToken).toBe(0);
+    expect(defined(result["model-x"]).cacheReadPricePerToken).toBe(0);
   });
 
   test("recurses into nested objects", () => {
@@ -162,7 +163,7 @@ describe("lookupModelPricing", () => {
   };
 
   test("returns pricing for a known model", () => {
-    expect(lookupModelPricing(cache, "gpt-4")).toEqual(cache.models["gpt-4"]!);
+    expect(lookupModelPricing(cache, "gpt-4")).toEqual(defined(cache.models["gpt-4"]));
   });
 
   test("returns null for an unknown model", () => {
@@ -228,7 +229,7 @@ describe("loadPricing", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.models["m1"]).toBeDefined();
+    expect(defined(result).models["m1"]).toBeDefined();
   });
 
   test("falls back to disk cache when fetch fails", async () => {

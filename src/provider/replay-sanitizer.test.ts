@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, it } from "bun:test";
 import type { AdapterRegistry } from "@intx/inference";
 import { createBuiltinRegistry } from "@intx/inference/providers";
@@ -432,6 +433,6 @@ describe("withReplaySanitizer", () => {
     );
     expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
     expect(turns[1]?.content).toEqual([{ type: "text", text: COMPACT_SPACER_TEXT }]);
-    expect(isHarnessCompactSpacer(turns[1]!)).toBe(true);
+    expect(isHarnessCompactSpacer(defined(turns[1]))).toBe(true);
   });
 });

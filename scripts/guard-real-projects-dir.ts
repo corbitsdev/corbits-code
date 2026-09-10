@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     child.on("exit", (code) => resolve(code ?? 1));
   });
 
-  await rm(runTmpDir, { recursive: true, force: true }).catch(() => {});
+  await rm(runTmpDir, { recursive: true, force: true }).catch(() => undefined);
 
   const after = await listEntries();
   const newEntries = [...after].filter((name) => !before.has(name));

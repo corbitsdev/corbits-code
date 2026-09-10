@@ -161,7 +161,9 @@ await withMockedModule(
         await waitForOptionalGate(retryGate, lastRequestSignal);
         return { content: [] };
       }
-      async close(): Promise<void> {}
+      async close(): Promise<void> {
+        return undefined;
+      }
     },
   }),
 );

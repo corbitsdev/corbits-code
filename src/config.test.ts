@@ -1,3 +1,4 @@
+import { defined } from "../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -339,8 +340,8 @@ describe("loadConfig", () => {
       expect(result.configured).toBe(false);
       if (result.configured === false) {
         expect(result.settingsDiagnostics).toBeDefined();
-        expect(result.settingsDiagnostics!.length).toBeGreaterThan(0);
-        expect(result.settingsDiagnostics!.some((d) => /unknown/i.test(d.message))).toBe(true);
+        expect(defined(result.settingsDiagnostics).length).toBeGreaterThan(0);
+        expect(defined(result.settingsDiagnostics).some((d) => /unknown/i.test(d.message))).toBe(true);
       }
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -616,16 +617,17 @@ describe("loadConfig", () => {
         );
       }
 
-      let config: Awaited<ReturnType<typeof loadConfig>>;
+      let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
       const logged = await withFileLogSink(async () => {
         config = await loadConfig(["resume", targetId, "--force", "--cwd", cwd], {
           globalSettingsPath: globalPath,
           home,
         });
       });
-      assertConfigured(config!);
-      expect(config!.sessionId).toBe(targetId);
-      expect(config!.task).toBe("target failed session");
+      const loaded = defined(config, "config");
+      assertConfigured(loaded);
+      expect(loaded.sessionId).toBe(targetId);
+      expect(loaded.task).toBe("target failed session");
       expect(logged).not.toContain("unreadable session state");
       expect(logged).not.toContain(home);
     } finally {
@@ -1436,10 +1438,10 @@ describe("buildProviderCatalog", () => {
     };
     const catalog = buildProviderCatalog(settings, resolved);
     expect(catalog.map((c) => c.name).sort()).toEqual(["fp", "oa"]);
-    const fp = catalog.find((c) => c.name === "fp")!;
+    const fp = defined(catalog.find((c) => c.name === "fp"));
     expect(fp.models).toEqual(["fp-large", "fp-small"]);
     expect(fp.defaultModel).toBe("fp-large");
-    expect(catalog.find((c) => c.name === "oa")!.defaultModel).toBeUndefined();
+    expect(defined(catalog.find((c) => c.name === "oa")).defaultModel).toBeUndefined();
   });
 
   test("normalizes provider base URLs from the settings file", () => {
@@ -1468,7 +1470,7 @@ describe("buildProviderCatalog", () => {
       },
     };
     const catalog = buildProviderCatalog(settings, resolved);
-    const bf = catalog.find((c) => c.name === "bf")!;
+    const bf = defined(catalog.find((c) => c.name === "bf"));
     expect(bf.bifrostVirtualKey).toBe(true);
   });
 
@@ -1487,10 +1489,10 @@ describe("buildProviderCatalog", () => {
       },
     };
     const catalog = buildProviderCatalog(settings, resolved);
-    const ollama = catalog.find((c) => c.name === "ollama")!;
+    const ollama = defined(catalog.find((c) => c.name === "ollama"));
     expect(ollama.keyless).toBe(true);
     expect(ollama.apiKey).toBeUndefined();
-    const fp = catalog.find((c) => c.name === "fp")!;
+    const fp = defined(catalog.find((c) => c.name === "fp"));
     expect(fp.keyless).toBeUndefined();
     expect(fp.apiKey).toBe("fp-key");
   });
@@ -1684,7 +1686,7 @@ describe("buildProviderCatalog", () => {
       apiKey: "fp-key",
       model: "fp-large",
     } as ResolvedProvider);
-    const entry = catalog.find((c) => c.name === "fp")!;
+    const entry = defined(catalog.find((c) => c.name === "fp"));
     const roundTripped = { fp: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ fp: provider });
   });
@@ -1703,7 +1705,7 @@ describe("buildProviderCatalog", () => {
       apiKey: "an-key",
       model: "claude",
     } as ResolvedProvider);
-    const entry = catalog.find((c) => c.name === "an")!;
+    const entry = defined(catalog.find((c) => c.name === "an"));
     const roundTripped = { an: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ an: provider });
   });
@@ -1722,7 +1724,7 @@ describe("buildProviderCatalog", () => {
       apiKey: "go-key",
       model: "go-model",
     } as ResolvedProvider);
-    const entry = catalog.find((c) => c.name === "go")!;
+    const entry = defined(catalog.find((c) => c.name === "go"));
     const roundTripped = { go: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ go: provider });
   });

@@ -291,7 +291,8 @@ export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
   }
 
   const scopes: ApprovalScope[] = [];
-  const minPrefix = MULTIPLEXERS.has(tokens[0]!) ? 2 : 1;
+  const firstToken = tokens[0];
+  const minPrefix = firstToken !== undefined && MULTIPLEXERS.has(firstToken) ? 2 : 1;
   const prefixLimit = Math.min(tokens.length - 1, minPrefix + MAX_PREFIX_SCOPES - 1);
   for (let n = minPrefix; n <= prefixLimit; n++) {
     const prefix = tokens.slice(0, n).join(" ");

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import {
   OPEN_SPAN_CAPACITY,
   RING_CAPACITY,
@@ -29,10 +30,10 @@ describe("start / end / mark", () => {
 
     const spans = snapshot();
     expect(spans).toHaveLength(1);
-    const span = spans[0]!;
+    const span = defined(spans[0]);
     expect(span.name).toBe("inference");
     expect(span.endNs).toBeDefined();
-    expect(span.endNs! >= span.startNs).toBe(true);
+    expect(defined(span.endNs) >= span.startNs).toBe(true);
   });
 
   test("nests via parentId", () => {
@@ -43,8 +44,8 @@ describe("start / end / mark", () => {
 
     const spans = snapshot();
     expect(spans).toHaveLength(2);
-    const inference = spans.find((s) => s.name === "inference")!;
-    const turn = spans.find((s) => s.name === "turn")!;
+    const inference = defined(spans.find((s) => s.name === "inference"));
+    const turn = defined(spans.find((s) => s.name === "turn"));
     expect(inference.parentId).toBe(turnId);
     expect(turn.parentId).toBeUndefined();
   });
@@ -55,8 +56,8 @@ describe("start / end / mark", () => {
 
     const spans = snapshot();
     expect(spans).toHaveLength(1);
-    expect(spans[0]!.startNs).toBe(spans[0]!.endNs!);
-    expect(spans[0]!.tags).toEqual({ transport: "http_sse" });
+    expect(defined(spans[0]).startNs).toBe(defined(defined(spans[0]).endNs));
+    expect(defined(spans[0]).tags).toEqual({ transport: "http_sse" });
   });
 
   test("mark accepts optional parentId like start", () => {
@@ -65,7 +66,7 @@ describe("start / end / mark", () => {
     end(turnId);
 
     const spans = snapshot();
-    const marked = spans.find((s) => s.name === "adapter.transport")!;
+    const marked = defined(spans.find((s) => s.name === "adapter.transport"));
     expect(marked.parentId).toBe(turnId);
     expect(marked.tags).toEqual({ transport: "ws" });
   });
@@ -74,8 +75,8 @@ describe("start / end / mark", () => {
     const id = start("session");
     const spans = snapshot();
     expect(spans).toHaveLength(1);
-    expect(spans[0]!.id).toBe(id);
-    expect(spans[0]!.endNs).toBeUndefined();
+    expect(defined(spans[0]).id).toBe(id);
+    expect(defined(spans[0]).endNs).toBeUndefined();
   });
 
   test("unknown span names are ignored", () => {
@@ -107,7 +108,7 @@ describe("start / end / mark", () => {
   test("end merges sanitized tags onto the span", () => {
     const id = start("tool", { tags: { tool_id: "t1" } });
     end(id, { count: 3, prompt: "secret" });
-    const span = snapshot()[0]!;
+    const span = defined(snapshot()[0]);
     expect(span.tags).toEqual({ tool_id: "t1", count: 3 });
   });
 });
@@ -116,7 +117,7 @@ describe("parentId privacy fence", () => {
   test("strips path-like parentId", () => {
     const id = start("inference", { parentId: "/Users/me/secret/repo/src/main.ts" });
     end(id);
-    expect(snapshot()[0]!.parentId).toBeUndefined();
+    expect(defined(snapshot()[0]).parentId).toBeUndefined();
   });
 
   test("strips free-text and path-separator parentIds", () => {
@@ -144,8 +145,8 @@ describe("parentId privacy fence", () => {
     end(orphan);
 
     const spans = snapshot();
-    expect(spans.find((s) => s.name === "inference")!.parentId).toBe(parent);
-    expect(spans.find((s) => s.name === "tool")!.parentId).toBe("parent1");
+    expect(defined(spans.find((s) => s.name === "inference")).parentId).toBe(parent);
+    expect(defined(spans.find((s) => s.name === "tool")).parentId).toBe("parent1");
   });
 
   test("accepts parentId of a completed (ring) span", () => {
@@ -153,7 +154,7 @@ describe("parentId privacy fence", () => {
     end(parent);
     const child = start("inference", { parentId: parent });
     end(child);
-    expect(snapshot().find((s) => s.name === "inference")!.parentId).toBe(parent);
+    expect(defined(snapshot().find((s) => s.name === "inference")).parentId).toBe(parent);
   });
 });
 
@@ -164,10 +165,10 @@ describe("snapshot immutability", () => {
 
     const first = snapshot();
     expect(first).toHaveLength(1);
-    first[0]!.name = "session";
-    first[0]!.tags!.tool_id = "POISON";
-    first[0]!.tags!.count = 999;
-    first[0]!.parentId = "injected";
+    defined(first[0]).name = "session";
+    defined(defined(first[0]).tags).tool_id = "POISON";
+    defined(defined(first[0]).tags).count = 999;
+    defined(first[0]).parentId = "injected";
     first.push({
       id: "fake",
       name: "session",
@@ -177,20 +178,20 @@ describe("snapshot immutability", () => {
 
     const second = snapshot();
     expect(second).toHaveLength(1);
-    expect(second[0]!.name).toBe("tool");
-    expect(second[0]!.tags).toEqual({ tool_id: "t1", count: 1 });
-    expect(second[0]!.parentId).toBeUndefined();
+    expect(defined(second[0]).name).toBe("tool");
+    expect(defined(second[0]).tags).toEqual({ tool_id: "t1", count: 1 });
+    expect(defined(second[0]).parentId).toBeUndefined();
   });
 
   test("mutating an open-span snapshot does not poison open state", () => {
     start("session", { tags: { provider_id: "openai" } });
     const first = snapshot();
-    first[0]!.tags!.provider_id = "POISON";
-    first[0]!.endNs = 1n;
+    defined(defined(first[0]).tags).provider_id = "POISON";
+    defined(first[0]).endNs = 1n;
 
     const second = snapshot();
-    expect(second[0]!.tags).toEqual({ provider_id: "openai" });
-    expect(second[0]!.endNs).toBeUndefined();
+    expect(defined(second[0]).tags).toEqual({ provider_id: "openai" });
+    expect(defined(second[0]).endNs).toBeUndefined();
   });
 });
 
@@ -205,8 +206,8 @@ describe("ring overflow", () => {
     expect(spans).toHaveLength(RING_CAPACITY);
 
     // Oldest surviving should be count = 10 (0..9 dropped).
-    const first = spans[0]!;
-    const last = spans[spans.length - 1]!;
+    const first = defined(spans[0]);
+    const last = defined(spans[spans.length - 1]);
     expect(first.tags?.count).toBe(10);
     expect(last.tags?.count).toBe(RING_CAPACITY + 9);
   });
@@ -235,11 +236,11 @@ describe("open span capacity", () => {
     expect(counts[counts.length - 1]).toBe(OPEN_SPAN_CAPACITY + 4);
 
     // Ending an evicted id is a no-op; ending a survivor still works.
-    end(ids[0]!);
-    end(ids[ids.length - 1]!);
+    end(defined(ids[0]));
+    end(defined(ids[ids.length - 1]));
     const completed = snapshot().filter((s) => s.endNs !== undefined);
     expect(completed).toHaveLength(1);
-    expect(completed[0]!.tags?.count).toBe(OPEN_SPAN_CAPACITY + 4);
+    expect(defined(completed[0]).tags?.count).toBe(OPEN_SPAN_CAPACITY + 4);
   });
 });
 
@@ -352,7 +353,7 @@ describe("snapshot shape", () => {
     });
     end(id);
 
-    const span: PerfSpan = snapshot()[0]!;
+    const span: PerfSpan = defined(snapshot()[0]);
     expect(Object.keys(span).sort()).toEqual(
       ["endNs", "id", "name", "parentId", "startNs", "tags"].sort(),
     );

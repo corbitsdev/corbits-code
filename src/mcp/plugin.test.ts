@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { mcpClientToAgentTools } from "./plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -104,7 +105,7 @@ describe("mcpClientToAgentTools", () => {
     const entry = store.blobs.get(key);
     expect(entry).toBeDefined();
     expect(entry?.contentType).toBe("application/json");
-    expect(new TextDecoder().decode(entry!.bytes)).toBe(pretty);
+    expect(new TextDecoder().decode(defined(entry).bytes)).toBe(pretty);
 
     const uri = `tool-output:///${key}`;
     const abs = toolOutputAbsolutePath(contextDir, key, "application/json");
@@ -137,7 +138,7 @@ describe("mcpClientToAgentTools", () => {
     );
 
     const spilled = new TextDecoder().decode(
-      store.blobs.get(spillBlobKey("c-mcp-json-secret"))!.bytes,
+      defined(store.blobs.get(spillBlobKey("c-mcp-json-secret"))).bytes,
     );
     expect(result.content).toContain(CREDENTIAL_REDACTION);
     expect(result.content).not.toContain("sk-live-");
@@ -166,7 +167,7 @@ describe("mcpClientToAgentTools", () => {
     const key = spillBlobKey("c-mcp-txt");
     const entry = store.blobs.get(key);
     expect(entry?.contentType).toBe("text/plain");
-    expect(new TextDecoder().decode(entry!.bytes)).toBe(huge);
+    expect(new TextDecoder().decode(defined(entry).bytes)).toBe(huge);
     expect(result.content).toContain(`tool-output:///${key}`);
     expect(result.content).toContain(toolOutputAbsolutePath(contextDir, key, "text/plain"));
   });

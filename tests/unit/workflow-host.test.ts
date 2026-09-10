@@ -9,6 +9,7 @@ import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
 import { WorkflowHost } from "../../src/workflows/host.js";
 import { findWorkflow } from "../../src/workflows/index.js";
 import { WorkflowRuntime } from "../../src/workflows/runtime.js";
+import { defined } from "../helpers/defined.js";
 import { flushWorkflowStateWrites, saveWorkflowState } from "../../src/workflows/state.js";
 
 function tool(name: string): ToolDefinition {
@@ -22,7 +23,7 @@ function drain(
   while (host.isActive()) {
     const stepId = director.coordinator?.currentStepId();
     expect(stepId).not.toBeNull();
-    expect(host.complete(stepId!)).toBe("advanced");
+    expect(host.complete(defined(stepId, "stepId"))).toBe("advanced");
   }
 }
 
@@ -112,7 +113,7 @@ test("reset detaches the workflow", async () => {
 test("directive uses submit_output with the current step id", async () => {
   await withHost([], async (host, director) => {
     host.start("build");
-    const coordinator = director.coordinator!;
+    const coordinator = defined(director.coordinator, "coordinator");
     expect(coordinator).toBeDefined();
     const directive = coordinator.directive();
     expect(directive).not.toBeNull();
@@ -129,8 +130,8 @@ test("complete() advances the current step and records history", async () => {
     expect(host.isActive()).toBe(false);
     const history = host.history();
     expect(history).toHaveLength(1);
-    expect(history[0]!.name).toBe("review");
-    expect(history[0]!.steps.length).toBeGreaterThan(0);
+    expect(defined(history[0], "history entry").name).toBe("review");
+    expect(defined(history[0], "history entry").steps.length).toBeGreaterThan(0);
   });
 });
 
@@ -159,14 +160,14 @@ test("resume() uses the same completion listener as a fresh start", async () => 
     const workflow = findWorkflow("review");
     expect(workflow).toBeDefined();
     const runtime = new WorkflowRuntime(new Map());
-    runtime.start(workflow!);
+    runtime.start(defined(workflow, "workflow"));
     await saveWorkflowState(cwd, "session-1", runtime.state(), home);
 
     await host.resume();
     expect(host.isActive()).toBe(true);
     drain(host, director);
     expect(host.history()).toHaveLength(1);
-    expect(host.history()[0]!.name).toBe("review");
+    expect(defined(host.history()[0], "history entry").name).toBe("review");
   });
 });
 
@@ -175,7 +176,7 @@ test("resume() restores an on-disk workflow snapshot for the session", async () 
     const workflow = findWorkflow("review");
     expect(workflow).toBeDefined();
     const runtime = new WorkflowRuntime(new Map());
-    runtime.start(workflow!);
+    runtime.start(defined(workflow, "workflow"));
     runtime.advance();
     await saveWorkflowState(cwd, "session-1", runtime.state(), home);
 

@@ -52,8 +52,8 @@ export function tierFromMcpTool(
   serverName: string,
   toolName: string,
 ): Tier {
-  if (hasAnnotationHints(annotations)) {
-    return annotations!.readOnlyHint === true ? "allow" : "ask";
+  if (annotations !== undefined && hasAnnotationHints(annotations)) {
+    return annotations.readOnlyHint === true ? "allow" : "ask";
   }
   return isReadOnlyMcpTool(mcpToolName(serverName, toolName)) ? "allow" : "ask";
 }

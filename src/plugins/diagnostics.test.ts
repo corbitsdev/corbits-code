@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -194,8 +195,8 @@ describe("plugin load diagnostics wiring", () => {
 
     const summary = formatPluginWarningsSummary(diag.warnings);
     expect(summary).toBeDefined();
-    expect(summary!.startsWith("plugins:")).toBe(true);
+    expect(defined(summary).startsWith("plugins:")).toBe(true);
     // One summary line, not N raw plugins: lines from default sink.
-    expect(summary!.split("\n").length).toBe(1);
+    expect(defined(summary).split("\n").length).toBe(1);
   });
 });

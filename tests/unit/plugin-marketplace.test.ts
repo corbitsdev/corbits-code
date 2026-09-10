@@ -8,6 +8,7 @@ import {
   loadPluginsFromPaths,
   type ExpandPluginPathSkip,
 } from "../../src/plugins/loader.js";
+import { defined } from "../helpers/defined.js";
 
 test("a marketplace path expands to its declared member plugins", async () => {
   const mods = await loadPluginsFromPaths(["tests/fixtures/marketplace"], process.cwd());
@@ -32,7 +33,7 @@ test("a normal plugin directory is not expanded (no marketplace.json, no plugins
     process.cwd(),
   );
   expect(mods.length).toBe(1);
-  expect(mods[0]!.manifest?.id).toBe("example-commands");
+  expect(defined(mods[0], "plugin module").manifest?.id).toBe("example-commands");
 });
 
 test("mixed catalog: relative sibling loads; absolute and escape are skipped", async () => {

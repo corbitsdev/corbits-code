@@ -447,7 +447,7 @@ describe("createTokenSession", () => {
     const empty = createTokenSession<TestTokens, string>({
       skewMs: 100,
       loadProfile: async () => undefined,
-      updateTokens: async () => {},
+      updateTokens: async () => undefined,
       refreshTokens: async () => ({ access: "x", refresh: "x", expiresAt: 0 }),
       toAccess: (tokens) => tokens.access,
       missingError: (name) => new Error(`missing ${name}`),

@@ -865,10 +865,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const removeSessionApproval = (target: Approval): void => {
     for (let i = approvals.length - 1; i >= 0; i--) {
-      if (sameApproval(approvals[i]!, target)) approvals.splice(i, 1);
+      const approval = approvals[i];
+      if (approval !== undefined && sameApproval(approval, target)) approvals.splice(i, 1);
     }
     for (let i = sessionGrants.length - 1; i >= 0; i--) {
-      if (sameApproval(sessionGrants[i]!, target)) sessionGrants.splice(i, 1);
+      const grant = sessionGrants[i];
+      if (grant !== undefined && sameApproval(grant, target)) sessionGrants.splice(i, 1);
     }
   };
 

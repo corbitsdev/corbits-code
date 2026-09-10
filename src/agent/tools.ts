@@ -542,7 +542,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (index < 0 || index >= options.length) {
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
-        return options[index]!;
+        const selected = options[index];
+        if (selected === undefined) {
+          return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
+        }
+        return selected;
       },
     }),
     stringTool({

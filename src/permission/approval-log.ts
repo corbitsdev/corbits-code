@@ -111,8 +111,8 @@ export interface ApprovalLog {
 export const NOOP_APPROVAL_LOG: ApprovalLog = {
   ask: () => ({
     id: "",
-    markDisplayed: () => {},
-    settle: () => {},
+    markDisplayed: () => undefined,
+    settle: () => undefined,
   }),
 };
 

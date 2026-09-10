@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -63,8 +64,8 @@ describe("background shell through the agent toolset", () => {
       expect(result.output).toContain("bg-done");
       await new Promise((r) => setTimeout(r, 50));
       expect(exits).toHaveLength(1);
-      expect(exits[0]!.id).toBe(parsed.shell_id);
-      const message = buildShellBackgroundMessage(exits[0]!);
+      expect(defined(exits[0]).id).toBe(parsed.shell_id);
+      const message = buildShellBackgroundMessage(defined(exits[0]));
       expect(message.headers.messageId).toBe(`bg-shell-${parsed.shell_id}@local`);
       expect(message.ref.mailbox).toBe("system");
       expect(message.flags).not.toContain(OPERATOR_ORIGINATED_FLAG);

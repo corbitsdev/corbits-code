@@ -236,7 +236,8 @@ function segmentHasEnvAssignmentAsk(segment: string): boolean {
   if (envToken === undefined || envToken.replace(/^.*\//, "") !== "env") return false;
   i++;
   while (i < tokens.length) {
-    const t = tokens[i]!;
+    const t = tokens[i];
+    if (t === undefined) break;
     if (t === "--") return false;
     if (t.startsWith("--split-string=")) {
       return payloadStartsWithAssignment(t.slice("--split-string=".length));
@@ -375,7 +376,8 @@ function worktreePathArgs(
   const paths: string[] = [];
   let force = false;
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = args[i];
+    if (arg === undefined) continue;
     if (arg === "--") {
       paths.push(...args.slice(i + 1));
       break;
@@ -425,7 +427,8 @@ export function safeWorktreeCommand(
 
   if (subcommand === "prune") {
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
+      const arg = args[i];
+      if (arg === undefined) continue;
       if (WORKTREE_PRUNE_FLAGS.has(arg)) continue;
       if (arg.startsWith("--expire=")) continue;
       if (arg === "--expire") {
@@ -444,7 +447,9 @@ export function safeWorktreeCommand(
     // add/remove require a path; no path → ask rather than guess.
     if (paths.length === 0) return false;
     // First positional is the worktree path; later tokens on add are commit-ish.
-    return isContainedWorktreePath(paths[0]!, isRestricted, cwd, rootsProvider);
+    const pathArg = paths[0];
+    if (pathArg === undefined) return false;
+    return isContainedWorktreePath(pathArg, isRestricted, cwd, rootsProvider);
   }
 
   // move / lock / unlock / repair / unknown — still ask until proven safe.

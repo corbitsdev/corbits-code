@@ -19,6 +19,7 @@ import { getActiveDisposeHost } from "../../../src/session/active-host.js";
 import { loadState, type RunState } from "../../../src/session/state.js";
 import type { AgentToolset } from "../../../src/agent/tools.js";
 import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
+import { defined } from "../../helpers/defined.js";
 import { withMockedModuleDuring } from "../../helpers/mock-module.js";
 
 function bareConfig(task: string): Config {
@@ -427,7 +428,7 @@ describe("disposeExecRuntime", () => {
 
   test("reaps the toolset before waiting on a hung agent close", async () => {
     const calls: string[] = [];
-    let releaseClose!: () => void;
+    let releaseClose: (() => void) | undefined;
     const closeGate = new Promise<void>((resolve) => {
       releaseClose = resolve;
     });
@@ -447,7 +448,7 @@ describe("disposeExecRuntime", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls).toEqual(["toolset"]);
-    releaseClose();
+    defined<() => void>(releaseClose, "releaseClose")();
     await pending;
     expect(calls).toEqual(["toolset", "agent"]);
   });
@@ -472,7 +473,7 @@ describe("disposeExecRuntime", () => {
       agent: {
         close: () => {
           closeStarted = true;
-          return new Promise<void>(() => {});
+          return new Promise<void>(() => undefined);
         },
       },
       toolset: {

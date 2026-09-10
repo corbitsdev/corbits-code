@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -134,7 +135,7 @@ describe("rollupByPhase", () => {
       span({ id: "a", name: "tool", startNs: 0n, endNs: 100n }),
       span({ id: "b", name: "tool", startNs: 0n }), // open
     ];
-    const tool = rollupByPhase(spans).find((p) => p.name === "tool")!;
+    const tool = defined(rollupByPhase(spans).find((p) => p.name === "tool"));
     expect(tool.count).toBe(2);
     expect(tool.openCount).toBe(1);
     expect(tool.totalNs).toBe(100);
@@ -219,17 +220,17 @@ describe("rollupByTurn", () => {
 
     const turns = rollupByTurn(spans);
     expect(turns).toHaveLength(2);
-    expect(turns[0]!.turnId).toBe("t1");
-    expect(turns[0]!.inferenceNs).toBe(500);
-    expect(turns[0]!.ttftNs).toBe(100);
-    expect(turns[0]!.streamNs).toBe(400);
-    expect(turns[0]!.toolCount).toBe(0);
-    expect(turns[1]!.turnId).toBe("t2");
-    expect(turns[1]!.inferenceNs).toBe(1000);
-    expect(turns[1]!.ttftNs).toBe(200);
-    expect(turns[1]!.streamNs).toBe(800);
-    expect(turns[1]!.toolNs).toBe(300);
-    expect(turns[1]!.toolCount).toBe(1);
+    expect(defined(turns[0]).turnId).toBe("t1");
+    expect(defined(turns[0]).inferenceNs).toBe(500);
+    expect(defined(turns[0]).ttftNs).toBe(100);
+    expect(defined(turns[0]).streamNs).toBe(400);
+    expect(defined(turns[0]).toolCount).toBe(0);
+    expect(defined(turns[1]).turnId).toBe("t2");
+    expect(defined(turns[1]).inferenceNs).toBe(1000);
+    expect(defined(turns[1]).ttftNs).toBe(200);
+    expect(defined(turns[1]).streamNs).toBe(800);
+    expect(defined(turns[1]).toolNs).toBe(300);
+    expect(defined(turns[1]).toolCount).toBe(1);
   });
 
   test("open turn is flagged and turnNs is 0", () => {
@@ -473,7 +474,7 @@ describe("edge: ring eviction and open spans in snapshot", () => {
     expect(spans).toHaveLength(RING_CAPACITY);
 
     const phases = rollupByPhase(spans);
-    const tool = phases.find((p) => p.name === "tool")!;
+    const tool = defined(phases.find((p) => p.name === "tool"));
     expect(tool.count).toBe(RING_CAPACITY);
     // Durations of mark() are zero (startNs === endNs).
     expect(tool.totalNs).toBe(0);

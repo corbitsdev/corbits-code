@@ -222,9 +222,9 @@ export function skillDirsFromEnabledPlugins(
   modules: readonly PluginModule[],
   pluginConfig: Record<string, PluginConfig | undefined>,
 ): string[] {
-  return modules
-    .filter((m) => m.dir !== undefined && isPluginModuleEnabled(m, pluginConfig))
-    .map((m) => m.dir!);
+  return modules.flatMap((m) =>
+    m.dir !== undefined && isPluginModuleEnabled(m, pluginConfig) ? [m.dir] : [],
+  );
 }
 
 // ---------------------------------------------------------------------------

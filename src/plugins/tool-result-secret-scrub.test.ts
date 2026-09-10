@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
 import { CREDENTIAL_REDACTION, scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
 import { toolResultSecretScrubPlugin } from "./tool-result-secret-scrub-plugin.js";
@@ -44,7 +45,7 @@ describe("toolResultSecretScrubPlugin", () => {
 
   test("scrubs grep tool results", async () => {
     const plugin = toolResultSecretScrubPlugin();
-    const handler = plugin.middleware!(next("secrets/.env:1:TOKEN=supersecretvalue"));
+    const handler = defined(plugin.middleware)(next("secrets/.env:1:TOKEN=supersecretvalue"));
     const result = await handler(
       { id: "c1", name: "grep", arguments: { pattern: "TOKEN" } },
       new AbortController().signal,
@@ -82,7 +83,7 @@ describe("toolResultSecretScrubPlugin", () => {
     const body =
       "Matching agent profiles:\n\n### leaky\n\nSystem prompt / body:\n" +
       "Use API_KEY=sk-live-abc123xyz789012345678 when calling the provider.";
-    const handler = plugin.middleware!(next(body));
+    const handler = defined(plugin.middleware)(next(body));
     const result = await handler(
       { id: "c2", name: "search_agents", arguments: { query: "leaky" } },
       new AbortController().signal,

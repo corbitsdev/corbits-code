@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import {
   CodexApplyPatchError,
@@ -49,14 +50,14 @@ describe("parseCodexApplyPatch", () => {
 *** End Patch
 `);
     expect(patch.ops).toHaveLength(1);
-    const op = patch.ops[0]!;
+    const op = defined(patch.ops[0]);
     expect(op.type).toBe("update");
     if (op.type !== "update") throw new Error("unreachable");
     expect(op.path).toBe("src/app.py");
     expect(op.moveTo).toBe("src/main.py");
     expect(op.hunks).toHaveLength(1);
-    expect(op.hunks[0]!.header).toBe("def greet():");
-    expect(op.hunks[0]!.lines).toEqual([
+    expect(defined(op.hunks[0]).header).toBe("def greet():");
+    expect(defined(op.hunks[0]).lines).toEqual([
       { kind: "-", text: 'print("Hi")' },
       { kind: "+", text: 'print("Hello, world!")' },
     ]);
@@ -71,13 +72,13 @@ describe("parseCodexApplyPatch", () => {
 +new_line
 *** End Patch
 `);
-    const op = patch.ops[0]!;
+    const op = defined(patch.ops[0]);
     expect(op.type).toBe("update");
     if (op.type !== "update") throw new Error("unreachable");
     expect(op.hunks).toHaveLength(2);
     expect(op.hunks[0]).toEqual({ header: "class BaseClass", lines: [] });
-    expect(op.hunks[1]!.header).toBe("    def method():");
-    expect(op.hunks[1]!.lines).toEqual([
+    expect(defined(op.hunks[1]).header).toBe("    def method():");
+    expect(defined(op.hunks[1]).lines).toEqual([
       { kind: "-", text: "old_line" },
       { kind: "+", text: "new_line" },
     ]);
@@ -186,7 +187,7 @@ print("bye")
 +print("Hello, world!")
 *** End Patch
 `);
-    const op = patch.ops[0]!;
+    const op = defined(patch.ops[0]);
     expect(op.type).toBe("update");
     if (op.type !== "update") throw new Error("unreachable");
     const updated = applyUpdateHunks(original, op.hunks);
@@ -210,7 +211,7 @@ print("bye")
 +        new_line
 *** End Patch
 `);
-    const op = patch.ops[0]!;
+    const op = defined(patch.ops[0]);
     expect(op.type).toBe("update");
     if (op.type !== "update") throw new Error("unreachable");
     expect(applyUpdateHunks(original, op.hunks)).toBe(`class BaseClass

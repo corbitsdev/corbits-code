@@ -58,4 +58,4 @@ const poll = setInterval(() => {
 if (typeof poll.unref === "function") poll.unref();
 
 // Keep the event loop alive until the test sends a signal.
-setInterval(() => {}, 60_000);
+setInterval(() => undefined, 60_000);

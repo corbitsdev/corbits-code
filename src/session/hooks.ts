@@ -320,8 +320,8 @@ export function createLifecycleHookManager(args: {
   // enabled, matching discovery's default before any state was ever saved.
   initialEnabled?: Record<string, boolean> | undefined;
 }): LifecycleHookManager {
-  const onEvent = args.onEvent ?? (() => {});
-  const logError = args.logError ?? (() => {});
+  const onEvent = args.onEvent ?? (() => undefined);
+  const logError = args.logError ?? (() => undefined);
   const initialEnabled = args.initialEnabled ?? {};
   const statuses = new Map<string, LifecycleHookStatus>();
   for (const hook of args.hooks) {
@@ -364,7 +364,7 @@ export function createLifecycleHookManager(args: {
       if (!status.enabled) continue;
       pending.push(runHook(status, kind, payload));
     }
-    return Promise.all(pending).then(() => {});
+    return Promise.all(pending).then(() => undefined);
   }
 
   onEvent({ type: "hooks.loaded", hooks: snapshot() });

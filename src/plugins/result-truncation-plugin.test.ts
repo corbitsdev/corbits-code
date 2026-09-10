@@ -1,3 +1,4 @@
+import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { createSizeCapTransform } from "@intx/inference";
 import { createBlobReader, type StrategyContext, type ToolResult } from "@intx/types/runtime";
@@ -110,7 +111,7 @@ describe("truncateToolResultContent", () => {
       const entry = store.blobs.get(key);
       expect(entry).toBeDefined();
       expect(entry?.contentType).toBe("application/json");
-      expect(new TextDecoder().decode(entry!.bytes)).toBe(pretty);
+      expect(new TextDecoder().decode(defined(entry).bytes)).toBe(pretty);
 
       const uri = `tool-output:///${key}`;
       const abs = toolOutputAbsolutePath("/tmp/session/context", key, "application/json");
@@ -132,7 +133,7 @@ describe("truncateToolResultContent", () => {
       });
 
       const spilled = new TextDecoder().decode(
-        store.blobs.get(spillBlobKey("call-json-secret"))!.bytes,
+        defined(store.blobs.get(spillBlobKey("call-json-secret"))).bytes,
       );
       expect(truncated).toContain(CREDENTIAL_REDACTION);
       expect(truncated).not.toContain("sk-live-");
@@ -157,7 +158,7 @@ describe("truncateToolResultContent", () => {
       const key = spillBlobKey("call-ndjson");
       const entry = store.blobs.get(key);
       expect(entry?.contentType).toBe("application/x-ndjson");
-      expect(new TextDecoder().decode(entry!.bytes)).toBe(ndjson);
+      expect(new TextDecoder().decode(defined(entry).bytes)).toBe(ndjson);
       expect(truncated).toContain("application/x-ndjson");
     });
 
@@ -232,7 +233,7 @@ describe("truncateToolResultContent", () => {
         await blobReader.read(`tool-output:///${spillBlobKey("call-1")}`),
       );
       expect(recovered).toBe(original);
-      expect(new TextDecoder().decode(store.blobs.get("call-1")!.bytes)).toBe("LOSSY");
+      expect(new TextDecoder().decode(defined(store.blobs.get("call-1")).bytes)).toBe("LOSSY");
     });
   });
 });
@@ -303,7 +304,7 @@ describe("resultTruncationPlugin", () => {
     const key = spillBlobKey("call-rec");
     const entry = store.blobs.get(key);
     expect(entry?.contentType).toBe("application/json");
-    expect(new TextDecoder().decode(entry!.bytes)).toBe(JSON.stringify(record, null, 2));
+    expect(new TextDecoder().decode(defined(entry).bytes)).toBe(JSON.stringify(record, null, 2));
   });
 
   test("under-gate Record content is left unchanged", async () => {
@@ -352,7 +353,7 @@ describe("scrub-before-spill", () => {
     expect(String(result.content)).toContain(CREDENTIAL_REDACTION);
     expect(String(result.content)).not.toContain("sk-live-");
 
-    const spilled = new TextDecoder().decode(store.blobs.get(spillBlobKey("call-scrub"))!.bytes);
+    const spilled = new TextDecoder().decode(defined(store.blobs.get(spillBlobKey("call-scrub"))).bytes);
     expect(spilled).toContain(CREDENTIAL_REDACTION);
     expect(spilled).not.toContain("sk-live-");
   });

@@ -7,7 +7,7 @@ import type { PermissionGate } from "../../../src/permission/gate.js";
 import { mcpServerFingerprint } from "../../../src/trust/project-trust.js";
 import { withMockedModule } from "../../helpers/mock-module.js";
 
-const mockDispose = mock(async () => {});
+const mockDispose = mock(async () => undefined);
 
 const mockPosixTools = {
   definitions: [
@@ -149,17 +149,17 @@ const fakePermissionGate: PermissionGate = {
   resolveSuspended: mock(async () => undefined),
   isReactorGated: () => false,
   getApprovals: () => [],
-  reset: () => {},
+  reset: () => undefined,
   getSessionApprovals: () => [],
-  removeSessionApproval: () => {},
-  setSeededApprovals: () => {},
+  removeSessionApproval: () => undefined,
+  setSeededApprovals: () => undefined,
   getAuto: () => false,
-  setAuto: () => {},
+  setAuto: () => undefined,
   getSkipPermissions: () => false,
-  setSkipPermissions: () => {},
-  setProviderIdentity: () => {},
-  registerMcpClient: mock(() => {}),
-  unregisterMcpServer: mock(() => {}),
+  setSkipPermissions: () => undefined,
+  setProviderIdentity: () => undefined,
+  registerMcpClient: mock(() => undefined),
+  unregisterMcpServer: mock(() => undefined),
 };
 
 const callOperator = async (
@@ -428,8 +428,8 @@ test("headless MCP connection does not wait for interactive OAuth", async () => 
 
   await toolset.connectMCP({
     interactiveAuth: false,
-    onStatus: () => {},
-    onToolsChanged: () => {},
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
   });
 
   expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
@@ -458,7 +458,7 @@ test("late connect of an untrusted local-source server does not spawn", async ()
   await toolset.connectMCPServer(localStdioServer, {
     interactiveAuth: false,
     onStatus: (status) => statuses.push(status),
-    onToolsChanged: () => {},
+    onToolsChanged: () => undefined,
   });
 
   expect(mockConnectMCPServer).not.toHaveBeenCalled();
@@ -487,8 +487,8 @@ test("late connect of an untrusted local-source server fail-closes when requestM
 
   await toolset.connectMCPServer(localStdioServer, {
     interactiveAuth: false,
-    onStatus: () => {},
-    onToolsChanged: () => {},
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
   });
 
   expect(trustAsks).toBe(1);
@@ -512,8 +512,8 @@ test("late connect of a trusted local-source server still connects", async () =>
 
   await toolset.connectMCPServer(localStdioServer, {
     interactiveAuth: false,
-    onStatus: () => {},
-    onToolsChanged: () => {},
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
   });
 
   expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
@@ -534,8 +534,8 @@ test("late connect of a global-source HTTP server does not require trust", async
 
   await toolset.connectMCPServer(globalHttpServer, {
     interactiveAuth: false,
-    onStatus: () => {},
-    onToolsChanged: () => {},
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
   });
 
   expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
@@ -558,7 +558,7 @@ test("startup connectMCP still fail-closes untrusted local servers", async () =>
   await toolset.connectMCP({
     interactiveAuth: false,
     onStatus: (status) => statuses.push(status),
-    onToolsChanged: () => {},
+    onToolsChanged: () => undefined,
   });
 
   expect(mockConnectMCPServer).not.toHaveBeenCalled();

@@ -6,6 +6,7 @@ import {
 import { createTelemetry, getSessionId } from "../../src/telemetry/index.js";
 import type { Settings } from "../../src/config/settings.js";
 import type { Telemetry } from "../../src/telemetry/index.js";
+import { defined } from "../helpers/defined.js";
 
 function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
   deps: TelemetryToggleDeps;
@@ -37,7 +38,7 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
       providers: {},
       telemetry: { enabled: true, installationId: "id" },
     }),
-    saveGlobalSettings: async () => {},
+    saveGlobalSettings: async () => undefined,
     // env is pinned to {} (matching telemetry.test.ts) so a developer's real
     // DO_NOT_TRACK / CORBITS_TELEMETRY never bleeds into these tests.
     createTelemetry: (opts) =>
@@ -199,10 +200,10 @@ test("toggle on while env-killed writes nothing and swaps no instance", async ()
   const initial: Telemetry = {
     enabled: false,
     installationId: "",
-    capture: () => {},
+    capture: () => undefined,
     captureIntentional: () => false,
-    flush: async () => {},
-    discard: () => {},
+    flush: async () => undefined,
+    discard: () => undefined,
   };
   let setInstance: Telemetry | undefined;
   const { deps } = fakeDeps({
@@ -324,9 +325,15 @@ test("session_id on captured payloads stays constant across an enable/disable/en
   await getInstance().flush();
 
   expect(capturedBodies.length).toBe(2);
-  const sessionId = capturedBodies[0]!.batch[0]!.properties.session_id;
+  const sessionId = defined(
+    defined(capturedBodies[0], "first body").batch[0],
+    "first event",
+  ).properties.session_id;
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
-  expect(capturedBodies[1]!.batch[0]!.properties.session_id).toBe(sessionId);
+  expect(
+    defined(defined(capturedBodies[1], "second body").batch[0], "second event").properties
+      .session_id,
+  ).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });

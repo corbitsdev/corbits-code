@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
@@ -59,10 +60,10 @@ describe("createPerfReactorObserver", () => {
     expect(ttfts).toHaveLength(1);
     expect(streams).toHaveLength(1);
 
-    const turn = turns[0]!;
-    const inference = inferences[0]!;
-    const ttft = ttfts[0]!;
-    const stream = streams[0]!;
+    const turn = defined(turns[0]);
+    const inference = defined(inferences[0]);
+    const ttft = defined(ttfts[0]);
+    const stream = defined(streams[0]);
 
     expect(turn.parentId).toBeUndefined();
     expect(inference.parentId).toBe(turn.id);
@@ -70,9 +71,9 @@ describe("createPerfReactorObserver", () => {
     expect(stream.parentId).toBe(inference.id);
 
     // Ordering: ttft ends at/before stream starts; stream ends at/before inference ends.
-    expect(ttft.endNs! <= stream.startNs).toBe(true);
-    expect(stream.endNs! <= inference.endNs!).toBe(true);
-    expect(inference.endNs! <= turn.endNs!).toBe(true);
+    expect(defined(ttft.endNs) <= stream.startNs).toBe(true);
+    expect(defined(stream.endNs) <= defined(inference.endNs)).toBe(true);
+    expect(defined(inference.endNs) <= defined(turn.endNs)).toBe(true);
   });
 
   test("tool spans nest under turn after inference.done with tool_calls", () => {
@@ -87,13 +88,13 @@ describe("createPerfReactorObserver", () => {
     obs.observe(event("tool.done", { result: { callId: "call-1", content: "ok" } }));
 
     const spans = completed(snapshot());
-    const turn = byName(spans, "turn")[0]!;
-    const inference = byName(spans, "inference")[0]!;
+    const turn = defined(byName(spans, "turn")[0]);
+    const inference = defined(byName(spans, "inference")[0]);
     const tools = byName(spans, "tool");
 
     expect(tools).toHaveLength(1);
-    expect(tools[0]!.parentId).toBe(turn.id);
-    expect(tools[0]!.tags?.tool_id).toBe("call-1");
+    expect(defined(tools[0]).parentId).toBe(turn.id);
+    expect(defined(tools[0]).tags?.tool_id).toBe("call-1");
     expect(inference.parentId).toBe(turn.id);
     expect(turn.endNs).toBeDefined();
   });
@@ -114,8 +115,8 @@ describe("createPerfReactorObserver", () => {
     expect(turns).toHaveLength(2);
     expect(inferences).toHaveLength(2);
     expect(turns.every((t) => t.parentId === undefined)).toBe(true);
-    expect(inferences[0]!.parentId).toBe(turns[0]!.id);
-    expect(inferences[1]!.parentId).toBe(turns[1]!.id);
+    expect(defined(inferences[0]).parentId).toBe(defined(turns[0]).id);
+    expect(defined(inferences[1]).parentId).toBe(defined(turns[1]).id);
   });
 
   test("inference without stream deltas has turn + inference only (no stream)", () => {
@@ -159,8 +160,8 @@ describe("createPerfReactorObserver", () => {
 
     const tools = byName(completed(snapshot()), "tool");
     expect(tools).toHaveLength(1);
-    expect(tools[0]!.tags?.tool_id).toBe("blocked-1");
-    expect(byName(completed(snapshot()), "turn")[0]!.endNs).toBeDefined();
+    expect(defined(tools[0]).tags?.tool_id).toBe("blocked-1");
+    expect(defined(byName(completed(snapshot()), "turn")[0]).endNs).toBeDefined();
   });
 
   test("reset closes open spans and clears state", () => {
@@ -196,10 +197,10 @@ describe("createPerfReactorObserver", () => {
     const inferences = byName(completed(spans), "inference");
     expect(turns).toHaveLength(2);
     expect(inferences).toHaveLength(2);
-    expect(inferences[0]!.parentId).toBe(turns[0]!.id);
-    expect(inferences[1]!.parentId).toBe(turns[1]!.id);
+    expect(defined(inferences[0]).parentId).toBe(defined(turns[0]).id);
+    expect(defined(inferences[1]).parentId).toBe(defined(turns[1]).id);
     // First turn abandoned before second opened — not nested.
-    expect(turns[0]!.endNs! <= turns[1]!.startNs).toBe(true);
+    expect(defined(defined(turns[0]).endNs) <= defined(turns[1]).startNs).toBe(true);
   });
 
   test("abandon mid-tool then new start closes open tools and prior turn", () => {
@@ -223,13 +224,13 @@ describe("createPerfReactorObserver", () => {
 
     expect(turns).toHaveLength(2);
     expect(tools).toHaveLength(1);
-    expect(tools[0]!.parentId).toBe(turns[0]!.id);
+    expect(defined(tools[0]).parentId).toBe(defined(turns[0]).id);
     expect(inferences).toHaveLength(2);
-    expect(inferences[0]!.parentId).toBe(turns[0]!.id);
-    expect(inferences[1]!.parentId).toBe(turns[1]!.id);
+    expect(defined(inferences[0]).parentId).toBe(defined(turns[0]).id);
+    expect(defined(inferences[1]).parentId).toBe(defined(turns[1]).id);
     // Second inference must not nest under the abandoned turn.
-    expect(inferences[1]!.parentId).not.toBe(turns[0]!.id);
-    expect(turns[0]!.endNs! <= turns[1]!.startNs).toBe(true);
+    expect(defined(inferences[1]).parentId).not.toBe(defined(turns[0]).id);
+    expect(defined(defined(turns[0]).endNs) <= defined(turns[1]).startNs).toBe(true);
   });
 
   test("inference.error mid-turn then new start leaves no open spans", () => {
@@ -249,7 +250,7 @@ describe("createPerfReactorObserver", () => {
     expect(spans.every((s) => s.endNs !== undefined)).toBe(true);
     const turns = byName(completed(spans), "turn");
     expect(turns).toHaveLength(2);
-    expect(byName(completed(spans), "inference")[1]!.parentId).toBe(turns[1]!.id);
+    expect(defined(byName(completed(spans), "inference")[1]).parentId).toBe(defined(turns[1]).id);
   });
 });
 
@@ -259,7 +260,7 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     // inference.start re-stamps it, then completePending reads finish.
     const times = [1_000, 1_000, 1_250];
     let i = 0;
-    const now = (): number => times[Math.min(i++, times.length - 1)]!;
+    const now = (): number => defined(times[Math.min(i++, times.length - 1)]);
 
     const completedTurns: { durationMs: number }[] = [];
     const collector = createTurnContextCollector((ctx) => {
@@ -278,7 +279,7 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     feed(inferenceDone());
 
     expect(completedTurns).toHaveLength(1);
-    expect(completedTurns[0]!.durationMs).toBe(250);
+    expect(defined(completedTurns[0]).durationMs).toBe(250);
     expect(collector.getTurnCount()).toBe(1);
 
     // Perf spans still present and nested.
@@ -292,7 +293,7 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     // completePending reads finish.
     const times = [5_000, 5_000, 5_400];
     let i = 0;
-    const now = (): number => times[Math.min(i++, times.length - 1)]!;
+    const now = (): number => defined(times[Math.min(i++, times.length - 1)]);
 
     const completedTurns: { durationMs: number }[] = [];
     const collector = createTurnContextCollector((ctx) => {
@@ -313,10 +314,10 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     feed(event("tool.done", { result: { callId: "c1", content: "ok" } }));
 
     expect(completedTurns).toHaveLength(1);
-    expect(completedTurns[0]!.durationMs).toBe(400);
+    expect(defined(completedTurns[0]).durationMs).toBe(400);
 
     const spans = completed(snapshot());
     expect(byName(spans, "tool")).toHaveLength(1);
-    expect(byName(spans, "tool")[0]!.parentId).toBe(byName(spans, "turn")[0]!.id);
+    expect(defined(byName(spans, "tool")[0]).parentId).toBe(defined(byName(spans, "turn")[0]).id);
   });
 });
