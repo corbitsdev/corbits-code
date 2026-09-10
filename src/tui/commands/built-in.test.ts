@@ -79,6 +79,16 @@ describe("/status command", () => {
     });
   });
 
+  it("noops when the live fleet digest is empty so idle /status paints no blank row", () => {
+    const ctx: CommandContext = {
+      signalClear: () => undefined,
+      getFleetStatus: () => "",
+    };
+    expect(defined(getCommand("status"), "status").handler("", ctx)).toEqual({
+      type: "noop",
+    });
+  });
+
   it("says so rather than throwing when no fleet source is wired", () => {
     expect(
       defined(getCommand("status"), "status").handler("", makeCtx()),
