@@ -5,6 +5,7 @@ import {
   agentRebuildFailure,
   closeAgentForRebuild,
   resumeTranscriptLoadErrorBlock,
+  startInterruptRebuild,
 } from "../../../src/tui/runner/exit.js";
 import { createTUIEventEmitter, getTUIRunSummaryStatus } from "../../../src/tui/runner/index.js";
 import { loadLocalSettingsWriteBase } from "../../../src/tui/runner/settings.js";
@@ -287,3 +288,28 @@ test("a rejecting reload op through the real session-operation-queue never trigg
 // failing a single assertion. The test above is the harness-compatible half
 // of that pair: same real queue, same real helpers, proving the fixed shape
 // produces no such failure.
+
+// Overlay accept/decline tests stub bump() inside resolveSuspended, so deleting
+// the interrupt-site bump would not fail them. Drive the interrupt helper itself.
+test("interrupt bumps delivery generation before enqueueing rebuild", () => {
+  const order: string[] = [];
+  startInterruptRebuild({
+    deliveryGeneration: {
+      bump: () => {
+        order.push("bump");
+      },
+    },
+    markSendAborted: () => {
+      order.push("abort");
+    },
+    enqueue: (op) => {
+      order.push("enqueue");
+      return op();
+    },
+    rebuild: async () => {
+      order.push("rebuild");
+    },
+  });
+  expect(order[0]).toBe("bump");
+  expect(order.indexOf("enqueue")).toBeGreaterThan(0);
+});

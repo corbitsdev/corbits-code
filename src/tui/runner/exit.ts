@@ -30,6 +30,7 @@ import {
   hostOf,
   liveAgent,
   recordRunError,
+  runWhileAgentBusy,
   type RunnerServices,
   type RunnerState,
   type SnapshotExtra,
@@ -119,6 +120,22 @@ export function agentRebuildFailure(err: unknown): Error {
       : new Error(String(err));
 }
 
+/**
+ * Hard-stop interrupt: bump delivery generation, then enqueue the agent rebuild.
+ * The bump aborts the outstanding permission gate (overlay dismissed, no grant)
+ * before enqueue so a later accept cannot mint into the rebuilt identity.
+ */
+export function startInterruptRebuild(args: {
+  deliveryGeneration: { bump: () => void };
+  markSendAborted: () => void;
+  enqueue: (op: () => Promise<void>) => unknown;
+  rebuild: () => Promise<void>;
+}): void {
+  args.deliveryGeneration.bump();
+  args.markSendAborted();
+  void args.enqueue(args.rebuild);
+}
+
 export function clearsActiveRun(kind: SnapshotKind): boolean {
   return kind === "run-end";
 }
@@ -202,7 +219,9 @@ export async function createRunLifecycle(
     let eventForSink = event;
     if (event.type === "message.received") {
       providerFailureAttempts.advanceToNextMessage();
-    } else if (event.type === "inference.start" || event.type === "inference.done") {
+    }
+    services.correlationAcceptance.observe(event);
+    if (event.type === "inference.start" || event.type === "inference.done") {
       providerFailureAttempts.reset();
     } else if (event.type === "inference.error") {
       const error = event.data.error;
@@ -339,15 +358,11 @@ export async function createRunLifecycle(
         services.emitter.emit("session.title", truncateSessionLabel(state.runTaskTitle));
         void persistRunSnapshot("running");
       }
-      state.inFlight++;
-      try {
+      return await runWhileAgentBusy(state, async () => {
         await refreshCodexBeforeSend();
         await refreshXaiBeforeSend();
         return await liveAgent(state).send(content, opts);
-      } finally {
-        state.inFlight--;
-        reloadIfIdle();
-      }
+      });
     },
     stream: () => liveAgent(state).stream(),
     deliver: (message) => {
@@ -404,33 +419,39 @@ export async function createRunLifecycle(
   // Close it, drain the old stream, and rebuild a fresh agent so the next send
   // works.
   const interrupt = (): void => {
-    state.sendAborted = true;
-    void enqueueOp(async () => {
-      try {
-        // close() tears down stream consumers before the aborted cycle's
-        // inference.error is delivered, so the recorder never sees a terminal
-        // event for the dead cycle — dispose closes it against stray deltas
-        // and salvages the buffer before that teardown, so it is never lost
-        // or misattributed to the rebuilt agent's next cycle.
-        await services.cycleRecorder.dispose("interrupted");
-        const closedCleanly = await closeAgentForRebuild(liveAgent(state), "interrupt");
-        await state.streamPromise?.catch((err: unknown) => {
-          tuiLogger.debug("stream drain during interrupt teardown failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
+    startInterruptRebuild({
+      deliveryGeneration: services.deliveryGeneration,
+      markSendAborted: () => {
+        state.sendAborted = true;
+      },
+      enqueue: enqueueOp,
+      rebuild: async () => {
+        try {
+          // close() tears down stream consumers before the aborted cycle's
+          // inference.error is delivered, so the recorder never sees a terminal
+          // event for the dead cycle — dispose closes it against stray deltas
+          // and salvages the buffer before that teardown, so it is never lost
+          // or misattributed to the rebuilt agent's next cycle.
+          await services.cycleRecorder.dispose("interrupted");
+          const closedCleanly = await closeAgentForRebuild(liveAgent(state), "interrupt");
+          await state.streamPromise?.catch((err: unknown) => {
+            tuiLogger.debug("stream drain during interrupt teardown failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
-        if (!closedCleanly) {
-          throw new AgentContextLockError(state.workdir);
+          if (!closedCleanly) {
+            throw new AgentContextLockError(state.workdir);
+          }
+          state.currentAgent = await services.buildAgent();
+          services.cycleRecorder.reset();
+          state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
+          services.workflowController.reattach();
+          state.fatalBuildError = null;
+        } catch (err) {
+          recordRunError(state, err);
+          state.fatalBuildError = agentRebuildFailure(err);
         }
-        state.currentAgent = await services.buildAgent();
-        services.cycleRecorder.reset();
-        state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
-        services.workflowController.reattach();
-        state.fatalBuildError = null;
-      } catch (err) {
-        recordRunError(state, err);
-        state.fatalBuildError = agentRebuildFailure(err);
-      }
+      },
     });
   };
   state.interrupt = interrupt;

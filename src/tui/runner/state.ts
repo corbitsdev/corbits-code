@@ -123,6 +123,9 @@ export interface RunnerServices {
     typeof import("../session-operation-queue.js").createSessionOperationQueue
   >;
   deliveryGeneration: ReturnType<typeof import("../queued-delivery.js").createDeliveryGeneration>;
+  correlationAcceptance: ReturnType<
+    typeof import("../correlation-acceptance.js").createCorrelationAcceptance
+  >;
   buildSessionSources: () => import("../../session/assemble-runtime.js").LiveSessionSources;
   providerFailureAttempts: ReturnType<
     typeof import("../provider/failure-attempt.js").createProviderFailureAttemptTracker
@@ -252,6 +255,19 @@ export function liveAgent(state: RunnerState): Agent {
     throw new Error("runner: agent accessed before the initial build");
   }
   return agent;
+}
+
+export async function runWhileAgentBusy<T>(
+  state: Pick<RunnerState, "inFlight" | "reloadIfIdle">,
+  op: () => Promise<T>,
+): Promise<T> {
+  state.inFlight++;
+  try {
+    return await op();
+  } finally {
+    state.inFlight--;
+    state.reloadIfIdle?.();
+  }
 }
 
 export function hostOf(state: RunnerState): RunnerHost {

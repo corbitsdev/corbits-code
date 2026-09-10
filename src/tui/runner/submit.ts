@@ -38,7 +38,7 @@ import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { Agent } from "@intx/agent";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
-import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
+import { hostOf, runWhileAgentBusy, type RunnerServices, type RunnerState } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
@@ -259,12 +259,14 @@ export function createSubmitPath(
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
     try {
-      const result = await live.agentProxy.send(message);
-      // An ask-tier call parked on the reactor's approval gate settles the
-      // send early; resolve the operator surface here and deliver the
-      // decision on the correlationId signal channel so the parked run
-      // resumes.
-      await services.approvalResume.handle(result);
+      await runWhileAgentBusy(state, async () => {
+        const result = await live.agentProxy.send(message);
+        // An ask-tier call parked on the reactor's approval gate settles the
+        // send early; resolve the operator surface here and deliver the
+        // decision on the correlationId signal channel so the parked run
+        // resumes.
+        await services.approvalResume.handle(result);
+      });
       return true;
     } catch (error) {
       handleSendFailure(error, attempt, providerFailure);
