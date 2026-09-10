@@ -49,7 +49,10 @@ import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool } from "../tools/web-search.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
-import { wrapAgentToolsWithResultTruncation } from "../plugins/result-truncation-plugin.js";
+import {
+  wrapAgentToolsWithResultTruncation,
+  type SpillBlobWriter,
+} from "../plugins/result-truncation-plugin.js";
 import {
   allowDeleteFromCapabilities,
   allowShellFromCapabilities,
@@ -518,7 +521,11 @@ async function runSubAgentInner(
   // Child tools resolve spills against the child's own store first, then
   // the parent's: parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
+  // Writer/context dir bind after createSessionStores — tools wrap first,
+  // same late-bind as primary getBlobWriter.
   let childBlobReader: BlobReader | undefined;
+  let childBlobWriter: SpillBlobWriter | undefined;
+  let childContextDir: string | undefined;
   const sessionBlobReader = createCompositeBlobReader(
     () => childBlobReader,
     params.getBlobReader,
@@ -535,6 +542,8 @@ async function runSubAgentInner(
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
       getBackgroundShellRegistry: () => backgroundShells,
+      getBlobWriter: () => childBlobWriter,
+      getContextDir: () => childContextDir,
       extraToolPlugins: [
         ...(params.extraToolPlugins ?? []),
         spawnRegistry.plugin,
@@ -843,7 +852,10 @@ async function runSubAgentInner(
       ];
     }
 
-    tools = wrapAgentToolsWithResultTruncation(tools);
+    tools = wrapAgentToolsWithResultTruncation(tools, {
+      getBlobWriter: () => childBlobWriter,
+      getContextDir: () => childContextDir,
+    });
 
     const environment = await gatherEnvironment(params.cwd);
     const extensions =
@@ -973,6 +985,7 @@ async function runSubAgentInner(
     const sessionId = safeRequestedId ?? generateSessionId();
     const workdir = join(params.workdirBase, "subagents", sessionId);
     await mkdir(workdir, { recursive: true });
+    childContextDir = workdir;
     // One record per stop/nudge, with its measured value beside its
     // threshold, written into this leaf's own trace dir.
     interventions = createInterventionLog(workdir, {
@@ -1000,6 +1013,8 @@ async function runSubAgentInner(
     });
 
     const { storage, audit } = await createSessionStores(workdir);
+    childBlobWriter = (key, bytes, contentType) =>
+      storage.writeBlob(key, bytes, contentType);
     const authorize = createWorkerAuthorize(params.permissionGate);
 
     const head = {
